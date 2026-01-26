@@ -3,7 +3,7 @@ import helmet from 'helmet';
 
 // Default allowed origins for development
 const defaultDevOrigins = [
-  'http://localhost:5175'
+  '*'
 ];
 
 // Get allowed origins from environment or use defaults
