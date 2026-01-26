@@ -1,0 +1,1445 @@
+{
+	"info": {
+		"_postman_id": "medflow-api-sprint3-collection",
+		"name": "MedFlow API - Sprint 3 (Appointment Scheduling Core)",
+		"description": "Complete API collection for MedFlow Appointment Scheduling Core (Sprint 3) - Providers, Appointment Types, Appointments, Recurring Appointments, and Waitlist Management",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Providers",
+			"item": [
+				{
+					"name": "Get All Providers",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/providers?page=1&limit=10&search=&isActive=true",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"providers"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "search",
+									"value": ""
+								},
+								{
+									"key": "isActive",
+									"value": "true"
+								}
+							]
+						},
+						"description": "Get all providers with pagination and search. All authenticated users can view providers."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Provider by ID",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.provider) {",
+									"        pm.environment.set(\"providerId\", response.data.provider._id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/providers/{{providerId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"providers",
+								"{{providerId}}"
+							]
+						},
+						"description": "Get provider by ID. All authenticated users can view provider details."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Provider",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"userId\": \"{{userId}}\",\n    \"npiNumber\": \"1234567890\",\n    \"licenseNumber\": \"LIC123456\",\n    \"specialty\": \"Cardiology\",\n    \"title\": \"MD\",\n    \"appointmentBufferMinutes\": 15,\n    \"maxDailyAppointments\": 20,\n    \"consultationFee\": 150.00,\n    \"isAcceptingNewPatients\": true,\n    \"workingHours\": [\n        {\n            \"dayOfWeek\": 1,\n            \"startTime\": \"09:00\",\n            \"endTime\": \"17:00\",\n            \"isAvailable\": true\n        },\n        {\n            \"dayOfWeek\": 2,\n            \"startTime\": \"09:00\",\n            \"endTime\": \"17:00\",\n            \"isAvailable\": true\n        },\n        {\n            \"dayOfWeek\": 3,\n            \"startTime\": \"09:00\",\n            \"endTime\": \"17:00\",\n            \"isAvailable\": true\n        },\n        {\n            \"dayOfWeek\": 4,\n            \"startTime\": \"09:00\",\n            \"endTime\": \"17:00\",\n            \"isAvailable\": true\n        },\n        {\n            \"dayOfWeek\": 5,\n            \"startTime\": \"09:00\",\n            \"endTime\": \"17:00\",\n            \"isAvailable\": true\n        }\n    ],\n    \"telehealthEnabled\": false\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/providers",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"providers"
+							]
+						},
+						"description": "Create new provider profile. Admin only. Requires: userId, npiNumber (10 digits). Optional: licenseNumber, specialty, title (MD/DO/NP/PA/RN/LPN/Other), workingHours array."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Provider",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"specialty\": \"Internal Medicine\",\n    \"appointmentBufferMinutes\": 20,\n    \"isAcceptingNewPatients\": false\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/providers/{{providerId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"providers",
+								"{{providerId}}"
+							]
+						},
+						"description": "Update provider. Admin only. All fields optional."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Provider",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/providers/{{providerId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"providers",
+								"{{providerId}}"
+							]
+						},
+						"description": "Delete provider (soft delete - sets isActive to false). Admin only."
+					},
+					"response": []
+				}
+			],
+			"description": "Provider management endpoints. Create, view, update, and delete provider profiles. Admin role required for create/update/delete."
+		},
+		{
+			"name": "Appointment Types",
+			"item": [
+				{
+					"name": "Get All Appointment Types",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/appointment-types?page=1&limit=10&isActive=true",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"appointment-types"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "isActive",
+									"value": "true"
+								}
+							]
+						},
+						"description": "Get all appointment types with pagination. All authenticated users can view appointment types."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Appointment Type by ID",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.appointmentType) {",
+									"        pm.environment.set(\"appointmentTypeId\", response.data.appointmentType._id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/appointment-types/{{appointmentTypeId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"appointment-types",
+								"{{appointmentTypeId}}"
+							]
+						},
+						"description": "Get appointment type by ID. All authenticated users can view appointment type details."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Appointment Type",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"General Consultation\",\n    \"description\": \"Standard consultation appointment\",\n    \"defaultDuration\": 30,\n    \"defaultPrice\": 150.00,\n    \"colorCode\": \"#4CAF50\",\n    \"requiresAuthorization\": false,\n    \"bufferBefore\": 5,\n    \"bufferAfter\": 5\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/appointment-types",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"appointment-types"
+							]
+						},
+						"description": "Create new appointment type. Admin only. Required: name, defaultDuration (min 5 minutes). Optional: description, defaultPrice, colorCode (hex), requiresAuthorization, bufferBefore, bufferAfter."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Appointment Type",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"defaultDuration\": 45,\n    \"defaultPrice\": 200.00\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/appointment-types/{{appointmentTypeId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"appointment-types",
+								"{{appointmentTypeId}}"
+							]
+						},
+						"description": "Update appointment type. Admin only. All fields optional."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Appointment Type",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/appointment-types/{{appointmentTypeId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"appointment-types",
+								"{{appointmentTypeId}}"
+							]
+						},
+						"description": "Delete appointment type (soft delete - sets isActive to false). Admin only."
+					},
+					"response": []
+				}
+			],
+			"description": "Appointment type management endpoints. Create, view, update, and delete appointment types. Admin role required for create/update/delete."
+		},
+		{
+			"name": "Appointments",
+			"item": [
+				{
+					"name": "Get All Appointments",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/appointments?page=1&limit=10&providerId=&patientId=&status=&startDate=&endDate=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"appointments"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "providerId",
+									"value": ""
+								},
+								{
+									"key": "patientId",
+									"value": ""
+								},
+								{
+									"key": "status",
+									"value": ""
+								},
+								{
+									"key": "startDate",
+									"value": ""
+								},
+								{
+									"key": "endDate",
+									"value": ""
+								}
+							]
+						},
+						"description": "Get all appointments with filters. All authenticated users can view appointments."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Appointment by ID",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.appointment) {",
+									"        pm.environment.set(\"appointmentId\", response.data.appointment._id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/appointments/{{appointmentId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"appointments",
+								"{{appointmentId}}"
+							]
+						},
+						"description": "Get appointment by ID. All authenticated users can view appointment details."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Provider Schedule",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/appointments/providers/{{providerId}}/schedule?startDate=2024-01-01&endDate=2024-01-31&view=week",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"appointments",
+								"providers",
+								"{{providerId}}",
+								"schedule"
+							],
+							"query": [
+								{
+									"key": "startDate",
+									"value": "2024-01-01"
+								},
+								{
+									"key": "endDate",
+									"value": "2024-01-31"
+								},
+								{
+									"key": "view",
+									"value": "week",
+									"description": "day, week, or month"
+								}
+							]
+						},
+						"description": "Get provider schedule for a date range. Front Desk, Admin, Doctor can view schedules. Required: startDate, endDate. Optional: view (day/week/month)."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Available Slots",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/appointments/providers/{{providerId}}/available-slots?date=2024-01-15&durationMinutes=30",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"appointments",
+								"providers",
+								"{{providerId}}",
+								"available-slots"
+							],
+							"query": [
+								{
+									"key": "date",
+									"value": "2024-01-15"
+								},
+								{
+									"key": "durationMinutes",
+									"value": "30"
+								}
+							]
+						},
+						"description": "Get available time slots for a provider on a specific date. Front Desk, Admin can view available slots. Required: date. Optional: durationMinutes (default 30)."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Appointment",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.appointment) {",
+									"        pm.environment.set(\"appointmentId\", response.data.appointment._id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"patientId\": \"{{patientId}}\",\n    \"providerId\": \"{{providerId}}\",\n    \"appointmentTypeId\": \"{{appointmentTypeId}}\",\n    \"appointmentDate\": \"2024-01-15T00:00:00.000Z\",\n    \"startTime\": \"10:00\",\n    \"endTime\": \"10:30\",\n    \"durationMinutes\": 30,\n    \"visitReason\": \"Annual checkup\",\n    \"notes\": \"Patient prefers morning appointments\",\n    \"roomId\": \"Room-101\",\n    \"requiresInterpreter\": false,\n    \"insuranceVerified\": true,\n    \"copayCollected\": 25.00\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/appointments",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"appointments"
+							]
+						},
+						"description": "Create new appointment. Front Desk, Admin can create appointments. Required: patientId, providerId, appointmentDate, startTime, endTime. Automatically checks for conflicts and prevents double-booking."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Appointment",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"status\": \"confirmed\",\n    \"visitReason\": \"Follow-up visit\",\n    \"insuranceVerified\": true\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/appointments/{{appointmentId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"appointments",
+								"{{appointmentId}}"
+							]
+						},
+						"description": "Update appointment. Front Desk, Admin can update appointments. All fields optional. If updating date/time, automatically checks for conflicts."
+					},
+					"response": []
+				},
+				{
+					"name": "Cancel Appointment",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"cancellationReason\": \"Patient requested cancellation\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/appointments/{{appointmentId}}/cancel",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"appointments",
+								"{{appointmentId}}",
+								"cancel"
+							]
+						},
+						"description": "Cancel appointment. Front Desk, Admin can cancel appointments. Optional: cancellationReason."
+					},
+					"response": []
+				},
+				{
+					"name": "Reschedule Appointment",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"appointmentDate\": \"2024-01-20T00:00:00.000Z\",\n    \"startTime\": \"14:00\",\n    \"endTime\": \"14:30\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/appointments/{{appointmentId}}/reschedule",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"appointments",
+								"{{appointmentId}}",
+								"reschedule"
+							]
+						},
+						"description": "Reschedule appointment. Front Desk, Admin can reschedule appointments. Required: appointmentDate, startTime, endTime. Automatically checks for conflicts."
+					},
+					"response": []
+				},
+				{
+					"name": "Check-In Patient",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/appointments/{{appointmentId}}/check-in",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"appointments",
+								"{{appointmentId}}",
+								"check-in"
+							]
+						},
+						"description": "Check-in patient. Front Desk, Admin, Nursing can check in patients. Changes status to 'checked_in' and records checkInAt timestamp."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Appointment",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/appointments/{{appointmentId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"appointments",
+								"{{appointmentId}}"
+							]
+						},
+						"description": "Delete appointment (soft delete by cancelling). Admin only."
+					},
+					"response": []
+				}
+			],
+			"description": "Appointment management endpoints. Create, view, update, cancel, reschedule, and check-in appointments. Front Desk and Admin roles for most operations."
+		},
+		{
+			"name": "Recurring Appointments",
+			"item": [
+				{
+					"name": "Get All Recurring Appointments",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/recurring-appointments?page=1&limit=10&patientId=&providerId=&isActive=true",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"recurring-appointments"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "patientId",
+									"value": ""
+								},
+								{
+									"key": "providerId",
+									"value": ""
+								},
+								{
+									"key": "isActive",
+									"value": "true"
+								}
+							]
+						},
+						"description": "Get all recurring appointment series. All authenticated users can view recurring appointments."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Recurring Appointment by ID",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.recurringAppointment) {",
+									"        pm.environment.set(\"recurringAppointmentId\", response.data.recurringAppointment._id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/recurring-appointments/{{recurringAppointmentId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"recurring-appointments",
+								"{{recurringAppointmentId}}"
+							]
+						},
+						"description": "Get recurring appointment series by ID. All authenticated users can view recurring appointment details."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Recurring Appointment Series",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"patientId\": \"{{patientId}}\",\n    \"providerId\": \"{{providerId}}\",\n    \"appointmentTypeId\": \"{{appointmentTypeId}}\",\n    \"frequency\": \"weekly\",\n    \"frequencyValue\": 1,\n    \"startDate\": \"2024-01-15T00:00:00.000Z\",\n    \"endDate\": \"2024-03-15T00:00:00.000Z\",\n    \"preferredTime\": \"10:00\",\n    \"preferredDayOfWeek\": 1,\n    \"totalAppointments\": 8\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/recurring-appointments",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"recurring-appointments"
+							]
+						},
+						"description": "Create recurring appointment series. Front Desk, Admin can create recurring appointments. Required: patientId, providerId, frequency (weekly/monthly/quarterly), frequencyValue, startDate, preferredTime. Optional: appointmentTypeId, endDate, preferredDayOfWeek (0=Sunday, 6=Saturday), totalAppointments. If totalAppointments is provided, appointments are automatically generated."
+					},
+					"response": []
+				},
+				{
+					"name": "Generate Appointments from Series",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"count\": 4\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/recurring-appointments/{{recurringAppointmentId}}/generate",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"recurring-appointments",
+								"{{recurringAppointmentId}}",
+								"generate"
+							]
+						},
+						"description": "Generate appointments from recurring series. Front Desk, Admin can generate appointments. Required: count (number of appointments to generate). Automatically creates appointments based on frequency and preferred settings."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Recurring Appointment",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"preferredTime\": \"14:00\",\n    \"isActive\": true\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/recurring-appointments/{{recurringAppointmentId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"recurring-appointments",
+								"{{recurringAppointmentId}}"
+							]
+						},
+						"description": "Update recurring appointment series. Front Desk, Admin can update recurring appointments. All fields optional."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Recurring Appointment",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/recurring-appointments/{{recurringAppointmentId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"recurring-appointments",
+								"{{recurringAppointmentId}}"
+							]
+						},
+						"description": "Delete recurring appointment series (soft delete - sets isActive to false). Admin only."
+					},
+					"response": []
+				}
+			],
+			"description": "Recurring appointment management endpoints. Create, view, update, and delete recurring appointment series. Front Desk and Admin roles for most operations."
+		},
+		{
+			"name": "Waitlist",
+			"item": [
+				{
+					"name": "Get All Waitlist Entries",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/waitlist?page=1&limit=10&patientId=&providerId=&status=active&priority=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"waitlist"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "patientId",
+									"value": ""
+								},
+								{
+									"key": "providerId",
+									"value": ""
+								},
+								{
+									"key": "status",
+									"value": "active"
+								},
+								{
+									"key": "priority",
+									"value": ""
+								}
+							]
+						},
+						"description": "Get all waitlist entries with filters. All authenticated users can view waitlist entries. Sorted by priority (urgent first), then by creation date."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Waitlist Entry by ID",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.waitlistEntry) {",
+									"        pm.environment.set(\"waitlistEntryId\", response.data.waitlistEntry._id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/waitlist/{{waitlistEntryId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"waitlist",
+								"{{waitlistEntryId}}"
+							]
+						},
+						"description": "Get waitlist entry by ID. All authenticated users can view waitlist entry details."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Waitlist Entry",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"patientId\": \"{{patientId}}\",\n    \"providerId\": \"{{providerId}}\",\n    \"appointmentTypeId\": \"{{appointmentTypeId}}\",\n    \"preferredDate\": \"2024-01-20T00:00:00.000Z\",\n    \"preferredTimeStart\": \"09:00\",\n    \"preferredTimeEnd\": \"17:00\",\n    \"priority\": \"normal\",\n    \"notes\": \"Patient prefers morning appointments\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/waitlist",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"waitlist"
+							]
+						},
+						"description": "Create waitlist entry. Front Desk, Admin can create waitlist entries. Required: patientId, providerId. Optional: appointmentTypeId, preferredDate, preferredTimeStart, preferredTimeEnd, priority (urgent/normal/flexible), notes."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Waitlist Entry",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"priority\": \"urgent\",\n    \"notes\": \"Patient called requesting earlier appointment\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/waitlist/{{waitlistEntryId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"waitlist",
+								"{{waitlistEntryId}}"
+							]
+						},
+						"description": "Update waitlist entry. Front Desk, Admin can update waitlist entries. All fields optional."
+					},
+					"response": []
+				},
+				{
+					"name": "Mark Waitlist Entry as Called",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/waitlist/{{waitlistEntryId}}/called",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"waitlist",
+								"{{waitlistEntryId}}",
+								"called"
+							]
+						},
+						"description": "Mark waitlist entry as called. Front Desk, Admin can mark entries as called. Changes status to 'called'."
+					},
+					"response": []
+				},
+				{
+					"name": "Mark Waitlist Entry as Scheduled",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/waitlist/{{waitlistEntryId}}/scheduled",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"waitlist",
+								"{{waitlistEntryId}}",
+								"scheduled"
+							]
+						},
+						"description": "Mark waitlist entry as scheduled. Front Desk, Admin can mark entries as scheduled. Changes status to 'scheduled'."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Waitlist Entry",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/waitlist/{{waitlistEntryId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"waitlist",
+								"{{waitlistEntryId}}"
+							]
+						},
+						"description": "Delete waitlist entry. Front Desk, Admin can delete waitlist entries."
+					},
+					"response": []
+				}
+			],
+			"description": "Waitlist management endpoints. Create, view, update, and manage waitlist entries for cancelled appointments. Front Desk and Admin roles."
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:5000",
+			"type": "string"
+		},
+		{
+			"key": "accessToken",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "providerId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "appointmentTypeId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "appointmentId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "recurringAppointmentId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "waitlistEntryId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "patientId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "userId",
+			"value": "",
+			"type": "string"
+		}
+	]
+}

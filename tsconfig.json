@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    /* Output & Structure */
+    "rootDir": "src",
+    "outDir": "dist",
+
+    /* Modern Node.js (ESM + TypeScript) */
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "target": "ES2022",
+    "lib": ["ESNext"],
+    "types": ["node"],
+
+    /* Emit Options */
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+
+    /* Strictness */
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+
+    /* Recommended */
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "verbatimModuleSyntax": false,
+    "moduleDetection": "force"
+    
+  },
+  "ts-node": {
+    "esm": true
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}

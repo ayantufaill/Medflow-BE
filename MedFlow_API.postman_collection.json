@@ -1,0 +1,2684 @@
+{
+	"info": {
+		"_postman_id": "medflow-api-collection",
+		"name": "MedFlow API - Sprint 1 & 2 (with RBAC & Patient Management)",
+		"description": "Complete API collection for MedFlow Authentication, User Management, Role-Based Access Control (RBAC), and Patient Management Core (Sprint 2)",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Register (Initiate)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.email) {",
+									"        pm.environment.set(\"verificationEmail\", response.data.email);",
+									"        console.log(\"Verification link sent to: \" + response.data.email);",
+									"        console.log(\"Check your email for the verification link. Click the link to set your password and activate your account.\");",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"john.doe@example.com\",\n    \"firstName\": \"John\",\n    \"lastName\": \"Doe\",\n    \"phone\": \"+1234567890\",\n    \"preferredLanguage\": \"en\",\n    \"roleId\": \"{{roleId}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/register",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"register"
+							]
+						},
+						"description": "Initiate user registration by sending a verification link to the provided email. No password required at this stage. Optional roleId can be provided to assign a role during registration. If not provided, defaults to 'Patient' role. After successful registration initiation, user will receive an email with a link. When they click the link, they'll be taken to a page where they can set their password and activate their account."
+					},
+					"response": []
+				},
+				{
+					"name": "Verify Email & Set Password",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.tokens) {",
+									"        pm.environment.set(\"accessToken\", response.data.tokens.accessToken);",
+									"        pm.environment.set(\"refreshToken\", response.data.tokens.refreshToken);",
+									"        pm.environment.set(\"userId\", response.data.user._id);",
+									"        console.log(\"Registration completed successfully!\");",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"token\": \"{{verificationToken}}\",\n    \"password\": \"SecurePass123!\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/register/verify",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"register",
+								"verify"
+							]
+						},
+						"description": "Verify email token and set password to complete user registration. Requires the token from the verification link (extracted from URL query parameter) and the new password. Password must be at least 8 characters with uppercase, lowercase, number, and special character. On success, returns user data and authentication tokens. The verificationToken should be extracted from the email link query parameter."
+					},
+					"response": []
+				},
+				{
+					"name": "Resend Verification Link",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.email) {",
+									"        console.log(\"Verification link resent to: \" + response.data.email);",
+									"        console.log(\"Check your email for the new verification link.\");",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{verificationEmail}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/register/resend-link",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"register",
+								"resend-link"
+							]
+						},
+						"description": "Resend verification link to the email address. Use this if you didn't receive the link or it expired. The verificationEmail variable is automatically set after 'Register (Initiate)' request."
+					},
+					"response": []
+				},
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.tokens) {",
+									"        pm.environment.set(\"accessToken\", response.data.tokens.accessToken);",
+									"        pm.environment.set(\"refreshToken\", response.data.tokens.refreshToken);",
+									"        pm.environment.set(\"userId\", response.data.user._id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"john.doe@example.com\",\n    \"password\": \"SecurePass123!\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Login with email and password. Returns access and refresh tokens."
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.tokens) {",
+									"        pm.environment.set(\"accessToken\", response.data.tokens.accessToken);",
+									"        pm.environment.set(\"refreshToken\", response.data.tokens.refreshToken);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refreshToken\": \"{{refreshToken}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/refresh-token",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"refresh-token"
+							]
+						},
+						"description": "Refresh access token using refresh token. Returns new access and refresh tokens."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Profile",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/profile",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"profile"
+							]
+						},
+						"description": "Get current authenticated user's profile with roles."
+					},
+					"response": []
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"refreshToken\": \"{{refreshToken}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/logout",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"logout"
+							]
+						},
+						"description": "Logout user and invalidate access and refresh tokens. Optional refreshToken in body to also invalidate refresh token."
+					},
+					"response": []
+				},
+				{
+					"name": "Forgot Password (Request Reset)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.email) {",
+									"        pm.environment.set(\"resetEmail\", response.data.email);",
+									"        console.log(\"Password reset code sent to: \" + response.data.email);",
+									"        console.log(\"Check your email or server console for the reset code\");",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"john.doe@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/forgot-password",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"forgot-password"
+							]
+						},
+						"description": "Request password reset by sending a reset code to the provided email. The resetEmail variable is automatically set after this request."
+					},
+					"response": []
+				},
+				{
+					"name": "Verify Password Reset Code",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    console.log(\"Password reset code verified successfully\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{resetEmail}}\",\n    \"code\": \"123456\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/forgot-password/verify",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"forgot-password",
+								"verify"
+							]
+						},
+						"description": "Verify the password reset code. Use this to check if the code is valid before resetting the password. The resetEmail variable is automatically set after 'Forgot Password (Request Reset)' request."
+					},
+					"response": []
+				},
+				{
+					"name": "Reset Password",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    console.log(\"Password reset successfully! Please login with your new password.\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{resetEmail}}\",\n    \"code\": \"123456\",\n    \"newPassword\": \"NewSecurePass123!\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/forgot-password/reset",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"forgot-password",
+								"reset"
+							]
+						},
+						"description": "Reset password with new password. Requires email, reset code, and new password. The resetEmail variable is automatically set after 'Forgot Password (Request Reset)' request. After successful reset, all existing tokens are invalidated."
+					},
+					"response": []
+				},
+				{
+					"name": "Resend Password Reset Code",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.email) {",
+									"        console.log(\"Password reset code resent to: \" + response.data.email);",
+									"        console.log(\"Check your email or server console for the new reset code\");",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{resetEmail}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/forgot-password/resend-code",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"forgot-password",
+								"resend-code"
+							]
+						},
+						"description": "Resend password reset code to the email address. Use this if you didn't receive the code or it expired. The resetEmail variable is automatically set after 'Forgot Password (Request Reset)' request."
+					},
+					"response": []
+				},
+				{
+					"name": "Setup Password (Admin-Created Users)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    console.log(\"Password set successfully! User account is now active.\");",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"token\": \"{{setupPasswordToken}}\",\n    \"password\": \"SecurePass123!\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/setup-password",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"setup-password"
+							]
+						},
+						"description": "Set password for admin-created users. When an admin creates a user, the user receives an email with a verification link. When they click the link, they're taken to a password setup page. This endpoint is called from that page. Requires the token from the email link and the new password. Password must be at least 8 characters with uppercase, lowercase, number, and special character."
+					},
+					"response": []
+				}
+			],
+			"description": "Authentication endpoints for user registration, login, and token management"
+		},
+		{
+			"name": "User Management",
+			"item": [
+				{
+					"name": "Get All Users",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/users?page=1&limit=10&search=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1",
+									"description": "Page number (default: 1)"
+								},
+								{
+									"key": "limit",
+									"value": "10",
+									"description": "Items per page (default: 10, max: 100)"
+								},
+								{
+									"key": "search",
+									"value": "",
+									"description": "Search by email, first name, or last name",
+									"disabled": true
+								}
+							]
+						},
+						"description": "Get paginated list of all users. Admin only."
+					},
+					"response": []
+				},
+				{
+					"name": "Get User by ID",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/users/{{userId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"{{userId}}"
+							]
+						},
+						"description": "Get user details by ID. Users can only view their own profile unless they're an admin."
+					},
+					"response": []
+				},
+				{
+					"name": "Update User",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"firstName\": \"John Updated\",\n    \"lastName\": \"Doe Updated\",\n    \"phone\": \"+1234567891\",\n    \"preferredLanguage\": \"en\",\n    \"isActive\": true\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/users/{{userId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"{{userId}}"
+							]
+						},
+						"description": "Update user information. Users can only update themselves unless they're an admin. Only admins can update isActive."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Own Profile",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"firstName\": \"John\",\n    \"lastName\": \"Doe\",\n    \"phone\": \"+1234567890\",\n    \"preferredLanguage\": \"en\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/users/profile/me",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"profile",
+								"me"
+							]
+						},
+						"description": "Update current authenticated user's own profile."
+					},
+					"response": []
+				},
+				{
+					"name": "Change Password",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"currentPassword\": \"SecurePass123!\",\n    \"newPassword\": \"NewSecurePass123!\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/users/profile/change-password",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"profile",
+								"change-password"
+							]
+						},
+						"description": "Change current user's password. Requires current password and new password."
+					},
+					"response": []
+				},
+				{
+					"name": "Assign Role",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"roleId\": \"{{roleId}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/users/{{userId}}/roles",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"{{userId}}",
+								"roles"
+							]
+						},
+						"description": "Assign a role to a user. Admin only. Requires roleId in body."
+					},
+					"response": []
+				},
+				{
+					"name": "Remove Role",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/users/{{userId}}/roles/{{roleId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"{{userId}}",
+								"roles",
+								"{{roleId}}"
+							]
+						},
+						"description": "Remove a role from a user. Admin only."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete User",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/users/{{userId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"{{userId}}"
+							]
+						},
+						"description": "Delete a user account. Admin only. This will also remove all user roles."
+					},
+					"response": []
+				},
+				{
+					"name": "Activate User",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PATCH",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/users/{{userId}}/activate",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"{{userId}}",
+								"activate"
+							]
+						},
+						"description": "Activate a user account. Admin only. Sets isActive to true."
+					},
+					"response": []
+				},
+				{
+					"name": "Deactivate User",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PATCH",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/users/{{userId}}/deactivate",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"{{userId}}",
+								"deactivate"
+							]
+						},
+						"description": "Deactivate a user account. Admin only. Sets isActive to false and invalidates all existing sessions."
+					},
+					"response": []
+				},
+				{
+					"name": "Get User Activity",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/users/{{userId}}/activity?page=1&limit=20&search=&startDate=&endDate=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"{{userId}}",
+								"activity"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1",
+									"description": "Page number (default: 1)"
+								},
+								{
+									"key": "limit",
+									"value": "20",
+									"description": "Items per page (default: 20, max: 100)"
+								},
+								{
+									"key": "search",
+									"value": "",
+									"description": "Search query (optional). Searches in action, tableName, ipAddress, and userAgent fields. Case-insensitive. Example: 'login' or 'created'",
+									"disabled": false
+								},
+								{
+									"key": "startDate",
+									"value": "",
+									"description": "Start date filter (optional). ISO 8601 format. Filters activities from this date onwards. Example: 2024-01-01T00:00:00Z",
+									"disabled": false
+								},
+								{
+									"key": "endDate",
+									"value": "",
+									"description": "End date filter (optional). ISO 8601 format. Filters activities up to this date (inclusive). Example: 2024-12-31T23:59:59Z",
+									"disabled": false
+								}
+							]
+						},
+						"description": "Get user activity logs (audit logs). Admin only. Returns paginated list of all user activities including created, updated, deleted, and viewed actions. Supports search and date filtering.\n\n**Note:** Set the `userId` environment variable or replace `{{userId}}` in the URL with an actual user ID (36-character UUID). The userId is automatically set after login, but you can also manually set it to view any user's activity (Admin only).\n\n**Query Parameters:**\n- `page` (optional): Page number (default: 1)\n- `limit` (optional): Items per page (default: 20, max: 100)\n- `search` (optional): Search in action, tableName, ipAddress, userAgent fields\n- `startDate` (optional): ISO 8601 date (e.g., 2024-01-01T00:00:00Z)\n- `endDate` (optional): ISO 8601 date (e.g., 2024-12-31T23:59:59Z)"
+					},
+					"response": []
+				},
+				{
+					"name": "Get User Login History",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/users/{{userId}}/login-history?page=1&limit=20&search=&startDate=&endDate=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"{{userId}}",
+								"login-history"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1",
+									"description": "Page number (default: 1)"
+								},
+								{
+									"key": "limit",
+									"value": "20",
+									"description": "Items per page (default: 20, max: 100)"
+								},
+								{
+									"key": "search",
+									"value": "",
+									"description": "Search query (optional). Searches in eventType, description, and ipAddress fields. Case-insensitive. Example: 'login_success' or '192.168.1.1'",
+									"disabled": false
+								},
+								{
+									"key": "startDate",
+									"value": "",
+									"description": "Start date filter (optional). ISO 8601 format. Filters login history from this date onwards. Example: 2024-01-01T00:00:00Z",
+									"disabled": false
+								},
+								{
+									"key": "endDate",
+									"value": "",
+									"description": "End date filter (optional). ISO 8601 format. Filters login history up to this date (inclusive). Example: 2024-12-31T23:59:59Z",
+									"disabled": false
+								}
+							]
+						},
+						"description": "Get user login history (security events). Admin only. Returns paginated list of login_success, login_failure, and session_end events with IP addresses and timestamps. Supports search and date filtering.\n\n**Note:** Set the `userId` environment variable or replace `{{userId}}` in the URL with an actual user ID (36-character UUID). The userId is automatically set after login, but you can also manually set it to view any user's login history (Admin only).\n\n**Query Parameters:**\n- `page` (optional): Page number (default: 1)\n- `limit` (optional): Items per page (default: 20, max: 100)\n- `search` (optional): Search in eventType, description, ipAddress fields\n- `startDate` (optional): ISO 8601 date (e.g., 2024-01-01T00:00:00Z)\n- `endDate` (optional): ISO 8601 date (e.g., 2024-12-31T23:59:59Z)"
+					},
+					"response": []
+				},
+				{
+					"name": "Create User",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.user) {",
+									"        pm.environment.set(\"createdUserId\", response.data.user._id);",
+									"        console.log(\"User created successfully. Verification email sent to: \" + response.data.user.email);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"newuser@example.com\",\n    \"firstName\": \"New\",\n    \"lastName\": \"User\",\n    \"phone\": \"+1234567890\",\n    \"preferredLanguage\": \"en\",\n    \"roleId\": \"{{roleId}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/users",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users"
+							]
+						},
+						"description": "Create a new user account. Admin only. Creates an inactive user and sends a verification link to their email. The user must click the link to set their password and activate their account. No password is required at creation time. Optional roleId can be provided. If not provided, defaults to 'Patient' role."
+					},
+					"response": []
+				}
+			],
+			"description": "User management endpoints for CRUD operations, role management, and activity tracking"
+		},
+		{
+			"name": "RBAC & Permissions",
+			"item": [
+				{
+					"name": "Get User Permissions",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/users/{{userId}}/permissions",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"{{userId}}",
+								"permissions"
+							]
+						},
+						"description": "Get all permissions for a specific user. Returns a set of all permissions from all user roles. Users can view their own permissions, admins can view any user's permissions."
+					},
+					"response": []
+				},
+				{
+					"name": "Get User Roles",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/users/{{userId}}/roles",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"{{userId}}",
+								"roles"
+							]
+						},
+						"description": "Get all roles assigned to a specific user. Users can view their own roles, admins can view any user's roles."
+					},
+					"response": []
+				},
+				{
+					"name": "Check Permission",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"permission\": \"patients.read\",\n    \"userId\": \"{{userId}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/permissions/check",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"permissions",
+								"check"
+							]
+						},
+						"description": "Check if a user has a specific permission. Returns true if user has the permission, false otherwise. If userId is not provided, checks the authenticated user's permissions."
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Roles",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/roles",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"roles"
+							]
+						},
+						"description": "Get all active roles in the system with their permissions. Admin only. Useful for viewing available roles and their permission sets."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Role by ID",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/roles/{{roleId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"roles",
+								"{{roleId}}"
+							]
+						},
+						"description": "Get a specific role by ID with its permissions. Admin only."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Role",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Custom Role\",\n    \"description\": \"Custom role description\",\n    \"permissions\": {\n        \"patients.read\": true,\n        \"patients.create\": true\n    },\n    \"isSystemRole\": false\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/roles",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"roles"
+							]
+						},
+						"description": "Create a new role. Admin only. Requires roles.create permission."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Role",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Updated Role Name\",\n    \"description\": \"Updated description\",\n    \"permissions\": {\n        \"patients.read\": true,\n        \"patients.update\": true\n    },\n    \"isActive\": true\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/roles/{{roleId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"roles",
+								"{{roleId}}"
+							]
+						},
+						"description": "Update a role. Admin only. Requires roles.update permission."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Role",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/roles/{{roleId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"roles",
+								"{{roleId}}"
+							]
+						},
+						"description": "Delete a role. Admin only. Requires roles.delete permission."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Users with Role",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/roles/{{roleId}}/users?page=1&limit=10",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"roles",
+								"{{roleId}}",
+								"users"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						},
+						"description": "Get all users assigned to a specific role. Admin only."
+					},
+					"response": []
+				}
+			],
+			"description": "Role-Based Access Control (RBAC) endpoints for managing roles, permissions, and checking user access"
+		},
+		{
+			"name": "Health Check",
+			"item": [
+				{
+					"name": "Root",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								""
+							]
+						},
+						"description": "Root endpoint - API welcome message"
+					},
+					"response": []
+				},
+				{
+					"name": "Health",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"health"
+							]
+						},
+						"description": "Health check endpoint"
+					},
+					"response": []
+				}
+			],
+			"description": "Health check and root endpoints"
+		},
+		{
+			"name": "Practice Info",
+			"item": [
+				{
+					"name": "Get All Practice Info",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/practice-info?page=1&limit=10&search=",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"practice-info"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1",
+									"description": "Page number (default: 1)"
+								},
+								{
+									"key": "limit",
+									"value": "10",
+									"description": "Items per page (default: 10, max: 100)"
+								},
+								{
+									"key": "search",
+									"value": "",
+									"description": "Search by practice name, email, phone, tax ID, or NPI number",
+									"disabled": true
+								}
+							]
+						},
+						"description": "Get paginated list of all practice info records. Admin only."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Current Practice Info",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/practice-info/current",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"practice-info",
+								"current"
+							]
+						},
+						"description": "Get the most recent practice info record. Admin only. Useful when there's typically only one practice info record in the system."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Practice Info by ID",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/practice-info/{{practiceInfoId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"practice-info",
+								"{{practiceInfoId}}"
+							]
+						},
+						"description": "Get practice info details by ID. Admin only."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Practice Info",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.practiceInfo) {",
+									"        pm.environment.set(\"practiceInfoId\", response.data.practiceInfo._id);",
+									"        console.log(\"Practice info created successfully!\");",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"practiceName\": \"MedFlow Medical Practice\",\n    \"taxId\": \"12-3456789\",\n    \"npiNumber\": \"1234567890\",\n    \"phone\": \"+1-555-123-4567\",\n    \"fax\": \"+1-555-123-4568\",\n    \"email\": \"contact@medflow.com\",\n    \"website\": \"https://www.medflow.com\",\n    \"address\": {\n        \"line1\": \"123 Medical Center Dr\",\n        \"line2\": \"Suite 100\",\n        \"city\": \"New York\",\n        \"state\": \"NY\",\n        \"postalCode\": \"10001\"\n    },\n    \"logoPath\": \"/uploads/logo.png\",\n    \"businessHours\": {\n        \"monday\": {\"open\": \"09:00\", \"close\": \"17:00\"},\n        \"tuesday\": {\"open\": \"09:00\", \"close\": \"17:00\"},\n        \"wednesday\": {\"open\": \"09:00\", \"close\": \"17:00\"},\n        \"thursday\": {\"open\": \"09:00\", \"close\": \"17:00\"},\n        \"friday\": {\"open\": \"09:00\", \"close\": \"17:00\"}\n    },\n    \"timezone\": \"America/New_York\",\n    \"appointmentBufferMinutes\": 15,\n    \"billingContactEmail\": \"billing@medflow.com\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/practice-info",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"practice-info"
+							]
+						},
+						"description": "Create a new practice info record. Admin only. Required fields: practiceName, phone, email, address. Optional fields: taxId (must be unique), npiNumber (must be unique), fax, website, logoPath, businessHours, timezone, appointmentBufferMinutes, billingContactEmail."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Practice Info",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"practiceName\": \"MedFlow Medical Practice Updated\",\n    \"phone\": \"+1-555-123-4569\",\n    \"email\": \"contact@medflow.com\",\n    \"address\": {\n        \"line1\": \"456 Medical Center Dr\",\n        \"city\": \"New York\",\n        \"state\": \"NY\",\n        \"postalCode\": \"10002\"\n    },\n    \"timezone\": \"America/New_York\",\n    \"appointmentBufferMinutes\": 20\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/practice-info/{{practiceInfoId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"practice-info",
+								"{{practiceInfoId}}"
+							]
+						},
+						"description": "Update practice info record. Admin only. All fields are optional. Only provided fields will be updated. Tax ID and NPI number must be unique if provided."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Practice Info",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/practice-info/{{practiceInfoId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"practice-info",
+								"{{practiceInfoId}}"
+							]
+						},
+						"description": "Delete practice info record. Admin only."
+					},
+					"response": []
+				}
+			],
+			"description": "Practice information management endpoints for CRUD operations. Admin only."
+		},
+		{
+			"name": "Patient Management (Sprint 2)",
+			"item": [
+				{
+					"name": "Get All Patients",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/patients?page=1&limit=10&search=&status=active",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"patients"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "search",
+									"value": ""
+								},
+								{
+									"key": "status",
+									"value": "active"
+								}
+							]
+						},
+						"description": "Get all patients with pagination and search. Search by name, DOB, phone, email, or patient code. Status filter: 'active' or 'inactive'."
+					},
+					"response": []
+				},
+				{
+					"name": "Search Patients",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/patients/search?page=1&limit=10&search=John Doe",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"patients",
+								"search"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "search",
+									"value": "John Doe"
+								}
+							]
+						},
+						"description": "Search patients by name, DOB, phone, email, or patient code. Alias for GET /patients."
+					},
+					"response": []
+				},
+				{
+					"name": "Check Duplicate Patients",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"firstName\": \"John\",\n    \"lastName\": \"Doe\",\n    \"dateOfBirth\": \"1990-01-15\",\n    \"phonePrimary\": \"+1234567890\",\n    \"email\": \"john.doe@example.com\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/patients/check-duplicates",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"patients",
+								"check-duplicates"
+							]
+						},
+						"description": "Check for duplicate patients before creating a new patient. Returns list of potential duplicates based on name, DOB, phone, and email."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Patient",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.patient) {",
+									"        pm.environment.set(\"patientId\", response.data.patient._id);",
+									"        pm.environment.set(\"patientCode\", response.data.patient.patientCode);",
+									"        console.log(\"Patient created successfully! Patient Code: \" + response.data.patient.patientCode);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"firstName\": \"John\",\n    \"lastName\": \"Doe\",\n    \"middleName\": \"Michael\",\n    \"preferredName\": \"Johnny\",\n    \"dateOfBirth\": \"1990-01-15\",\n    \"gender\": \"male\",\n    \"ssn\": \"123-45-6789\",\n    \"phonePrimary\": \"+1234567890\",\n    \"phoneSecondary\": \"+1987654321\",\n    \"email\": \"john.doe@example.com\",\n    \"address\": {\n        \"line1\": \"123 Main St\",\n        \"line2\": \"Apt 4B\",\n        \"city\": \"New York\",\n        \"state\": \"NY\",\n        \"postalCode\": \"10001\"\n    },\n    \"emergencyContact\": {\n        \"name\": \"Jane Doe\",\n        \"relationship\": \"spouse\",\n        \"phone\": \"+1987654321\"\n    },\n    \"preferredLanguage\": \"en\",\n    \"communicationPreference\": \"email\",\n    \"referralSource\": \"Friend\",\n    \"notes\": \"New patient registration\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/patients",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"patients"
+							]
+						},
+						"description": "Create a new patient record. Front Desk or Admin only. Required: firstName, lastName, dateOfBirth. Patient code is auto-generated (PAT001, PAT002, etc.). Checks for duplicates before creating."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Patient by ID",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/patients/{{patientId}}?includeSSN=false",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"patients",
+								"{{patientId}}"
+							],
+							"query": [
+								{
+									"key": "includeSSN",
+									"value": "false"
+								}
+							]
+						},
+						"description": "Get patient details by ID. SSN is excluded by default for security. Set includeSSN=true to include SSN (authorized users only)."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Patient",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"firstName\": \"John Updated\",\n    \"lastName\": \"Doe Updated\",\n    \"phonePrimary\": \"+1234567891\",\n    \"email\": \"john.updated@example.com\",\n    \"address\": {\n        \"line1\": \"456 Main St\",\n        \"city\": \"New York\",\n        \"state\": \"NY\",\n        \"postalCode\": \"10002\"\n    },\n    \"emergencyContact\": {\n        \"name\": \"Jane Doe Updated\",\n        \"relationship\": \"spouse\",\n        \"phone\": \"+1987654322\"\n    }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/patients/{{patientId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"patients",
+								"{{patientId}}"
+							]
+						},
+						"description": "Update patient demographics. Front Desk or Admin only. All fields are optional. Only provided fields will be updated."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Patient",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/patients/{{patientId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"patients",
+								"{{patientId}}"
+							]
+						},
+						"description": "Delete patient (soft delete - sets isActive to false). Admin only."
+					},
+					"response": []
+				}
+			],
+			"description": "Patient management endpoints for CRUD operations, search, and duplicate detection. Front Desk and Admin roles."
+		},
+		{
+			"name": "Insurance Companies (Sprint 2)",
+			"item": [
+				{
+					"name": "Get All Insurance Companies",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/insurance-companies?isActive=true",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"insurance-companies"
+							],
+							"query": [
+								{
+									"key": "isActive",
+									"value": "true"
+								}
+							]
+						},
+						"description": "Get all insurance companies. Optional query parameter: isActive (true/false)."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Insurance Company by ID",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/insurance-companies/{{insuranceCompanyId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"insurance-companies",
+								"{{insuranceCompanyId}}"
+							]
+						},
+						"description": "Get insurance company details by ID."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Insurance Company",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.company) {",
+									"        pm.environment.set(\"insuranceCompanyId\", response.data.company._id);",
+									"        console.log(\"Insurance company created successfully!\");",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Blue Cross Blue Shield\",\n    \"payerId\": \"BCBS001\",\n    \"phone\": \"+1-800-555-1234\",\n    \"fax\": \"+1-800-555-1235\",\n    \"email\": \"contact@bcbs.com\",\n    \"address\": {\n        \"line1\": \"123 Insurance Blvd\",\n        \"city\": \"Chicago\",\n        \"state\": \"IL\",\n        \"postalCode\": \"60601\"\n    },\n    \"website\": \"https://www.bcbs.com\",\n    \"notes\": \"Major insurance provider\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/insurance-companies",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"insurance-companies"
+							]
+						},
+						"description": "Create a new insurance company. Admin only. Required: name (must be unique). Optional: payerId (must be unique if provided), phone, fax, email, address, website, notes."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Insurance Company",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"name\": \"Blue Cross Blue Shield Updated\",\n    \"phone\": \"+1-800-555-1236\",\n    \"email\": \"contact@bcbs-updated.com\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/insurance-companies/{{insuranceCompanyId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"insurance-companies",
+								"{{insuranceCompanyId}}"
+							]
+						},
+						"description": "Update insurance company. Admin only. All fields are optional. Name and payerId must be unique if provided."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Insurance Company",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/insurance-companies/{{insuranceCompanyId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"insurance-companies",
+								"{{insuranceCompanyId}}"
+							]
+						},
+						"description": "Delete insurance company (soft delete - sets isActive to false). Admin only."
+					},
+					"response": []
+				}
+			],
+			"description": "Insurance company management endpoints. Admin only."
+		},
+		{
+			"name": "Patient Insurance (Sprint 2)",
+			"item": [
+				{
+					"name": "Get Patient Insurances",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/patients/{{patientId}}/insurance?isActive=true",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"patients",
+								"{{patientId}}",
+								"insurance"
+							],
+							"query": [
+								{
+									"key": "isActive",
+									"value": "true"
+								}
+							]
+						},
+						"description": "Get all insurance records for a patient. Optional query parameter: isActive (true/false)."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Patient Insurance by ID",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/patients/{{patientId}}/insurance/{{patientInsuranceId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"patients",
+								"{{patientId}}",
+								"insurance",
+								"{{patientInsuranceId}}"
+							]
+						},
+						"description": "Get patient insurance details by ID."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Patient Insurance",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.insurance) {",
+									"        pm.environment.set(\"patientInsuranceId\", response.data.insurance._id);",
+									"        console.log(\"Patient insurance created successfully!\");",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"insuranceCompanyId\": \"{{insuranceCompanyId}}\",\n    \"policyNumber\": \"POL123456789\",\n    \"groupNumber\": \"GRP001\",\n    \"subscriberName\": \"John Doe\",\n    \"subscriberDateOfBirth\": \"1990-01-15\",\n    \"relationshipToPatient\": \"self\",\n    \"insuranceType\": \"primary\",\n    \"effectiveDate\": \"2024-01-01\",\n    \"expirationDate\": \"2024-12-31\",\n    \"copayAmount\": 25.00,\n    \"deductibleAmount\": 1000.00,\n    \"autoVerify\": true,\n    \"notes\": \"Primary insurance coverage\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/patients/{{patientId}}/insurance",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"patients",
+								"{{patientId}}",
+								"insurance"
+							]
+						},
+						"description": "Link insurance to patient (primary/secondary/tertiary). Front Desk or Admin only. Required: insuranceCompanyId, policyNumber, subscriberName, subscriberDateOfBirth, relationshipToPatient, insuranceType, effectiveDate. If patient already has insurance of same type, it will be deactivated."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Patient Insurance",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"policyNumber\": \"POL123456790\",\n    \"copayAmount\": 30.00,\n    \"verificationStatus\": \"verified\",\n    \"notes\": \"Insurance verified and updated\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/patients/{{patientId}}/insurance/{{patientInsuranceId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"patients",
+								"{{patientId}}",
+								"insurance",
+								"{{patientInsuranceId}}"
+							]
+						},
+						"description": "Update patient insurance policy details. Front Desk or Admin only. All fields are optional. If changing insuranceType, checks for conflicts."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Patient Insurance",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/patients/{{patientId}}/insurance/{{patientInsuranceId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"patients",
+								"{{patientId}}",
+								"insurance",
+								"{{patientInsuranceId}}"
+							]
+						},
+						"description": "Delete patient insurance (soft delete - sets isActive to false). Front Desk or Admin only."
+					},
+					"response": []
+				}
+			],
+			"description": "Patient insurance management endpoints. Link insurance to patients (primary/secondary/tertiary). Front Desk and Admin roles."
+		},
+		{
+			"name": "Patient Allergies (Sprint 2)",
+			"item": [
+				{
+					"name": "Get Patient Allergies",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/patients/{{patientId}}/allergies?isActive=true",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"patients",
+								"{{patientId}}",
+								"allergies"
+							],
+							"query": [
+								{
+									"key": "isActive",
+									"value": "true"
+								}
+							]
+						},
+						"description": "Get all allergies for a patient. Optional query parameter: isActive (true/false)."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Allergy by ID",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/patients/{{patientId}}/allergies/{{allergyId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"patients",
+								"{{patientId}}",
+								"allergies",
+								"{{allergyId}}"
+							]
+						},
+						"description": "Get allergy details by ID."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Patient Allergy",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const response = pm.response.json();",
+									"    if (response.data && response.data.allergy) {",
+									"        pm.environment.set(\"allergyId\", response.data.allergy._id);",
+									"        console.log(\"Allergy created successfully!\");",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"allergen\": \"Penicillin\",\n    \"reaction\": \"Rash and hives\",\n    \"severity\": \"moderate\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/patients/{{patientId}}/allergies",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"patients",
+								"{{patientId}}",
+								"allergies"
+							]
+						},
+						"description": "Add patient allergy. Nursing, Doctor, or Admin only. Required: allergen. Optional: reaction, severity (mild/moderate/severe/unknown). Prevents duplicate allergens for same patient."
+					},
+					"response": []
+				},
+				{
+					"name": "Update Patient Allergy",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"reaction\": \"Severe anaphylaxis\",\n    \"severity\": \"severe\",\n    \"isActive\": true\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/patients/{{patientId}}/allergies/{{allergyId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"patients",
+								"{{patientId}}",
+								"allergies",
+								"{{allergyId}}"
+							]
+						},
+						"description": "Update patient allergy. Nursing, Doctor, or Admin only. All fields are optional. If updating allergen name, checks for duplicates."
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Patient Allergy",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{accessToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/patients/{{patientId}}/allergies/{{allergyId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"patients",
+								"{{patientId}}",
+								"allergies",
+								"{{allergyId}}"
+							]
+						},
+						"description": "Delete patient allergy (soft delete - sets isActive to false). Nursing, Doctor, or Admin only."
+					},
+					"response": []
+				}
+			],
+			"description": "Patient allergy management endpoints. Add, view, update, and remove patient allergies. Nursing, Doctor, and Admin roles."
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:5000",
+			"type": "string"
+		},
+		{
+			"key": "accessToken",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "refreshToken",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "userId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "roleId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "verificationEmail",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "resetEmail",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "verificationToken",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "setupPasswordToken",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "practiceInfoId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "patientId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "patientCode",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "insuranceCompanyId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "patientInsuranceId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "allergyId",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "createdUserId",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
+
