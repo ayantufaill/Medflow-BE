@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon --exec tsx src/server.ts",
-    "build": "tsc",
+    "build": "tsc && node scripts/fix-dist-imports.cjs",
     "start": "tsx src/server.ts",
     "seed:roles": "tsx src/scripts/seedRoles.ts",
     "seed:users": "tsx src/scripts/seedUsers.ts",

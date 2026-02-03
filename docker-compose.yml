@@ -1,4 +1,25 @@
 services:
+  api-dev:
+    build:
+      context: .
+      target: dev
+    profiles: ["dev"]
+    ports:
+      - "5002:5001"
+    env_file:
+      - ./.env.docker
+    environment:
+      CHOKIDAR_USEPOLLING: "1"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: ["/bin/sh", "-c", "npx prisma generate --schema prisma/schema.prisma && npm run dev"]
+    depends_on:
+      db:
+        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
+
   api:
     build: .
     ports:
@@ -12,13 +33,12 @@ services:
         condition: service_completed_successfully
 
   db:
+    platform: linux/amd64
     image: mcr.microsoft.com/mssql/server:2022-latest
     env_file:
       - ./.env.docker
     environment:
       ACCEPT_EULA: "Y"
-    ports:
-      - "1433:1433"
     volumes:
       - mssql_data:/var/opt/mssql
     healthcheck:
@@ -28,6 +48,7 @@ services:
       retries: 10
 
   db-init:
+    platform: linux/amd64
     image: mcr.microsoft.com/mssql-tools:latest
     depends_on:
       db:

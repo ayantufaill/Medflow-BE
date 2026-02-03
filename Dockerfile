@@ -6,11 +6,22 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 FROM deps AS build
+ENV NODE_OPTIONS=--max-old-space-size=4096
 COPY prisma ./prisma
 COPY tsconfig.json prisma.config.ts ./
+COPY scripts ./scripts
 COPY src ./src
 RUN npx prisma generate --schema prisma/schema.prisma
 RUN npm run build
+
+FROM deps AS dev
+WORKDIR /app
+ENV NODE_ENV=development
+COPY prisma ./prisma
+COPY tsconfig.json prisma.config.ts ./
+COPY src ./src
+COPY scripts ./scripts
+CMD ["npm", "run", "dev"]
 
 FROM node:24-bookworm-slim AS runtime
 WORKDIR /app

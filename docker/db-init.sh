@@ -15,8 +15,8 @@ fi
 : "${MSSQL_SA_PASSWORD:?MSSQL_SA_PASSWORD is required}"
 : "${MSSQL_DB:=schema_test}"
 
-# Ensure database exists
-$SQLCMD -S db -U sa -P "$MSSQL_SA_PASSWORD" -C -b -Q "IF DB_ID('$MSSQL_DB') IS NULL CREATE DATABASE [$MSSQL_DB];"
+# Ensure database exists (idempotent)
+$SQLCMD -S db -U sa -P "$MSSQL_SA_PASSWORD" -C -b -Q "IF NOT EXISTS (SELECT 1 FROM sys.databases WHERE name = '$MSSQL_DB') CREATE DATABASE [$MSSQL_DB];"
 
 # Check if schema already exists (using patient table as marker)
 HAS_SCHEMA=$($SQLCMD -S db -U sa -P "$MSSQL_SA_PASSWORD" -C -d "$MSSQL_DB" -h -1 -W -Q "SET NOCOUNT ON; SELECT CASE WHEN OBJECT_ID('dbo.patient','U') IS NULL THEN 0 ELSE 1 END")
