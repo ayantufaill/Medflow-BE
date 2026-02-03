@@ -166,6 +166,19 @@ export class AuthController {
     }
   }
 
+  async resendPasswordResetCode(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { email } = req.body;
+      if (!email) {
+        throw new AuthenticationError('Email is required');
+      }
+      const result = await authService.resendPasswordResetCode(email);
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async verifyTokenAndSetPassword(req: Request, res: Response, next: NextFunction) {
     try {
       const { token, password } = req.body;

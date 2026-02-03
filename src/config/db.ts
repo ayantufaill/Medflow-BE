@@ -1,14 +1,23 @@
 import { PrismaClient } from '@prisma/client';
+import { PrismaMssql } from '@prisma/adapter-mssql';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error('DATABASE_URL is not set');
+}
+
+const adapter = new PrismaMssql(databaseUrl);
+
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
     log: ['error', 'warn'],
+    adapter,
   });
 
 if (process.env.NODE_ENV !== 'production') {

@@ -296,7 +296,10 @@ export class InvoiceService {
     }
 
     const existing = await prisma.statement.findFirst({
-      where: { NoteBold: { contains: `"appointmentId":"${appointmentId}"` } }, IsInvoice: 1 },
+      where: {
+        NoteBold: { contains: `"appointmentId":"${appointmentId}"` },
+        IsInvoice: 1,
+      },
     });
     if (existing) {
       throw new ConflictError('Invoice already exists for this appointment');

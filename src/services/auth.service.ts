@@ -274,6 +274,10 @@ export class AuthService {
     return { message: 'Password reset link sent', email: email.toLowerCase() };
   }
 
+  async resendPasswordResetCode(email: string): Promise<{ message: string; email: string }> {
+    return this.requestPasswordReset(email);
+  }
+
   async verifyPasswordResetCode(email: string, code: string): Promise<{ message: string }> {
     const reset = await findResetByToken(code);
     if (!reset) {
