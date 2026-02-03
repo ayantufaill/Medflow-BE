@@ -1,16 +1,72 @@
-import { ClinicalNoteModel, ClinicalNote } from '../models/clinical-note.model';
-import { NoteTemplateModel } from '../models/note-template.model';
-import { AllergyModel } from '../models/allergy.model';
-import { VitalSignModel } from '../models/vital-sign.model';
-import { PrescriptionModel } from '../models/prescription.model';
-import { LabOrderModel } from '../models/lab-order.model';
-import { LabResultModel } from '../models/lab-result.model';
-import { DocumentModel } from '../models/document.model';
+import { prisma } from '../config/db';
 import { NotFoundError, ConflictError, ValidationError, BadRequestError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
-import mongoose from 'mongoose';
+import { getNextId } from '../utils/opendental-ids.util';
+
+const parseJson = <T>(value?: string | null): T => {
+  if (!value) return {} as T;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? (parsed as T) : ({} as T);
+  } catch {
+    return {} as T;
+  }
+};
+
+const buildJson = (value: Record<string, unknown>) => JSON.stringify(value);
+
+type ClinicalNoteMeta = {
+  appointmentId?: string;
+  providerId?: string;
+  templateId?: string;
+  noteType?: string;
+  chiefComplaint?: string;
+  subjective?: string;
+  objective?: string;
+  assessment?: string;
+  plan?: string;
+  diagnosisCodes?: string[];
+  structuredData?: any;
+  historyOfPresentIllness?: string;
+  physicalExam?: string;
+  attachments?: string[];
+  requiresFollowUp?: boolean;
+  followUpDate?: string;
+  isSigned?: boolean;
+  signedAt?: string;
+  signedBy?: string;
+  lastEditedBy?: string;
+};
 
 export class ClinicalNoteService {
+  private mapCommlogToClinicalNote(row: any, meta: ClinicalNoteMeta) {
+    return {
+      _id: row.CommlogNum.toString(),
+      patientId: row.PatNum?.toString() ?? null,
+      appointmentId: meta.appointmentId ?? null,
+      providerId: meta.providerId ?? null,
+      templateId: meta.templateId ?? null,
+      noteType: meta.noteType ?? 'soap',
+      chiefComplaint: meta.chiefComplaint ?? null,
+      subjective: meta.subjective ?? null,
+      objective: meta.objective ?? null,
+      assessment: meta.assessment ?? null,
+      plan: meta.plan ?? null,
+      diagnosisCodes: meta.diagnosisCodes ?? [],
+      structuredData: meta.structuredData ?? null,
+      historyOfPresentIllness: meta.historyOfPresentIllness ?? null,
+      physicalExam: meta.physicalExam ?? null,
+      attachments: meta.attachments ?? [],
+      requiresFollowUp: meta.requiresFollowUp ?? false,
+      followUpDate: meta.followUpDate ? new Date(meta.followUpDate) : null,
+      isSigned: meta.isSigned ?? false,
+      signedAt: meta.signedAt ? new Date(meta.signedAt) : null,
+      signedBy: meta.signedBy ?? null,
+      lastEditedBy: meta.lastEditedBy ?? null,
+      createdAt: row.CommDateTime ?? null,
+    };
+  }
+
   async getAllClinicalNotes(
     page = 1,
     limit = 10,
@@ -26,44 +82,43 @@ export class ClinicalNoteService {
     } = {}
   ) {
     const skip = (page - 1) * limit;
-    const query: any = {};
+    const where: any = {};
 
-    if (filters.patientId) query.patientId = filters.patientId;
-    if (filters.providerId) query.providerId = filters.providerId;
-    if (filters.appointmentId) query.appointmentId = filters.appointmentId;
-    if (filters.noteType) query.noteType = filters.noteType;
-    if (filters.isSigned !== undefined) query.isSigned = filters.isSigned;
-
+    if (filters.patientId) where.PatNum = BigInt(filters.patientId);
     if (filters.startDate || filters.endDate) {
-      query.createdAt = {};
-      if (filters.startDate) query.createdAt.$gte = filters.startDate;
-      if (filters.endDate) query.createdAt.$lte = filters.endDate;
+      where.CommDateTime = {};
+      if (filters.startDate) where.CommDateTime.gte = filters.startDate;
+      if (filters.endDate) where.CommDateTime.lte = filters.endDate;
     }
 
-    if (filters.search) {
-      query.chiefComplaint = { $regex: filters.search, $options: 'i' };
+    const rows = await prisma.commlog.findMany({
+      where,
+      orderBy: { CommDateTime: 'desc' },
+    });
+
+    let clinicalNotes = rows.map((row) => {
+      const meta = parseJson<ClinicalNoteMeta>(row.Note);
+      return this.mapCommlogToClinicalNote(row, meta);
+    });
+
+    if (filters.providerId) {
+      clinicalNotes = clinicalNotes.filter((note: any) => note.providerId === filters.providerId);
     }
-
-    let clinicalNotesQuery = ClinicalNoteModel.find(query)
-      .sort({ createdAt: -1 })
-      .populate('patientId', 'firstName lastName dateOfBirth')
-      .populate('providerId', 'firstName lastName specialty')
-      .populate('templateId', 'name')
-      .populate('signedBy', 'firstName lastName');
-
-    let clinicalNotes = await clinicalNotesQuery.lean();
-
+    if (filters.appointmentId) {
+      clinicalNotes = clinicalNotes.filter((note: any) => note.appointmentId === filters.appointmentId);
+    }
+    if (filters.noteType) {
+      clinicalNotes = clinicalNotes.filter((note: any) => note.noteType === filters.noteType);
+    }
+    if (filters.isSigned !== undefined) {
+      clinicalNotes = clinicalNotes.filter((note: any) => note.isSigned === filters.isSigned);
+    }
     if (filters.search) {
       const searchLower = filters.search.toLowerCase();
       clinicalNotes = clinicalNotes.filter((note: any) => {
-        const patientName = `${note.patientId?.firstName || ''} ${note.patientId?.lastName || ''}`.toLowerCase();
-        const providerName = `${note.providerId?.firstName || ''} ${note.providerId?.lastName || ''}`.toLowerCase();
         const chiefComplaint = (note.chiefComplaint || '').toLowerCase();
         const noteType = (note.noteType || '').toLowerCase();
-        return patientName.includes(searchLower) || 
-               providerName.includes(searchLower) || 
-               chiefComplaint.includes(searchLower) ||
-               noteType.includes(searchLower);
+        return chiefComplaint.includes(searchLower) || noteType.includes(searchLower);
       });
     }
 
@@ -82,37 +137,36 @@ export class ClinicalNoteService {
   }
 
   async getClinicalNoteById(clinicalNoteId: string) {
-    const clinicalNote = await ClinicalNoteModel.findById(clinicalNoteId)
-      .populate('patientId', 'firstName lastName dateOfBirth')
-      .populate('providerId', 'firstName lastName specialty')
-      .populate('templateId', 'name templateStructure')
-      .populate('signedBy', 'firstName lastName')
-      .populate('lastEditedBy', 'firstName lastName')
-      .lean();
+    const row = await prisma.commlog.findUnique({
+      where: { CommlogNum: BigInt(clinicalNoteId) },
+    });
 
-    if (!clinicalNote) {
+    if (!row) {
       throw new NotFoundError('Clinical note not found');
     }
 
-    return clinicalNote;
+    const meta = parseJson<ClinicalNoteMeta>(row.Note);
+    return this.mapCommlogToClinicalNote(row, meta);
   }
 
   async getClinicalNotesByPatient(patientId: string, page = 1, limit = 10) {
     const skip = (page - 1) * limit;
 
-    const [clinicalNotes, total] = await Promise.all([
-      ClinicalNoteModel.find({ patientId })
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .populate('providerId', 'firstName lastName specialty')
-        .populate('templateId', 'name')
-        .lean(),
-      ClinicalNoteModel.countDocuments({ patientId }),
+    const [rows, total] = await Promise.all([
+      prisma.commlog.findMany({
+        where: { PatNum: BigInt(patientId) },
+        orderBy: { CommDateTime: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.commlog.count({ where: { PatNum: BigInt(patientId) } }),
     ]);
 
     return {
-      clinicalNotes,
+      clinicalNotes: rows.map((row) => {
+        const meta = parseJson<ClinicalNoteMeta>(row.Note);
+        return this.mapCommlogToClinicalNote(row, meta);
+      }),
       pagination: {
         page,
         limit,
@@ -123,14 +177,14 @@ export class ClinicalNoteService {
   }
 
   async getClinicalNoteByAppointment(appointmentId: string) {
-    const clinicalNote = await ClinicalNoteModel.findOne({ appointmentId })
-      .populate('patientId', 'firstName lastName dateOfBirth')
-      .populate('providerId', 'firstName lastName specialty')
-      .populate('templateId', 'name templateStructure')
-      .populate('signedBy', 'firstName lastName')
-      .lean();
+    const row = await prisma.commlog.findFirst({
+      where: { Note: { contains: `"appointmentId":"${appointmentId}"` } },
+      orderBy: { CommDateTime: 'desc' },
+    });
 
-    return clinicalNote;
+    if (!row) return null;
+    const meta = parseJson<ClinicalNoteMeta>(row.Note);
+    return this.mapCommlogToClinicalNote(row, meta);
   }
 
   async createClinicalNote(
@@ -155,45 +209,62 @@ export class ClinicalNoteService {
     },
     userId: string
   ) {
-    if (data.appointmentId) {
-      const existingNote = await ClinicalNoteModel.findOne({
-        patientId: data.patientId,
-        appointmentId: data.appointmentId,
-      }).lean();
+    const existing = await prisma.commlog.findFirst({
+      where: {
+        PatNum: BigInt(data.patientId),
+        Note: { contains: `"appointmentId":"${data.appointmentId}"` },
+      },
+    });
 
-      if (existingNote) {
-        throw new ConflictError('A clinical note already exists for this appointment');
-      }
+    if (existing) {
+      throw new ConflictError('A clinical note already exists for this appointment');
     }
 
-    if (data.templateId) {
-      const template = await NoteTemplateModel.findById(data.templateId).lean();
-      if (!template) {
-        throw new NotFoundError('Note template not found');
-      }
-      if (!template.isActive) {
-        throw new BadRequestError('Selected template is not active');
-      }
-    }
-
-    const clinicalNote = await ClinicalNoteModel.create({
-      ...data,
+    const commlogNum = await getNextId('commlog', 'CommlogNum');
+    const meta: ClinicalNoteMeta = {
+      appointmentId: data.appointmentId,
+      providerId: data.providerId,
+      templateId: data.templateId,
+      noteType: data.noteType ?? 'soap',
+      chiefComplaint: data.chiefComplaint,
+      subjective: data.subjective,
+      objective: data.objective,
+      assessment: data.assessment,
+      plan: data.plan,
+      diagnosisCodes: data.diagnosisCodes,
+      structuredData: data.structuredData,
+      historyOfPresentIllness: data.historyOfPresentIllness,
+      physicalExam: data.physicalExam,
+      attachments: data.attachments ?? [],
+      requiresFollowUp: data.requiresFollowUp ?? false,
+      followUpDate: data.followUpDate ? data.followUpDate.toISOString() : undefined,
+      isSigned: false,
       lastEditedBy: userId,
+    };
+
+    const clinicalNote = await prisma.commlog.create({
+      data: {
+        CommlogNum: commlogNum,
+        PatNum: BigInt(data.patientId),
+        CommDateTime: new Date(),
+        Note: buildJson(meta),
+        UserNum: null,
+      },
     });
 
     await logActivity(
       userId,
       'created',
       'clinical_notes',
-      String(clinicalNote._id),
+      clinicalNote.CommlogNum.toString(),
       undefined,
-      clinicalNote.toObject(),
+      this.mapCommlogToClinicalNote(clinicalNote, meta),
       undefined,
       undefined,
       'medium'
     );
 
-    return clinicalNote;
+    return this.mapCommlogToClinicalNote(clinicalNote, meta);
   }
 
   async updateClinicalNote(
@@ -214,37 +285,53 @@ export class ClinicalNoteService {
     },
     userId: string
   ) {
-    const clinicalNote = await ClinicalNoteModel.findById(clinicalNoteId);
+    const clinicalNote = await prisma.commlog.findUnique({
+      where: { CommlogNum: BigInt(clinicalNoteId) },
+    });
     if (!clinicalNote) {
       throw new NotFoundError('Clinical note not found');
     }
 
-    if (clinicalNote.isSigned) {
+    const meta = parseJson<ClinicalNoteMeta>(clinicalNote.Note);
+    if (meta.isSigned) {
       throw new BadRequestError('Cannot edit a signed clinical note');
     }
 
-    const oldData = clinicalNote.toObject();
-
-    Object.assign(clinicalNote, {
-      ...updates,
+    const nextMeta: ClinicalNoteMeta = {
+      ...meta,
+      chiefComplaint: updates.chiefComplaint ?? meta.chiefComplaint,
+      subjective: updates.subjective ?? meta.subjective,
+      objective: updates.objective ?? meta.objective,
+      assessment: updates.assessment ?? meta.assessment,
+      plan: updates.plan ?? meta.plan,
+      diagnosisCodes: updates.diagnosisCodes ?? meta.diagnosisCodes,
+      structuredData: updates.structuredData ?? meta.structuredData,
+      historyOfPresentIllness: updates.historyOfPresentIllness ?? meta.historyOfPresentIllness,
+      physicalExam: updates.physicalExam ?? meta.physicalExam,
+      attachments: updates.attachments ?? meta.attachments,
+      requiresFollowUp: updates.requiresFollowUp ?? meta.requiresFollowUp,
+      followUpDate: updates.followUpDate ? updates.followUpDate.toISOString() : meta.followUpDate,
       lastEditedBy: userId,
-    });
+    };
 
-    await clinicalNote.save();
+    const updated = await prisma.commlog.update({
+      where: { CommlogNum: BigInt(clinicalNoteId) },
+      data: { Note: buildJson(nextMeta) },
+    });
 
     await logActivity(
       userId,
       'updated',
       'clinical_notes',
       clinicalNoteId,
-      oldData,
-      clinicalNote.toObject(),
+      this.mapCommlogToClinicalNote(clinicalNote, meta),
+      this.mapCommlogToClinicalNote(updated, nextMeta),
       undefined,
       undefined,
       'medium'
     );
 
-    return clinicalNote;
+    return this.mapCommlogToClinicalNote(updated, nextMeta);
   }
 
   async saveDraft(
@@ -262,154 +349,157 @@ export class ClinicalNoteService {
     },
     userId: string
   ) {
-    const clinicalNote = await ClinicalNoteModel.findById(clinicalNoteId);
-    if (!clinicalNote) {
-      throw new NotFoundError('Clinical note not found');
-    }
-
-    if (clinicalNote.isSigned) {
-      throw new BadRequestError('Cannot save draft of a signed clinical note');
-    }
-
-    Object.assign(clinicalNote, {
-      ...draftData,
-      lastEditedBy: userId,
-    });
-
-    await clinicalNote.save();
-
-    return clinicalNote;
+    return this.updateClinicalNote(clinicalNoteId, draftData, userId);
   }
 
   async signClinicalNote(clinicalNoteId: string, userId: string) {
-    const clinicalNote = await ClinicalNoteModel.findById(clinicalNoteId);
+    const clinicalNote = await prisma.commlog.findUnique({
+      where: { CommlogNum: BigInt(clinicalNoteId) },
+    });
     if (!clinicalNote) {
       throw new NotFoundError('Clinical note not found');
     }
 
-    if (clinicalNote.isSigned) {
+    const meta = parseJson<ClinicalNoteMeta>(clinicalNote.Note);
+    if (meta.isSigned) {
       throw new BadRequestError('Clinical note is already signed');
     }
 
-    const noteObj = clinicalNote.toObject() as any;
-    if (!noteObj.subjective && !noteObj.objective && !noteObj.assessment && !noteObj.plan) {
+    if (!meta.subjective && !meta.objective && !meta.assessment && !meta.plan) {
       throw new ValidationError('Cannot sign an empty clinical note. At least one SOAP section must be completed.');
     }
 
-    const oldData = clinicalNote.toObject();
+    const nextMeta: ClinicalNoteMeta = {
+      ...meta,
+      isSigned: true,
+      signedAt: new Date().toISOString(),
+      signedBy: userId,
+    };
 
-    (clinicalNote as any).isSigned = true;
-    (clinicalNote as any).signedAt = new Date();
-    (clinicalNote as any).signedBy = userId;
-
-    await clinicalNote.save();
+    const updated = await prisma.commlog.update({
+      where: { CommlogNum: BigInt(clinicalNoteId) },
+      data: { Note: buildJson(nextMeta) },
+    });
 
     await logActivity(
       userId,
       'updated',
       'clinical_notes',
       clinicalNoteId,
-      oldData,
-      clinicalNote.toObject(),
+      this.mapCommlogToClinicalNote(clinicalNote, meta),
+      this.mapCommlogToClinicalNote(updated, nextMeta),
       undefined,
       undefined,
       'high'
     );
 
-    return clinicalNote;
+    return this.mapCommlogToClinicalNote(updated, nextMeta);
   }
 
   async addAttachment(clinicalNoteId: string, attachmentUrl: string, userId: string) {
-    const clinicalNote = await ClinicalNoteModel.findById(clinicalNoteId);
+    const clinicalNote = await prisma.commlog.findUnique({
+      where: { CommlogNum: BigInt(clinicalNoteId) },
+    });
     if (!clinicalNote) {
       throw new NotFoundError('Clinical note not found');
     }
 
-    const noteObj = clinicalNote.toObject() as any;
-    if (noteObj.isSigned) {
+    const meta = parseJson<ClinicalNoteMeta>(clinicalNote.Note);
+    if (meta.isSigned) {
       throw new BadRequestError('Cannot add attachments to a signed clinical note');
     }
 
-    const oldData = clinicalNote.toObject();
-
-    const attachments = noteObj.attachments || [];
+    const attachments = meta.attachments ?? [];
     attachments.push(attachmentUrl);
-    (clinicalNote as any).attachments = attachments;
-    (clinicalNote as any).lastEditedBy = userId;
 
-    await clinicalNote.save();
+    const nextMeta: ClinicalNoteMeta = {
+      ...meta,
+      attachments,
+      lastEditedBy: userId,
+    };
+
+    const updated = await prisma.commlog.update({
+      where: { CommlogNum: BigInt(clinicalNoteId) },
+      data: { Note: buildJson(nextMeta) },
+    });
 
     await logActivity(
       userId,
       'updated',
       'clinical_notes',
       clinicalNoteId,
-      oldData,
-      clinicalNote.toObject(),
+      this.mapCommlogToClinicalNote(clinicalNote, meta),
+      this.mapCommlogToClinicalNote(updated, nextMeta),
       undefined,
       'Attachment added to clinical note',
       'low'
     );
 
-    return clinicalNote;
+    return this.mapCommlogToClinicalNote(updated, nextMeta);
   }
 
   async removeAttachment(clinicalNoteId: string, attachmentUrl: string, userId: string) {
-    const clinicalNote = await ClinicalNoteModel.findById(clinicalNoteId);
+    const clinicalNote = await prisma.commlog.findUnique({
+      where: { CommlogNum: BigInt(clinicalNoteId) },
+    });
     if (!clinicalNote) {
       throw new NotFoundError('Clinical note not found');
     }
 
-    const noteObj = clinicalNote.toObject() as any;
-    if (noteObj.isSigned) {
+    const meta = parseJson<ClinicalNoteMeta>(clinicalNote.Note);
+    if (meta.isSigned) {
       throw new BadRequestError('Cannot remove attachments from a signed clinical note');
     }
 
-    const oldData = clinicalNote.toObject();
+    const attachments = (meta.attachments ?? []).filter((a: string) => a !== attachmentUrl);
 
-    const attachments = (noteObj.attachments || []).filter(
-      (a: string) => a !== attachmentUrl
-    );
-    (clinicalNote as any).attachments = attachments;
-    (clinicalNote as any).lastEditedBy = userId;
+    const nextMeta: ClinicalNoteMeta = {
+      ...meta,
+      attachments,
+      lastEditedBy: userId,
+    };
 
-    await clinicalNote.save();
+    const updated = await prisma.commlog.update({
+      where: { CommlogNum: BigInt(clinicalNoteId) },
+      data: { Note: buildJson(nextMeta) },
+    });
 
     await logActivity(
       userId,
       'updated',
       'clinical_notes',
       clinicalNoteId,
-      oldData,
-      clinicalNote.toObject(),
+      this.mapCommlogToClinicalNote(clinicalNote, meta),
+      this.mapCommlogToClinicalNote(updated, nextMeta),
       undefined,
       'Attachment removed from clinical note',
       'low'
     );
 
-    return clinicalNote;
+    return this.mapCommlogToClinicalNote(updated, nextMeta);
   }
 
   async deleteClinicalNote(clinicalNoteId: string, userId: string) {
-    const clinicalNote = await ClinicalNoteModel.findById(clinicalNoteId);
+    const clinicalNote = await prisma.commlog.findUnique({
+      where: { CommlogNum: BigInt(clinicalNoteId) },
+    });
     if (!clinicalNote) {
       throw new NotFoundError('Clinical note not found');
     }
 
-    if (clinicalNote.isSigned) {
+    const meta = parseJson<ClinicalNoteMeta>(clinicalNote.Note);
+    if (meta.isSigned) {
       throw new BadRequestError('Cannot delete a signed clinical note');
     }
 
-    const oldData = clinicalNote.toObject();
-
-    await ClinicalNoteModel.deleteOne({ _id: clinicalNoteId });
+    await prisma.commlog.delete({ where: { CommlogNum: BigInt(clinicalNoteId) } });
 
     await logActivity(
       userId,
       'deleted',
       'clinical_notes',
       clinicalNoteId,
-      oldData,
+      this.mapCommlogToClinicalNote(clinicalNote, meta),
       undefined,
       undefined,
       undefined,
@@ -420,16 +510,15 @@ export class ClinicalNoteService {
   }
 
   async getUnsignedNotesByProvider(providerId: string) {
-    const unsignedNotes = await ClinicalNoteModel.find({
-      providerId,
-      isSigned: false,
-    })
-      .sort({ createdAt: -1 })
-      .populate('patientId', 'firstName lastName')
-      .populate('appointmentId', 'appointmentDate')
-      .lean();
+    const rows = await prisma.commlog.findMany({});
+    const notes = rows
+      .map((row) => {
+        const meta = parseJson<ClinicalNoteMeta>(row.Note);
+        return this.mapCommlogToClinicalNote(row, meta);
+      })
+      .filter((note: any) => note.providerId === providerId && !note.isSigned);
 
-    return unsignedNotes;
+    return notes;
   }
 
   async createNoteFromTemplate(
@@ -452,59 +541,18 @@ export class ClinicalNoteService {
     },
     userId: string
   ) {
-    const template = await NoteTemplateModel.findById(templateId).lean();
-    if (!template) {
-      throw new NotFoundError('Note template not found');
-    }
-
-    if (!template.isActive) {
-      throw new BadRequestError('Selected template is not active');
-    }
-
-    const existingNote = await ClinicalNoteModel.findOne({
-      patientId: data.patientId,
-      appointmentId: data.appointmentId,
-    }).lean();
-
-    if (existingNote) {
-      throw new ConflictError('A clinical note already exists for this appointment');
-    }
-
-    const defaultContent = (template.defaultContent as any) || {};
-
-    const clinicalNote = await ClinicalNoteModel.create({
-      patientId: data.patientId,
-      appointmentId: data.appointmentId,
-      providerId: data.providerId,
-      templateId: templateId,
-      noteType: data.noteType || 'soap',
-      chiefComplaint: data.chiefComplaint,
-      subjective: data.subjective || defaultContent.subjective || '',
-      objective: data.objective || defaultContent.objective || '',
-      assessment: data.assessment || defaultContent.assessment || '',
-      plan: data.plan || defaultContent.plan || '',
-      historyOfPresentIllness: data.historyOfPresentIllness,
-      physicalExam: data.physicalExam,
-      diagnosisCodes: data.diagnosisCodes,
-      requiresFollowUp: data.requiresFollowUp,
-      followUpDate: data.followUpDate,
-      structuredData: template.templateStructure,
-      lastEditedBy: userId,
-    });
-
-    await logActivity(
-      userId,
-      'created',
-      'clinical_notes',
-      String(clinicalNote._id),
-      undefined,
-      clinicalNote.toObject(),
-      undefined,
-      `Created from template: ${template.name}`,
-      'medium'
+    return this.createClinicalNote(
+      {
+        ...data,
+        templateId,
+        noteType: data.noteType ?? 'soap',
+        subjective: data.subjective ?? '',
+        objective: data.objective ?? '',
+        assessment: data.assessment ?? '',
+        plan: data.plan ?? '',
+      },
+      userId
     );
-
-    return clinicalNote;
   }
 
   async getPatientMedicalHistory(
@@ -537,211 +585,219 @@ export class ClinicalNoteService {
 
     const dateFilter: any = {};
     if (startDate || endDate) {
-      if (startDate) dateFilter.$gte = startDate;
-      if (endDate) dateFilter.$lte = endDate;
+      if (startDate) dateFilter.gte = startDate;
+      if (endDate) dateFilter.lte = endDate;
     }
 
-    const historyData: any = {
-      patientId,
-    };
-
-    const promises: Promise<any>[] = [];
+    const historyData: any = { patientId };
 
     if (includeAllergies) {
-      promises.push(
-        AllergyModel.find({ patientId, isActive: true })
-          .sort({ documentedDate: -1 })
-          .limit(limit)
-          .populate('documentedBy', 'firstName lastName')
-          .lean()
-          .then((allergies) => {
-            historyData.allergies = allergies;
-          })
-      );
+      const allergies = await prisma.allergy.findMany({
+        where: { PatNum: BigInt(patientId) },
+        take: limit,
+        orderBy: { AllergyNum: 'desc' },
+        include: { allergydef: true },
+      });
+      historyData.allergies = allergies.map((allergy) => ({
+        _id: allergy.AllergyNum.toString(),
+        patientId,
+        allergen: allergy.allergydef?.Description ?? 'Allergy',
+        reaction: null,
+        severity: 'mild',
+        isActive: true,
+        documentedBy: null,
+        documentedDate: null,
+      }));
     }
 
     if (includeVitals) {
-      const vitalQuery: any = { patientId };
-      if (startDate || endDate) {
-        vitalQuery.recordedDate = dateFilter;
-      }
-      promises.push(
-        VitalSignModel.find(vitalQuery)
-          .sort({ recordedDate: -1 })
-          .limit(limit)
-          .populate('appointmentId', 'appointmentDate')
-          .populate('recordedBy', 'firstName lastName')
-          .lean()
-          .then((vitals) => {
-            historyData.vitals = vitals;
-          })
-      );
+      const vitals = await prisma.vitalsign.findMany({
+        where: {
+          PatNum: BigInt(patientId),
+          ...(Object.keys(dateFilter).length ? { DateTaken: dateFilter } : {}),
+        },
+        orderBy: { DateTaken: 'desc' },
+        take: limit,
+      });
+      historyData.vitals = vitals.map((vital) => ({
+        _id: vital.VitalsignNum.toString(),
+        patientId,
+        recordedDate: vital.DateTaken ?? null,
+        weight: vital.Weight ?? null,
+        height: vital.Height ?? null,
+        bloodPressureSystolic: vital.BpSystolic ?? null,
+        bloodPressureDiastolic: vital.BpDiastolic ?? null,
+        heartRate: vital.Pulse ?? null,
+      }));
     }
 
     if (includePrescriptions) {
-      const prescriptionQuery: any = { patientId };
-      if (startDate || endDate) {
-        prescriptionQuery.prescribedDate = dateFilter;
-      }
-      promises.push(
-        PrescriptionModel.find(prescriptionQuery)
-          .sort({ prescribedDate: -1 })
-          .limit(limit)
-          .populate('providerId', 'firstName lastName specialty')
-          .populate('medicationId', 'name genericName')
-          .populate('appointmentId', 'appointmentDate')
-          .lean()
-          .then((prescriptions) => {
-            historyData.prescriptions = prescriptions;
-          })
-      );
+      const prescriptions = await prisma.rxpat.findMany({
+        where: {
+          PatNum: BigInt(patientId),
+          ...(Object.keys(dateFilter).length ? { RxDate: dateFilter } : {}),
+        },
+        orderBy: { RxDate: 'desc' },
+        take: limit,
+      });
+      historyData.prescriptions = prescriptions.map((rx) => ({
+        _id: rx.RxNum.toString(),
+        patientId,
+        providerId: rx.ProvNum?.toString() ?? null,
+        appointmentId: null,
+        medicationId: rx.RxCui ? String(rx.RxCui) : null,
+        dosage: rx.Disp ?? null,
+        quantity: null,
+        refillsAllowed: rx.Refills ? Number.parseInt(rx.Refills, 10) || 0 : 0,
+        refillsRemaining: null,
+        prescribedDate: rx.RxDate ?? null,
+        expirationDate: null,
+        status: 'active',
+        instructions: rx.PatientInstruction ?? rx.Sig ?? null,
+        pharmacyName: rx.ErxPharmacyInfo ?? null,
+        pharmacyPhone: null,
+        isElectronic: rx.IsErxOld ? false : true,
+        createdBy: rx.UserNum?.toString() ?? null,
+      }));
     }
 
     if (includeLabOrders) {
-      const labOrderQuery: any = { patientId };
-      if (startDate || endDate) {
-        labOrderQuery.orderedDate = dateFilter;
-      }
-      promises.push(
-        LabOrderModel.find(labOrderQuery)
-          .sort({ orderedDate: -1 })
-          .limit(limit)
-          .populate('providerId', 'firstName lastName specialty')
-          .populate('appointmentId', 'appointmentDate')
-          .lean()
-          .then((labOrders) => {
-            historyData.labOrders = labOrders;
-          })
-      );
+      const labPanels = await prisma.labpanel.findMany({
+        where: {
+          PatNum: BigInt(patientId),
+          ...(Object.keys(dateFilter).length ? { DateTStamp: dateFilter } : {}),
+        },
+        orderBy: { DateTStamp: 'desc' },
+        take: limit,
+      });
+      historyData.labOrders = labPanels.map((panel) => ({
+        _id: panel.LabPanelNum.toString(),
+        patientId,
+        providerId: null,
+        appointmentId: null,
+        orderNumber: panel.LabPanelNum.toString(),
+        orderType: panel.ServiceName ?? 'Lab Panel',
+        testsRequested: panel.ServiceId ? [panel.ServiceId] : [],
+        priority: 'routine',
+        status: 'ordered',
+        orderedDate: panel.DateTStamp ?? null,
+        dueDate: null,
+        collectionDate: null,
+        labFacility: panel.LabNameAddress ?? null,
+        instructions: panel.RawMessage ?? null,
+        fastingRequired: false,
+        createdBy: null,
+      }));
     }
 
     if (includeLabResults) {
-      const labResultQuery: any = { patientId };
-      if (startDate || endDate) {
-        labResultQuery.resultDate = dateFilter;
-      }
-      promises.push(
-        LabResultModel.find(labResultQuery)
-          .sort({ resultDate: -1 })
-          .limit(limit)
-          .populate('labOrderId', 'orderNumber orderType')
-          .populate('reviewedBy', 'firstName lastName')
-          .lean()
-          .then((labResults) => {
-            historyData.labResults = labResults;
-          })
-      );
+      const labResults = await prisma.labresult.findMany({
+        where: {
+          ...(Object.keys(dateFilter).length ? { DateTimeTest: dateFilter } : {}),
+          labpanel: {
+            PatNum: BigInt(patientId),
+          },
+        },
+        orderBy: { DateTimeTest: 'desc' },
+        take: limit,
+      });
+      historyData.labResults = labResults.map((result) => ({
+        _id: result.LabResultNum.toString(),
+        labOrderId: result.LabPanelNum?.toString() ?? null,
+        patientId,
+        testName: result.TestName ?? 'Lab Result',
+        resultValue: result.ObsValue ?? '',
+        normalRange: result.ObsRange ?? null,
+        units: result.ObsUnits ?? null,
+        status: result.AbnormalFlag ? 'abnormal' : 'normal',
+        resultDate: result.DateTimeTest ?? null,
+        providerNotes: null,
+        patientNotified: false,
+        notificationDate: null,
+        reviewedBy: null,
+        reviewedDate: null,
+      }));
     }
 
     if (includeDocuments) {
-      const documentQuery: any = { patientId };
-      if (startDate || endDate) {
-        documentQuery.createdAt = dateFilter;
-      }
-      promises.push(
-        DocumentModel.find(documentQuery)
-          .sort({ createdAt: -1 })
-          .limit(limit)
-          .populate('uploadedBy', 'firstName lastName')
-          .populate('appointmentId', 'appointmentDate')
-          .lean()
-          .then((documents) => {
-            historyData.documents = documents;
-          })
-      );
+      const documents = await prisma.document.findMany({
+        where: {
+          PatNum: BigInt(patientId),
+          ...(Object.keys(dateFilter).length ? { DateCreated: dateFilter } : {}),
+        },
+        orderBy: { DateCreated: 'desc' },
+        take: limit,
+      });
+      historyData.documents = documents.map((doc) => ({
+        _id: doc.DocNum.toString(),
+        patientId,
+        appointmentId: null,
+        documentName: doc.Description ?? doc.FileName ?? 'Document',
+        documentType: 'other',
+        storagePath: doc.FileName ?? null,
+        fileSizeInBytes: null,
+        mimeType: null,
+        description: doc.Note ?? null,
+        isConfidential: false,
+        expirationDate: null,
+        ocrText: doc.OcrResponseData ?? null,
+        uploadedBy: doc.UserNum?.toString() ?? null,
+        checksum: doc.ChartLetterHash ?? null,
+        tags: [],
+        createdAt: doc.DateCreated ?? null,
+      }));
     }
 
     if (includeNotes) {
-      const notesQuery: any = { patientId };
-      if (startDate || endDate) {
-        notesQuery.createdAt = dateFilter;
-      }
-      promises.push(
-        ClinicalNoteModel.find(notesQuery)
-          .sort({ createdAt: -1 })
-          .limit(limit)
-          .populate('providerId', 'firstName lastName specialty')
-          .populate('appointmentId', 'appointmentDate')
-          .populate('templateId', 'name')
-          .populate('signedBy', 'firstName lastName')
-          .lean()
-          .then((notes) => {
-            historyData.clinicalNotes = notes;
-          })
-      );
+      const notes = await prisma.commlog.findMany({
+        where: {
+          PatNum: BigInt(patientId),
+          ...(Object.keys(dateFilter).length ? { CommDateTime: dateFilter } : {}),
+        },
+        orderBy: { CommDateTime: 'desc' },
+        take: limit,
+      });
+      historyData.clinicalNotes = notes.map((note) => {
+        const meta = parseJson<ClinicalNoteMeta>(note.Note);
+        return this.mapCommlogToClinicalNote(note, meta);
+      });
     }
-
-    await Promise.all(promises);
 
     const timeline: any[] = [];
 
     if (historyData.allergies) {
       historyData.allergies.forEach((allergy: any) => {
-        timeline.push({
-          type: 'allergy',
-          date: allergy.documentedDate,
-          data: allergy,
-        });
+        timeline.push({ type: 'allergy', date: allergy.documentedDate, data: allergy });
       });
     }
-
     if (historyData.vitals) {
       historyData.vitals.forEach((vital: any) => {
-        timeline.push({
-          type: 'vital',
-          date: vital.recordedDate,
-          data: vital,
-        });
+        timeline.push({ type: 'vital', date: vital.recordedDate, data: vital });
       });
     }
-
     if (historyData.prescriptions) {
       historyData.prescriptions.forEach((prescription: any) => {
-        timeline.push({
-          type: 'prescription',
-          date: prescription.prescribedDate,
-          data: prescription,
-        });
+        timeline.push({ type: 'prescription', date: prescription.prescribedDate, data: prescription });
       });
     }
-
     if (historyData.labOrders) {
       historyData.labOrders.forEach((labOrder: any) => {
-        timeline.push({
-          type: 'labOrder',
-          date: labOrder.orderedDate,
-          data: labOrder,
-        });
+        timeline.push({ type: 'labOrder', date: labOrder.orderedDate, data: labOrder });
       });
     }
-
     if (historyData.labResults) {
       historyData.labResults.forEach((labResult: any) => {
-        timeline.push({
-          type: 'labResult',
-          date: labResult.resultDate,
-          data: labResult,
-        });
+        timeline.push({ type: 'labResult', date: labResult.resultDate, data: labResult });
       });
     }
-
     if (historyData.documents) {
       historyData.documents.forEach((document: any) => {
-        timeline.push({
-          type: 'document',
-          date: document.createdAt,
-          data: document,
-        });
+        timeline.push({ type: 'document', date: document.createdAt, data: document });
       });
     }
-
     if (historyData.clinicalNotes) {
       historyData.clinicalNotes.forEach((note: any) => {
-        timeline.push({
-          type: 'clinicalNote',
-          date: note.createdAt,
-          data: note,
-        });
+        timeline.push({ type: 'clinicalNote', date: note.createdAt, data: note });
       });
     }
 

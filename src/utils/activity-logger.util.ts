@@ -1,14 +1,7 @@
-import { SecurityEventModel } from '../models/security-event.model';
-import { AuditLogModel } from '../models/audit-log.model';
 import type { Request } from 'express';
+import { prisma } from '../config/db';
+import { getNextId } from './opendental-ids.util';
 
-/**
- * Utility functions for logging user activities and security events
- */
-
-/**
- * Get client IP address from request
- */
 export const getClientIp = (req: Request): string => {
   return (
     (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
@@ -18,16 +11,27 @@ export const getClientIp = (req: Request): string => {
   );
 };
 
-/**
- * Get user agent from request
- */
 export const getUserAgent = (req: Request): string => {
   return req.headers['user-agent'] || 'unknown';
 };
 
-/**
- * Log a security event (login, password change, etc.)
- */
+const writeSecurityLog = async (userId: string | null, logText: string) => {
+  try {
+    const logNum = await getNextId('securitylog', 'SecurityLogNum');
+    await prisma.securitylog.create({
+      data: {
+        SecurityLogNum: logNum,
+        UserNum: userId ? BigInt(userId) : null,
+        LogDateTime: new Date(),
+        LogText: logText,
+        LogSource: 1,
+      },
+    });
+  } catch (error) {
+    console.error('Error logging activity:', error);
+  }
+};
+
 export const logSecurityEvent = async (
   userId: string | null,
   eventType: 'login_success' | 'login_failure' | 'password_change' | 'password_reset' | 'session_end',
@@ -35,24 +39,17 @@ export const logSecurityEvent = async (
   ipAddress?: string,
   riskLevel: 'low' | 'medium' | 'high' = 'low'
 ): Promise<void> => {
-  try {
-    await SecurityEventModel.create({
-      userId: userId || undefined,
-      eventType,
-      description,
-      ipAddress,
-      riskLevel,
-      occurredAt: new Date(),
-    });
-  } catch (error) {
-    // Don't throw - logging should not break the main flow
-    console.error('Error logging security event:', error);
-  }
+  const payload = JSON.stringify({
+    type: 'security_event',
+    eventType,
+    description,
+    ipAddress,
+    riskLevel,
+    occurredAt: new Date().toISOString(),
+  });
+  await writeSecurityLog(userId, payload);
 };
 
-/**
- * Log user activity (audit log)
- */
 export const logActivity = async (
   userId: string,
   action: 'created' | 'updated' | 'deleted' | 'viewed',
@@ -64,27 +61,21 @@ export const logActivity = async (
   userAgent?: string,
   riskLevel: 'low' | 'medium' | 'high' = 'low'
 ): Promise<void> => {
-  try {
-    await AuditLogModel.create({
-      userId,
-      action,
-      tableName,
-      recordId,
-      oldValues,
-      newValues,
-      ipAddress,
-      userAgent,
-      riskLevel,
-    });
-  } catch (error) {
-    // Don't throw - logging should not break the main flow
-    console.error('Error logging activity:', error);
-  }
+  const payload = JSON.stringify({
+    type: 'activity',
+    action,
+    tableName,
+    recordId,
+    oldValues,
+    newValues,
+    ipAddress,
+    userAgent,
+    riskLevel,
+    occurredAt: new Date().toISOString(),
+  });
+  await writeSecurityLog(userId, payload);
 };
 
-/**
- * Log activity from Express request
- */
 export const logActivityFromRequest = async (
   req: Request,
   action: 'created' | 'updated' | 'deleted' | 'viewed',
@@ -108,4 +99,3 @@ export const logActivityFromRequest = async (
     getUserAgent(req)
   );
 };
-

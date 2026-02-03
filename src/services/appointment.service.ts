@@ -1,34 +1,61 @@
-import { AppointmentModel } from '../models/appointment.model';
-import { ProviderModel } from '../models/provider.model';
-import { AppointmentTypeModel } from '../models/appointment-type.model';
-import { PatientModel } from '../models/patient.model';
+import { prisma } from '../config/db';
 import { NotFoundError, ConflictError, BadRequestError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
+import { getNextId } from '../utils/opendental-ids.util';
+import {
+  mapAppointmentStatusToDb,
+  mapAppointmentToApi,
+  mapAppointmentStatusFromDb,
+  mapProviderToApi,
+} from '../utils/opendental-mappers.util';
 
 /**
  * Generate unique appointment code (e.g., APT001, APT002, etc.)
  */
 async function generateAppointmentCode(): Promise<string> {
-  const lastAppointment = await AppointmentModel.findOne()
-    .sort({ appointmentCode: -1 })
-    .select('appointmentCode')
-    .lean();
-
-  if (!lastAppointment || !lastAppointment.appointmentCode) {
-    return 'APT001';
-  }
-
-  const appointmentCodeStr = String(lastAppointment.appointmentCode || '');
-  const match = appointmentCodeStr.match(/\d+$/);
-  if (!match) {
-    return 'APT001';
-  }
-
-  const lastNumber = parseInt(match[0], 10);
-  const nextNumber = lastNumber + 1;
-
-  return `APT${nextNumber.toString().padStart(3, '0')}`;
+  const nextId = await getNextId('appointment', 'AptNum');
+  return `APT${nextId.toString().padStart(3, '0')}`;
 }
+
+const parseTimeToMinutes = (timeStr: string): number => {
+  const parts = timeStr.split(':').map(Number);
+  const hours = parts[0] ?? 0;
+  const minutes = parts[1] ?? 0;
+  return hours * 60 + minutes;
+};
+
+const formatMinutesToTime = (totalMinutes: number): string => {
+  const hours = Math.floor(totalMinutes / 60) % 24;
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+};
+
+const getStartOfDay = (date: Date): Date => {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+const getEndOfDay = (date: Date): Date => {
+  const d = new Date(date);
+  d.setHours(23, 59, 59, 999);
+  return d;
+};
+
+const getDurationMinutesFromPattern = (pattern?: string | null): number => {
+  if (!pattern) return 30;
+  const parsed = Number.parseInt(pattern, 10);
+  return Number.isFinite(parsed) ? parsed : 30;
+};
+
+const toDateTime = (date: Date, time: string): Date => {
+  const [hoursStr, minutesStr] = time.split(':');
+  const hours = Number(hoursStr ?? 0);
+  const minutes = Number(minutesStr ?? 0);
+  const dt = new Date(date);
+  dt.setHours(hours, minutes, 0, 0);
+  return dt;
+};
 
 /**
  * Check for appointment conflicts
@@ -43,126 +70,67 @@ async function checkConflicts(
   appointmentTypeId?: string,
   roomId?: string
 ): Promise<{ hasConflict: boolean; conflictingAppointments: any[]; conflictType?: string }> {
-  // Ensure appointmentDate is a Date object
-  const dateObj = appointmentDate instanceof Date
-    ? new Date(appointmentDate)
-    : new Date(appointmentDate);
+  const dateObj = appointmentDate instanceof Date ? new Date(appointmentDate) : new Date(appointmentDate);
+  const startOfDay = getStartOfDay(dateObj);
+  const endOfDay = getEndOfDay(dateObj);
 
-  const startOfDay = new Date(dateObj);
-  startOfDay.setHours(0, 0, 0, 0);
+  const newStart = parseTimeToMinutes(startTime);
+  const newEnd = parseTimeToMinutes(endTime);
 
-  const endOfDay = new Date(dateObj);
-  endOfDay.setHours(23, 59, 59, 999);
-
-  // Get provider buffer time
-  const provider = await ProviderModel.findById(providerId).lean();
-  const providerBufferValue = provider?.appointmentBufferMinutes as any;
-  const providerBuffer = Number(providerBufferValue) || 0;
-
-  // Get buffer times from appointment type if provided
-  let bufferBefore: number = 0;
-  let bufferAfter: number = 0;
-  if (appointmentTypeId) {
-    const appointmentType = await AppointmentTypeModel.findById(appointmentTypeId).lean();
-    if (appointmentType) {
-      const bufferBeforeValue = appointmentType.bufferBefore as any;
-      const bufferAfterValue = appointmentType.bufferAfter as any;
-      bufferBefore = Number(bufferBeforeValue) || 0;
-      bufferAfter = Number(bufferAfterValue) || 0;
-    }
-  }
-
-  // Parse time strings (format: "HH:MM")
-  const parseTime = (timeStr: string): number => {
-    const parts = timeStr.split(':').map(Number);
-    const hours = parts[0] ?? 0;
-    const minutes = parts[1] ?? 0;
-    return hours * 60 + minutes; // Convert to minutes since midnight
+  const providerWhere: any = {
+    ProvNum: BigInt(providerId),
+    AptDateTime: { gte: startOfDay, lt: endOfDay },
+    AptStatus: { notIn: [3, 4] },
   };
-
-  const newStart = parseTime(startTime) - bufferBefore; // Apply buffer before
-  const bufferAfterNum = Number(bufferAfter) || 0;
-  const providerBufferNum = Number(providerBuffer) || 0;
-  const newEnd = parseTime(endTime) + bufferAfterNum + providerBufferNum; // Apply buffer after + provider buffer
-
-  // Check provider conflicts
-  const providerQuery: any = {
-    providerId,
-    appointmentDate: {
-      $gte: startOfDay,
-      $lt: endOfDay,
-    },
-    status: { $nin: ['cancelled', 'no_show'] },
-  };
-
   if (excludeAppointmentId) {
-    providerQuery._id = { $ne: excludeAppointmentId };
+    providerWhere.AptNum = { not: BigInt(excludeAppointmentId) };
   }
 
-  const appointments = await AppointmentModel.find(providerQuery)
-    .populate('appointmentTypeId', 'bufferBefore bufferAfter')
-    .populate('providerId', 'appointmentBufferMinutes')
-    .lean();
+  const providerAppointments = await prisma.appointment.findMany({
+    where: providerWhere,
+  });
 
   const conflictingAppointments: any[] = [];
 
-  // Check for provider time conflicts (with buffers)
-  appointments.forEach((apt) => {
-    const aptType = apt.appointmentTypeId as any;
-    const aptProvider = apt.providerId as any;
-    const aptBufferBefore = aptType?.bufferBefore || 0;
-    const aptBufferAfter = aptType?.bufferAfter || 0;
-    const aptProviderBuffer = aptProvider?.appointmentBufferMinutes || 0;
-    const aptStart = parseTime(String(apt.startTime)) - aptBufferBefore;
-    const aptEnd = parseTime(String(apt.endTime)) + aptBufferAfter + aptProviderBuffer;
-
-    // Check for overlap (including buffers)
+  providerAppointments.forEach((apt) => {
+    if (!apt.AptDateTime) return;
+    const aptStart = parseTimeToMinutes(formatMinutesToTime(
+      apt.AptDateTime.getHours() * 60 + apt.AptDateTime.getMinutes()
+    ));
+    const duration = getDurationMinutesFromPattern(apt.Pattern);
+    const aptEnd = aptStart + duration;
     if (!(newEnd <= aptStart || newStart >= aptEnd)) {
       conflictingAppointments.push({
-        ...apt,
+        apt,
         conflictType: 'provider_time',
       });
     }
   });
 
-  // Check for room conflicts if roomId is provided
   if (roomId) {
-    const roomQuery: any = {
-      roomId,
-      appointmentDate: {
-        $gte: startOfDay,
-        $lt: endOfDay,
-      },
-      status: { $nin: ['cancelled', 'no_show'] },
+    const roomWhere: any = {
+      Op: BigInt(roomId),
+      AptDateTime: { gte: startOfDay, lt: endOfDay },
+      AptStatus: { notIn: [3, 4] },
     };
-
     if (excludeAppointmentId) {
-      roomQuery._id = { $ne: excludeAppointmentId };
+      roomWhere.AptNum = { not: BigInt(excludeAppointmentId) };
     }
 
-    const roomAppointments = await AppointmentModel.find(roomQuery)
-      .populate('appointmentTypeId', 'bufferBefore bufferAfter')
-      .populate('providerId', 'appointmentBufferMinutes')
-      .lean();
+    const roomAppointments = await prisma.appointment.findMany({
+      where: roomWhere,
+    });
 
     roomAppointments.forEach((apt) => {
-      // Skip if already in conflictingAppointments (same appointment)
-      if (conflictingAppointments.some(c => c._id.toString() === apt._id.toString())) {
-        return;
-      }
-
-      const aptType = apt.appointmentTypeId as any;
-      const aptProvider = apt.providerId as any;
-      const aptBufferBefore = aptType?.bufferBefore || 0;
-      const aptBufferAfter = aptType?.bufferAfter || 0;
-      const aptProviderBuffer = aptProvider?.appointmentBufferMinutes || 0;
-      const aptStart = parseTime(String(apt.startTime)) - aptBufferBefore;
-      const aptEnd = parseTime(String(apt.endTime)) + aptBufferAfter + aptProviderBuffer;
-
-      // Check for overlap (including buffers)
+      if (!apt.AptDateTime) return;
+      const aptStart = parseTimeToMinutes(formatMinutesToTime(
+        apt.AptDateTime.getHours() * 60 + apt.AptDateTime.getMinutes()
+      ));
+      const duration = getDurationMinutesFromPattern(apt.Pattern);
+      const aptEnd = aptStart + duration;
       if (!(newEnd <= aptStart || newStart >= aptEnd)) {
         conflictingAppointments.push({
-          ...apt,
+          apt,
           conflictType: 'room',
         });
       }
@@ -172,9 +140,7 @@ async function checkConflicts(
   return {
     hasConflict: conflictingAppointments.length > 0,
     conflictingAppointments,
-    conflictType: conflictingAppointments.length > 0
-      ? conflictingAppointments[0].conflictType
-      : undefined,
+    conflictType: conflictingAppointments.length > 0 ? conflictingAppointments[0].conflictType : undefined,
   };
 }
 
@@ -196,96 +162,97 @@ export class AppointmentService {
     }
   ) {
     const skip = (page - 1) * limit;
-    const query: any = {};
+    const where: any = {};
 
     if (filters?.providerId) {
-      query.providerId = filters.providerId;
+      where.ProvNum = BigInt(filters.providerId);
     }
 
     if (filters?.patientId) {
-      query.patientId = filters.patientId;
+      where.PatNum = BigInt(filters.patientId);
     }
 
     if (filters?.status) {
-      query.status = filters.status;
+      where.AptStatus = mapAppointmentStatusToDb(filters.status);
     }
 
     if (filters?.appointmentTypeId) {
-      query.appointmentTypeId = filters.appointmentTypeId;
+      where.AppointmentTypeNum = BigInt(filters.appointmentTypeId);
     }
 
     if (filters?.startDate || filters?.endDate) {
-      query.appointmentDate = {};
+      where.AptDateTime = {};
       if (filters.startDate) {
-        query.appointmentDate.$gte = new Date(filters.startDate);
+        where.AptDateTime.gte = new Date(filters.startDate);
       }
       if (filters.endDate) {
-        query.appointmentDate.$lte = new Date(filters.endDate);
+        where.AptDateTime.lte = new Date(filters.endDate);
       }
     }
 
-    let patientIds: string[] = [];
-    let providerIds: string[] = [];
+    let patientIds: bigint[] = [];
+    let providerIds: bigint[] = [];
 
     if (filters?.search) {
-      const searchRegex = new RegExp(filters.search, 'i');
-      
-      const matchingPatients = await PatientModel.find({
-        $or: [
-          { firstName: searchRegex },
-          { lastName: searchRegex },
-          { patientCode: searchRegex },
-        ],
-      }).select('_id').lean();
-      patientIds = matchingPatients.map((p) => p._id.toString());
+      const searchTerm = filters.search;
 
-      const { UserModel } = await import('../models/user.model');
-      const matchingUsers = await UserModel.find({
-        $or: [
-          { firstName: searchRegex },
-          { lastName: searchRegex },
-        ],
-      }).select('_id').lean();
-      const userIds = matchingUsers.map((u) => u._id.toString());
+      const matchingPatients = await prisma.patient.findMany({
+        where: {
+          OR: [
+            { FName: { contains: searchTerm, mode: 'insensitive' } },
+            { LName: { contains: searchTerm, mode: 'insensitive' } },
+            { ChartNumber: { contains: searchTerm, mode: 'insensitive' } },
+          ],
+        },
+        select: { PatNum: true },
+      });
+      patientIds = matchingPatients.map((p) => p.PatNum);
 
-      const matchingProviders = await ProviderModel.find({
-        $or: [
-          { providerCode: searchRegex },
-          { userId: { $in: userIds } },
-        ],
-      }).select('_id').lean();
-      providerIds = matchingProviders.map((p) => p._id.toString());
+      const matchingProviders = await prisma.provider.findMany({
+        where: {
+          OR: [
+            { FName: { contains: searchTerm, mode: 'insensitive' } },
+            { LName: { contains: searchTerm, mode: 'insensitive' } },
+            { Abbr: { contains: searchTerm, mode: 'insensitive' } },
+          ],
+        },
+        select: { ProvNum: true },
+      });
+      providerIds = matchingProviders.map((p) => p.ProvNum);
 
-      query.$or = [
-        { appointmentCode: searchRegex },
-        { chiefComplaint: searchRegex },
-        ...(patientIds.length > 0 ? [{ patientId: { $in: patientIds } }] : []),
-        ...(providerIds.length > 0 ? [{ providerId: { $in: providerIds } }] : []),
+      where.OR = [
+        { ProcDescript: { contains: searchTerm, mode: 'insensitive' } },
+        { Note: { contains: searchTerm, mode: 'insensitive' } },
+        ...(patientIds.length > 0 ? [{ PatNum: { in: patientIds } }] : []),
+        ...(providerIds.length > 0 ? [{ ProvNum: { in: providerIds } }] : []),
       ];
     }
 
     const [appointments, total] = await Promise.all([
-      AppointmentModel.find(query)
-        .populate('patientId', 'firstName lastName patientCode email phonePrimary')
-        .populate({
-          path: 'providerId',
-          select: 'providerCode specialty title userId',
-          populate: {
-            path: 'userId',
-            select: 'firstName lastName email',
-          },
-        })
-        .populate('appointmentTypeId', 'name defaultDuration colorCode defaultPrice')
-        .populate('createdBy', 'firstName lastName email')
-        .sort({ appointmentDate: 1, startTime: 1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      AppointmentModel.countDocuments(query),
+      prisma.appointment.findMany({
+        where,
+        include: {
+          patient: true,
+          provider_appointment_ProvNumToprovider: true,
+          appointmenttype: true,
+          userod: true,
+        },
+        orderBy: { AptDateTime: 'asc' },
+        skip,
+        take: limit,
+      }),
+      prisma.appointment.count({ where }),
     ]);
 
     return {
-      appointments,
+      appointments: appointments.map((apt) =>
+        mapAppointmentToApi(apt, {
+          patient: apt.patient,
+          provider: apt.provider_appointment_ProvNumToprovider,
+          appointmentType: apt.appointmenttype,
+          createdBy: apt.userod,
+        })
+      ),
       pagination: {
         page,
         limit,
@@ -299,18 +266,26 @@ export class AppointmentService {
    * Get appointment by ID
    */
   async getAppointmentById(appointmentId: string) {
-    const appointment = await AppointmentModel.findById(appointmentId)
-      .populate('patientId')
-      .populate('providerId')
-      .populate('appointmentTypeId')
-      .populate('createdBy', 'firstName lastName email')
-      .lean();
+    const appointment = await prisma.appointment.findUnique({
+      where: { AptNum: BigInt(appointmentId) },
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        appointmenttype: true,
+        userod: true,
+      },
+    });
 
     if (!appointment) {
       throw new NotFoundError('Appointment not found');
     }
 
-    return appointment;
+    return mapAppointmentToApi(appointment, {
+      patient: appointment.patient,
+      provider: appointment.provider_appointment_ProvNumToprovider,
+      appointmentType: appointment.appointmenttype,
+      createdBy: appointment.userod,
+    });
   }
 
   /**
@@ -322,27 +297,34 @@ export class AppointmentService {
     endDate: Date,
     view: 'day' | 'week' | 'month' = 'week'
   ) {
-    const provider = await ProviderModel.findById(providerId).lean();
+    const provider = await prisma.provider.findUnique({
+      where: { ProvNum: BigInt(providerId) },
+    });
     if (!provider) {
       throw new NotFoundError('Provider not found');
     }
 
-    const appointments = await AppointmentModel.find({
-      providerId,
-      appointmentDate: {
-        $gte: startDate,
-        $lte: endDate,
+    const appointments = await prisma.appointment.findMany({
+      where: {
+        ProvNum: BigInt(providerId),
+        AptDateTime: { gte: startDate, lte: endDate },
+        AptStatus: { not: 4 },
       },
-      status: { $nin: ['cancelled'] },
-    })
-      .populate('patientId', 'firstName lastName patientCode')
-      .populate('appointmentTypeId', 'name defaultDuration colorCode defaultPrice')
-      .sort({ appointmentDate: 1, startTime: 1 })
-      .lean();
+      include: {
+        patient: true,
+        appointmenttype: true,
+      },
+      orderBy: { AptDateTime: 'asc' },
+    });
 
     return {
-      provider,
-      appointments,
+      provider: mapProviderToApi(provider),
+      appointments: appointments.map((apt) =>
+        mapAppointmentToApi(apt, {
+          patient: apt.patient,
+          appointmentType: apt.appointmenttype,
+        })
+      ),
       view,
       dateRange: {
         start: startDate,
@@ -360,51 +342,41 @@ export class AppointmentService {
     endDate: Date,
     providerIds?: string[]
   ) {
-    const query: any = {
-      appointmentDate: {
-        $gte: startDate,
-        $lte: endDate,
-      },
-      status: { $nin: ['cancelled'] },
+    const where: any = {
+      AptDateTime: { gte: startDate, lte: endDate },
+      AptStatus: { not: 4 },
     };
 
     if (providerIds && providerIds.length > 0) {
-      query.providerId = { $in: providerIds };
+      where.ProvNum = { in: providerIds.map((id) => BigInt(id)) };
     }
 
-    const appointments = await AppointmentModel.find(query)
-      .populate('patientId', 'firstName lastName patientCode')
-      .populate({
-        path: 'providerId',
-        select: 'providerCode specialty userId appointmentBufferMinutes',
-        populate: {
-          path: 'userId',
-          select: 'firstName lastName',
-        },
-      })
-      .populate('appointmentTypeId', 'name defaultDuration colorCode bufferBefore bufferAfter defaultPrice')
-      .sort({ appointmentDate: 1, startTime: 1 })
-      .lean();
+    const appointments = await prisma.appointment.findMany({
+      where,
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        appointmenttype: true,
+      },
+      orderBy: { AptDateTime: 'asc' },
+    });
 
     const calendarEvents = appointments.map((apt) => {
-      const provider = apt.providerId as any;
-      const patient = apt.patientId as any;
-      const appointmentType = apt.appointmentTypeId as any;
+      const provider = apt.provider_appointment_ProvNumToprovider as any;
+      const patient = apt.patient as any;
+      const appointmentType = apt.appointmenttype as any;
       
       // Fix timezone issue: Use local date formatting instead of toISOString()
       // toISOString() converts to UTC which can shift the date by one day
-      const appointmentDate = new Date(apt.appointmentDate as Date | string);
+      const appointmentDate = new Date(apt.AptDateTime as Date | string);
       const year = appointmentDate.getFullYear();
       const month = String(appointmentDate.getMonth() + 1).padStart(2, '0');
       const day = String(appointmentDate.getDate()).padStart(2, '0');
       const dateStr = `${year}-${month}-${day}`;
 
       // Calculate buffer times
-      const providerBuffer = provider?.appointmentBufferMinutes || 0;
-      const typeBufferBefore = appointmentType?.bufferBefore || 0;
-      const typeBufferAfter = appointmentType?.bufferAfter || 0;
-      const totalBufferBefore = typeBufferBefore;
-      const totalBufferAfter = typeBufferAfter + providerBuffer;
+      const totalBufferBefore = 0;
+      const totalBufferAfter = 0;
 
       // Apply buffer to start and end times
       const parseTime = (timeStr: string): number => {
@@ -419,58 +391,65 @@ export class AppointmentService {
         return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
       };
 
-      const startMinutes = parseTime(String(apt.startTime));
-      const endMinutes = parseTime(String(apt.endTime));
+      const startMinutes = parseTime(formatMinutesToTime(
+        appointmentDate.getHours() * 60 + appointmentDate.getMinutes()
+      ));
+      const durationMinutes = getDurationMinutesFromPattern(apt.Pattern);
+      const endMinutes = startMinutes + durationMinutes;
       const bufferedStartMinutes = Math.max(0, startMinutes - totalBufferBefore);
       const bufferedEndMinutes = Math.min(24 * 60 - 1, endMinutes + totalBufferAfter);
       
       return {
-        id: apt._id.toString(),
-        title: `${patient?.firstName || ''} ${patient?.lastName || ''} - ${appointmentType?.name || 'Appointment'}`,
+        id: apt.AptNum.toString(),
+        title: `${patient?.FName || ''} ${patient?.LName || ''} - ${appointmentType?.AppointmentTypeName || 'Appointment'}`,
         start: `${dateStr}T${formatTime(bufferedStartMinutes)}:00`,
         end: `${dateStr}T${formatTime(bufferedEndMinutes)}:00`,
-        backgroundColor: appointmentType?.colorCode || this.getStatusColor(String(apt.status)),
-        borderColor: appointmentType?.colorCode || this.getStatusColor(String(apt.status)),
+        backgroundColor: appointmentType?.AppointmentTypeColor
+          ? String(appointmentType.AppointmentTypeColor)
+          : this.getStatusColor(mapAppointmentStatusFromDb(apt.AptStatus)),
+        borderColor: appointmentType?.AppointmentTypeColor
+          ? String(appointmentType.AppointmentTypeColor)
+          : this.getStatusColor(mapAppointmentStatusFromDb(apt.AptStatus)),
         extendedProps: {
-          appointmentId: apt._id.toString(),
-          patientId: patient?._id?.toString(),
-          patientName: `${patient?.firstName || ''} ${patient?.lastName || ''}`,
-          patientCode: patient?.patientCode,
-          providerId: provider?._id?.toString(),
-          providerName: `${provider?.userId?.firstName || ''} ${provider?.userId?.lastName || ''}`,
-          providerCode: provider?.providerCode,
-          appointmentTypeId: appointmentType?._id?.toString(),
-          appointmentTypeName: appointmentType?.name,
-          status: apt.status,
-          startTime: apt.startTime,
-          endTime: apt.endTime,
-          actualStartTime: apt.startTime,
-          actualEndTime: apt.endTime,
-          durationMinutes: apt.durationMinutes,
+          appointmentId: apt.AptNum.toString(),
+          patientId: patient?.PatNum?.toString(),
+          patientName: `${patient?.FName || ''} ${patient?.LName || ''}`,
+          patientCode: patient?.ChartNumber,
+          providerId: provider?.ProvNum?.toString(),
+          providerName: `${provider?.FName || ''} ${provider?.LName || ''}`,
+          providerCode: provider?.Abbr,
+          appointmentTypeId: appointmentType?.AppointmentTypeNum?.toString(),
+          appointmentTypeName: appointmentType?.AppointmentTypeName,
+          status: mapAppointmentStatusFromDb(apt.AptStatus),
+          startTime: formatTime(startMinutes),
+          endTime: formatTime(endMinutes),
+          actualStartTime: formatTime(startMinutes),
+          actualEndTime: formatTime(endMinutes),
+          durationMinutes,
           bufferBefore: totalBufferBefore,
           bufferAfter: totalBufferAfter,
-          chiefComplaint: apt.chiefComplaint,
-          notes: apt.notes,
-          insuranceVerified: apt.insuranceVerified,
+          chiefComplaint: apt.ProcDescript,
+          notes: apt.Note,
+          insuranceVerified: Boolean(apt.InsPlan1 || apt.InsPlan2),
         },
       };
     });
 
-    const providers = await ProviderModel.find(
-      providerIds && providerIds.length > 0 ? { _id: { $in: providerIds }, isActive: true } : { isActive: true }
-    )
-      .populate('userId', 'firstName lastName')
-      .select('providerCode specialty userId workingHours')
-      .lean();
+    const providers = await prisma.provider.findMany({
+      where:
+        providerIds && providerIds.length > 0
+          ? { ProvNum: { in: providerIds.map((id) => BigInt(id)) }, IsHidden: 0 }
+          : { IsHidden: 0 },
+    });
 
     return {
       events: calendarEvents,
       providers: providers.map((p: any) => ({
-        id: p._id.toString(),
-        name: `${p.userId?.firstName || ''} ${p.userId?.lastName || ''}`,
-        code: p.providerCode,
-        specialty: p.specialty,
-        workingHours: p.workingHours,
+        id: p.ProvNum.toString(),
+        name: `${p.FName || ''} ${p.LName || ''}`,
+        code: p.Abbr,
+        specialty: p.Specialty,
+        workingHours: [],
       })),
       dateRange: {
         start: startDate,
@@ -496,7 +475,9 @@ export class AppointmentService {
    * Get available time slots for a provider on a given date
    */
   async getAvailableSlots(providerId: string, date: Date | string, durationMinutes = 30) {
-    const provider = await ProviderModel.findById(providerId).lean();
+    const provider = await prisma.provider.findUnique({
+      where: { ProvNum: BigInt(providerId) },
+    });
     if (!provider) {
       throw new NotFoundError('Provider not found');
     }
@@ -509,27 +490,18 @@ export class AppointmentService {
     const endOfDay = new Date(targetDate);
     endOfDay.setHours(23, 59, 59, 999);
 
-    // Get provider working hours for the day
-    const dayOfWeek = targetDate.getDay();
-    const workingHoursArray = (provider.workingHours as any) || [];
-    const workingHours = Array.isArray(workingHoursArray) ? workingHoursArray.find((wh: any) => wh.dayOfWeek === dayOfWeek) : undefined;
-
-    if (!workingHours || !workingHours.isAvailable) {
-      return { availableSlots: [] };
-    }
+    // OpenDental doesn't store working hours in provider; use default business hours.
+    const workingHours = { startTime: '09:00', endTime: '17:00', isAvailable: true };
 
     // Get existing appointments for the day
-    const existingAppointments = await AppointmentModel.find({
-      providerId,
-      appointmentDate: {
-        $gte: startOfDay,
-        $lt: endOfDay,
+    const existingAppointments = await prisma.appointment.findMany({
+      where: {
+        ProvNum: BigInt(providerId),
+        AptDateTime: { gte: startOfDay, lt: endOfDay },
+        AptStatus: { notIn: [3, 4] },
       },
-      status: { $nin: ['cancelled', 'no_show'] },
-    })
-      .select('startTime endTime appointmentTypeId')
-      .populate('appointmentTypeId', 'bufferBefore bufferAfter')
-      .lean();
+      select: { AptDateTime: true, Pattern: true },
+    });
 
     // Generate available slots
     const parseTime = (timeStr: string): number => {
@@ -547,16 +519,20 @@ export class AppointmentService {
 
     const startMinutes = parseTime(workingHours.startTime);
     const endMinutes = parseTime(workingHours.endTime);
-    const providerBuffer = provider.appointmentBufferMinutes || 0;
+    const providerBuffer = 0;
     const slotDuration = durationMinutes;
 
     const bookedSlots = existingAppointments.map((apt) => {
-      const aptType = apt.appointmentTypeId as any;
-      const bufferBefore = aptType?.bufferBefore || 0;
-      const bufferAfter = aptType?.bufferAfter || 0;
+      const bufferBefore = 0;
+      const bufferAfter = 0;
+      const startTime = apt.AptDateTime ? formatMinutesToTime(
+        apt.AptDateTime.getHours() * 60 + apt.AptDateTime.getMinutes()
+      ) : '00:00';
+      const duration = getDurationMinutesFromPattern(apt.Pattern);
+      const endTime = formatMinutesToTime(parseTimeToMinutes(startTime) + duration);
       return {
-        start: parseTime(String(apt.startTime)) - bufferBefore,
-        end: parseTime(String(apt.endTime)) + bufferAfter + providerBuffer,
+        start: parseTime(startTime) - bufferBefore,
+        end: parseTime(endTime) + bufferAfter + providerBuffer,
       };
     });
 
@@ -604,7 +580,9 @@ export class AppointmentService {
     customFields?: Record<string, any>;
   }, createdBy: string) {
     // Validate patient exists
-    const patient = await PatientModel.findById(data.patientId).lean();
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(data.patientId) },
+    });
     if (!patient) {
       throw new NotFoundError('Patient not found');
     }
@@ -614,73 +592,25 @@ export class AppointmentService {
     // Backend accepts the flag value without blocking booking
 
     // Validate provider exists
-    const provider = await ProviderModel.findById(data.providerId).lean();
-    if (!provider || !provider.isActive) {
+    const provider = await prisma.provider.findUnique({
+      where: { ProvNum: BigInt(data.providerId) },
+    });
+    if (!provider || provider.IsHidden) {
       throw new NotFoundError('Provider not found or inactive');
     }
 
     // Validate appointment type if provided
     if (data.appointmentTypeId) {
-      const appointmentType = await AppointmentTypeModel.findById(data.appointmentTypeId).lean();
-      if (!appointmentType || !appointmentType.isActive) {
+      const appointmentType = await prisma.appointmenttype.findUnique({
+        where: { AppointmentTypeNum: BigInt(data.appointmentTypeId) },
+      });
+      if (!appointmentType || appointmentType.IsHidden) {
         throw new NotFoundError('Appointment type not found or inactive');
       }
 
       // Use appointment type duration if not provided
       if (!data.durationMinutes) {
-        data.durationMinutes = (appointmentType.defaultDuration as number) || 30;
-      }
-    }
-
-    // Validate provider working hours
-    const appointmentDateObj = data.appointmentDate instanceof Date
-      ? new Date(data.appointmentDate)
-      : new Date(data.appointmentDate);
-    const dayOfWeek = appointmentDateObj.getDay();
-    const workingHoursArray = (provider.workingHours as any) || [];
-    const workingHours = Array.isArray(workingHoursArray) ? workingHoursArray.find((wh: any) => wh.dayOfWeek === dayOfWeek) : undefined;
-
-    if (!workingHours || !workingHours.isAvailable) {
-      throw new BadRequestError('Provider is not available on this date');
-    }
-
-    // Check if appointment time is within working hours
-    const parseTime = (timeStr: string): number => {
-      const parts = timeStr.split(':').map(Number);
-      const hours = parts[0] ?? 0;
-      const minutes = parts[1] ?? 0;
-      return hours * 60 + minutes;
-    };
-
-    const startMinutes = parseTime(data.startTime);
-    const endMinutes = parseTime(data.endTime);
-    const workStart = parseTime(workingHours.startTime);
-    const workEnd = parseTime(workingHours.endTime);
-
-    if (startMinutes < workStart || endMinutes > workEnd) {
-      throw new BadRequestError('Appointment time is outside provider working hours');
-    }
-
-    // Check daily max appointments limit
-    if (provider.maxDailyAppointments) {
-      const startOfDay = new Date(appointmentDateObj);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(appointmentDateObj);
-      endOfDay.setHours(23, 59, 59, 999);
-
-      const dailyAppointmentCount = await AppointmentModel.countDocuments({
-        providerId: data.providerId,
-        appointmentDate: {
-          $gte: startOfDay,
-          $lt: endOfDay,
-        },
-        status: { $nin: ['cancelled', 'no_show'] },
-      });
-
-      if (dailyAppointmentCount >= (provider.maxDailyAppointments as number || 999)) {
-        throw new BadRequestError(
-          `Provider has reached the maximum daily appointments limit (${provider.maxDailyAppointments}). Please select a different date or provider.`
-        );
+        data.durationMinutes = 30;
       }
     }
 
@@ -703,29 +633,31 @@ export class AppointmentService {
     }
 
     // Generate appointment code
-    const appointmentCode = await generateAppointmentCode();
+    await generateAppointmentCode();
+    const nextId = await getNextId('appointment', 'AptNum');
+    const appointmentDateObj = data.appointmentDate instanceof Date
+      ? new Date(data.appointmentDate)
+      : new Date(data.appointmentDate);
+    const aptDateTime = toDateTime(appointmentDateObj, data.startTime);
+    const durationMinutes = data.durationMinutes || 30;
 
-    // Create appointment
-    const appointment = await AppointmentModel.create({
-      appointmentCode,
-      patientId: data.patientId,
-      providerId: data.providerId,
-      appointmentTypeId: data.appointmentTypeId,
-      appointmentDate: data.appointmentDate,
-      startTime: data.startTime,
-      endTime: data.endTime,
-      durationMinutes: data.durationMinutes || 30,
-      chiefComplaint: data.chiefComplaint,
-      notes: data.notes,
-      roomId: data.roomId,
-      requiresInterpreter: data.requiresInterpreter || false,
-      interpreterLanguage: data.interpreterLanguage,
-      insuranceVerified: data.insuranceVerified || false,
-      copayCollected: data.copayCollected,
-      reminderSent: data.reminderSent || false,
-      customFields: data.customFields || {},
-      status: 'scheduled',
-      createdBy,
+    const appointment = await prisma.appointment.create({
+      data: {
+        AptNum: nextId,
+        PatNum: BigInt(data.patientId),
+        ProvNum: BigInt(data.providerId),
+        AppointmentTypeNum: data.appointmentTypeId ? BigInt(data.appointmentTypeId) : null,
+        AptDateTime: aptDateTime,
+        Pattern: String(durationMinutes),
+        ProcDescript: data.chiefComplaint ?? null,
+        Note: data.notes ?? null,
+        Op: data.roomId ? BigInt(data.roomId) : null,
+        AptStatus: mapAppointmentStatusToDb('scheduled'),
+        DateTimeArrived: null,
+        DateTimeDismissed: null,
+        SecUserNumEntry: createdBy ? BigInt(createdBy) : null,
+        SecDateTEntry: new Date(),
+      },
     });
 
     // Log activity
@@ -733,15 +665,15 @@ export class AppointmentService {
       createdBy,
       'created',
       'appointments',
-      String(appointment._id),
+      String(appointment.AptNum),
       undefined,
-      appointment.toObject(),
+      mapAppointmentToApi(appointment),
       undefined,
       undefined,
       'medium'
     );
 
-    return appointment;
+    return mapAppointmentToApi(appointment);
   }
 
   /**
@@ -769,55 +701,28 @@ export class AppointmentService {
     },
     updatedBy: string
   ) {
-    const appointment = await AppointmentModel.findById(appointmentId);
+    const appointment = await prisma.appointment.findUnique({
+      where: { AptNum: BigInt(appointmentId) },
+    });
     if (!appointment) {
       throw new NotFoundError('Appointment not found');
     }
 
     // If updating date/time, check for conflicts (including buffers and room)
     if (updates.appointmentDate || updates.startTime || updates.endTime) {
-      const appointmentDate = updates.appointmentDate || appointment.appointmentDate;
-      const startTime = updates.startTime || appointment.startTime;
-      const endTime = updates.endTime || appointment.endTime;
-      const appointmentTypeId = updates.appointmentTypeId || appointment.appointmentTypeId;
-      const roomId = updates.roomId !== undefined ? updates.roomId : appointment.roomId;
-
-      // Validate provider working hours if date is changing
-      if (updates.appointmentDate) {
-        const provider = await ProviderModel.findById(appointment.providerId).lean();
-        if (provider) {
-          const appointmentDateObj = appointmentDate instanceof Date
-            ? appointmentDate
-            : new Date(String(appointmentDate));
-          const dayOfWeek = appointmentDateObj.getDay();
-          const workingHoursArray = (provider.workingHours as any) || [];
-          const workingHours = Array.isArray(workingHoursArray) ? workingHoursArray.find((wh: any) => wh.dayOfWeek === dayOfWeek) : undefined;
-
-          if (!workingHours || !workingHours.isAvailable) {
-            throw new BadRequestError('Provider is not available on this date');
-          }
-
-          // Check if appointment time is within working hours
-          const parseTime = (timeStr: string): number => {
-            const parts = timeStr.split(':').map(Number);
-            const hours = parts[0] ?? 0;
-            const minutes = parts[1] ?? 0;
-            return hours * 60 + minutes;
-          };
-
-          const startMinutes = parseTime(String(startTime));
-          const endMinutes = parseTime(String(endTime));
-          const workStart = parseTime(String(workingHours.startTime));
-          const workEnd = parseTime(String(workingHours.endTime));
-
-          if (startMinutes < workStart || endMinutes > workEnd) {
-            throw new BadRequestError('Appointment time is outside provider working hours');
-          }
-        }
-      }
+      const appointmentDate = updates.appointmentDate || appointment.AptDateTime || new Date();
+      const startTime = updates.startTime || (appointment.AptDateTime ? formatMinutesToTime(
+        appointment.AptDateTime.getHours() * 60 + appointment.AptDateTime.getMinutes()
+      ) : '09:00');
+      const endTime =
+        updates.endTime ||
+        formatMinutesToTime(parseTimeToMinutes(startTime) + getDurationMinutesFromPattern(appointment.Pattern));
+      const appointmentTypeId =
+        updates.appointmentTypeId || (appointment.AppointmentTypeNum ? appointment.AppointmentTypeNum.toString() : undefined);
+      const roomId = updates.roomId !== undefined ? updates.roomId : appointment.Op?.toString();
 
       const conflictCheck = await checkConflicts(
-        String(appointment.providerId),
+        appointment.ProvNum?.toString() ?? '',
         appointmentDate instanceof Date ? appointmentDate : new Date(String(appointmentDate)),
         String(startTime),
         String(endTime),
@@ -836,8 +741,10 @@ export class AppointmentService {
 
     // Validate appointment type if updating
     if (updates.appointmentTypeId) {
-      const appointmentType = await AppointmentTypeModel.findById(updates.appointmentTypeId).lean();
-      if (!appointmentType || !appointmentType.isActive) {
+      const appointmentType = await prisma.appointmenttype.findUnique({
+        where: { AppointmentTypeNum: BigInt(updates.appointmentTypeId) },
+      });
+      if (!appointmentType || appointmentType.IsHidden) {
         throw new NotFoundError('Appointment type not found or inactive');
       }
     }
@@ -851,12 +758,35 @@ export class AppointmentService {
       }
     }
 
-    const oldData = appointment.toObject();
+    const oldData = mapAppointmentToApi(appointment);
+    const aptDateTime =
+      updates.appointmentDate || updates.startTime
+        ? toDateTime(
+            updates.appointmentDate ? new Date(updates.appointmentDate) : (appointment.AptDateTime ?? new Date()),
+            updates.startTime ||
+              (appointment.AptDateTime
+                ? formatMinutesToTime(appointment.AptDateTime.getHours() * 60 + appointment.AptDateTime.getMinutes())
+                : '09:00')
+          )
+        : undefined;
+    const durationMinutes =
+      updates.durationMinutes !== undefined ? String(updates.durationMinutes) : undefined;
 
-    // Update fields
-    Object.assign(appointment, updates);
-
-    await appointment.save();
+    const updated = await prisma.appointment.update({
+      where: { AptNum: BigInt(appointmentId) },
+      data: {
+        AppointmentTypeNum:
+          updates.appointmentTypeId !== undefined ? BigInt(updates.appointmentTypeId) : undefined,
+        AptDateTime: aptDateTime ?? undefined,
+        Pattern: durationMinutes,
+        ProcDescript: updates.chiefComplaint ?? undefined,
+        Note: updates.notes ?? undefined,
+        Op: updates.roomId !== undefined ? BigInt(updates.roomId) : undefined,
+        AptStatus: updates.status ? mapAppointmentStatusToDb(updates.status) : undefined,
+        DateTimeArrived: updates.status === 'checked_in' ? new Date() : undefined,
+        DateTimeDismissed: updates.status === 'completed' ? new Date() : undefined,
+      },
+    });
 
     // Log activity
     await logActivity(
@@ -865,96 +795,43 @@ export class AppointmentService {
       'appointments',
       appointmentId,
       oldData,
-      appointment.toObject(),
+      mapAppointmentToApi(updated),
       undefined,
       undefined,
       'medium'
     );
 
-    return appointment;
+    return mapAppointmentToApi(updated);
   }
 
   /**
    * Cancel appointment
    */
   async cancelAppointment(appointmentId: string, cancelledBy: string, cancellationReason?: string) {
-    const appointment = await AppointmentModel.findById(appointmentId);
+    const appointment = await prisma.appointment.findUnique({
+      where: { AptNum: BigInt(appointmentId) },
+    });
     if (!appointment) {
       throw new NotFoundError('Appointment not found');
     }
 
-    if (String(appointment.status) === 'cancelled') {
+    if (mapAppointmentStatusFromDb(appointment.AptStatus) === 'cancelled') {
       throw new BadRequestError('Appointment is already cancelled');
     }
 
-    if (String(appointment.status) === 'completed') {
+    if (mapAppointmentStatusFromDb(appointment.AptStatus) === 'completed') {
       throw new BadRequestError('Cannot cancel a completed appointment');
     }
 
-    const oldData = appointment.toObject();
+    const oldData = mapAppointmentToApi(appointment);
 
-    (appointment as any).status = 'cancelled';
-    if (cancellationReason) {
-      (appointment as any).cancellationReason = cancellationReason;
-    }
-
-    await appointment.save();
-
-    // Auto-promote waitlist entries for this provider according to documentation
-    // Workflow 4: Appointment Cancellation → Fill from Waitlist
-    // Check waitlist for matching preferences:
-    // - Same provider
-    // - Preferred date matches or is flexible
-    // - Priority: urgent first
-    const { WaitlistEntryModel } = await import('../models/waitlist-entry.model');
-    
-    // Find active waitlist entries for the same provider
-    const allWaitlistEntries = await WaitlistEntryModel.find({
-      providerId: appointment.providerId,
-      status: 'active',
-    })
-      .sort({ priority: 1, createdAt: 1 }) // Urgent first, then by creation date
-      .lean();
-
-    // Filter by matching preferences according to documentation
-    // 1. Same provider (already filtered)
-    // 2. Preferred date matches or is flexible
-    // 3. Priority: urgent first (already sorted)
-    const cancelledDate = new Date(appointment.appointmentDate as Date | string);
-    cancelledDate.setHours(0, 0, 0, 0);
-    
-    const matchingEntries = allWaitlistEntries.filter((entry) => {
-      // If entry has preferred date, it should match the cancelled appointment date
-      if (entry.preferredDate) {
-        const preferredDate = new Date(entry.preferredDate as Date | string);
-        preferredDate.setHours(0, 0, 0, 0);
-        return preferredDate.getTime() === cancelledDate.getTime();
-      }
-      // If no preferred date or priority is flexible, it matches
-      return !entry.preferredDate || String(entry.priority) === 'flexible';
+    const updated = await prisma.appointment.update({
+      where: { AptNum: BigInt(appointmentId) },
+      data: {
+        AptStatus: mapAppointmentStatusToDb('cancelled'),
+        Note: cancellationReason ? `${appointment.Note || ''}\nCancellation: ${cancellationReason}` : appointment.Note,
+      },
     });
-
-    // Promote the first matching waitlist entry if found
-    if (matchingEntries.length > 0 && matchingEntries[0]?._id) {
-      const waitlistEntry = await WaitlistEntryModel.findById(String(matchingEntries[0]._id));
-      if (waitlistEntry) {
-        (waitlistEntry as any).status = 'called';
-        await waitlistEntry.save();
-
-        // Log waitlist promotion
-        await logActivity(
-          cancelledBy,
-          'updated',
-          'waitlist',
-          String(waitlistEntry._id),
-          { status: 'active' },
-          { status: 'called', reason: 'Auto-promoted due to appointment cancellation - matching preferences found' },
-          undefined,
-          undefined,
-          'low'
-        );
-      }
-    }
 
     // Log activity
     await logActivity(
@@ -963,13 +840,13 @@ export class AppointmentService {
       'appointments',
       appointmentId,
       oldData,
-      appointment.toObject(),
+      mapAppointmentToApi(updated),
       undefined,
       undefined,
       'medium'
     );
 
-    return appointment;
+    return mapAppointmentToApi(updated);
   }
 
   /**
@@ -982,60 +859,30 @@ export class AppointmentService {
     newEndTime: string,
     rescheduledBy: string
   ) {
-    const appointment = await AppointmentModel.findById(appointmentId);
+    const appointment = await prisma.appointment.findUnique({
+      where: { AptNum: BigInt(appointmentId) },
+    });
     if (!appointment) {
       throw new NotFoundError('Appointment not found');
     }
 
-    if (String(appointment.status) === 'cancelled') {
+    if (mapAppointmentStatusFromDb(appointment.AptStatus) === 'cancelled') {
       throw new BadRequestError('Cannot reschedule a cancelled appointment');
     }
 
-    if (String(appointment.status) === 'completed') {
+    if (mapAppointmentStatusFromDb(appointment.AptStatus) === 'completed') {
       throw new BadRequestError('Cannot reschedule a completed appointment');
-    }
-
-    // Validate provider working hours for new date
-    const provider = await ProviderModel.findById(appointment.providerId).lean();
-    if (!provider || !provider.isActive) {
-      throw new NotFoundError('Provider not found or inactive');
-    }
-
-    const appointmentDateObj = newDate instanceof Date ? newDate : new Date(newDate);
-    const dayOfWeek = appointmentDateObj.getDay();
-    const workingHoursArray = (provider.workingHours as any) || [];
-    const workingHours = Array.isArray(workingHoursArray) ? workingHoursArray.find((wh: any) => wh.dayOfWeek === dayOfWeek) : undefined;
-
-    if (!workingHours || !workingHours.isAvailable) {
-      throw new BadRequestError('Provider is not available on this date');
-    }
-
-    // Check if appointment time is within working hours
-    const parseTime = (timeStr: string): number => {
-      const parts = timeStr.split(':').map(Number);
-      const hours = parts[0] ?? 0;
-      const minutes = parts[1] ?? 0;
-      return hours * 60 + minutes;
-    };
-
-    const startMinutes = parseTime(newStartTime);
-    const endMinutes = parseTime(newEndTime);
-    const workStart = parseTime(workingHours.startTime);
-    const workEnd = parseTime(workingHours.endTime);
-
-    if (startMinutes < workStart || endMinutes > workEnd) {
-      throw new BadRequestError('Appointment time is outside provider working hours');
     }
 
     // Check for conflicts with new time (including buffers and room)
     const conflictCheck = await checkConflicts(
-      String(appointment.providerId),
+      appointment.ProvNum?.toString() ?? '',
       newDate,
       newStartTime,
       newEndTime,
       appointmentId,
-      String(appointment.appointmentTypeId || ''),
-      appointment.roomId ? String(appointment.roomId) : undefined
+      appointment.AppointmentTypeNum ? appointment.AppointmentTypeNum.toString() : undefined,
+      appointment.Op ? appointment.Op.toString() : undefined
     );
 
     if (conflictCheck.hasConflict) {
@@ -1045,19 +892,14 @@ export class AppointmentService {
       throw new ConflictError(conflictType);
     }
 
-    const oldData = appointment.toObject();
-
-    // Update appointment with new date/time
-    const appointmentDoc = await AppointmentModel.findById(appointmentId);
-    if (!appointmentDoc) {
-      throw new NotFoundError('Appointment not found');
-    }
-
-    (appointmentDoc as any).appointmentDate = newDate;
-    (appointmentDoc as any).startTime = newStartTime;
-    (appointmentDoc as any).endTime = newEndTime;
-
-    await appointmentDoc.save();
+    const oldData = mapAppointmentToApi(appointment);
+    const updated = await prisma.appointment.update({
+      where: { AptNum: BigInt(appointmentId) },
+      data: {
+        AptDateTime: toDateTime(newDate, newStartTime),
+        Pattern: String(parseTimeToMinutes(newEndTime) - parseTimeToMinutes(newStartTime)),
+      },
+    });
 
     // Log activity
     await logActivity(
@@ -1066,42 +908,47 @@ export class AppointmentService {
       'appointments',
       appointmentId,
       oldData,
-      appointment.toObject(),
+      mapAppointmentToApi(updated),
       undefined,
       undefined,
       'medium'
     );
 
-    return appointment;
+    return mapAppointmentToApi(updated);
   }
 
   /**
    * Check-in patient
    */
   async checkInAppointment(appointmentId: string, checkedInBy: string) {
-    const appointment = await AppointmentModel.findById(appointmentId);
+    const appointment = await prisma.appointment.findUnique({
+      where: { AptNum: BigInt(appointmentId) },
+    });
     if (!appointment) {
       throw new NotFoundError('Appointment not found');
     }
 
-    if (String(appointment.status) === 'checked_in') {
+    if (mapAppointmentStatusFromDb(appointment.AptStatus) === 'checked_in') {
       throw new BadRequestError('Patient is already checked in');
     }
 
-    if (String(appointment.status) === 'cancelled') {
+    if (mapAppointmentStatusFromDb(appointment.AptStatus) === 'cancelled') {
       throw new BadRequestError('Cannot check in a cancelled appointment');
     }
 
-    if (String(appointment.status) === 'completed') {
+    if (mapAppointmentStatusFromDb(appointment.AptStatus) === 'completed') {
       throw new BadRequestError('Cannot check in a completed appointment');
     }
 
-    const oldData = appointment.toObject();
+    const oldData = mapAppointmentToApi(appointment);
 
-    (appointment as any).status = 'checked_in';
-    (appointment as any).checkInAt = new Date();
-
-    await appointment.save();
+    const updated = await prisma.appointment.update({
+      where: { AptNum: BigInt(appointmentId) },
+      data: {
+        AptStatus: mapAppointmentStatusToDb('checked_in'),
+        DateTimeArrived: new Date(),
+      },
+    });
 
     // Log activity
     await logActivity(
@@ -1110,28 +957,32 @@ export class AppointmentService {
       'appointments',
       appointmentId,
       oldData,
-      appointment.toObject(),
+      mapAppointmentToApi(updated),
       undefined,
       undefined,
       'low'
     );
 
-    return appointment;
+    return mapAppointmentToApi(updated);
   }
 
   /**
    * Delete appointment (hard delete)
    */
   async deleteAppointment(appointmentId: string, deletedBy: string) {
-    const appointment = await AppointmentModel.findById(appointmentId);
+    const appointment = await prisma.appointment.findUnique({
+      where: { AptNum: BigInt(appointmentId) },
+    });
     if (!appointment) {
       throw new NotFoundError('Appointment not found');
     }
 
-    const oldData = appointment.toObject();
+    const oldData = mapAppointmentToApi(appointment);
 
     // Hard delete - remove from database
-    await AppointmentModel.deleteOne({ _id: appointmentId });
+    await prisma.appointment.delete({
+      where: { AptNum: BigInt(appointmentId) },
+    });
 
     // Log activity
     await logActivity(

@@ -1,26 +1,94 @@
-import { AppointmentModel } from '../models/appointment.model';
-import { EstimateModel } from '../models/estimate.model';
-import { InvoiceModel } from '../models/invoice.model';
+import { prisma } from '../config/db';
 import { ConflictError, NotFoundError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
+import { getNextId } from '../utils/opendental-ids.util';
+import { invoiceService } from './invoice.service';
+
+const parseJson = <T>(value?: string | null): T => {
+  if (!value) return {} as T;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? (parsed as T) : ({} as T);
+  } catch {
+    return {} as T;
+  }
+};
+
+const buildJson = (value: Record<string, unknown>) => JSON.stringify(value);
+
+const statusToClaimStatus = (status?: string) => {
+  switch (status) {
+    case 'sent':
+      return 'S';
+    case 'approved':
+      return 'A';
+    case 'converted':
+      return 'C';
+    case 'expired':
+      return 'E';
+    default:
+      return 'D';
+  }
+};
+
+const claimStatusToStatus = (value?: string | null) => {
+  switch (value) {
+    case 'S':
+      return 'sent';
+    case 'A':
+      return 'approved';
+    case 'C':
+      return 'converted';
+    case 'E':
+      return 'expired';
+    default:
+      return 'draft';
+  }
+};
+
+type ClaimMeta = {
+  approvedDate?: string;
+  expirationDate?: string;
+  convertedToInvoiceId?: string;
+  createdBy?: string;
+};
 
 const generateEstimateNumber = async (): Promise<string> => {
-  const lastEstimate = await EstimateModel.findOne()
-    .sort({ estimateNumber: -1 })
-    .select('estimateNumber')
-    .lean();
-
-  if (!lastEstimate?.estimateNumber) {
-    return 'EST000001';
+  const recent = await prisma.claim.findMany({
+    where: { PreAuthString: { startsWith: 'EST' } },
+    orderBy: { ClaimNum: 'desc' },
+    take: 50,
+  });
+  let max = 0;
+  for (const claim of recent) {
+    const match = String(claim.PreAuthString || '').match(/\d+$/);
+    const num = match ? parseInt(match[0], 10) : 0;
+    if (num > max) max = num;
   }
-
-  const match = String(lastEstimate.estimateNumber).match(/\d+$/);
-  const lastNumber = match ? parseInt(match[0], 10) : 0;
-  const nextNumber = lastNumber + 1;
-  return `EST${nextNumber.toString().padStart(6, '0')}`;
+  const next = max + 1;
+  return `EST${next.toString().padStart(6, '0')}`;
 };
 
 export class EstimateService {
+  private mapClaimToEstimate(claim: any, meta: ClaimMeta) {
+    return {
+      _id: claim.ClaimNum.toString(),
+      patientId: claim.PatNum?.toString() ?? null,
+      providerId: claim.ProvTreat?.toString() ?? null,
+      estimateNumber: claim.PreAuthString ?? '',
+      description: claim.ClaimNote ?? '',
+      estimatedAmount: Number(claim.ClaimFee) || 0,
+      insurancePortion: Number(claim.InsPayEst) || 0,
+      patientPortion: Number(claim.DedApplied) || 0,
+      status: claimStatusToStatus(claim.ClaimStatus),
+      createdDate: claim.DateService ?? null,
+      expirationDate: meta.expirationDate ? new Date(meta.expirationDate) : null,
+      approvedDate: meta.approvedDate ? new Date(meta.approvedDate) : null,
+      convertedToInvoiceId: meta.convertedToInvoiceId ?? null,
+      createdBy: meta.createdBy ?? null,
+    };
+  }
+
   async getAllEstimates(
     page = 1,
     limit = 10,
@@ -32,36 +100,34 @@ export class EstimateService {
     } = {}
   ) {
     const skip = (page - 1) * limit;
-    const query: any = {};
+    const where: any = {
+      ClaimType: 'PreAuth',
+    };
 
-    if (filters.patientId) query.patientId = filters.patientId;
-    if (filters.status) query.status = filters.status;
+    if (filters.patientId) where.PatNum = BigInt(filters.patientId);
+    if (filters.status) where.ClaimStatus = statusToClaimStatus(filters.status);
 
     if (filters.startDate || filters.endDate) {
-      query.createdDate = {};
-      if (filters.startDate) {
-        const start = new Date(filters.startDate);
-        start.setHours(0, 0, 0, 0);
-        query.createdDate.$gte = start;
-      }
-      if (filters.endDate) {
-        const end = new Date(filters.endDate);
-        end.setHours(23, 59, 59, 999);
-        query.createdDate.$lte = end;
-      }
+      where.DateService = {};
+      if (filters.startDate) where.DateService.gte = new Date(filters.startDate);
+      if (filters.endDate) where.DateService.lte = new Date(filters.endDate);
     }
 
-    const [estimates, total] = await Promise.all([
-      EstimateModel.find(query)
-        .sort({ createdDate: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      EstimateModel.countDocuments(query),
+    const [rows, total] = await Promise.all([
+      prisma.claim.findMany({
+        where,
+        orderBy: { DateService: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.claim.count({ where }),
     ]);
 
     return {
-      estimates,
+      estimates: rows.map((row) => {
+        const meta = parseJson<ClaimMeta>(row.Narrative);
+        return this.mapClaimToEstimate(row, meta);
+      }),
       pagination: {
         page,
         limit,
@@ -72,11 +138,14 @@ export class EstimateService {
   }
 
   async getEstimateById(estimateId: string) {
-    const estimate = await EstimateModel.findById(estimateId).lean();
+    const estimate = await prisma.claim.findUnique({
+      where: { ClaimNum: BigInt(estimateId) },
+    });
     if (!estimate) {
       throw new NotFoundError('Estimate not found');
     }
-    return estimate;
+    const meta = parseJson<ClaimMeta>(estimate.Narrative);
+    return this.mapClaimToEstimate(estimate, meta);
   }
 
   async createEstimate(
@@ -98,33 +167,42 @@ export class EstimateService {
     const createdDate = data.createdDate || new Date();
     const expirationDate = data.expirationDate || new Date(createdDate.getTime() + 30 * 86400000);
 
-    const estimate = await EstimateModel.create({
-      patientId: data.patientId,
-      providerId: data.providerId,
-      estimateNumber,
-      description: data.description,
-      estimatedAmount: data.estimatedAmount,
-      insurancePortion: data.insurancePortion ?? 0,
-      patientPortion: data.patientPortion ?? 0,
-      status: data.status || 'draft',
-      createdDate,
-      expirationDate,
+    const claimNum = await getNextId('claim', 'ClaimNum');
+    const meta: ClaimMeta = {
+      expirationDate: expirationDate.toISOString(),
       createdBy,
+    };
+
+    const estimate = await prisma.claim.create({
+      data: {
+        ClaimNum: claimNum,
+        PatNum: BigInt(data.patientId),
+        ProvTreat: data.providerId ? BigInt(data.providerId) : null,
+        ClaimType: 'PreAuth',
+        ClaimStatus: statusToClaimStatus(data.status),
+        DateService: createdDate,
+        ClaimNote: data.description,
+        ClaimFee: data.estimatedAmount,
+        InsPayEst: data.insurancePortion ?? 0,
+        DedApplied: data.patientPortion ?? 0,
+        PreAuthString: estimateNumber,
+        Narrative: buildJson(meta),
+      },
     });
 
     await logActivity(
       createdBy,
       'created',
       'estimates',
-      String(estimate._id),
+      estimate.ClaimNum.toString(),
       undefined,
-      estimate.toObject(),
+      this.mapClaimToEstimate(estimate, meta),
       undefined,
       undefined,
       'low'
     );
 
-    return estimate;
+    return this.mapClaimToEstimate(estimate, meta);
   }
 
   async updateEstimate(
@@ -141,45 +219,65 @@ export class EstimateService {
     }>,
     userId: string
   ) {
-    const estimate = await EstimateModel.findById(estimateId);
+    const estimate = await prisma.claim.findUnique({
+      where: { ClaimNum: BigInt(estimateId) },
+    });
     if (!estimate) {
       throw new NotFoundError('Estimate not found');
     }
 
-    const oldData = estimate.toObject();
-    Object.assign(estimate, updates);
-    await estimate.save();
+    const meta = parseJson<ClaimMeta>(estimate.Narrative);
+    const nextMeta: ClaimMeta = {
+      ...meta,
+      approvedDate: updates.approvedDate ? updates.approvedDate.toISOString() : meta.approvedDate,
+      expirationDate: updates.expirationDate ? updates.expirationDate.toISOString() : meta.expirationDate,
+    };
+
+    const updated = await prisma.claim.update({
+      where: { ClaimNum: BigInt(estimateId) },
+      data: {
+        ProvTreat: updates.providerId ? BigInt(updates.providerId) : undefined,
+        ClaimNote: updates.description ?? undefined,
+        ClaimFee: updates.estimatedAmount ?? undefined,
+        InsPayEst: updates.insurancePortion ?? undefined,
+        DedApplied: updates.patientPortion ?? undefined,
+        ClaimStatus: updates.status ? statusToClaimStatus(updates.status) : undefined,
+        Narrative: buildJson(nextMeta),
+      },
+    });
 
     await logActivity(
       userId,
       'updated',
       'estimates',
       estimateId,
-      oldData,
-      estimate.toObject(),
+      this.mapClaimToEstimate(estimate, meta),
+      this.mapClaimToEstimate(updated, nextMeta),
       undefined,
       undefined,
       'low'
     );
 
-    return estimate;
+    return this.mapClaimToEstimate(updated, nextMeta);
   }
 
   async deleteEstimate(estimateId: string, userId: string) {
-    const estimate = await EstimateModel.findById(estimateId);
+    const estimate = await prisma.claim.findUnique({
+      where: { ClaimNum: BigInt(estimateId) },
+    });
     if (!estimate) {
       throw new NotFoundError('Estimate not found');
     }
 
-    const oldData = estimate.toObject();
-    await EstimateModel.deleteOne({ _id: estimateId });
+    const meta = parseJson<ClaimMeta>(estimate.Narrative);
+    await prisma.claim.delete({ where: { ClaimNum: BigInt(estimateId) } });
 
     await logActivity(
       userId,
       'deleted',
       'estimates',
       estimateId,
-      oldData,
+      this.mapClaimToEstimate(estimate, meta),
       undefined,
       undefined,
       undefined,
@@ -195,62 +293,40 @@ export class EstimateService {
     dueDate: Date,
     userId: string
   ) {
-    const estimate = await EstimateModel.findById(estimateId);
+    const estimate = await prisma.claim.findUnique({
+      where: { ClaimNum: BigInt(estimateId) },
+    });
     if (!estimate) {
       throw new NotFoundError('Estimate not found');
     }
 
-    const appointment = await AppointmentModel.findById(appointmentId).lean();
-    if (!appointment) {
-      throw new NotFoundError('Appointment not found');
-    }
+    const meta = parseJson<ClaimMeta>(estimate.Narrative);
 
-    const existingInvoice = await InvoiceModel.findOne({ appointmentId }).lean();
-    if (existingInvoice) {
-      throw new ConflictError('Invoice already exists for this appointment');
-    }
-
-    const invoiceNumber = await (async () => {
-      const lastInvoice = await InvoiceModel.findOne()
-        .sort({ invoiceNumber: -1 })
-        .select('invoiceNumber')
-        .lean();
-
-      if (!lastInvoice?.invoiceNumber) {
-        return 'INV000001';
-      }
-
-      const match = String(lastInvoice.invoiceNumber).match(/\d+$/);
-      const lastNumber = match ? parseInt(match[0], 10) : 0;
-      const nextNumber = lastNumber + 1;
-      return `INV${nextNumber.toString().padStart(6, '0')}`;
-    })();
-
-    const invoice = await InvoiceModel.create({
-      invoiceNumber,
-      patientId: estimate.patientId,
+    const invoice = await invoiceService.createInvoiceFromAppointment(
       appointmentId,
-      insuranceCompanyId: undefined,
-      providerId: estimate.providerId || appointment.providerId,
-      invoiceDate: new Date(),
-      dueDate,
-      totalAmount: estimate.estimatedAmount,
-      insurancePortion: estimate.insurancePortion,
-      patientPortion: estimate.patientPortion,
-      copayAmount: 0,
-      paidAmount: 0,
-      balanceDue: estimate.estimatedAmount,
-      taxAmount: 0,
-      discountAmount: 0,
-      status: 'draft',
-      createdBy: userId,
-      notes: estimate.description,
-    });
+      {
+        dueDate,
+        insuranceCompanyId: undefined,
+        providerId: estimate.ProvTreat?.toString() ?? undefined,
+        notes: estimate.ClaimNote ?? undefined,
+        copayAmount: 0,
+      },
+      userId
+    );
 
-    (estimate as any).status = 'converted';
-    (estimate as any).convertedToInvoiceId = invoice._id;
-    (estimate as any).approvedDate = estimate.approvedDate || new Date();
-    await estimate.save();
+    const nextMeta: ClaimMeta = {
+      ...meta,
+      convertedToInvoiceId: invoice._id,
+      approvedDate: meta.approvedDate ?? new Date().toISOString(),
+    };
+
+    await prisma.claim.update({
+      where: { ClaimNum: BigInt(estimateId) },
+      data: {
+        ClaimStatus: statusToClaimStatus('converted'),
+        Narrative: buildJson(nextMeta),
+      },
+    });
 
     await logActivity(
       userId,
@@ -258,7 +334,7 @@ export class EstimateService {
       'estimates',
       estimateId,
       undefined,
-      estimate.toObject(),
+      this.mapClaimToEstimate(estimate, nextMeta),
       undefined,
       undefined,
       'low'
@@ -270,7 +346,7 @@ export class EstimateService {
       'invoices',
       String(invoice._id),
       undefined,
-      invoice.toObject(),
+      invoice,
       undefined,
       undefined,
       'low'

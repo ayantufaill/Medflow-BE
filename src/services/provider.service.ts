@@ -1,8 +1,8 @@
-import { ProviderModel } from '../models/provider.model';
-import { UserModel } from '../models/user.model';
-import { SpecialtyModel } from '../models/specialty.model';
+import { prisma } from '../config/db';
 import { NotFoundError, ConflictError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
+import { getNextId } from '../utils/opendental-ids.util';
+import { mapProviderToApi } from '../utils/opendental-mappers.util';
 
 
 function normalizeSpecialtyInput(value: unknown): string[] {
@@ -20,25 +20,8 @@ function normalizeSpecialtyInput(value: unknown): string[] {
  * Generate unique provider code (e.g., PROV001, PROV002, etc.)
  */
 async function generateProviderCode(): Promise<string> {
-  const lastProvider = await ProviderModel.findOne()
-    .sort({ providerCode: -1 })
-    .select('providerCode')
-    .lean();
-
-  if (!lastProvider || !lastProvider.providerCode) {
-    return 'PROV001';
-  }
-
-  const providerCodeStr = String(lastProvider.providerCode || '');
-  const match = providerCodeStr.match(/\d+$/);
-  if (!match) {
-    return 'PROV001';
-  }
-
-  const lastNumber = parseInt(match[0], 10);
-  const nextNumber = lastNumber + 1;
-
-  return `PROV${nextNumber.toString().padStart(3, '0')}`;
+  const nextId = await getNextId('provider', 'ProvNum');
+  return `PROV${nextId.toString().padStart(3, '0')}`;
 }
 
 export class ProviderService {
@@ -53,104 +36,48 @@ export class ProviderService {
     specialty?: string
   ) {
     const skip = (page - 1) * limit;
-
-    const pipeline: any[] = [
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'userId',
-          foreignField: '_id',
-          as: 'userId',
-        },
-      },
-      {
-        $unwind: {
-          path: '$userId',
-          preserveNullAndEmptyArrays: true,
-        },
-      },
-    ];
-
-    const matchConditions: any[] = [];
+    const where: any = {};
 
     if (isActive !== undefined) {
-      matchConditions.push({ isActive });
+      where.IsHidden = isActive ? 0 : 1;
     }
 
     if (specialty) {
-      matchConditions.push({ specialty });
+      where.definition = {
+        ItemName: { contains: specialty, mode: 'insensitive' },
+      };
     }
 
     if (search) {
-      const searchRegex = { $regex: search, $options: 'i' };
-      matchConditions.push({
-        $or: [
-          { providerCode: searchRegex },
-          { npiNumber: searchRegex },
-          { specialty: searchRegex },
-          { licenseNumber: searchRegex },
-          { title: searchRegex },
-          { 'userId.firstName': searchRegex },
-          { 'userId.lastName': searchRegex },
-          {
-            $expr: {
-              $regexMatch: {
-                input: { $concat: ['$userId.firstName', ' ', '$userId.lastName'] },
-                regex: search,
-                options: 'i',
-              },
-            },
-          },
-        ],
-      });
+      where.OR = [
+        { Abbr: { contains: search, mode: 'insensitive' } },
+        { NationalProvID: { contains: search, mode: 'insensitive' } },
+        { StateLicense: { contains: search, mode: 'insensitive' } },
+        { Suffix: { contains: search, mode: 'insensitive' } },
+        { FName: { contains: search, mode: 'insensitive' } },
+        { LName: { contains: search, mode: 'insensitive' } },
+        { definition: { ItemName: { contains: search, mode: 'insensitive' } } },
+      ];
     }
 
-    if (matchConditions.length > 0) {
-      pipeline.push({ $match: { $and: matchConditions } });
-    }
-
-    const countPipeline = [...pipeline, { $count: 'total' }];
-
-    pipeline.push(
-      { $sort: { providerCode: 1 } },
-      { $skip: skip },
-      { $limit: limit },
-      {
-        $project: {
-          _id: 1,
-          providerCode: 1,
-          npiNumber: 1,
-          licenseNumber: 1,
-          specialty: 1,
-          title: 1,
-          appointmentBufferMinutes: 1,
-          maxDailyAppointments: 1,
-          consultationFee: 1,
-          isAcceptingNewPatients: 1,
-          workingHours: 1,
-          telehealthEnabled: 1,
-          isActive: 1,
-          createdAt: 1,
-          updatedAt: 1,
-          userId: {
-            _id: '$userId._id',
-            firstName: '$userId.firstName',
-            lastName: '$userId.lastName',
-            email: '$userId.email',
-          },
-        },
-      }
-    );
-
-    const [providers, countResult] = await Promise.all([
-      ProviderModel.aggregate(pipeline),
-      ProviderModel.aggregate(countPipeline),
+    const [providers, total] = await Promise.all([
+      prisma.provider.findMany({
+        where,
+        include: { definition: true },
+        orderBy: { Abbr: 'asc' },
+        skip,
+        take: limit,
+      }),
+      prisma.provider.count({ where }),
     ]);
 
-    const total = countResult[0]?.total || 0;
-
     return {
-      providers,
+      providers: providers.map((p) =>
+        mapProviderToApi(p, {
+          specialtyName: p.definition?.ItemName ?? null,
+          userId: p.CustomID ?? null,
+        })
+      ),
       pagination: {
         page,
         limit,
@@ -164,15 +91,19 @@ export class ProviderService {
    * Get provider by ID
    */
   async getProviderById(providerId: string) {
-    const provider = await ProviderModel.findById(providerId)
-      .populate('userId', 'firstName lastName email phone')
-      .lean();
+    const provider = await prisma.provider.findUnique({
+      where: { ProvNum: BigInt(providerId) },
+      include: { definition: true },
+    });
 
     if (!provider) {
       throw new NotFoundError('Provider not found');
     }
 
-    return provider;
+    return mapProviderToApi(provider, {
+      specialtyName: provider.definition?.ItemName ?? null,
+      userId: provider.CustomID ?? null,
+    });
   }
 
   /**
@@ -199,20 +130,18 @@ export class ProviderService {
     },
     createdBy: string
   ) {
-    // Validate user exists
-    const user = await UserModel.findById(data.userId).lean();
-    if (!user) {
-      throw new NotFoundError('User not found');
-    }
-
     // Check if provider already exists for this user
-    const existingProvider = await ProviderModel.findOne({ userId: data.userId }).lean();
+    const existingProvider = await prisma.provider.findFirst({
+      where: { CustomID: data.userId },
+    });
     if (existingProvider) {
       throw new ConflictError('Provider profile already exists for this user');
     }
 
     // Check if NPI number is already in use
-    const existingNPI = await ProviderModel.findOne({ npiNumber: data.npiNumber }).lean();
+    const existingNPI = await prisma.provider.findFirst({
+      where: { NationalProvID: data.npiNumber },
+    });
     if (existingNPI) {
       throw new ConflictError('NPI number already in use');
     }
@@ -221,37 +150,40 @@ export class ProviderService {
     const providerCode = await generateProviderCode();
 
     const specialty = normalizeSpecialtyInput(data.specialty);
-
-    // Validate working hours
-    if (data.workingHours) {
-      for (const wh of data.workingHours) {
-        if (wh.dayOfWeek < 0 || wh.dayOfWeek > 6) {
-          throw new Error('Day of week must be between 0 (Sunday) and 6 (Saturday)');
-        }
-        if (!/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/.test(wh.startTime)) {
-          throw new Error('Start time must be in HH:MM format');
-        }
-        if (!/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/.test(wh.endTime)) {
-          throw new Error('End time must be in HH:MM format');
-        }
+    let specialtyDefNum: bigint | null = null;
+    if (specialty.length > 0) {
+      const existingDefinition = await prisma.definition.findFirst({
+        where: { ItemName: specialty[0] },
+      });
+      if (existingDefinition) {
+        specialtyDefNum = existingDefinition.DefNum;
+      } else {
+        const nextDefNum = await getNextId('definition', 'DefNum');
+        const createdDef = await prisma.definition.create({
+          data: {
+            DefNum: nextDefNum,
+            Category: 0,
+            ItemName: specialty[0],
+            ItemOrder: 0,
+            IsHidden: 0,
+          },
+        });
+        specialtyDefNum = createdDef.DefNum;
       }
     }
 
-    // Create provider
-    const provider = await ProviderModel.create({
-      providerCode,
-      userId: data.userId,
-      npiNumber: data.npiNumber,
-      licenseNumber: data.licenseNumber,
-      specialty,
-      title: data.title || 'MD',
-      appointmentBufferMinutes: data.appointmentBufferMinutes || 15,
-      maxDailyAppointments: data.maxDailyAppointments,
-      consultationFee: data.consultationFee,
-      isAcceptingNewPatients: data.isAcceptingNewPatients !== undefined ? data.isAcceptingNewPatients : true,
-      workingHours: data.workingHours || [],
-      telehealthEnabled: data.telehealthEnabled || false,
-      isActive: true,
+    const nextId = await getNextId('provider', 'ProvNum');
+    const provider = await prisma.provider.create({
+      data: {
+        ProvNum: nextId,
+        Abbr: providerCode,
+        NationalProvID: data.npiNumber,
+        StateLicense: data.licenseNumber ?? null,
+        Specialty: specialtyDefNum,
+        Suffix: data.title ?? 'MD',
+        IsHidden: 0,
+        CustomID: data.userId,
+      },
     });
 
     // Log activity
@@ -259,15 +191,21 @@ export class ProviderService {
       createdBy,
       'created',
       'providers',
-      String(provider._id),
+      String(provider.ProvNum),
       undefined,
-      provider.toObject(),
+      mapProviderToApi(provider, {
+        specialtyName: specialty[0] ?? null,
+        userId: data.userId,
+      }),
       undefined,
       undefined,
       'medium'
     );
 
-    return provider;
+    return mapProviderToApi(provider, {
+      specialtyName: specialty[0] ?? null,
+      userId: data.userId,
+    });
   }
 
   /**
@@ -295,47 +233,68 @@ export class ProviderService {
     },
     updatedBy: string
   ) {
-    const provider = await ProviderModel.findById(providerId);
+    const provider = await prisma.provider.findUnique({
+      where: { ProvNum: BigInt(providerId) },
+      include: { definition: true },
+    });
     if (!provider) {
       throw new NotFoundError('Provider not found');
     }
 
     // Check if NPI number is already in use by another provider
-    if (updates.npiNumber && updates.npiNumber !== provider.npiNumber) {
-      const existingNPI = await ProviderModel.findOne({
-        npiNumber: updates.npiNumber,
-        _id: { $ne: providerId },
-      }).lean();
+    if (updates.npiNumber && updates.npiNumber !== provider.NationalProvID) {
+      const existingNPI = await prisma.provider.findFirst({
+        where: {
+          NationalProvID: updates.npiNumber,
+          ProvNum: { not: BigInt(providerId) },
+        },
+      });
       if (existingNPI) {
         throw new ConflictError('NPI number already in use');
       }
     }
 
-    // Validate working hours if provided
-    if (updates.workingHours) {
-      for (const wh of updates.workingHours) {
-        if (wh.dayOfWeek < 0 || wh.dayOfWeek > 6) {
-          throw new Error('Day of week must be between 0 (Sunday) and 6 (Saturday)');
-        }
-        if (!/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/.test(wh.startTime)) {
-          throw new Error('Start time must be in HH:MM format');
-        }
-        if (!/^([0-1][0-9]|2[0-3]):[0-5][0-9]$/.test(wh.endTime)) {
-          throw new Error('End time must be in HH:MM format');
-        }
-      }
-    }
-
-    const oldData = provider.toObject();
+    const oldData = mapProviderToApi(provider, {
+      specialtyName: provider.definition?.ItemName ?? null,
+      userId: provider.CustomID ?? null,
+    });
 
     if (updates.specialty !== undefined) {
       updates.specialty = normalizeSpecialtyInput(updates.specialty);
     }
 
-    // Update fields
-    Object.assign(provider, updates);
+    let specialtyDefNum: bigint | null | undefined = undefined;
+    if (updates.specialty && updates.specialty.length > 0) {
+      const existingDefinition = await prisma.definition.findFirst({
+        where: { ItemName: updates.specialty[0] },
+      });
+      if (existingDefinition) {
+        specialtyDefNum = existingDefinition.DefNum;
+      } else {
+        const nextDefNum = await getNextId('definition', 'DefNum');
+        const createdDef = await prisma.definition.create({
+          data: {
+            DefNum: nextDefNum,
+            Category: 0,
+            ItemName: updates.specialty[0],
+            ItemOrder: 0,
+            IsHidden: 0,
+          },
+        });
+        specialtyDefNum = createdDef.DefNum;
+      }
+    }
 
-    await provider.save();
+    const updated = await prisma.provider.update({
+      where: { ProvNum: BigInt(providerId) },
+      data: {
+        NationalProvID: updates.npiNumber ?? undefined,
+        StateLicense: updates.licenseNumber ?? undefined,
+        Specialty: specialtyDefNum,
+        Suffix: updates.title ?? undefined,
+        IsHidden: updates.isActive !== undefined ? (updates.isActive ? 0 : 1) : undefined,
+      },
+    });
 
     // Log activity
     await logActivity(
@@ -344,28 +303,41 @@ export class ProviderService {
       'providers',
       providerId,
       oldData,
-      provider.toObject(),
+      mapProviderToApi(updated, {
+        specialtyName: updates.specialty?.[0] ?? provider.definition?.ItemName ?? null,
+        userId: provider.CustomID ?? null,
+      }),
       undefined,
       undefined,
       'medium'
     );
 
-    return provider;
+    return mapProviderToApi(updated, {
+      specialtyName: updates.specialty?.[0] ?? provider.definition?.ItemName ?? null,
+      userId: provider.CustomID ?? null,
+    });
   }
 
   /**
    * Activate provider
    */
   async activateProvider(providerId: string, activatedBy: string) {
-    const provider = await ProviderModel.findById(providerId);
+    const provider = await prisma.provider.findUnique({
+      where: { ProvNum: BigInt(providerId) },
+      include: { definition: true },
+    });
     if (!provider) {
       throw new NotFoundError('Provider not found');
     }
 
-    const oldData = provider.toObject();
-
-    (provider as any).isActive = true;
-    await provider.save();
+    const oldData = mapProviderToApi(provider, {
+      specialtyName: provider.definition?.ItemName ?? null,
+      userId: provider.CustomID ?? null,
+    });
+    await prisma.provider.update({
+      where: { ProvNum: BigInt(providerId) },
+      data: { IsHidden: 0 },
+    });
 
     await logActivity(
       activatedBy,
@@ -379,22 +351,29 @@ export class ProviderService {
       'medium'
     );
 
-    return { message: 'Provider deleted successfully' };
+    return { message: 'Provider activated successfully' };
   }
 
   /**
    * Deactivate provider
    */
   async deactivateProvider(providerId: string, deactivatedBy: string) {
-    const provider = await ProviderModel.findById(providerId);
+    const provider = await prisma.provider.findUnique({
+      where: { ProvNum: BigInt(providerId) },
+      include: { definition: true },
+    });
     if (!provider) {
       throw new NotFoundError('Provider not found');
     }
 
-    const oldData = provider.toObject();
-
-    (provider as any).isActive = false;
-    await provider.save();
+    const oldData = mapProviderToApi(provider, {
+      specialtyName: provider.definition?.ItemName ?? null,
+      userId: provider.CustomID ?? null,
+    });
+    const updated = await prisma.provider.update({
+      where: { ProvNum: BigInt(providerId) },
+      data: { IsHidden: 1 },
+    });
 
     await logActivity(
       deactivatedBy,
@@ -402,27 +381,41 @@ export class ProviderService {
       'providers',
       providerId,
       oldData,
-      provider.toObject(),
+      mapProviderToApi(updated, {
+        specialtyName: provider.definition?.ItemName ?? null,
+        userId: provider.CustomID ?? null,
+      }),
       undefined,
       undefined,
       'medium'
     );
 
-    return provider;
+    return mapProviderToApi(updated, {
+      specialtyName: provider.definition?.ItemName ?? null,
+      userId: provider.CustomID ?? null,
+    });
   }
 
   /**
    * Permanently delete provider
    */
   async deleteProvider(providerId: string, deletedBy: string) {
-    const provider = await ProviderModel.findById(providerId);
+    const provider = await prisma.provider.findUnique({
+      where: { ProvNum: BigInt(providerId) },
+      include: { definition: true },
+    });
     if (!provider) {
       throw new NotFoundError('Provider not found');
     }
 
-    const oldData = provider.toObject();
+    const oldData = mapProviderToApi(provider, {
+      specialtyName: provider.definition?.ItemName ?? null,
+      userId: provider.CustomID ?? null,
+    });
 
-    await ProviderModel.findByIdAndDelete(providerId);
+    await prisma.provider.delete({
+      where: { ProvNum: BigInt(providerId) },
+    });
 
     await logActivity(
       deletedBy,
@@ -440,11 +433,14 @@ export class ProviderService {
   }
 
   async getSpecialties() {
-    const specialties = await SpecialtyModel.find({ isActive: true })
-      .sort({ name: 1 })
-      .select('name')
-      .lean();
-    return specialties.map((s) => s.name);
+    const providers = await prisma.provider.findMany({
+      where: { Specialty: { not: null } },
+      include: { definition: true },
+    });
+    const names = providers
+      .map((p) => p.definition?.ItemName)
+      .filter((name): name is string => Boolean(name));
+    return Array.from(new Set(names)).sort();
   }
 }
 

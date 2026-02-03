@@ -1,34 +1,33 @@
-import { RoleModel } from '../models/role.model';
-import { UserRoleModel } from '../models/user-role.model';
+import { prisma } from '../config/db';
 import { NotFoundError, ConflictError } from '../utils/error.util';
-import type { Role } from '../models/role.model';
+import type { AppRole } from '../types/auth.types';
+import { getRoleMeta, mapRole, mapUser, setRoleMeta } from '../utils/opendental-auth.util';
+import { getNextId } from '../utils/opendental-ids.util';
 
 export class RoleService {
-  /**
-   * Get all active roles
-   */
   async getAllRoles(page = 1, limit = 100, search?: string) {
     const skip = (page - 1) * limit;
-    const query: any = { isActive: true };
+    const where: any = {};
 
     if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-      ];
+      where.Description = { contains: search, mode: 'insensitive' };
     }
 
-    const [roles, total] = await Promise.all([
-      RoleModel.find(query)
-        .sort({ name: 1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      RoleModel.countDocuments(query),
+    const [rows, total] = await Promise.all([
+      prisma.usergroup.findMany({
+        where,
+        orderBy: { Description: 'asc' },
+        skip,
+        take: limit,
+      }),
+      prisma.usergroup.count({ where }),
     ]);
 
+    const roles = await Promise.all(rows.map(mapRole));
+    const activeRoles = roles.filter((role) => role.isActive !== false);
+
     return {
-      roles,
+      roles: activeRoles,
       pagination: {
         page,
         limit,
@@ -38,59 +37,61 @@ export class RoleService {
     };
   }
 
-  /**
-   * Get role by ID
-   */
-  async getRoleById(roleId: string): Promise<Role> {
-    const role = await RoleModel.findById(roleId).lean();
+  async getRoleById(roleId: string): Promise<AppRole> {
+    const role = await prisma.usergroup.findUnique({
+      where: { UserGroupNum: BigInt(roleId) },
+    });
     if (!role) {
       throw new NotFoundError('Role not found');
     }
-    return role;
+    return mapRole(role);
   }
 
-  /**
-   * Get role by name
-   */
-  async getRoleByName(name: string): Promise<Role | null> {
-    return await RoleModel.findOne({ name, isActive: true }).lean();
+  async getRoleByName(name: string): Promise<AppRole | null> {
+    const role = await prisma.usergroup.findFirst({
+      where: { Description: name },
+    });
+    if (!role) return null;
+    const mapped = await mapRole(role);
+    return mapped.isActive === false ? null : mapped;
   }
 
-  /**
-   * Create a new role
-   */
   async createRole(data: {
     name: string;
     description?: string;
     permissions?: Map<string, boolean> | Record<string, boolean>;
     isSystemRole?: boolean;
-  }): Promise<Role> {
-    // Check if role with same name already exists
-    const existingRole = await RoleModel.findOne({ name: data.name });
+  }): Promise<AppRole> {
+    const existingRole = await prisma.usergroup.findFirst({
+      where: { Description: data.name },
+    });
     if (existingRole) {
       throw new ConflictError('Role with this name already exists');
     }
 
-    // Convert Map to object if needed
     let permissions = data.permissions;
     if (permissions instanceof Map) {
       permissions = Object.fromEntries(permissions);
     }
 
-    const role = await RoleModel.create({
-      name: data.name,
-      description: data.description,
+    const nextId = await getNextId('usergroup', 'UserGroupNum');
+    const role = await prisma.usergroup.create({
+      data: {
+        UserGroupNum: nextId,
+        Description: data.name,
+      },
+    });
+
+    await setRoleMeta(role.UserGroupNum, {
+      description: data.description ?? null,
       permissions: permissions || {},
       isSystemRole: data.isSystemRole || false,
       isActive: true,
     });
 
-    return role.toObject();
+    return mapRole(role);
   }
 
-  /**
-   * Update a role
-   */
   async updateRole(
     roleId: string,
     updates: {
@@ -99,84 +100,94 @@ export class RoleService {
       permissions?: Map<string, boolean> | Record<string, boolean>;
       isActive?: boolean;
     }
-  ): Promise<Role> {
-    const role = await RoleModel.findById(roleId);
+  ): Promise<AppRole> {
+    const role = await prisma.usergroup.findUnique({
+      where: { UserGroupNum: BigInt(roleId) },
+    });
     if (!role) {
       throw new NotFoundError('Role not found');
     }
 
-    // Prevent updating system roles (except isActive)
-    if (role.isSystemRole && updates.name) {
+    const meta = await getRoleMeta(role.UserGroupNum);
+    if (meta.isSystemRole && updates.name) {
       throw new ConflictError('Cannot update name of system role');
     }
 
-    // Check if new name conflicts with existing role
-    if (updates.name && updates.name !== role.name) {
-      const existingRole = await RoleModel.findOne({ name: updates.name });
+    if (updates.name && updates.name !== role.Description) {
+      const existingRole = await prisma.usergroup.findFirst({
+        where: { Description: updates.name },
+      });
       if (existingRole) {
         throw new ConflictError('Role with this name already exists');
       }
     }
 
-    // Convert Map to object if needed for permissions
     if (updates.permissions instanceof Map) {
       updates.permissions = Object.fromEntries(updates.permissions);
     }
 
-    Object.assign(role, updates);
-    await role.save();
+    const updated = await prisma.usergroup.update({
+      where: { UserGroupNum: role.UserGroupNum },
+      data: {
+        Description: updates.name ?? undefined,
+      },
+    });
 
-    return role.toObject();
+    await setRoleMeta(role.UserGroupNum, {
+      ...meta,
+      description: updates.description ?? meta.description ?? null,
+      permissions: updates.permissions ?? meta.permissions ?? {},
+      isActive: updates.isActive ?? meta.isActive ?? true,
+    });
+
+    return mapRole(updated);
   }
 
-  /**
-   * Delete a role (soft delete by setting isActive to false)
-   */
   async deleteRole(roleId: string): Promise<void> {
-    const role = await RoleModel.findById(roleId);
+    const role = await prisma.usergroup.findUnique({
+      where: { UserGroupNum: BigInt(roleId) },
+    });
     if (!role) {
       throw new NotFoundError('Role not found');
     }
 
-    // Prevent deleting system roles
-    if (role.isSystemRole) {
+    const meta = await getRoleMeta(role.UserGroupNum);
+    if (meta.isSystemRole) {
       throw new ConflictError('Cannot delete system role');
     }
 
-    // Check if role is assigned to any users
-    const userRolesCount = await UserRoleModel.countDocuments({ roleId });
+    const userRolesCount = await prisma.usergroupattach.count({
+      where: { UserGroupNum: role.UserGroupNum },
+    });
     if (userRolesCount > 0) {
-      // Soft delete by setting isActive to false
-      (role as any).isActive = false;
-      await role.save();
+      await setRoleMeta(role.UserGroupNum, { ...meta, isActive: false });
     } else {
-      // Hard delete if no users have this role
-      await RoleModel.findByIdAndDelete(roleId);
+      await prisma.usergroup.delete({ where: { UserGroupNum: role.UserGroupNum } });
     }
   }
 
-  /**
-   * Get users with a specific role
-   */
   async getUsersWithRole(roleId: string, page = 1, limit = 10) {
     const skip = (page - 1) * limit;
 
     const [userRoles, total] = await Promise.all([
-      UserRoleModel.find({ roleId })
-        .populate('userId', 'email firstName lastName isActive')
-        .sort({ assignedAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      UserRoleModel.countDocuments({ roleId }),
+      prisma.usergroupattach.findMany({
+        where: { UserGroupNum: BigInt(roleId) },
+        orderBy: { UserGroupAttachNum: 'desc' },
+        skip,
+        take: limit,
+        include: { userod: true },
+      }),
+      prisma.usergroupattach.count({ where: { UserGroupNum: BigInt(roleId) } }),
     ]);
 
     return {
-      users: userRoles.map((ur) => ({
-        user: ur.userId,
-        assignedAt: ur.assignedAt,
-        assignedBy: ur.assignedBy,
-      })),
+      users: await Promise.all(
+        userRoles.map(async (ur) => ({
+          user: ur.userod ? await mapUser(ur.userod) : null,
+          assignedAt: null,
+          assignedBy: null,
+        }))
+      ),
       pagination: {
         page,
         limit,
@@ -188,4 +199,3 @@ export class RoleService {
 }
 
 export const roleService = new RoleService();
-

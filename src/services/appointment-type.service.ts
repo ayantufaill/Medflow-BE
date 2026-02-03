@@ -1,6 +1,8 @@
-import { AppointmentTypeModel } from '../models/appointment-type.model';
+import { prisma } from '../config/db';
 import { NotFoundError, ConflictError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
+import { getNextId } from '../utils/opendental-ids.util';
+import { mapAppointmentTypeToApi } from '../utils/opendental-mappers.util';
 
 export class AppointmentTypeService {
   /**
@@ -8,31 +10,32 @@ export class AppointmentTypeService {
    */
   async getAllAppointmentTypes(page = 1, limit = 10, search?: string, isActive?: boolean) {
     const skip = (page - 1) * limit;
-    const query: any = {};
+    const where: any = {};
 
     if (search) {
       const decodedSearch = decodeURIComponent(search.replace(/\+/g, ' '));
-      query.$or = [
-        { name: { $regex: decodedSearch, $options: 'i' } },
-        { description: { $regex: decodedSearch, $options: 'i' } },
+      where.OR = [
+        { AppointmentTypeName: { contains: decodedSearch, mode: 'insensitive' } },
+        { Pattern: { contains: decodedSearch, mode: 'insensitive' } },
       ];
     }
 
     if (isActive !== undefined) {
-      query.isActive = isActive;
+      where.IsHidden = isActive ? 0 : 1;
     }
 
-    const [appointmentTypes, total] = await Promise.all([
-      AppointmentTypeModel.find(query)
-        .sort({ name: 1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      AppointmentTypeModel.countDocuments(query),
+    const [rows, total] = await Promise.all([
+      prisma.appointmenttype.findMany({
+        where,
+        orderBy: { AppointmentTypeName: 'asc' },
+        skip,
+        take: limit,
+      }),
+      prisma.appointmenttype.count({ where }),
     ]);
 
     return {
-      appointmentTypes,
+      appointmentTypes: rows.map(mapAppointmentTypeToApi),
       pagination: {
         page,
         limit,
@@ -46,13 +49,15 @@ export class AppointmentTypeService {
    * Get appointment type by ID
    */
   async getAppointmentTypeById(appointmentTypeId: string) {
-    const appointmentType = await AppointmentTypeModel.findById(appointmentTypeId).lean();
+    const appointmentType = await prisma.appointmenttype.findUnique({
+      where: { AppointmentTypeNum: BigInt(appointmentTypeId) },
+    });
 
     if (!appointmentType) {
       throw new NotFoundError('Appointment type not found');
     }
 
-    return appointmentType;
+    return mapAppointmentTypeToApi(appointmentType);
   }
 
   /**
@@ -72,38 +77,43 @@ export class AppointmentTypeService {
     createdBy: string
   ) {
     // Check if name already exists
-    const existing = await AppointmentTypeModel.findOne({ name: data.name }).lean();
+    const existing = await prisma.appointmenttype.findFirst({
+      where: { AppointmentTypeName: data.name },
+    });
     if (existing) {
       throw new ConflictError('Appointment type with this name already exists');
     }
 
+    const nextId = await getNextId('appointmenttype', 'AppointmentTypeNum');
+    const colorValue = data.colorCode ? Number.parseInt(data.colorCode, 10) : null;
+
     // Create appointment type
-    const appointmentType = await AppointmentTypeModel.create({
-      name: data.name,
-      description: data.description,
-      defaultDuration: data.defaultDuration,
-      defaultPrice: data.defaultPrice,
-      colorCode: data.colorCode,
-      requiresAuthorization: data.requiresAuthorization || false,
-      bufferBefore: data.bufferBefore || 0,
-      bufferAfter: data.bufferAfter || 0,
-      isActive: true,
+    const appointmentType = await prisma.appointmenttype.create({
+      data: {
+        AppointmentTypeNum: nextId,
+        AppointmentTypeName: data.name,
+        AppointmentTypeColor: Number.isNaN(colorValue) ? null : colorValue,
+        RequiredProcCodesNeeded: data.requiresAuthorization ? 1 : 0,
+        IsHidden: 0,
+      },
     });
+
+    const apiAppointmentType = mapAppointmentTypeToApi(appointmentType);
 
     // Log activity
     await logActivity(
       createdBy,
       'created',
       'appointment_types',
-      String(appointmentType._id),
+      apiAppointmentType._id,
       undefined,
-      appointmentType.toObject(),
+      apiAppointmentType,
       undefined,
       undefined,
       'low'
     );
 
-    return appointmentType;
+    return apiAppointmentType;
   }
 
   /**
@@ -124,28 +134,47 @@ export class AppointmentTypeService {
     },
     updatedBy: string
   ) {
-    const appointmentType = await AppointmentTypeModel.findById(appointmentTypeId);
+    const appointmentType = await prisma.appointmenttype.findUnique({
+      where: { AppointmentTypeNum: BigInt(appointmentTypeId) },
+    });
     if (!appointmentType) {
       throw new NotFoundError('Appointment type not found');
     }
 
     // Check if name is already in use by another appointment type
-    if (updates.name && updates.name !== appointmentType.name) {
-      const existing = await AppointmentTypeModel.findOne({
-        name: updates.name,
-        _id: { $ne: appointmentTypeId },
-      }).lean();
+    if (updates.name && updates.name !== appointmentType.AppointmentTypeName) {
+      const existing = await prisma.appointmenttype.findFirst({
+        where: {
+          AppointmentTypeName: updates.name,
+          AppointmentTypeNum: { not: BigInt(appointmentTypeId) },
+        },
+      });
       if (existing) {
         throw new ConflictError('Appointment type with this name already exists');
       }
     }
 
-    const oldData = appointmentType.toObject();
+    const oldData = mapAppointmentTypeToApi(appointmentType);
+    const colorValue =
+      updates.colorCode !== undefined ? Number.parseInt(updates.colorCode, 10) : undefined;
 
-    // Update fields
-    Object.assign(appointmentType, updates);
+    const updated = await prisma.appointmenttype.update({
+      where: { AppointmentTypeNum: BigInt(appointmentTypeId) },
+      data: {
+        AppointmentTypeName: updates.name ?? undefined,
+        AppointmentTypeColor: Number.isNaN(colorValue) ? undefined : colorValue,
+        RequiredProcCodesNeeded:
+          updates.requiresAuthorization !== undefined
+            ? updates.requiresAuthorization
+              ? 1
+              : 0
+            : undefined,
+        IsHidden:
+          updates.isActive !== undefined ? (updates.isActive ? 0 : 1) : undefined,
+      },
+    });
 
-    await appointmentType.save();
+    const apiAppointmentType = mapAppointmentTypeToApi(updated);
 
     // Log activity
     await logActivity(
@@ -154,28 +183,32 @@ export class AppointmentTypeService {
       'appointment_types',
       appointmentTypeId,
       oldData,
-      appointmentType.toObject(),
+      apiAppointmentType,
       undefined,
       undefined,
       'low'
     );
 
-    return appointmentType;
+    return apiAppointmentType;
   }
 
   /**
    * Delete appointment type (hard delete)
    */
   async deleteAppointmentType(appointmentTypeId: string, deletedBy: string) {
-    const appointmentType = await AppointmentTypeModel.findById(appointmentTypeId);
+    const appointmentType = await prisma.appointmenttype.findUnique({
+      where: { AppointmentTypeNum: BigInt(appointmentTypeId) },
+    });
     if (!appointmentType) {
       throw new NotFoundError('Appointment type not found');
     }
 
-    const oldData = appointmentType.toObject();
+    const oldData = mapAppointmentTypeToApi(appointmentType);
 
     // Hard delete - remove from database
-    await AppointmentTypeModel.deleteOne({ _id: appointmentTypeId });
+    await prisma.appointmenttype.delete({
+      where: { AppointmentTypeNum: BigInt(appointmentTypeId) },
+    });
 
     // Log activity
     await logActivity(

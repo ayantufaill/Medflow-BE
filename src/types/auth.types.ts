@@ -1,6 +1,3 @@
-import type { User } from '../models/user.model';
-import type { Role } from '../models/role.model';
-
 export interface JWTPayload {
   userId: string;
   email: string;
@@ -22,20 +19,43 @@ export interface LoginRequest {
 
 export interface RegisterRequest {
   email: string;
-  password?: string; // Optional - will be set via email link
+  password?: string;
   firstName: string;
   lastName: string;
   phone?: string;
   preferredLanguage?: string;
-  roleId?: string; // Optional role ID to assign during registration
+  roleId?: string;
+}
+
+export interface AppUser {
+  _id: string;
+  email: string;
+  passwordHash?: string;
+  firstName: string;
+  lastName: string;
+  phone?: string | null;
+  preferredLanguage?: string | null;
+  failedLoginAttempts?: number;
+  accountLockedUntil?: Date | null;
+  isActive?: boolean;
+  lastLoginAt?: Date | null;
+  tokenVersion?: number;
+}
+
+export interface AppRole {
+  _id: string;
+  name: string;
+  description?: string | null;
+  permissions: Record<string, boolean>;
+  isSystemRole?: boolean;
+  isActive?: boolean;
 }
 
 export interface AuthResponse {
-  user: Omit<User, 'passwordHash'>;
+  user: Omit<AppUser, 'passwordHash'>;
   tokens: AuthTokens;
 }
 
-export interface UserWithRoles extends Omit<User, 'passwordHash'> {
-  roles: Role[];
+export interface UserWithRoles extends Omit<AppUser, 'passwordHash'> {
+  roles: AppRole[];
 }
-

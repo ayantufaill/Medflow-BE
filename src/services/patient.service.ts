@@ -1,34 +1,19 @@
-import { PatientModel } from '../models/patient.model';
-import { InvoiceModel } from '../models/invoice.model';
+import { prisma } from '../config/db';
 import { NotFoundError, ConflictError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
+import { getNextId } from '../utils/opendental-ids.util';
+import {
+  mapContactPreferenceToDb,
+  mapGenderToDb,
+  mapPatientToApi,
+} from '../utils/opendental-mappers.util';
 
 /**
  * Generate unique patient code (e.g., PAT001, PAT002, etc.)
  */
 async function generatePatientCode(): Promise<string> {
-  // Find the highest numbered patient code
-  const lastPatient = await PatientModel.findOne()
-    .sort({ patientCode: -1 })
-    .select('patientCode')
-    .lean();
-
-  if (!lastPatient || !lastPatient.patientCode) {
-    return 'PAT001';
-  }
-
-  // Extract number from code (e.g., "PAT001" -> 1)
-  const patientCodeStr = String(lastPatient.patientCode || '');
-  const match = patientCodeStr.match(/\d+$/);
-  if (!match) {
-    return 'PAT001';
-  }
-
-  const lastNumber = parseInt(match[0], 10);
-  const nextNumber = lastNumber + 1;
-
-  // Format as PAT001, PAT002, etc. (3 digits minimum)
-  return `PAT${nextNumber.toString().padStart(3, '0')}`;
+  const nextId = await getNextId('patient', 'PatNum');
+  return `PAT${nextId.toString().padStart(3, '0')}`;
 }
 
 export class PatientService {
@@ -44,7 +29,7 @@ export class PatientService {
     dobEnd?: string
   ) {
     const skip = (page - 1) * limit;
-    const query: any = {};
+    const where: any = {};
 
     // Search filter - search by name, DOB, phone, email, patient code
     if (search) {
@@ -57,37 +42,39 @@ export class PatientService {
         const reverseFirstNameSearch = searchTerms[searchTerms.length - 1];
         const reverseLastNameSearch = searchTerms.slice(0, -1).join(' ');
 
-        query.$or = [
-          { patientCode: { $regex: search, $options: 'i' } },
-          { email: { $regex: search, $options: 'i' } },
-          { phonePrimary: { $regex: search, $options: 'i' } },
-          { phoneSecondary: { $regex: search, $options: 'i' } },
+        where.OR = [
+          { ChartNumber: { contains: search, mode: 'insensitive' } },
+          { Email: { contains: search, mode: 'insensitive' } },
+          { WirelessPhone: { contains: search, mode: 'insensitive' } },
+          { HmPhone: { contains: search, mode: 'insensitive' } },
+          { WkPhone: { contains: search, mode: 'insensitive' } },
           {
-            $and: [
-              { firstName: { $regex: firstNameSearch, $options: 'i' } },
-              { lastName: { $regex: lastNameSearch, $options: 'i' } },
+            AND: [
+              { FName: { contains: firstNameSearch, mode: 'insensitive' } },
+              { LName: { contains: lastNameSearch, mode: 'insensitive' } },
             ],
           },
           {
-            $and: [
-              { firstName: { $regex: reverseFirstNameSearch, $options: 'i' } },
-              { lastName: { $regex: reverseLastNameSearch, $options: 'i' } },
+            AND: [
+              { FName: { contains: reverseFirstNameSearch, mode: 'insensitive' } },
+              { LName: { contains: reverseLastNameSearch, mode: 'insensitive' } },
             ],
           },
-          { firstName: { $regex: search, $options: 'i' } },
-          { lastName: { $regex: search, $options: 'i' } },
-          { referralSource: { $regex: search, $options: 'i' } },
+          { FName: { contains: search, mode: 'insensitive' } },
+          { LName: { contains: search, mode: 'insensitive' } },
+          { AddrNote: { contains: search, mode: 'insensitive' } },
         ];
       } else {
         // Single word - search in all fields
-        query.$or = [
-          { patientCode: { $regex: search, $options: 'i' } },
-          { email: { $regex: search, $options: 'i' } },
-          { firstName: { $regex: search, $options: 'i' } },
-          { lastName: { $regex: search, $options: 'i' } },
-          { phonePrimary: { $regex: search, $options: 'i' } },
-          { phoneSecondary: { $regex: search, $options: 'i' } },
-          { referralSource: { $regex: search, $options: 'i' } },
+        where.OR = [
+          { ChartNumber: { contains: search, mode: 'insensitive' } },
+          { Email: { contains: search, mode: 'insensitive' } },
+          { FName: { contains: search, mode: 'insensitive' } },
+          { LName: { contains: search, mode: 'insensitive' } },
+          { WirelessPhone: { contains: search, mode: 'insensitive' } },
+          { HmPhone: { contains: search, mode: 'insensitive' } },
+          { WkPhone: { contains: search, mode: 'insensitive' } },
+          { AddrNote: { contains: search, mode: 'insensitive' } },
         ];
       }
     }
@@ -95,38 +82,39 @@ export class PatientService {
     // Status filter
     if (status !== undefined && status !== '') {
       if (status === 'active') {
-        query.isActive = true;
+        where.PatStatus = 0;
       } else if (status === 'inactive') {
-        query.isActive = false;
+        where.PatStatus = 2;
       }
     }
 
     // Date of birth range filter
     if (dobStart || dobEnd) {
-      query.dateOfBirth = {};
+      where.Birthdate = {};
       if (dobStart) {
         const startDate = new Date(dobStart);
         startDate.setHours(0, 0, 0, 0);
-        query.dateOfBirth.$gte = startDate;
+        where.Birthdate.gte = startDate;
       }
       if (dobEnd) {
         const endDate = new Date(dobEnd);
         endDate.setHours(23, 59, 59, 999);
-        query.dateOfBirth.$lte = endDate;
+        where.Birthdate.lte = endDate;
       }
     }
 
     const [patients, total] = await Promise.all([
-      PatientModel.find(query)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      PatientModel.countDocuments(query),
+      prisma.patient.findMany({
+        where,
+        orderBy: { DateTStamp: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.patient.count({ where }),
     ]);
 
     return {
-      patients,
+      patients: patients.map(mapPatientToApi),
       pagination: {
         page,
         limit,
@@ -140,50 +128,48 @@ export class PatientService {
    * Get patient by ID
    */
   async getPatientById(patientId: string) {
-    const patient = await PatientModel.findById(patientId).lean();
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) },
+    });
 
     if (!patient) {
       throw new NotFoundError('Patient not found');
     }
 
-    return patient;
+    return mapPatientToApi(patient);
   }
 
   /**
    * Get patient by ID including SSN (for authorized users only)
    */
   async getPatientByIdWithSSN(patientId: string) {
-    const patient = await PatientModel.findById(patientId).lean();
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) },
+    });
 
     if (!patient) {
       throw new NotFoundError('Patient not found');
     }
 
-    return patient;
+    return mapPatientToApi(patient);
   }
 
   /**
    * Get patient account balance summary
    */
   async getPatientBalance(patientId: string) {
-    const patient = await PatientModel.findById(patientId).lean();
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) },
+      select: { PatNum: true, BalTotal: true },
+    });
     if (!patient) {
       throw new NotFoundError('Patient not found');
     }
 
-    const invoices = await InvoiceModel.find({
-      patientId,
-      status: { $in: ['draft', 'submitted', 'partially_paid', 'denied'] },
-    })
-      .select('balanceDue')
-      .lean();
-
-    const totalBalance = invoices.reduce((sum, invoice) => sum + (Number(invoice.balanceDue) || 0), 0);
-
     return {
       patientId,
-      totalBalance,
-      openInvoices: invoices.length,
+      totalBalance: Number(patient.BalTotal || 0),
+      openInvoices: 0,
     };
   }
 
@@ -197,29 +183,39 @@ export class PatientService {
     phonePrimary?: string;
     email?: string;
   }) {
-    const query: any = {
-      firstName: { $regex: new RegExp(`^${data.firstName}$`, 'i') },
-      lastName: { $regex: new RegExp(`^${data.lastName}$`, 'i') },
-      dateOfBirth: data.dateOfBirth,
+    const where: any = {
+      FName: { equals: data.firstName, mode: 'insensitive' },
+      LName: { equals: data.lastName, mode: 'insensitive' },
+      Birthdate: data.dateOfBirth,
     };
 
-    // Also check phone or email if provided
     if (data.phonePrimary || data.email) {
-      query.$or = [];
+      where.OR = [];
       if (data.phonePrimary) {
-        query.$or.push({ phonePrimary: data.phonePrimary });
-        query.$or.push({ phoneSecondary: data.phonePrimary });
+        where.OR.push({ WirelessPhone: data.phonePrimary });
+        where.OR.push({ HmPhone: data.phonePrimary });
+        where.OR.push({ WkPhone: data.phonePrimary });
       }
       if (data.email) {
-        query.$or.push({ email: data.email.toLowerCase() });
+        where.OR.push({ Email: data.email.toLowerCase() });
       }
     }
 
-    const duplicates = await PatientModel.find(query)
-      .select('_id patientCode firstName lastName dateOfBirth phonePrimary email')
-      .lean();
+    const duplicates = await prisma.patient.findMany({
+      where,
+      select: {
+        PatNum: true,
+        ChartNumber: true,
+        FName: true,
+        LName: true,
+        Birthdate: true,
+        WirelessPhone: true,
+        HmPhone: true,
+        Email: true,
+      },
+    });
 
-    return duplicates;
+    return duplicates.map(mapPatientToApi);
   }
 
   /**
@@ -284,48 +280,54 @@ export class PatientService {
 
     // Generate unique patient code
     const patientCode = await generatePatientCode();
+    const nextId = await getNextId('patient', 'PatNum');
 
     // Create patient
-    const patient = await PatientModel.create({
-      patientCode,
-      firstName: data.firstName,
-      lastName: data.lastName,
-      middleName: data.middleName,
-      preferredName: data.preferredName,
-      dateOfBirth: data.dateOfBirth,
-      gender: data.gender || 'unknown',
-      ssn: data.ssn && data.ssn.trim() ? data.ssn.replace(/-/g, '').trim() : undefined, // Store as digits only, undefined if empty
-      phonePrimary: data.phonePrimary,
-      phoneSecondary: data.phoneSecondary,
-      email: data.email?.toLowerCase(),
-      address: data.address,
-      emergencyContact: data.emergencyContact,
-      preferredLanguage: data.preferredLanguage || 'en',
-      communicationPreference: data.communicationPreference || 'phone',
-      portalAccessEnabled: data.portalAccessEnabled !== undefined ? data.portalAccessEnabled : false,
-      userAccountId: data.userAccountId,
-      lastVisitDate: data.lastVisitDate,
-      referralSource: data.referralSource,
-      notes: data.notes,
-      isActive: true,
+    const patient = await prisma.patient.create({
+      data: {
+        PatNum: nextId,
+        ChartNumber: patientCode,
+        FName: data.firstName,
+        LName: data.lastName,
+        MiddleI: data.middleName?.trim() || null,
+        Preferred: data.preferredName?.trim() || null,
+        Birthdate: data.dateOfBirth,
+        Gender: mapGenderToDb(data.gender),
+        SSN: data.ssn && data.ssn.trim() ? data.ssn.replace(/-/g, '').trim() : null,
+        WirelessPhone: data.phonePrimary?.trim() || null,
+        HmPhone: data.phonePrimary?.trim() || null,
+        WkPhone: data.phoneSecondary?.trim() || null,
+        Email: data.email?.toLowerCase() || null,
+        Address: data.address?.line1?.trim() || null,
+        Address2: data.address?.line2?.trim() || null,
+        City: data.address?.city?.trim() || null,
+        State: data.address?.state?.trim() || null,
+        Zip: data.address?.postalCode?.trim() || null,
+        Language: data.preferredLanguage?.trim() || 'en',
+        PreferContactMethod: mapContactPreferenceToDb(data.communicationPreference),
+        PatStatus: 0,
+        DateFirstVisit: data.lastVisitDate ?? null,
+        AddrNote: data.notes?.trim() || null,
+      },
     });
 
     // Log activity
     if (createdBy) {
+      const patientApi = mapPatientToApi(patient);
       await logActivity(
         createdBy,
         'created',
         'patients',
-        patient._id.toString(),
+        patientApi._id,
         undefined,
-        { patientCode: patient.patientCode, firstName: patient.firstName, lastName: patient.lastName },
+        { patientCode: patientApi.patientCode, firstName: patientApi.firstName, lastName: patientApi.lastName },
         undefined,
         undefined,
         'low'
       );
     }
 
-    return this.getPatientByIdWithSSN(patient._id.toString());
+    return this.getPatientByIdWithSSN(patient.PatNum.toString());
   }
 
   /**
@@ -366,123 +368,66 @@ export class PatientService {
     },
     updatedBy?: string
   ) {
-    const patient = await PatientModel.findById(patientId);
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) },
+    });
     if (!patient) {
       throw new NotFoundError('Patient not found');
     }
 
     const oldValues = {
-      firstName: patient.firstName,
-      lastName: patient.lastName,
-      phonePrimary: patient.phonePrimary,
-      email: patient.email,
-      isActive: patient.isActive,
+      firstName: patient.FName,
+      lastName: patient.LName,
+      phonePrimary: patient.WirelessPhone ?? patient.HmPhone,
+      email: patient.Email,
+      isActive: patient.PatStatus === null ? true : patient.PatStatus !== 2,
     };
 
-    // Update fields - handle empty strings to clear optional fields
-    if (updates.firstName !== undefined) patient.firstName = updates.firstName;
-    if (updates.lastName !== undefined) patient.lastName = updates.lastName;
-    if (updates.middleName !== undefined) {
-      // Empty string clears the field (use null for Mongoose)
-      const trimmed = updates.middleName.trim();
-      patient.middleName = trimmed ? trimmed : null;
-    }
-    if (updates.preferredName !== undefined) {
-      // Empty string clears the field (use null for Mongoose)
-      const trimmed = updates.preferredName.trim();
-      patient.preferredName = trimmed ? trimmed : null;
-    }
-    if (updates.dateOfBirth !== undefined) (patient as any).dateOfBirth = updates.dateOfBirth;
-    if (updates.gender !== undefined) (patient as any).gender = updates.gender;
-    if (updates.ssn !== undefined) {
-      // Store SSN as digits only (remove hyphens if present)
-      // If empty string, set to null to clear the field (Mongoose uses null, not undefined)
-      const ssnValue = updates.ssn && updates.ssn.trim()
-        ? updates.ssn.replace(/-/g, '').trim()
-        : null;
-      patient.ssn = ssnValue;
-      // Explicitly mark SSN as modified to ensure it's saved (important for fields with select: false)
-      patient.markModified('ssn');
-    }
-    if (updates.phonePrimary !== undefined) {
-      // Empty string clears the field (use null for Mongoose)
-      const trimmed = updates.phonePrimary.trim();
-      patient.phonePrimary = trimmed ? trimmed : null;
-    }
-    if (updates.phoneSecondary !== undefined) {
-      // Empty string clears the field (use null for Mongoose)
-      const trimmed = updates.phoneSecondary.trim();
-      patient.phoneSecondary = trimmed ? trimmed : null;
-    }
-    if (updates.email !== undefined) {
-      // Empty string clears the field (use null for Mongoose)
-      const trimmed = updates.email.trim();
-      patient.email = trimmed ? trimmed.toLowerCase() : null;
-    }
-    if (updates.address !== undefined) {
-      // Handle address object - if all fields are empty, set to null
-      const address = updates.address;
-      if (
-        (!address.line1 || !address.line1.trim()) &&
-        (!address.line2 || !address.line2.trim()) &&
-        (!address.city || !address.city.trim()) &&
-        (!address.state || !address.state.trim()) &&
-        (!address.postalCode || !address.postalCode.trim())
-      ) {
-        patient.address = null;
-      } else {
-        // Update address fields, empty strings clear individual fields (use null for Mongoose)
-        patient.address = {
-          line1: address.line1?.trim() ? address.line1.trim() : null,
-          line2: address.line2?.trim() ? address.line2.trim() : null,
-          city: address.city?.trim() ? address.city.trim() : null,
-          state: address.state?.trim() ? address.state.trim() : null,
-          postalCode: address.postalCode?.trim() ? address.postalCode.trim() : null,
-        };
-      }
-    }
-    if (updates.emergencyContact !== undefined) {
-      // Handle emergency contact - if all fields are empty, set to null
-      const ec = updates.emergencyContact;
-      if (
-        (!ec.name || !ec.name.trim()) &&
-        (!ec.relationship || !ec.relationship.trim()) &&
-        (!ec.phone || !ec.phone.trim())
-      ) {
-        patient.emergencyContact = null;
-      } else {
-        // Update emergency contact fields, empty strings clear individual fields (use null for Mongoose)
-        patient.emergencyContact = {
-          name: ec.name?.trim() ? ec.name.trim() : null,
-          relationship: ec.relationship?.trim() ? ec.relationship.trim() : null,
-          phone: ec.phone?.trim() ? ec.phone.trim() : null,
-        };
-      }
-    }
-    if (updates.preferredLanguage !== undefined) {
-      patient.preferredLanguage = updates.preferredLanguage.trim() || 'en';
-    }
-    if (updates.communicationPreference !== undefined) {
-      (patient as any).communicationPreference = updates.communicationPreference;
-    }
-    if (updates.portalAccessEnabled !== undefined) (patient as any).portalAccessEnabled = updates.portalAccessEnabled;
-    if (updates.isActive !== undefined) (patient as any).isActive = updates.isActive;
-    if (updates.lastVisitDate !== undefined) {
-      // Empty/null date clears the field (use null for Mongoose)
-      (patient as any).lastVisitDate = updates.lastVisitDate || null;
-    }
-    if (updates.referralSource !== undefined) {
-      // Empty string clears the field (use null for Mongoose)
-      const trimmed = updates.referralSource.trim();
-      patient.referralSource = trimmed ? trimmed : null;
-    }
-    if (updates.notes !== undefined) {
-      // Empty string clears the field (use null for Mongoose)
-      const trimmed = updates.notes.trim();
-      patient.notes = trimmed ? trimmed : null;
-    }
-
-    await patient.save();
+    const updated = await prisma.patient.update({
+      where: { PatNum: BigInt(patientId) },
+      data: {
+        FName: updates.firstName ?? undefined,
+        LName: updates.lastName ?? undefined,
+        MiddleI: updates.middleName !== undefined ? (updates.middleName.trim() || null) : undefined,
+        Preferred:
+          updates.preferredName !== undefined ? (updates.preferredName.trim() || null) : undefined,
+        Birthdate: updates.dateOfBirth ?? undefined,
+        Gender: updates.gender !== undefined ? mapGenderToDb(updates.gender) : undefined,
+        SSN:
+          updates.ssn !== undefined
+            ? updates.ssn && updates.ssn.trim()
+              ? updates.ssn.replace(/-/g, '').trim()
+              : null
+            : undefined,
+        WirelessPhone:
+          updates.phonePrimary !== undefined ? (updates.phonePrimary.trim() || null) : undefined,
+        HmPhone:
+          updates.phonePrimary !== undefined ? (updates.phonePrimary.trim() || null) : undefined,
+        WkPhone:
+          updates.phoneSecondary !== undefined ? (updates.phoneSecondary.trim() || null) : undefined,
+        Email: updates.email !== undefined ? (updates.email.trim().toLowerCase() || null) : undefined,
+        Address:
+          updates.address !== undefined ? (updates.address.line1?.trim() || null) : undefined,
+        Address2:
+          updates.address !== undefined ? (updates.address.line2?.trim() || null) : undefined,
+        City: updates.address !== undefined ? (updates.address.city?.trim() || null) : undefined,
+        State: updates.address !== undefined ? (updates.address.state?.trim() || null) : undefined,
+        Zip:
+          updates.address !== undefined ? (updates.address.postalCode?.trim() || null) : undefined,
+        Language:
+          updates.preferredLanguage !== undefined
+            ? updates.preferredLanguage.trim() || 'en'
+            : undefined,
+        PreferContactMethod:
+          updates.communicationPreference !== undefined
+            ? mapContactPreferenceToDb(updates.communicationPreference)
+            : undefined,
+        PatStatus:
+          updates.isActive !== undefined ? (updates.isActive ? 0 : 2) : undefined,
+        DateFirstVisit: updates.lastVisitDate ?? undefined,
+        AddrNote: updates.notes !== undefined ? (updates.notes.trim() || null) : undefined,
+      },
+    });
 
     // Log activity
     if (updatedBy) {
@@ -500,20 +445,24 @@ export class PatientService {
     }
 
     // Always return patient with SSN included
-    return this.getPatientByIdWithSSN(patientId);
+    return this.getPatientByIdWithSSN(updated.PatNum.toString());
   }
 
   /**
    * Delete patient (soft delete by setting isActive to false)
    */
   async deletePatient(patientId: string, deletedBy?: string) {
-    const patient = await PatientModel.findById(patientId);
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) },
+    });
     if (!patient) {
       throw new NotFoundError('Patient not found');
     }
 
-    (patient as any).isActive = false;
-    await patient.save();
+    await prisma.patient.update({
+      where: { PatNum: BigInt(patientId) },
+      data: { PatStatus: 2 },
+    });
 
     // Log activity
     if (deletedBy) {

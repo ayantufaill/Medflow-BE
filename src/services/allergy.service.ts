@@ -1,147 +1,136 @@
-import { AllergyModel } from '../models/allergy.model';
-import { PatientModel } from '../models/patient.model';
-import { UserModel } from '../models/user.model';
+import { prisma } from '../config/db';
 import { NotFoundError } from '../utils/error.util';
+import { getNextId } from '../utils/opendental-ids.util';
 
 export class AllergyService {
-  /**
-   * Create a new allergy
-   */
-  async createAllergy(
-    data: {
-      patientId: string;
-      allergen: string;
-      reaction: string;
-      severity: 'mild' | 'moderate' | 'severe';
-      documentedBy: string;
-      documentedDate: Date;
-      isActive?: boolean;
-    }
-  ) {
-    // Validate patient exists
-    const patient = await PatientModel.findById(data.patientId);
+  async createAllergy(data: {
+    patientId: string;
+    allergen: string;
+    reaction: string;
+    severity: 'mild' | 'moderate' | 'severe';
+    documentedBy: string;
+  }) {
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(data.patientId) },
+    });
     if (!patient) {
       throw new NotFoundError('Patient not found');
     }
 
-    // Validate documented_by user exists
-    const user = await UserModel.findById(data.documentedBy);
-    if (!user) {
-      throw new NotFoundError('Invalid documented_by');
-    }
+    const allergyDefNum = await getNextId('allergydef', 'AllergyDefNum');
+    const allergyNum = await getNextId('allergy', 'AllergyNum');
 
-    const allergy = new AllergyModel({
-      patientId: data.patientId,
-      allergen: data.allergen.trim(),
-      reaction: data.reaction.trim(),
-      severity: data.severity,
-      documentedBy: data.documentedBy,
-      documentedDate: data.documentedDate,
-      isActive: data.isActive !== undefined ? data.isActive : true,
+    await prisma.allergydef.create({
+      data: {
+        AllergyDefNum: allergyDefNum,
+        Description: data.allergen,
+        IsHidden: 0,
+      },
     });
 
-    await allergy.save();
-    return allergy;
+    const allergy = await prisma.allergy.create({
+      data: {
+        AllergyNum: allergyNum,
+        AllergyDefNum: allergyDefNum,
+        PatNum: BigInt(data.patientId),
+        DateTStamp: new Date(),
+      },
+    });
+
+    return {
+      _id: allergy.AllergyNum.toString(),
+      patientId: data.patientId,
+      allergen: data.allergen,
+      reaction: data.reaction,
+      severity: data.severity,
+      isActive: true,
+      documentedBy: data.documentedBy,
+      documentedDate: new Date(),
+    };
   }
 
-  /**
-   * Get all allergies for a patient
-   */
-  async getAllergies(patientId: string) {
-    // Validate patient exists
-    const patient = await PatientModel.findById(patientId);
-    if (!patient) {
-      throw new NotFoundError('Patient not found');
-    }
+  async getAllergiesByPatient(patientId: string) {
+    const allergies = await prisma.allergy.findMany({
+      where: { PatNum: BigInt(patientId) },
+      include: { allergydef: true },
+    });
 
-    const allergies = await AllergyModel.find({ patientId })
-      .populate('documentedBy', 'firstName lastName email')
-      .sort({ documentedDate: -1 })
-      .lean();
-
-    return allergies;
+    return allergies.map((allergy) => ({
+      _id: allergy.AllergyNum.toString(),
+      patientId,
+      allergen: allergy.allergydef?.Description ?? 'Allergy',
+      reaction: null,
+      severity: 'mild',
+      isActive: true,
+      documentedBy: null,
+      documentedDate: null,
+    }));
   }
 
-  /**
-   * Get allergy by ID
-   */
   async getAllergyById(allergyId: string) {
-    const allergy = await AllergyModel.findById(allergyId)
-      .populate('patientId', 'firstName lastName patientCode')
-      .populate('documentedBy', 'firstName lastName email')
-      .lean();
-
+    const allergy = await prisma.allergy.findUnique({
+      where: { AllergyNum: BigInt(allergyId) },
+      include: { allergydef: true },
+    });
     if (!allergy) {
       throw new NotFoundError('Allergy not found');
     }
 
-    return allergy;
+    return {
+      _id: allergy.AllergyNum.toString(),
+      patientId: allergy.PatNum?.toString() ?? null,
+      allergen: allergy.allergydef?.Description ?? 'Allergy',
+      reaction: null,
+      severity: 'mild',
+      isActive: true,
+      documentedBy: null,
+      documentedDate: null,
+    };
   }
 
-  /**
-   * Update allergy
-   */
-  async updateAllergy(
-    allergyId: string,
-    updates: {
-      allergen?: string;
-      reaction?: string;
-      severity?: 'mild' | 'moderate' | 'severe';
-      documentedBy?: string;
-      documentedDate?: Date;
-      isActive?: boolean;
-    }
-  ) {
-    const allergy = await AllergyModel.findById(allergyId);
+  async updateAllergy(allergyId: string, updates: {
+    allergen?: string;
+    reaction?: string;
+    severity?: 'mild' | 'moderate' | 'severe';
+  }) {
+    const allergy = await prisma.allergy.findUnique({
+      where: { AllergyNum: BigInt(allergyId) },
+      include: { allergydef: true },
+    });
     if (!allergy) {
       throw new NotFoundError('Allergy not found');
     }
 
-    // If documentedBy is being updated, validate user exists
-    if (updates.documentedBy) {
-      const user = await UserModel.findById(updates.documentedBy);
-      if (!user) {
-        throw new NotFoundError('Invalid documented_by');
-      }
+    if (updates.allergen && allergy.AllergyDefNum) {
+      await prisma.allergydef.update({
+        where: { AllergyDefNum: allergy.AllergyDefNum },
+        data: { Description: updates.allergen },
+      });
     }
 
-    // Update fields
-    if (updates.allergen !== undefined) {
-      allergy.allergen = updates.allergen.trim();
-    }
-    if (updates.reaction !== undefined) {
-      allergy.reaction = updates.reaction.trim();
-    }
-    if (updates.severity !== undefined) {
-      (allergy as any).severity = updates.severity;
-    }
-    if (updates.documentedBy !== undefined) {
-      (allergy as any).documentedBy = updates.documentedBy;
-    }
-    if (updates.documentedDate !== undefined) {
-      (allergy as any).documentedDate = updates.documentedDate;
-    }
-    if (updates.isActive !== undefined) {
-      (allergy as any).isActive = updates.isActive;
-    }
-
-    await allergy.save();
-    return allergy;
+    return {
+      _id: allergy.AllergyNum.toString(),
+      patientId: allergy.PatNum?.toString() ?? null,
+      allergen: updates.allergen ?? allergy.allergydef?.Description ?? 'Allergy',
+      reaction: updates.reaction ?? null,
+      severity: updates.severity ?? 'mild',
+      isActive: true,
+      documentedBy: null,
+      documentedDate: null,
+    };
   }
 
-  /**
-   * Delete allergy (soft delete: set isActive = false)
-   */
   async deleteAllergy(allergyId: string) {
-    const allergy = await AllergyModel.findByIdAndDelete(allergyId);
-
+    const allergy = await prisma.allergy.findUnique({
+      where: { AllergyNum: BigInt(allergyId) },
+    });
     if (!allergy) {
       throw new NotFoundError('Allergy not found');
     }
 
+    await prisma.allergy.delete({ where: { AllergyNum: allergy.AllergyNum } });
     return { message: 'Allergy deleted successfully' };
   }
-
 }
 
 export const allergyService = new AllergyService();

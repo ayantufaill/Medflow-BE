@@ -1,6 +1,7 @@
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import type { JWTPayload, AuthTokens } from '../types/auth.types';
-import { BlacklistedTokenModel } from '../models/blacklisted-token.model';
+import { prisma } from '../config/db';
+import { getNextId } from './opendental-ids.util';
 
 const JWT_SECRET: string = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 const JWT_REFRESH_SECRET: string = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key-change-in-production';
@@ -28,10 +29,18 @@ export const generateTokens = (payload: Omit<JWTPayload, 'iat' | 'exp'>): AuthTo
   };
 };
 
+const isTokenBlacklisted = async (token: string): Promise<boolean> => {
+  const record = await prisma.sessiontoken.findFirst({
+    where: { SessionTokenHash: token },
+  });
+  if (!record) return false;
+  if (record.Expiration && record.Expiration < new Date()) return false;
+  return true;
+};
+
 export const verifyAccessToken = async (token: string): Promise<JWTPayload> => {
   try {
-    // Check if token is blacklisted
-    const blacklisted = await BlacklistedTokenModel.findOne({ token });
+    const blacklisted = await isTokenBlacklisted(token);
     if (blacklisted) {
       throw new Error('Token has been revoked');
     }
@@ -48,8 +57,7 @@ export const verifyAccessToken = async (token: string): Promise<JWTPayload> => {
 
 export const verifyRefreshToken = async (token: string): Promise<JWTPayload> => {
   try {
-    // Check if token is blacklisted
-    const blacklisted = await BlacklistedTokenModel.findOne({ token });
+    const blacklisted = await isTokenBlacklisted(token);
     if (blacklisted) {
       throw new Error('Token has been revoked');
     }
@@ -64,35 +72,29 @@ export const verifyRefreshToken = async (token: string): Promise<JWTPayload> => 
   }
 };
 
-/**
- * Blacklist a token (for logout or password change)
- */
 export const blacklistToken = async (
   token: string,
   userId: string,
   reason: 'logout' | 'password_change' | 'security' = 'logout'
 ): Promise<void> => {
   try {
-    // Decode token to get expiration
     const decoded = jwt.decode(token) as JWTPayload;
     if (!decoded || !decoded.exp) {
-      return; // Invalid token, no need to blacklist
+      return;
     }
 
     const expiresAt = new Date(decoded.exp * 1000);
-
-    // Only blacklist if token hasn't expired yet
     if (expiresAt > new Date()) {
-      await BlacklistedTokenModel.create({
-        token,
-        userId,
-        expiresAt,
-        reason,
+      const nextId = await getNextId('sessiontoken', 'SessionTokenNum');
+      await prisma.sessiontoken.create({
+        data: {
+          SessionTokenNum: nextId,
+          SessionTokenHash: token,
+          Expiration: expiresAt,
+        },
       });
     }
   } catch (error) {
-    // Silently fail - token might be invalid
     console.error('Error blacklisting token:', error);
   }
 };
-

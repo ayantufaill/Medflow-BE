@@ -1,41 +1,68 @@
-import { NoteTemplateModel } from '../models/note-template.model';
-import { NotFoundError, ConflictError, ValidationError } from '../utils/error.util';
+import { prisma } from '../config/db';
+import { NotFoundError, ConflictError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
+import { getNextId } from '../utils/opendental-ids.util';
+
+const parseJson = <T>(value?: string | null): T => {
+  if (!value) return {} as T;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? (parsed as T) : ({} as T);
+  } catch {
+    return {} as T;
+  }
+};
+
+const buildJson = (value: Record<string, unknown>) => JSON.stringify(value);
+
+type TemplateMeta = {
+  description?: string;
+  templateStructure?: any;
+  defaultContent?: any;
+  specialty?: string;
+  isActive?: boolean;
+  createdBy?: string;
+};
 
 export class NoteTemplateService {
-  async getAllNoteTemplates(page = 1, limit = 10, search?: string, specialty?: string, isActive?: boolean) {
+  async getAllNoteTemplates(page = 1, limit = 10, search?: string, isActive?: boolean) {
     const skip = (page - 1) * limit;
-    const query: any = {};
+    const where: any = {};
 
     if (search) {
-      const decodedSearch = decodeURIComponent(search.replace(/\+/g, ' '));
-      query.$or = [
-        { name: { $regex: decodedSearch, $options: 'i' } },
-        { description: { $regex: decodedSearch, $options: 'i' } },
-        { specialty: { $regex: decodedSearch, $options: 'i' } },
-      ];
+      where.AutoNoteName = { contains: search, mode: 'insensitive' };
     }
 
-    if (specialty) {
-      query.specialty = specialty;
-    }
-
-    if (isActive !== undefined) {
-      query.isActive = isActive;
-    }
-
-    const [noteTemplates, total] = await Promise.all([
-      NoteTemplateModel.find(query)
-        .sort({ name: 1 })
-        .skip(skip)
-        .limit(limit)
-        .populate('createdBy', 'firstName lastName email')
-        .lean(),
-      NoteTemplateModel.countDocuments(query),
+    const [rows, total] = await Promise.all([
+      prisma.autonote.findMany({
+        where,
+        orderBy: { AutoNoteName: 'asc' },
+        skip,
+        take: limit,
+      }),
+      prisma.autonote.count({ where }),
     ]);
 
+    let templates = rows.map((row) => {
+      const meta = parseJson<TemplateMeta>(row.MainText);
+      return {
+        _id: row.AutoNoteNum.toString(),
+        name: row.AutoNoteName ?? '',
+        description: meta.description ?? null,
+        templateStructure: meta.templateStructure ?? null,
+        defaultContent: meta.defaultContent ?? null,
+        specialty: meta.specialty ?? null,
+        isActive: meta.isActive ?? true,
+        createdBy: meta.createdBy ?? null,
+      };
+    });
+
+    if (isActive !== undefined) {
+      templates = templates.filter((t) => t.isActive === isActive);
+    }
+
     return {
-      noteTemplates,
+      noteTemplates: templates,
       pagination: {
         page,
         limit,
@@ -46,15 +73,24 @@ export class NoteTemplateService {
   }
 
   async getNoteTemplateById(noteTemplateId: string) {
-    const noteTemplate = await NoteTemplateModel.findById(noteTemplateId)
-      .populate('createdBy', 'firstName lastName email')
-      .lean();
-
-    if (!noteTemplate) {
+    const row = await prisma.autonote.findUnique({
+      where: { AutoNoteNum: BigInt(noteTemplateId) },
+    });
+    if (!row) {
       throw new NotFoundError('Note template not found');
     }
 
-    return noteTemplate;
+    const meta = parseJson<TemplateMeta>(row.MainText);
+    return {
+      _id: row.AutoNoteNum.toString(),
+      name: row.AutoNoteName ?? '',
+      description: meta.description ?? null,
+      templateStructure: meta.templateStructure ?? null,
+      defaultContent: meta.defaultContent ?? null,
+      specialty: meta.specialty ?? null,
+      isActive: meta.isActive ?? true,
+      createdBy: meta.createdBy ?? null,
+    };
   }
 
   async createNoteTemplate(
@@ -64,41 +100,47 @@ export class NoteTemplateService {
       templateStructure: any;
       defaultContent?: any;
       specialty?: string;
+      isActive?: boolean;
     },
     createdBy: string
   ) {
-    const existing = await NoteTemplateModel.findOne({ name: { $regex: `^${data.name}$`, $options: 'i' } }).lean();
+    const existing = await prisma.autonote.findFirst({
+      where: { AutoNoteName: data.name },
+    });
     if (existing) {
       throw new ConflictError('Note template with this name already exists');
     }
 
-    if (!data.templateStructure || typeof data.templateStructure !== 'object') {
-      throw new ValidationError('Template structure must be a valid object');
-    }
-
-    const noteTemplate = await NoteTemplateModel.create({
-      name: data.name,
-      description: data.description,
+    const nextId = await getNextId('autonote', 'AutoNoteNum');
+    const payload: TemplateMeta = {
+      description: data.description ?? null,
       templateStructure: data.templateStructure,
-      defaultContent: data.defaultContent,
-      specialty: data.specialty,
-      isActive: true,
+      defaultContent: data.defaultContent ?? null,
+      specialty: data.specialty ?? null,
+      isActive: data.isActive ?? true,
       createdBy,
+    };
+
+    const template = await prisma.autonote.create({
+      data: {
+        AutoNoteNum: nextId,
+        AutoNoteName: data.name,
+        MainText: buildJson(payload),
+      },
     });
 
-    await logActivity(
-      createdBy,
-      'created',
-      'note_templates',
-      String(noteTemplate._id),
-      undefined,
-      noteTemplate.toObject(),
-      undefined,
-      undefined,
-      'low'
-    );
+    await logActivity(createdBy, 'created', 'note_templates', template.AutoNoteNum.toString(), undefined, template);
 
-    return noteTemplate;
+    return {
+      _id: template.AutoNoteNum.toString(),
+      name: template.AutoNoteName ?? '',
+      description: data.description ?? null,
+      templateStructure: data.templateStructure,
+      defaultContent: data.defaultContent ?? null,
+      specialty: data.specialty ?? null,
+      isActive: data.isActive ?? true,
+      createdBy,
+    };
   }
 
   async updateNoteTemplate(
@@ -111,155 +153,97 @@ export class NoteTemplateService {
       specialty?: string;
       isActive?: boolean;
     },
-    updatedBy: string
+    userId: string
   ) {
-    const noteTemplate = await NoteTemplateModel.findById(noteTemplateId);
-    if (!noteTemplate) {
+    const row = await prisma.autonote.findUnique({
+      where: { AutoNoteNum: BigInt(noteTemplateId) },
+    });
+    if (!row) {
       throw new NotFoundError('Note template not found');
     }
 
-    if (updates.name && updates.name.toLowerCase() !== String(noteTemplate.name).toLowerCase()) {
-      const existing = await NoteTemplateModel.findOne({
-        name: { $regex: `^${updates.name}$`, $options: 'i' },
-        _id: { $ne: noteTemplateId },
-      }).lean();
+    if (updates.name && updates.name !== row.AutoNoteName) {
+      const existing = await prisma.autonote.findFirst({
+        where: { AutoNoteName: updates.name },
+      });
       if (existing) {
         throw new ConflictError('Note template with this name already exists');
       }
     }
 
-    if (updates.templateStructure && typeof updates.templateStructure !== 'object') {
-      throw new ValidationError('Template structure must be a valid object');
-    }
+    const meta = parseJson<TemplateMeta>(row.MainText);
+    const nextMeta: TemplateMeta = {
+      ...meta,
+      description: updates.description ?? meta.description,
+      templateStructure: updates.templateStructure ?? meta.templateStructure,
+      defaultContent: updates.defaultContent ?? meta.defaultContent,
+      specialty: updates.specialty ?? meta.specialty,
+      isActive: updates.isActive ?? meta.isActive,
+    };
 
-    const oldData = noteTemplate.toObject();
+    const updated = await prisma.autonote.update({
+      where: { AutoNoteNum: row.AutoNoteNum },
+      data: {
+        AutoNoteName: updates.name ?? undefined,
+        MainText: buildJson(nextMeta),
+      },
+    });
 
-    Object.assign(noteTemplate, updates);
+    await logActivity(userId, 'updated', 'note_templates', noteTemplateId, row, updated);
 
-    await noteTemplate.save();
-
-    await logActivity(
-      updatedBy,
-      'updated',
-      'note_templates',
-      noteTemplateId,
-      oldData,
-      noteTemplate.toObject(),
-      undefined,
-      undefined,
-      'low'
-    );
-
-    return noteTemplate;
+    return {
+      _id: updated.AutoNoteNum.toString(),
+      name: updated.AutoNoteName ?? '',
+      description: nextMeta.description ?? null,
+      templateStructure: nextMeta.templateStructure ?? null,
+      defaultContent: nextMeta.defaultContent ?? null,
+      specialty: nextMeta.specialty ?? null,
+      isActive: nextMeta.isActive ?? true,
+      createdBy: nextMeta.createdBy ?? null,
+    };
   }
 
-  async deleteNoteTemplate(noteTemplateId: string, deletedBy: string) {
-    const noteTemplate = await NoteTemplateModel.findById(noteTemplateId);
-    if (!noteTemplate) {
+  async deleteNoteTemplate(noteTemplateId: string, userId: string) {
+    const row = await prisma.autonote.findUnique({
+      where: { AutoNoteNum: BigInt(noteTemplateId) },
+    });
+    if (!row) {
       throw new NotFoundError('Note template not found');
     }
 
-    const oldData = noteTemplate.toObject();
-
-    await NoteTemplateModel.deleteOne({ _id: noteTemplateId });
-
-    await logActivity(
-      deletedBy,
-      'deleted',
-      'note_templates',
-      noteTemplateId,
-      oldData,
-      undefined,
-      undefined,
-      undefined,
-      'low'
-    );
+    await prisma.autonote.delete({ where: { AutoNoteNum: row.AutoNoteNum } });
+    await logActivity(userId, 'deleted', 'note_templates', noteTemplateId, row, undefined);
 
     return { message: 'Note template deleted successfully' };
   }
 
-  async duplicateNoteTemplate(noteTemplateId: string, newName: string, userId: string) {
-    const originalTemplate = await NoteTemplateModel.findById(noteTemplateId).lean();
-    if (!originalTemplate) {
+  async duplicateTemplate(noteTemplateId: string, newName: string, userId: string) {
+    const row = await prisma.autonote.findUnique({
+      where: { AutoNoteNum: BigInt(noteTemplateId) },
+    });
+    if (!row) {
       throw new NotFoundError('Note template not found');
     }
 
-    const existing = await NoteTemplateModel.findOne({ name: { $regex: `^${newName}$`, $options: 'i' } }).lean();
+    const existing = await prisma.autonote.findFirst({
+      where: { AutoNoteName: { equals: newName, mode: 'insensitive' } },
+    });
     if (existing) {
       throw new ConflictError('Note template with this name already exists');
     }
 
-    const newTemplate = await NoteTemplateModel.create({
-      name: newName,
-      description: originalTemplate.description ? `${originalTemplate.description} (Copy of ${originalTemplate.name})` : `Copy of ${originalTemplate.name}`,
-      templateStructure: originalTemplate.templateStructure,
-      defaultContent: originalTemplate.defaultContent,
-      specialty: originalTemplate.specialty,
-      isActive: originalTemplate.isActive,
-      createdBy: userId,
+    const nextId = await getNextId('autonote', 'AutoNoteNum');
+    const created = await prisma.autonote.create({
+      data: {
+        AutoNoteNum: nextId,
+        AutoNoteName: newName,
+        MainText: row.MainText,
+      },
     });
 
-    await logActivity(
-      userId,
-      'created',
-      'note_templates',
-      String(newTemplate._id),
-      undefined,
-      newTemplate.toObject(),
-      undefined,
-      `Duplicated from template: ${originalTemplate.name}`,
-      'low'
-    );
+    await logActivity(userId, 'created', 'note_templates', created.AutoNoteNum.toString(), undefined, created);
 
-    return newTemplate;
-  }
-
-  async getTemplatesBySpecialty(specialty: string) {
-    const noteTemplates = await NoteTemplateModel.find({
-      specialty,
-      isActive: true,
-    })
-      .sort({ name: 1 })
-      .select('_id name description specialty')
-      .lean();
-
-    return noteTemplates;
-  }
-
-  async getActiveTemplates() {
-    const noteTemplates = await NoteTemplateModel.find({
-      isActive: true,
-    })
-      .sort({ specialty: 1, name: 1 })
-      .select('_id name description specialty')
-      .lean();
-
-    return noteTemplates;
-  }
-
-  async toggleNoteTemplateStatus(noteTemplateId: string, userId: string) {
-    const noteTemplate = await NoteTemplateModel.findById(noteTemplateId);
-    if (!noteTemplate) {
-      throw new NotFoundError('Note template not found');
-    }
-
-    const oldData = noteTemplate.toObject();
-    (noteTemplate as any).isActive = !noteTemplate.isActive;
-    await noteTemplate.save();
-
-    await logActivity(
-      userId,
-      'updated',
-      'note_templates',
-      noteTemplateId,
-      oldData,
-      noteTemplate.toObject(),
-      undefined,
-      `Toggled template status to ${noteTemplate.isActive ? 'active' : 'inactive'}`,
-      'low'
-    );
-
-    return noteTemplate;
+    return created;
   }
 }
 

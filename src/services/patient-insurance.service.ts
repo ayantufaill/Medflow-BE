@@ -1,41 +1,115 @@
-import { PatientInsuranceModel } from '../models/patient-insurance.model';
-import { PatientModel } from '../models/patient.model';
-import { InsuranceCompanyModel } from '../models/insurance-company.model';
+import { prisma } from '../config/db';
 import { NotFoundError, ConflictError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
+import { getNextId } from '../utils/opendental-ids.util';
+import {
+  mapInsuranceTypeToOrdinal,
+  mapOrdinalToInsuranceType,
+  mapRelationshipFromDb,
+  mapRelationshipToDb,
+} from '../utils/opendental-mappers.util';
 
 export class PatientInsuranceService {
   /**
    * Get all insurances for a patient
    */
   async getPatientInsurances(patientId: string, isActive?: boolean) {
-    const query: any = { patientId };
+    const where: any = { PatNum: BigInt(patientId) };
     if (isActive !== undefined) {
-      query.isActive = isActive;
+      where.IsPending = isActive ? 0 : 1;
     }
 
-    const insurances = await PatientInsuranceModel.find(query)
-      .populate('insuranceCompanyId', 'name payerId')
-      .sort({ insuranceType: 1, effectiveDate: -1 })
-      .lean();
+    const patPlans = await prisma.patplan.findMany({
+      where,
+      include: {
+        inssub: {
+          include: {
+            insplan: {
+              include: {
+                carrier: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { Ordinal: 'asc' },
+    });
 
-    return insurances;
+    return patPlans.map((patplan) => ({
+      _id: patplan.PatPlanNum.toString(),
+      patientId,
+      insuranceCompanyId: patplan.inssub?.insplan?.carrier
+        ? {
+            _id: patplan.inssub.insplan.carrier.CarrierNum.toString(),
+            name: patplan.inssub.insplan.carrier.CarrierName ?? '',
+            payerId: patplan.inssub.insplan.carrier.ElectID ?? null,
+          }
+        : null,
+      policyNumber: patplan.inssub?.SubscriberID ?? '',
+      groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
+      subscriberName: '',
+      subscriberDateOfBirth: null,
+      relationshipToPatient: mapRelationshipFromDb(patplan.Relationship),
+      insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
+      effectiveDate: patplan.inssub?.DateEffective ?? null,
+      expirationDate: patplan.inssub?.DateTerm ?? null,
+      copayAmount: null,
+      deductibleAmount: null,
+      autoVerify: true,
+      verificationStatus: 'pending',
+      isActive: patplan.IsPending ? false : true,
+      notes: patplan.inssub?.SubscNote ?? null,
+    }));
   }
 
   /**
    * Get patient insurance by ID
    */
   async getPatientInsuranceById(patientInsuranceId: string) {
-    const insurance = await PatientInsuranceModel.findById(patientInsuranceId)
-      .populate('insuranceCompanyId')
-      .populate('verifiedBy', 'firstName lastName')
-      .lean();
+    const patplan = await prisma.patplan.findUnique({
+      where: { PatPlanNum: BigInt(patientInsuranceId) },
+      include: {
+        inssub: {
+          include: {
+            insplan: {
+              include: {
+                carrier: true,
+              },
+            },
+          },
+        },
+      },
+    });
 
-    if (!insurance) {
+    if (!patplan) {
       throw new NotFoundError('Patient insurance not found');
     }
 
-    return insurance;
+    return {
+      _id: patplan.PatPlanNum.toString(),
+      patientId: patplan.PatNum?.toString() ?? '',
+      insuranceCompanyId: patplan.inssub?.insplan?.carrier
+        ? {
+            _id: patplan.inssub.insplan.carrier.CarrierNum.toString(),
+            name: patplan.inssub.insplan.carrier.CarrierName ?? '',
+            payerId: patplan.inssub.insplan.carrier.ElectID ?? null,
+          }
+        : null,
+      policyNumber: patplan.inssub?.SubscriberID ?? '',
+      groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
+      subscriberName: '',
+      subscriberDateOfBirth: null,
+      relationshipToPatient: mapRelationshipFromDb(patplan.Relationship),
+      insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
+      effectiveDate: patplan.inssub?.DateEffective ?? null,
+      expirationDate: patplan.inssub?.DateTerm ?? null,
+      copayAmount: null,
+      deductibleAmount: null,
+      autoVerify: true,
+      verificationStatus: 'pending',
+      isActive: patplan.IsPending ? false : true,
+      notes: patplan.inssub?.SubscNote ?? null,
+    };
   }
 
   /**
@@ -62,32 +136,37 @@ export class PatientInsuranceService {
     createdBy?: string
   ) {
     // Verify patient exists
-    const patient = await PatientModel.findById(patientId);
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) },
+    });
     if (!patient) {
       throw new NotFoundError('Patient not found');
     }
 
     // Verify insurance company exists
-    const insuranceCompany = await InsuranceCompanyModel.findById(data.insuranceCompanyId);
+    const insuranceCompany = await prisma.carrier.findUnique({
+      where: { CarrierNum: BigInt(data.insuranceCompanyId) },
+    });
     if (!insuranceCompany) {
       throw new NotFoundError('Insurance company not found');
     }
 
     // Check if patient already has all three insurance types active
-    const activeInsurances = await PatientInsuranceModel.find({
-      patientId,
-      isActive: true,
+    const activePatPlans = await prisma.patplan.findMany({
+      where: { PatNum: BigInt(patientId), IsPending: 0 },
     });
 
-    const activeTypes = activeInsurances.map((ins) => String(ins.insuranceType || '').toLowerCase());
+    const activeTypes = activePatPlans.map((plan) =>
+      mapOrdinalToInsuranceType(plan.Ordinal || 1)
+    );
     const allTypesPresent =
       activeTypes.includes('primary') &&
       activeTypes.includes('secondary') &&
       activeTypes.includes('tertiary');
 
     // Check if patient already has this specific insurance type active
-    const existingInsuranceOfSameType = activeInsurances.find(
-      (ins) => String(ins.insuranceType || '').toLowerCase() === data.insuranceType.toLowerCase()
+    const existingInsuranceOfSameType = activePatPlans.find(
+      (plan) => mapOrdinalToInsuranceType(plan.Ordinal || 1) === data.insuranceType.toLowerCase()
     );
 
     if (allTypesPresent && !existingInsuranceOfSameType) {
@@ -99,28 +178,48 @@ export class PatientInsuranceService {
 
     if (existingInsuranceOfSameType) {
       // Deactivate existing insurance of same type
-      (existingInsuranceOfSameType as any).isActive = false;
-      await existingInsuranceOfSameType.save();
+      await prisma.patplan.update({
+        where: { PatPlanNum: existingInsuranceOfSameType.PatPlanNum },
+        data: { IsPending: 1 },
+      });
     }
 
-    // Create new insurance
-    const insurance = await PatientInsuranceModel.create({
-      patientId,
-      insuranceCompanyId: data.insuranceCompanyId,
-      policyNumber: data.policyNumber,
-      groupNumber: data.groupNumber,
-      subscriberName: data.subscriberName,
-      subscriberDateOfBirth: data.subscriberDateOfBirth,
-      relationshipToPatient: data.relationshipToPatient,
-      insuranceType: data.insuranceType,
-      effectiveDate: data.effectiveDate,
-      expirationDate: data.expirationDate,
-      copayAmount: data.copayAmount,
-      deductibleAmount: data.deductibleAmount,
-      autoVerify: data.autoVerify !== undefined ? data.autoVerify : true,
-      verificationStatus: data.verificationStatus || 'pending',
-      isActive: true,
-      notes: data.notes,
+    const planNum = await getNextId('insplan', 'PlanNum');
+    const insSubNum = await getNextId('inssub', 'InsSubNum');
+    const patPlanNum = await getNextId('patplan', 'PatPlanNum');
+
+    await prisma.insplan.create({
+      data: {
+        PlanNum: planNum,
+        CarrierNum: BigInt(data.insuranceCompanyId),
+        GroupNum: data.groupNumber ?? null,
+        GroupName: data.subscriberName ?? null,
+        PlanNote: data.notes ?? null,
+        IsHidden: 0,
+      },
+    });
+
+    await prisma.inssub.create({
+      data: {
+        InsSubNum: insSubNum,
+        PlanNum: planNum,
+        Subscriber: BigInt(patientId),
+        SubscriberID: data.policyNumber,
+        DateEffective: data.effectiveDate,
+        DateTerm: data.expirationDate ?? null,
+        SubscNote: data.notes ?? null,
+      },
+    });
+
+    await prisma.patplan.create({
+      data: {
+        PatPlanNum: patPlanNum,
+        PatNum: BigInt(patientId),
+        Ordinal: mapInsuranceTypeToOrdinal(data.insuranceType),
+        IsPending: 0,
+        Relationship: mapRelationshipToDb(data.relationshipToPatient),
+        InsSubNum: insSubNum,
+      },
     });
 
     // Log activity
@@ -129,7 +228,7 @@ export class PatientInsuranceService {
         createdBy,
         'created',
         'patient_insurance',
-        insurance._id.toString(),
+        patPlanNum.toString(),
         undefined,
         { patientId, insuranceType: data.insuranceType, policyNumber: data.policyNumber },
         undefined,
@@ -138,7 +237,7 @@ export class PatientInsuranceService {
       );
     }
 
-    return this.getPatientInsuranceById(insurance._id.toString());
+    return this.getPatientInsuranceById(patPlanNum.toString());
   }
 
   /**
@@ -164,18 +263,23 @@ export class PatientInsuranceService {
     },
     updatedBy?: string
   ) {
-    const insurance = await PatientInsuranceModel.findById(patientInsuranceId);
-    if (!insurance) {
+    const patplan = await prisma.patplan.findUnique({
+      where: { PatPlanNum: BigInt(patientInsuranceId) },
+      include: { inssub: { include: { insplan: true } } },
+    });
+    if (!patplan) {
       throw new NotFoundError('Patient insurance not found');
     }
 
     // If changing insurance type, check for conflicts
-    if (updates.insuranceType && updates.insuranceType !== String(insurance.insuranceType || '')) {
-      const existingInsurance = await PatientInsuranceModel.findOne({
-        patientId: insurance.patientId,
-        insuranceType: updates.insuranceType,
-        isActive: true,
-        _id: { $ne: patientInsuranceId },
+    if (updates.insuranceType) {
+      const existingInsurance = await prisma.patplan.findFirst({
+        where: {
+          PatNum: patplan.PatNum ?? undefined,
+          Ordinal: mapInsuranceTypeToOrdinal(updates.insuranceType),
+          IsPending: 0,
+          PatPlanNum: { not: BigInt(patientInsuranceId) },
+        },
       });
 
       if (existingInsurance) {
@@ -186,37 +290,43 @@ export class PatientInsuranceService {
     }
 
     const oldValues = {
-      policyNumber: insurance.policyNumber,
-      insuranceType: insurance.insuranceType,
-      isActive: insurance.isActive,
+      policyNumber: patplan.inssub?.SubscriberID,
+      insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
+      isActive: patplan.IsPending ? false : true,
     };
 
-    // Update fields
-    if (updates.policyNumber !== undefined) (insurance as any).policyNumber = updates.policyNumber;
-    if (updates.groupNumber !== undefined) (insurance as any).groupNumber = updates.groupNumber;
-    if (updates.subscriberName !== undefined) (insurance as any).subscriberName = updates.subscriberName;
-    if (updates.subscriberDateOfBirth !== undefined)
-      (insurance as any).subscriberDateOfBirth = updates.subscriberDateOfBirth;
-    if (updates.relationshipToPatient !== undefined)
-      (insurance as any).relationshipToPatient = updates.relationshipToPatient;
-    if (updates.insuranceType !== undefined) (insurance as any).insuranceType = updates.insuranceType;
-    if (updates.effectiveDate !== undefined) (insurance as any).effectiveDate = updates.effectiveDate;
-    if (updates.expirationDate !== undefined) (insurance as any).expirationDate = updates.expirationDate;
-    if (updates.copayAmount !== undefined) (insurance as any).copayAmount = updates.copayAmount;
-    if (updates.deductibleAmount !== undefined) (insurance as any).deductibleAmount = updates.deductibleAmount;
-    if (updates.isActive !== undefined) (insurance as any).isActive = updates.isActive;
-    if (updates.autoVerify !== undefined) (insurance as any).autoVerify = updates.autoVerify;
-    if (updates.verificationStatus !== undefined)
-      (insurance as any).verificationStatus = updates.verificationStatus;
-    if (updates.notes !== undefined) (insurance as any).notes = updates.notes;
-
-    // Update verification info if status changed
-    if (updates.verificationStatus === 'verified' && updatedBy) {
-      (insurance as any).verifiedBy = updatedBy;
-      (insurance as any).verificationDate = new Date();
+    if (patplan.inssub) {
+      await prisma.inssub.update({
+        where: { InsSubNum: patplan.inssub.InsSubNum },
+        data: {
+          SubscriberID: updates.policyNumber ?? undefined,
+          DateEffective: updates.effectiveDate ?? undefined,
+          DateTerm: updates.expirationDate ?? undefined,
+          SubscNote: updates.notes ?? undefined,
+        },
+      });
     }
-
-    await insurance.save();
+    if (patplan.inssub?.insplan) {
+      await prisma.insplan.update({
+        where: { PlanNum: patplan.inssub.insplan.PlanNum },
+        data: {
+          GroupNum: updates.groupNumber ?? undefined,
+          GroupName: updates.subscriberName ?? undefined,
+          PlanNote: updates.notes ?? undefined,
+        },
+      });
+    }
+    await prisma.patplan.update({
+      where: { PatPlanNum: BigInt(patientInsuranceId) },
+      data: {
+        Ordinal: updates.insuranceType ? mapInsuranceTypeToOrdinal(updates.insuranceType) : undefined,
+        IsPending: updates.isActive !== undefined ? (updates.isActive ? 0 : 1) : undefined,
+        Relationship:
+          updates.relationshipToPatient !== undefined
+            ? mapRelationshipToDb(updates.relationshipToPatient)
+            : undefined,
+      },
+    });
 
     // Log activity
     if (updatedBy) {
@@ -240,13 +350,17 @@ export class PatientInsuranceService {
    * Delete patient insurance (soft delete)
    */
   async deletePatientInsurance(patientInsuranceId: string, deletedBy?: string) {
-    const insurance = await PatientInsuranceModel.findById(patientInsuranceId);
-    if (!insurance) {
+    const patplan = await prisma.patplan.findUnique({
+      where: { PatPlanNum: BigInt(patientInsuranceId) },
+    });
+    if (!patplan) {
       throw new NotFoundError('Patient insurance not found');
     }
 
     // Hard delete
-    await PatientInsuranceModel.findByIdAndDelete(patientInsuranceId);
+    await prisma.patplan.delete({
+      where: { PatPlanNum: BigInt(patientInsuranceId) },
+    });
 
     // Log activity
     if (deletedBy) {
@@ -255,7 +369,7 @@ export class PatientInsuranceService {
         'deleted',
         'patient_insurance',
         patientInsuranceId,
-        insurance.toObject(), // before
+        { patientId: patplan.PatNum?.toString() }, // before
         null,                 // after (deleted)
         undefined,
         undefined,
@@ -269,4 +383,3 @@ export class PatientInsuranceService {
 }
 
 export const patientInsuranceService = new PatientInsuranceService();
-

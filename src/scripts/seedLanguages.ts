@@ -1,47 +1,39 @@
-import dotenv from 'dotenv';
-import connectDB from '../config/db';
-import { LanguageModel } from '../models/language.model';
+import { prisma } from '../config/db';
+import { getNextId } from '../utils/opendental-ids.util';
 
-dotenv.config();
-
-// Top 10 most spoken languages in the world (by total speakers)
-const defaultLanguages = [
-  { code: 'en', name: 'English', nativeName: 'English' },
-  { code: 'zh', name: 'Mandarin Chinese', nativeName: '中文' },
-  { code: 'hi', name: 'Hindi', nativeName: 'हिन्दी' },
-  { code: 'es', name: 'Spanish', nativeName: 'Español' },
-  { code: 'fr', name: 'French', nativeName: 'Français' },
-  { code: 'ar', name: 'Arabic', nativeName: 'العربية' },
-  { code: 'bn', name: 'Bengali', nativeName: 'বাংলা' },
-  { code: 'pt', name: 'Portuguese', nativeName: 'Português' },
-  { code: 'ru', name: 'Russian', nativeName: 'Русский' },
-  { code: 'ja', name: 'Japanese', nativeName: '日本語' },
+const languages = [
+  { name: 'English', code: 'en' },
+  { name: 'Spanish', code: 'es' },
+  { name: 'French', code: 'fr' },
+  { name: 'German', code: 'de' },
+  { name: 'Chinese', code: 'zh' },
+  { name: 'Hindi', code: 'hi' },
+  { name: 'Arabic', code: 'ar' },
 ];
 
 const seedLanguages = async () => {
   try {
-    await connectDB();
-
-    for (const languageData of defaultLanguages) {
-      const existingLanguage = await LanguageModel.findOne({ code: languageData.code });
-
-      if (existingLanguage) {
-        console.log(`Language "${languageData.name}" already exists, skipping...`);
-        continue;
-      }
-
-      await LanguageModel.create({
-        ...languageData,
-        isActive: true,
+    for (const languageData of languages) {
+      const existing = await prisma.language.findFirst({
+        where: { English: { equals: languageData.name, mode: 'insensitive' } },
       });
-      console.log(`✓ Created language: ${languageData.name}`);
+      if (!existing) {
+        const nextId = await getNextId('language', 'LanguageNum');
+        await prisma.language.create({
+          data: {
+            LanguageNum: nextId,
+            English: languageData.name,
+            EnglishComments: languageData.code,
+            IsObsolete: 0,
+          },
+        });
+      }
     }
-
-    console.log('\n✅ Languages seeded successfully!');
-    process.exit(0);
+    console.log('Languages seeded successfully!');
   } catch (error) {
-    console.error('❌ Error seeding languages:', error);
-    process.exit(1);
+    console.error('Error seeding languages:', error);
+  } finally {
+    await prisma.$disconnect();
   }
 };
 

@@ -1,6 +1,8 @@
-import { RoomModel } from '../models/room.model';
+import { prisma } from '../config/db';
 import { NotFoundError, ConflictError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
+import { getNextId } from '../utils/opendental-ids.util';
+import { mapRoomToApi } from '../utils/opendental-mappers.util';
 
 export class RoomService {
   /**
@@ -8,27 +10,32 @@ export class RoomService {
    */
   async getAllRooms(page = 1, limit = 10, search?: string, isActive?: boolean) {
     const skip = (page - 1) * limit;
-    const query: any = {};
+    const where: any = {};
 
     if (search) {
-      query.name = { $regex: search, $options: 'i' };
+      const decodedSearch = decodeURIComponent(search.replace(/\+/g, ' '));
+      where.OR = [
+        { OpName: { contains: decodedSearch, mode: 'insensitive' } },
+        { Abbrev: { contains: decodedSearch, mode: 'insensitive' } },
+      ];
     }
 
     if (isActive !== undefined) {
-      query.isActive = isActive;
+      where.IsHidden = isActive ? 0 : 1;
     }
 
-    const [rooms, total] = await Promise.all([
-      RoomModel.find(query)
-        .sort({ name: 1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      RoomModel.countDocuments(query),
+    const [rows, total] = await Promise.all([
+      prisma.operatory.findMany({
+        where,
+        orderBy: { OpName: 'asc' },
+        skip,
+        take: limit,
+      }),
+      prisma.operatory.count({ where }),
     ]);
 
     return {
-      rooms,
+      rooms: rows.map(mapRoomToApi),
       pagination: {
         page,
         limit,
@@ -42,13 +49,15 @@ export class RoomService {
    * Get room by ID
    */
   async getRoomById(roomId: string) {
-    const room = await RoomModel.findById(roomId).lean();
+    const room = await prisma.operatory.findUnique({
+      where: { OperatoryNum: BigInt(roomId) },
+    });
 
     if (!room) {
       throw new NotFoundError('Room not found');
     }
 
-    return room;
+    return mapRoomToApi(room);
   }
 
   /**
@@ -61,31 +70,43 @@ export class RoomService {
     createdBy: string
   ) {
     // Check if name already exists
-    const existing = await RoomModel.findOne({ name: data.name }).lean();
+    const existing = await prisma.operatory.findFirst({
+      where: {
+        OR: [{ OpName: data.name }, { Abbrev: data.name }],
+      },
+    });
     if (existing) {
       throw new ConflictError('Room with this name already exists');
     }
 
+    const nextId = await getNextId('operatory', 'OperatoryNum');
+
     // Create room
-    const room = await RoomModel.create({
-      name: data.name,
-      isActive: true,
+    const room = await prisma.operatory.create({
+      data: {
+        OperatoryNum: nextId,
+        OpName: data.name,
+        Abbrev: data.name,
+        IsHidden: 0,
+      },
     });
+
+    const apiRoom = mapRoomToApi(room);
 
     // Log activity
     await logActivity(
       createdBy,
       'created',
       'rooms',
-      String(room._id),
+      apiRoom._id,
       undefined,
-      room.toObject(),
+      apiRoom,
       undefined,
       undefined,
       'low'
     );
 
-    return room;
+    return apiRoom;
   }
 
   /**
@@ -99,28 +120,39 @@ export class RoomService {
     },
     updatedBy: string
   ) {
-    const room = await RoomModel.findById(roomId);
+    const room = await prisma.operatory.findUnique({
+      where: { OperatoryNum: BigInt(roomId) },
+    });
     if (!room) {
       throw new NotFoundError('Room not found');
     }
 
     // Check if name is already in use by another room
-    if (updates.name && updates.name !== room.name) {
-      const existing = await RoomModel.findOne({
-        name: updates.name,
-        _id: { $ne: roomId },
-      }).lean();
+    if (updates.name && updates.name !== (room.OpName ?? room.Abbrev ?? '')) {
+      const existing = await prisma.operatory.findFirst({
+        where: {
+          OperatoryNum: { not: BigInt(roomId) },
+          OR: [{ OpName: updates.name }, { Abbrev: updates.name }],
+        },
+      });
       if (existing) {
         throw new ConflictError('Room with this name already exists');
       }
     }
 
-    const oldData = room.toObject();
+    const oldData = mapRoomToApi(room);
 
-    // Update fields
-    Object.assign(room, updates);
+    const updated = await prisma.operatory.update({
+      where: { OperatoryNum: BigInt(roomId) },
+      data: {
+        OpName: updates.name ?? undefined,
+        Abbrev: updates.name ?? undefined,
+        IsHidden:
+          updates.isActive !== undefined ? (updates.isActive ? 0 : 1) : undefined,
+      },
+    });
 
-    await room.save();
+    const apiRoom = mapRoomToApi(updated);
 
     // Log activity
     await logActivity(
@@ -129,28 +161,32 @@ export class RoomService {
       'rooms',
       roomId,
       oldData,
-      room.toObject(),
+      apiRoom,
       undefined,
       undefined,
       'low'
     );
 
-    return room;
+    return apiRoom;
   }
 
   /**
    * Delete room (hard delete)
    */
   async deleteRoom(roomId: string, deletedBy: string) {
-    const room = await RoomModel.findById(roomId);
+    const room = await prisma.operatory.findUnique({
+      where: { OperatoryNum: BigInt(roomId) },
+    });
     if (!room) {
       throw new NotFoundError('Room not found');
     }
 
-    const oldData = room.toObject();
+    const oldData = mapRoomToApi(room);
 
     // Hard delete - remove from database
-    await RoomModel.deleteOne({ _id: roomId });
+    await prisma.operatory.delete({
+      where: { OperatoryNum: BigInt(roomId) },
+    });
 
     // Log activity
     await logActivity(
@@ -170,4 +206,3 @@ export class RoomService {
 }
 
 export const roomService = new RoomService();
-
