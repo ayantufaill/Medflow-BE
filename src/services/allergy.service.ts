@@ -9,6 +9,8 @@ export class AllergyService {
     reaction: string;
     severity: 'mild' | 'moderate' | 'severe';
     documentedBy: string;
+    documentedDate?: Date;
+    isActive?: boolean;
   }) {
     const patient = await prisma.patient.findUnique({
       where: { PatNum: BigInt(data.patientId) },
@@ -92,6 +94,9 @@ export class AllergyService {
     allergen?: string;
     reaction?: string;
     severity?: 'mild' | 'moderate' | 'severe';
+    documentedBy?: string;
+    documentedDate?: Date;
+    isActive?: boolean;
   }) {
     const allergy = await prisma.allergy.findUnique({
       where: { AllergyNum: BigInt(allergyId) },
@@ -130,6 +135,10 @@ export class AllergyService {
 
     await prisma.allergy.delete({ where: { AllergyNum: allergy.AllergyNum } });
     return { message: 'Allergy deleted successfully' };
+  }
+
+  async getAllergies(patientId: string) {
+    return this.getAllergiesByPatient(patientId);
   }
 }
 

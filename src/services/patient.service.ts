@@ -43,38 +43,38 @@ export class PatientService {
         const reverseLastNameSearch = searchTerms.slice(0, -1).join(' ');
 
         where.OR = [
-          { ChartNumber: { contains: search, mode: 'insensitive' } },
-          { Email: { contains: search, mode: 'insensitive' } },
-          { WirelessPhone: { contains: search, mode: 'insensitive' } },
-          { HmPhone: { contains: search, mode: 'insensitive' } },
-          { WkPhone: { contains: search, mode: 'insensitive' } },
+          { ChartNumber: { contains: search } },
+          { Email: { contains: search } },
+          { WirelessPhone: { contains: search } },
+          { HmPhone: { contains: search } },
+          { WkPhone: { contains: search } },
           {
             AND: [
-              { FName: { contains: firstNameSearch, mode: 'insensitive' } },
-              { LName: { contains: lastNameSearch, mode: 'insensitive' } },
+              { FName: { contains: firstNameSearch } },
+              { LName: { contains: lastNameSearch } },
             ],
           },
           {
             AND: [
-              { FName: { contains: reverseFirstNameSearch, mode: 'insensitive' } },
-              { LName: { contains: reverseLastNameSearch, mode: 'insensitive' } },
+              { FName: { contains: reverseFirstNameSearch } },
+              { LName: { contains: reverseLastNameSearch } },
             ],
           },
-          { FName: { contains: search, mode: 'insensitive' } },
-          { LName: { contains: search, mode: 'insensitive' } },
-          { AddrNote: { contains: search, mode: 'insensitive' } },
+          { FName: { contains: search } },
+          { LName: { contains: search } },
+          { AddrNote: { contains: search } },
         ];
       } else {
         // Single word - search in all fields
         where.OR = [
-          { ChartNumber: { contains: search, mode: 'insensitive' } },
-          { Email: { contains: search, mode: 'insensitive' } },
-          { FName: { contains: search, mode: 'insensitive' } },
-          { LName: { contains: search, mode: 'insensitive' } },
-          { WirelessPhone: { contains: search, mode: 'insensitive' } },
-          { HmPhone: { contains: search, mode: 'insensitive' } },
-          { WkPhone: { contains: search, mode: 'insensitive' } },
-          { AddrNote: { contains: search, mode: 'insensitive' } },
+          { ChartNumber: { contains: search } },
+          { Email: { contains: search } },
+          { FName: { contains: search } },
+          { LName: { contains: search } },
+          { WirelessPhone: { contains: search } },
+          { HmPhone: { contains: search } },
+          { WkPhone: { contains: search } },
+          { AddrNote: { contains: search } },
         ];
       }
     }
@@ -184,8 +184,8 @@ export class PatientService {
     email?: string;
   }) {
     const where: any = {
-      FName: { equals: data.firstName, mode: 'insensitive' },
-      LName: { equals: data.lastName, mode: 'insensitive' },
+      FName: { equals: data.firstName },
+      LName: { equals: data.lastName },
       Birthdate: data.dateOfBirth,
     };
 
@@ -201,19 +201,7 @@ export class PatientService {
       }
     }
 
-    const duplicates = await prisma.patient.findMany({
-      where,
-      select: {
-        PatNum: true,
-        ChartNumber: true,
-        FName: true,
-        LName: true,
-        Birthdate: true,
-        WirelessPhone: true,
-        HmPhone: true,
-        Email: true,
-      },
-    });
+    const duplicates = await prisma.patient.findMany({ where });
 
     return duplicates.map(mapPatientToApi);
   }

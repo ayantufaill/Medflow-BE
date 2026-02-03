@@ -29,6 +29,7 @@ export class PaymentService {
     filters: {
       patientId?: string;
       invoiceId?: string;
+      paymentMethod?: string;
       status?: string;
       startDate?: string;
       endDate?: string;
@@ -71,6 +72,9 @@ export class PaymentService {
 
     if (filters.invoiceId) {
       payments = payments.filter((payment) => payment.invoiceId === filters.invoiceId);
+    }
+    if (filters.paymentMethod) {
+      payments = payments.filter((payment) => payment.method === filters.paymentMethod);
     }
     if (filters.status) {
       payments = payments.filter((payment) => payment.status === filters.status);
@@ -198,6 +202,38 @@ export class PaymentService {
     await logActivity(userId, 'deleted', 'payments', paymentId, payment, undefined);
 
     return { message: 'Payment deleted successfully' };
+  }
+
+  async applyPaymentToInvoice(
+    paymentId: string,
+    invoiceId: string,
+    amount: number | undefined,
+    userId: string
+  ) {
+    const payment = await prisma.payment.findUnique({
+      where: { PayNum: BigInt(paymentId) },
+    });
+    if (!payment) {
+      throw new NotFoundError('Payment not found');
+    }
+
+    const meta = parseJson<PaymentMeta>(payment.PayNote);
+    const nextMeta: PaymentMeta = {
+      ...meta,
+      invoiceId,
+    };
+
+    const updated = await prisma.payment.update({
+      where: { PayNum: payment.PayNum },
+      data: {
+        PayAmt: amount ?? Number(payment.PayAmt),
+        PayNote: buildJson(nextMeta),
+      },
+    });
+
+    await logActivity(userId, 'updated', 'payments', paymentId, payment, updated);
+
+    return updated;
   }
 }
 

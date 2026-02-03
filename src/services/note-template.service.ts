@@ -16,21 +16,27 @@ const parseJson = <T>(value?: string | null): T => {
 const buildJson = (value: Record<string, unknown>) => JSON.stringify(value);
 
 type TemplateMeta = {
-  description?: string;
+  description?: string | null;
   templateStructure?: any;
   defaultContent?: any;
-  specialty?: string;
+  specialty?: string | null;
   isActive?: boolean;
-  createdBy?: string;
+  createdBy?: string | null;
 };
 
 export class NoteTemplateService {
-  async getAllNoteTemplates(page = 1, limit = 10, search?: string, isActive?: boolean) {
+  async getAllNoteTemplates(
+    page = 1,
+    limit = 10,
+    search?: string,
+    isActive?: boolean,
+    specialty?: string
+  ) {
     const skip = (page - 1) * limit;
     const where: any = {};
 
     if (search) {
-      where.AutoNoteName = { contains: search, mode: 'insensitive' };
+      where.AutoNoteName = { contains: search };
     }
 
     const [rows, total] = await Promise.all([
@@ -59,6 +65,9 @@ export class NoteTemplateService {
 
     if (isActive !== undefined) {
       templates = templates.filter((t) => t.isActive === isActive);
+    }
+    if (specialty) {
+      templates = templates.filter((t) => t.specialty === specialty);
     }
 
     return {
@@ -226,7 +235,7 @@ export class NoteTemplateService {
     }
 
     const existing = await prisma.autonote.findFirst({
-      where: { AutoNoteName: { equals: newName, mode: 'insensitive' } },
+      where: { AutoNoteName: { equals: newName } },
     });
     if (existing) {
       throw new ConflictError('Note template with this name already exists');
@@ -244,6 +253,22 @@ export class NoteTemplateService {
     await logActivity(userId, 'created', 'note_templates', created.AutoNoteNum.toString(), undefined, created);
 
     return created;
+  }
+
+  async duplicateNoteTemplate(noteTemplateId: string, newName: string, userId: string) {
+    return this.duplicateTemplate(noteTemplateId, newName, userId);
+  }
+
+  async getTemplatesBySpecialty(specialty: string, page = 1, limit = 10, search?: string) {
+    return this.getAllNoteTemplates(page, limit, search, undefined, specialty);
+  }
+
+  async getActiveTemplates(page = 1, limit = 10, search?: string) {
+    return this.getAllNoteTemplates(page, limit, search, true);
+  }
+
+  async toggleNoteTemplateStatus(noteTemplateId: string, isActive: boolean, userId: string) {
+    return this.updateNoteTemplate(noteTemplateId, { isActive }, userId);
   }
 }
 

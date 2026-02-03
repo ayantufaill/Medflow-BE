@@ -15,7 +15,7 @@ const seedLanguages = async () => {
   try {
     for (const languageData of languages) {
       const existing = await prisma.language.findFirst({
-        where: { English: { equals: languageData.name, mode: 'insensitive' } },
+        where: { English: { equals: languageData.name } },
       });
       if (!existing) {
         const nextId = await getNextId('language', 'LanguageNum');

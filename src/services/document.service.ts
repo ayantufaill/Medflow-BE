@@ -17,6 +17,7 @@ const buildJson = (value: Record<string, unknown>) => JSON.stringify(value);
 
 type DocumentMeta = {
   appointmentId?: string;
+  clinicalNoteId?: string;
   documentType?: string;
   storagePath?: string;
   fileSizeInBytes?: number;
@@ -116,8 +117,8 @@ export class DocumentService {
     };
   }
 
-  async getDocumentsByPatient(patientId: string, page = 1, limit = 10) {
-    return this.getAllDocuments(page, limit, { patientId });
+  async getDocumentsByPatient(patientId: string, page = 1, limit = 10, documentType?: string) {
+    return this.getAllDocuments(page, limit, { patientId, documentType });
   }
 
   async getDocumentsByAppointment(appointmentId: string) {
@@ -249,6 +250,42 @@ export class DocumentService {
     await logActivity(userId, 'deleted', 'documents', documentId, doc, undefined);
 
     return { message: 'Document deleted successfully' };
+  }
+
+  async attachDocumentToNote(documentId: string, clinicalNoteId: string, userId: string) {
+    const doc = await prisma.document.findUnique({
+      where: { DocNum: BigInt(documentId) },
+    });
+    if (!doc) {
+      throw new NotFoundError('Document not found');
+    }
+
+    const meta = parseJson<DocumentMeta>(doc.Note);
+    const nextMeta: DocumentMeta = {
+      ...meta,
+      clinicalNoteId,
+    };
+
+    const updated = await prisma.document.update({
+      where: { DocNum: doc.DocNum },
+      data: { Note: buildJson(nextMeta) },
+    });
+
+    await logActivity(userId, 'updated', 'documents', documentId, doc, updated);
+
+    return updated;
+  }
+
+  async getDocumentTypes() {
+    const docs = await prisma.document.findMany({ select: { Note: true } });
+    const types = new Set<string>();
+    for (const doc of docs) {
+      const meta = parseJson<DocumentMeta>(doc.Note);
+      if (meta.documentType) {
+        types.add(meta.documentType);
+      }
+    }
+    return Array.from(types);
   }
 }
 

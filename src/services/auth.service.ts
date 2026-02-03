@@ -269,7 +269,7 @@ export class AuthService {
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
     await setReset(user.UserNum, token, expiresAt);
 
-    await emailService.sendPasswordResetLink(email, token);
+    await emailService.sendPasswordResetCode(email, token);
 
     return { message: 'Password reset link sent', email: email.toLowerCase() };
   }

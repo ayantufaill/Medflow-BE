@@ -1,12 +1,17 @@
 import { prisma } from '../config/db';
 
 export class LanguageService {
-  async getAllLanguages(search?: string) {
-    const where: any = { IsObsolete: 0 };
+  async getAllLanguages(search?: string, isActive?: boolean) {
+    const where: any = {};
+    if (isActive === undefined || isActive === true) {
+      where.IsObsolete = 0;
+    } else {
+      where.IsObsolete = 1;
+    }
     if (search) {
       where.OR = [
-        { English: { contains: search, mode: 'insensitive' } },
-        { EnglishComments: { contains: search, mode: 'insensitive' } },
+        { English: { contains: search } },
+        { EnglishComments: { contains: search } },
       ];
     }
 
@@ -25,7 +30,7 @@ export class LanguageService {
 
   async getLanguageByCode(code: string) {
     const language = await prisma.language.findFirst({
-      where: { English: { equals: code, mode: 'insensitive' } },
+      where: { English: { equals: code } },
     });
     return language
       ? {

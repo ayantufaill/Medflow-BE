@@ -5,7 +5,7 @@ export class MedicationService {
   async getAllMedications(search?: string) {
     const where: any = {};
     if (search) {
-      where.MedName = { contains: search, mode: 'insensitive' };
+      where.MedName = { contains: search };
     }
     const medications = await prisma.medication.findMany({
       where,
@@ -16,7 +16,6 @@ export class MedicationService {
       _id: med.MedicationNum?.toString() ?? med.MedName ?? '',
       name: med.MedName ?? '',
       genericName: med.GenericNum?.toString() ?? null,
-      strength: med.Strength ?? null,
       isActive: med.IsHidden ? false : true,
     }));
   }
@@ -38,7 +37,6 @@ export class MedicationService {
       _id: medication.MedicationNum?.toString() ?? medication.MedName ?? '',
       name: medication.MedName ?? '',
       genericName: medication.GenericNum?.toString() ?? null,
-      strength: medication.Strength ?? null,
       isActive: medication.IsHidden ? false : true,
     };
   }

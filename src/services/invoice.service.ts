@@ -305,9 +305,9 @@ export class InvoiceService {
       throw new ConflictError('Invoice already exists for this appointment');
     }
 
-    const appointmentType = appointment.AptType
+    const appointmentType = appointment.AppointmentTypeNum
       ? await prisma.appointmenttype.findUnique({
-          where: { AppointmentTypeNum: appointment.AptType },
+          where: { AppointmentTypeNum: appointment.AppointmentTypeNum },
         })
       : null;
 

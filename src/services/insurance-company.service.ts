@@ -22,9 +22,9 @@ export class InsuranceCompanyService {
 
     if (search) {
       where.OR = [
-        { CarrierName: { contains: search, mode: 'insensitive' } },
-        { ElectID: { contains: search, mode: 'insensitive' } },
-        { Phone: { contains: search, mode: 'insensitive' } },
+        { CarrierName: { contains: search } },
+        { ElectID: { contains: search } },
+        { Phone: { contains: search } },
       ];
     }
 
@@ -106,7 +106,7 @@ export class InsuranceCompanyService {
   ) {
     // Check if company with same name exists
     const existing = await prisma.carrier.findFirst({
-      where: { CarrierName: { equals: data.name, mode: 'insensitive' } },
+      where: { CarrierName: { equals: data.name } },
     });
 
     if (existing) {
@@ -197,7 +197,7 @@ export class InsuranceCompanyService {
     if (updates.name && updates.name !== company.CarrierName) {
       const existing = await prisma.carrier.findFirst({
         where: {
-          CarrierName: { equals: updates.name, mode: 'insensitive' },
+          CarrierName: { equals: updates.name },
           CarrierNum: { not: BigInt(insuranceCompanyId) },
         },
       });

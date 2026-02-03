@@ -199,9 +199,9 @@ export class AppointmentService {
       const matchingPatients = await prisma.patient.findMany({
         where: {
           OR: [
-            { FName: { contains: searchTerm, mode: 'insensitive' } },
-            { LName: { contains: searchTerm, mode: 'insensitive' } },
-            { ChartNumber: { contains: searchTerm, mode: 'insensitive' } },
+            { FName: { contains: searchTerm } },
+            { LName: { contains: searchTerm } },
+            { ChartNumber: { contains: searchTerm } },
           ],
         },
         select: { PatNum: true },
@@ -211,9 +211,9 @@ export class AppointmentService {
       const matchingProviders = await prisma.provider.findMany({
         where: {
           OR: [
-            { FName: { contains: searchTerm, mode: 'insensitive' } },
-            { LName: { contains: searchTerm, mode: 'insensitive' } },
-            { Abbr: { contains: searchTerm, mode: 'insensitive' } },
+            { FName: { contains: searchTerm } },
+            { LName: { contains: searchTerm } },
+            { Abbr: { contains: searchTerm } },
           ],
         },
         select: { ProvNum: true },
@@ -221,8 +221,8 @@ export class AppointmentService {
       providerIds = matchingProviders.map((p) => p.ProvNum);
 
       where.OR = [
-        { ProcDescript: { contains: searchTerm, mode: 'insensitive' } },
-        { Note: { contains: searchTerm, mode: 'insensitive' } },
+        { ProcDescript: { contains: searchTerm } },
+        { Note: { contains: searchTerm } },
         ...(patientIds.length > 0 ? [{ PatNum: { in: patientIds } }] : []),
         ...(providerIds.length > 0 ? [{ ProvNum: { in: providerIds } }] : []),
       ];

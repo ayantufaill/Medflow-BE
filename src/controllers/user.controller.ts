@@ -213,7 +213,7 @@ export class UserController {
         });
       }
       
-      const result = await userService.removeRole(userId, roleId, req.userId);
+      const result = await userService.removeRole(userId, roleId);
       res.status(200).json({
         success: true,
         data: result,
@@ -234,7 +234,7 @@ export class UserController {
         });
       }
       
-      const result = await userService.deleteUser(userId, req.userId);
+      const result = await userService.deleteUser(userId, req.userId ?? 'system');
       res.status(200).json({
         success: true,
         data: result,
@@ -302,14 +302,7 @@ export class UserController {
         });
       }
       
-      const result = await userService.getUserActivity(
-        userId,
-        page,
-        limit,
-        search || undefined,
-        startDate || undefined,
-        endDate || undefined
-      );
+      const result = await userService.getUserActivity(userId, page, limit);
       res.status(200).json({
         success: true,
         data: result,
@@ -335,14 +328,7 @@ export class UserController {
         });
       }
       
-      const result = await userService.getUserLoginHistory(
-        userId,
-        page,
-        limit,
-        search || undefined,
-        startDate || undefined,
-        endDate || undefined
-      );
+      const result = await userService.getUserLoginHistory(userId, page, limit);
       res.status(200).json({
         success: true,
         data: result,
@@ -398,4 +384,3 @@ export class UserController {
 }
 
 export const userController = new UserController();
-

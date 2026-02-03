@@ -3,7 +3,7 @@ import { prisma } from '../config/db';
 const deleteToothPlantingServices = async () => {
   try {
     await prisma.procedurecode.deleteMany({
-      where: { Descript: { contains: 'tooth planting', mode: 'insensitive' } },
+      where: { Descript: { contains: 'tooth planting' } },
     });
     console.log('Tooth planting services deleted successfully!');
   } catch (error) {

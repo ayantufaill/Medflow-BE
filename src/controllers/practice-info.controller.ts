@@ -111,7 +111,7 @@ export class PracticeInfoController {
         logoPath: logoUrl || req.body.logoPath,
       };
 
-      const result = await practiceInfoService.createPracticeInfo(practiceData, req.userId);
+      const result = await practiceInfoService.createPracticeInfo(practiceData);
       res.status(201).json({
         success: true,
         data: { practiceInfo: result },
@@ -148,7 +148,7 @@ export class PracticeInfoController {
       let oldLogoUrl: string | undefined;
       try {
         const existingPractice = await practiceInfoService.getPracticeInfoById(practiceInfoId);
-        oldLogoUrl = existingPractice.logoPath as string | undefined;
+        oldLogoUrl = existingPractice.logoPath ?? undefined;
       } catch (error) {
         // If practice not found, continue without old logo
       }
@@ -197,11 +197,7 @@ export class PracticeInfoController {
         });
       }
       
-      const result = await practiceInfoService.updatePracticeInfo(
-        practiceInfoId,
-        practiceData,
-        req.userId
-      );
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, practiceData);
       res.status(200).json({
         success: true,
         data: { practiceInfo: result },
@@ -237,4 +233,3 @@ export class PracticeInfoController {
 }
 
 export const practiceInfoController = new PracticeInfoController();
-

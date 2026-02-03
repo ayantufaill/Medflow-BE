@@ -68,7 +68,7 @@ export class PaymentController {
       const payment = await paymentService.createPayment(
         {
           ...req.body,
-          paymentDate: new Date(req.body.paymentDate),
+          paidAt: req.body.paymentDate ? new Date(req.body.paymentDate) : undefined,
         },
         req.userId
       );

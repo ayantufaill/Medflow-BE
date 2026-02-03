@@ -58,7 +58,7 @@ const calculateTotalAppointments = (data: {
 const generateOccurrences = (meta: RecurringMeta, count: number) => {
   const occurrences: Date[] = [];
   let currentDate = new Date(meta.startDate);
-  const [hours, minutes] = meta.preferredTime.split(':').map(Number);
+  const [hours = 0, minutes = 0] = meta.preferredTime.split(':').map(Number);
   if (Number.isFinite(hours) && Number.isFinite(minutes)) {
     currentDate.setHours(hours, minutes, 0, 0);
   }
@@ -446,6 +446,129 @@ export class RecurringAppointmentService {
       skippedAppointments,
       skippedCount: skippedAppointments.length,
     };
+  }
+
+  async updateRecurringAppointment(
+    recurringAppointmentId: string,
+    updates: Partial<{
+      appointmentTypeId: string;
+      frequency: 'weekly' | 'monthly' | 'quarterly';
+      frequencyValue: number;
+      startDate: Date;
+      endDate: Date;
+      preferredTime: string;
+      preferredDayOfWeek: number;
+      totalAppointments: number;
+      isActive: boolean;
+    }>,
+    userId: string
+  ) {
+    const row = await prisma.schedule.findUnique({
+      where: { ScheduleNum: BigInt(recurringAppointmentId) },
+    });
+    if (!row) {
+      throw new NotFoundError('Recurring appointment not found');
+    }
+
+    const meta = parseJson<RecurringMeta>(row.Note);
+    const nextMeta: RecurringMeta = {
+      ...meta,
+      appointmentTypeId: updates.appointmentTypeId ?? meta.appointmentTypeId,
+      frequency: updates.frequency ?? meta.frequency,
+      frequencyValue: updates.frequencyValue ?? meta.frequencyValue,
+      startDate: updates.startDate ? updates.startDate.toISOString() : meta.startDate,
+      endDate: updates.endDate ? updates.endDate.toISOString() : meta.endDate,
+      preferredTime: updates.preferredTime ?? meta.preferredTime,
+      preferredDayOfWeek: updates.preferredDayOfWeek ?? meta.preferredDayOfWeek,
+      totalAppointments: updates.totalAppointments ?? meta.totalAppointments,
+      isActive: updates.isActive ?? meta.isActive,
+    };
+
+    const data: any = {
+      Note: buildJson(nextMeta),
+    };
+    if (updates.startDate) {
+      data.SchedDate = updates.startDate;
+    }
+    if (updates.preferredTime) {
+      data.StartTime = new Date(`1970-01-01T${updates.preferredTime}:00Z`);
+    }
+    if (updates.isActive !== undefined) {
+      data.Status = updates.isActive ? 0 : 1;
+    }
+
+    await prisma.schedule.update({
+      where: { ScheduleNum: row.ScheduleNum },
+      data,
+    });
+
+    await logActivity(
+      userId,
+      'updated',
+      'recurring_appointments',
+      recurringAppointmentId,
+      row,
+      updates,
+      undefined,
+      undefined,
+      'medium'
+    );
+
+    return this.getRecurringAppointmentById(recurringAppointmentId);
+  }
+
+  async deleteRecurringAppointment(recurringAppointmentId: string, userId: string) {
+    const row = await prisma.schedule.findUnique({
+      where: { ScheduleNum: BigInt(recurringAppointmentId) },
+    });
+    if (!row) {
+      throw new NotFoundError('Recurring appointment not found');
+    }
+
+    await prisma.schedule.delete({ where: { ScheduleNum: row.ScheduleNum } });
+
+    await logActivity(
+      userId,
+      'deleted',
+      'recurring_appointments',
+      recurringAppointmentId,
+      row,
+      undefined,
+      undefined,
+      undefined,
+      'medium'
+    );
+
+    return { deletedAppointmentsCount: 0 };
+  }
+
+  async createRecurringAppointmentWithResolution(
+    data: Parameters<RecurringAppointmentService['createRecurringAppointment']>[0] & {
+      appointmentOverrides?: {
+        dayOfWeek: number;
+        skip?: boolean;
+        customDate?: string;
+        customStartTime?: string;
+        customEndTime?: string;
+      }[];
+    },
+    createdBy: string
+  ) {
+    const result = await this.createRecurringAppointment(data, createdBy);
+    const recurringAppointment = (result as any).recurringAppointment ?? result;
+    const appointmentsCreated = (result as any).appointmentsCreated ?? 0;
+    const skippedCount = (result as any).skippedCount ?? 0;
+
+    return {
+      recurringAppointment,
+      appointmentsCreated,
+      skippedCount,
+      skippedAppointments: (result as any).skippedAppointments ?? [],
+    };
+  }
+
+  async getLinkedAppointments(_recurringAppointmentId: string) {
+    return [];
   }
 }
 

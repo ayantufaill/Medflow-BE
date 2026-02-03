@@ -15,8 +15,8 @@ export class NoteTemplateController {
         page,
         limit,
         search || undefined,
-        specialty || undefined,
-        isActive
+        isActive,
+        specialty || undefined
       );
 
       res.status(200).json({
@@ -253,8 +253,10 @@ export class NoteTemplateController {
         });
       }
 
+      const { isActive } = req.body;
       const noteTemplate = await noteTemplateService.toggleNoteTemplateStatus(
         noteTemplateId,
+        Boolean(isActive),
         req.userId
       );
 
