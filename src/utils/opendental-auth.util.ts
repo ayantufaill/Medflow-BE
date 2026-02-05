@@ -1,10 +1,11 @@
 import { prisma } from '../config/db';
 import type { AppUser, AppRole } from '../types/auth.types';
 
-const USER_META_FKEYTYPE = 501;
-const ROLE_META_FKEYTYPE = 500;
-const VERIFICATION_FKEYTYPE = 503;
-const RESET_FKEYTYPE = 504;
+// OpenDental userodpref.FkeyType is tinyint (0-255). Keep custom values in range.
+const ROLE_META_FKEYTYPE = 200;
+const USER_META_FKEYTYPE = 201;
+const VERIFICATION_FKEYTYPE = 203;
+const RESET_FKEYTYPE = 204;
 
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;

@@ -8,6 +8,7 @@
     "build": "tsc && node scripts/fix-dist-imports.cjs",
     "start": "tsx src/server.ts",
     "seed:roles": "tsx src/scripts/seedRoles.ts",
+    "seed:all": "tsx src/scripts/seedAll.ts",
     "seed:users": "tsx src/scripts/seedUsers.ts",
     "seed:specialities": "tsx src/scripts/seedSpecialties.ts",
     "seed:languages": "tsx src/scripts/seedLanguages.ts",

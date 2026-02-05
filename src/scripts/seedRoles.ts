@@ -29,6 +29,13 @@ const seedRoles = async () => {
           isSystemRole: roleData.isSystemRole,
           isActive: true,
         });
+      } else {
+        await setRoleMeta(existing.UserGroupNum, {
+          description: roleData.description,
+          permissions: roleData.permissions,
+          isSystemRole: roleData.isSystemRole,
+          isActive: true,
+        });
       }
     }
     console.log('Roles seeded successfully!');
