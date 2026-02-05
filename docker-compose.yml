@@ -42,7 +42,7 @@ services:
       target: dev
     env_file:
       - ./.env.docker
-    command: ["npm", "run", "seed:all"]
+    command: ["/bin/sh", "-c", "npx prisma generate --schema prisma/schema.prisma && npm run seed:all"]
     depends_on:
       db:
         condition: service_healthy
