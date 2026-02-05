@@ -1,0 +1,98 @@
+import { describe, it, expect, beforeAll } from 'vitest';
+import request from 'supertest';
+import app from '../src/app';
+import { getAdminAuthHeader } from './helpers/auth';
+import { uniqueToken } from './helpers/unique';
+import { createInvoiceStatement, createPatientRecord } from './helpers/fixtures';
+
+describe('Invoices', () => {
+  let authHeader: { Authorization: string };
+
+  beforeAll(async () => {
+    authHeader = await getAdminAuthHeader();
+  });
+
+  it('gets all invoices', async () => {
+    const res = await request(app)
+      .get('/api/invoices')
+      .set(authHeader);
+    expect(res.status).toBe(200);
+  });
+
+  it('lists an invoice created in the DB', async () => {
+    const token = uniqueToken('inv');
+    const patient = await createPatientRecord(token);
+    const statement = await createInvoiceStatement({
+      patientId: patient.PatNum,
+      token,
+    });
+
+    const res = await request(app)
+      .get('/api/invoices?limit=1000')
+      .set(authHeader);
+    expect(res.status).toBe(200);
+    const invoices = res.body?.data?.invoices ?? [];
+    expect(invoices.some((inv: any) => inv.invoiceNumber === statement.ShortGUID)).toBe(true);
+  });
+
+  it('validates invoice id', async () => {
+    const res = await request(app)
+      .get('/api/invoices/1')
+      .set(authHeader);
+    expect(res.status).toBe(400);
+  });
+
+  it('validates create invoice from appointment payload', async () => {
+    const res = await request(app)
+      .post('/api/invoices/from-appointment/1')
+      .set(authHeader)
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('validates update invoice payload', async () => {
+    const res = await request(app)
+      .patch('/api/invoices/1')
+      .set(authHeader)
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('validates delete invoice params', async () => {
+    const res = await request(app)
+      .delete('/api/invoices/1')
+      .set(authHeader);
+    expect(res.status).toBe(400);
+  });
+
+  it('validates add invoice item payload', async () => {
+    const res = await request(app)
+      .post('/api/invoices/1/items')
+      .set(authHeader)
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('validates update invoice item payload', async () => {
+    const res = await request(app)
+      .patch('/api/invoices/1/items/1')
+      .set(authHeader)
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('validates delete invoice item params', async () => {
+    const res = await request(app)
+      .delete('/api/invoices/1/items/1')
+      .set(authHeader);
+    expect(res.status).toBe(400);
+  });
+
+  it('validates recalculate invoice payload', async () => {
+    const res = await request(app)
+      .post('/api/invoices/1/recalculate')
+      .set(authHeader)
+      .send({});
+    expect(res.status).toBe(400);
+  });
+});

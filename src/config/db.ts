@@ -2,7 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaMssql } from '@prisma/adapter-mssql';
 import dotenv from 'dotenv';
 
-dotenv.config();
+dotenv.config({ path: process.env.DOTENV_CONFIG_PATH });
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
