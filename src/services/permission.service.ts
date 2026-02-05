@@ -44,16 +44,18 @@ export class PermissionService {
 
   static async hasPermission(userId: string, permission: string): Promise<boolean> {
     const permissions = await this.getUserPermissions(userId);
-    return permissions.has(permission);
+    return permissions.has('*') || permissions.has(permission);
   }
 
   static async hasAnyPermission(userId: string, permissions: string[]): Promise<boolean> {
     const userPermissions = await this.getUserPermissions(userId);
+    if (userPermissions.has('*')) return true;
     return permissions.some((perm) => userPermissions.has(perm));
   }
 
   static async hasAllPermissions(userId: string, permissions: string[]): Promise<boolean> {
     const userPermissions = await this.getUserPermissions(userId);
+    if (userPermissions.has('*')) return true;
     return permissions.every((perm) => userPermissions.has(perm));
   }
 
