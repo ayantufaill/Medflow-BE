@@ -1,9 +1,15 @@
+import crypto from 'crypto';
 import { AppointmentModel } from '../models/appointment.model';
 import { EstimateModel } from '../models/estimate.model';
 import { InvoiceModel } from '../models/invoice.model';
 import { ClaimModel } from '../models/claim.model';
-import { ConflictError, NotFoundError } from '../utils/error.util';
+import { PatientModel } from '../models/patient.model';
+import { BadRequestError, ConflictError, NotFoundError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
+import { emailService } from './email.service';
+
+const escapeRegex = (s: string): string =>
+  s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const generateEstimateNumber = async (): Promise<string> => {
   const lastEstimate = await EstimateModel.findOne()
@@ -30,6 +36,7 @@ export class EstimateService {
       status?: string;
       startDate?: string;
       endDate?: string;
+      search?: string;
     } = {}
   ) {
     const skip = (page - 1) * limit;
@@ -49,6 +56,49 @@ export class EstimateService {
         const end = new Date(filters.endDate);
         end.setHours(23, 59, 59, 999);
         query.createdDate.$lte = end;
+      }
+    }
+
+    // Text search: estimate number or patient name/code (single word or "FirstName LastName")
+    if (filters.search && filters.search.trim()) {
+      const search = filters.search.trim();
+      const orConditions: any[] = [
+        // Match estimate number (e.g. EST000001)
+        { estimateNumber: { $regex: escapeRegex(search), $options: 'i' } },
+      ];
+
+      const patientConditions: any[] = [
+        { firstName: { $regex: escapeRegex(search), $options: 'i' } },
+        { lastName: { $regex: escapeRegex(search), $options: 'i' } },
+        { patientCode: { $regex: escapeRegex(search), $options: 'i' } },
+      ];
+
+      // Full name search: "Ayan Tufail" → match firstName + " " + lastName (or reversed)
+      const parts = search.split(/\s+/).filter((p) => p.length > 0);
+      if (parts.length >= 2) {
+        const first = escapeRegex(parts[0]!);
+        const second = escapeRegex(parts[1]!);
+        patientConditions.push(
+          { $and: [{ firstName: { $regex: first, $options: 'i' } }, { lastName: { $regex: second, $options: 'i' } }] },
+          { $and: [{ firstName: { $regex: second, $options: 'i' } }, { lastName: { $regex: first, $options: 'i' } }] }
+        );
+      }
+
+      const matchingPatients = await PatientModel.find({ $or: patientConditions })
+        .select('_id')
+        .lean();
+
+      const patientIds = matchingPatients.map((p) => String(p._id));
+      if (patientIds.length > 0) {
+        orConditions.push({ patientId: { $in: patientIds } });
+      }
+
+      if (orConditions.length > 0) {
+        if (query.$or) {
+          query.$or = [...query.$or, ...orConditions];
+        } else {
+          query.$or = orConditions;
+        }
       }
     }
 
@@ -234,6 +284,106 @@ export class EstimateService {
     );
 
     return { message: 'Estimate deleted successfully' };
+  }
+
+  async sendToPatient(estimateId: string, userId: string) {
+    const estimate = await EstimateModel.findById(estimateId)
+      .populate('patientId', 'firstName lastName email')
+      .lean();
+    if (!estimate) {
+      throw new NotFoundError('Estimate not found');
+    }
+    const e = estimate as any;
+    const status = String(e.status || '');
+    if (status !== 'draft') {
+      throw new BadRequestError('Only draft estimates can be sent to the patient.');
+    }
+    const patient = e.patientId;
+    const email = patient?.email?.trim();
+    if (!email) {
+      throw new BadRequestError('Patient has no email address on file. Add an email in the patient record and try again.');
+    }
+    const firstName = patient?.firstName || 'Patient';
+    const validUntil = e.expirationDate
+      ? new Date(e.expirationDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+      : '—';
+
+    const respondToken = crypto.randomBytes(24).toString('hex');
+    const respondExpiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const port = process.env.PORT || 5000;
+    const respondBaseUrl =
+      process.env.BACKEND_URL || process.env.API_URL || process.env.PUBLIC_ESTIMATE_RESPOND_URL || `http://localhost:${port}/api`;
+
+    await emailService.sendEstimateToPatient(
+      email,
+      firstName,
+      String(e.estimateNumber),
+      String(e.description || ''),
+      Number(e.estimatedAmount) || 0,
+      Number(e.insurancePortion) || 0,
+      Number(e.patientPortion) || 0,
+      validUntil,
+      respondToken,
+      respondBaseUrl
+    );
+
+    const estimateDoc = await EstimateModel.findById(estimateId);
+    if (estimateDoc) {
+      (estimateDoc as any).status = 'sent';
+      (estimateDoc as any).patientResponseToken = respondToken;
+      (estimateDoc as any).patientResponseTokenExpiresAt = respondExpiresAt;
+      await estimateDoc.save();
+      await logActivity(
+        userId,
+        'updated',
+        'estimates',
+        estimateId,
+        { status: 'draft' },
+        estimateDoc.toObject(),
+        undefined,
+        undefined,
+        'low'
+      );
+      return estimateDoc;
+    }
+    throw new NotFoundError('Estimate not found');
+  }
+
+  /**
+   * Record patient response (approve/decline) from email link. No auth required.
+   */
+  async recordPatientResponse(token: string, action: 'approve' | 'decline') {
+    if (!token?.trim()) {
+      throw new BadRequestError('Invalid link.');
+    }
+    const estimate = await EstimateModel.findOne({
+      patientResponseToken: token.trim(),
+    }).lean();
+    if (!estimate) {
+      throw new NotFoundError('This link is invalid or has already been used.');
+    }
+    const e = estimate as any;
+    if (e.status !== 'sent') {
+      throw new BadRequestError('This estimate has already been responded to.');
+    }
+    const expiresAt = e.patientResponseTokenExpiresAt ? new Date(e.patientResponseTokenExpiresAt) : null;
+    if (expiresAt && expiresAt < new Date()) {
+      throw new BadRequestError('This link has expired.');
+    }
+    const estimateDoc = await EstimateModel.findById(e._id);
+    if (!estimateDoc) {
+      throw new NotFoundError('Estimate not found.');
+    }
+    if (action === 'approve') {
+      (estimateDoc as any).status = 'approved';
+      (estimateDoc as any).approvedDate = new Date();
+    } else {
+      (estimateDoc as any).status = 'expired';
+    }
+    (estimateDoc as any).patientResponseToken = undefined;
+    (estimateDoc as any).patientResponseTokenExpiresAt = undefined;
+    await estimateDoc.save();
+    return { action, estimateNumber: e.estimateNumber };
   }
 
   async convertToInvoice(

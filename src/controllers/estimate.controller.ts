@@ -12,17 +12,20 @@ export class EstimateController {
         status?: string;
         startDate?: string;
         endDate?: string;
+        search?: string;
       } = {};
 
       const patientId = req.query.patientId as string | undefined;
       const status = req.query.status as string | undefined;
       const startDate = req.query.startDate as string | undefined;
       const endDate = req.query.endDate as string | undefined;
+       const search = req.query.search as string | undefined;
 
       if (patientId) filters.patientId = patientId;
       if (status) filters.status = status;
       if (startDate) filters.startDate = startDate;
       if (endDate) filters.endDate = endDate;
+      if (search) filters.search = search;
 
       const result = await estimateService.getAllEstimates(page, limit, filters);
 
@@ -135,6 +138,28 @@ export class EstimateController {
       res.status(200).json({
         success: true,
         data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async sendToPatient(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const estimateId = req.params.estimateId as string;
+      const estimate = await estimateService.sendToPatient(estimateId, req.userId);
+
+      res.status(200).json({
+        success: true,
+        data: { estimate },
+        message: 'Estimate sent to patient successfully',
       });
     } catch (error) {
       next(error);

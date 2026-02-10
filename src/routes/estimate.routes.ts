@@ -54,6 +54,14 @@ router.delete(
 );
 
 router.post(
+  '/:estimateId/send',
+  authenticate,
+  requirePermission('invoices.update'),
+  validate(estimateIdValidator),
+  estimateController.sendToPatient.bind(estimateController)
+);
+
+router.post(
   '/:estimateId/convert',
   authenticate,
   requirePermission('invoices.create'),

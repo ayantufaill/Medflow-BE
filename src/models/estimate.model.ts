@@ -57,6 +57,14 @@ const EstimateSchema = new Schema(
     approvedDate: {
       type: Date,
     },
+    patientResponseToken: {
+      type: String,
+      trim: true,
+      sparse: true,
+    },
+    patientResponseTokenExpiresAt: {
+      type: Date,
+    },
     convertedToInvoiceId: {
       type: String,
       ref: 'Invoice',
