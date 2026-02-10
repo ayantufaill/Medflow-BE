@@ -79,7 +79,8 @@ export class EraService {
     if (lines.length === 0) return [];
 
     const rows: { patientName: string; claimNumber: string; amount: number; paymentDate?: Date }[] = [];
-    const first = lines[0].toLowerCase();
+    const firstLine = lines[0];
+    const first = firstLine ? firstLine.toLowerCase() : '';
     const hasHeader =
       first.includes('patient') ||
       first.includes('claim') ||
@@ -88,7 +89,9 @@ export class EraService {
     const startIndex = hasHeader ? 1 : 0;
 
     for (let i = startIndex; i < lines.length; i++) {
-      const parts = lines[i].split(',').map((p) => p.trim());
+      const line = lines[i];
+      if (!line) continue;
+      const parts = line.split(',').map((p) => p.trim());
       if (parts.length < 2) continue;
       // Support: patientName, claimNumber, amount, paymentDate (or similar order)
       let patientName = '';
@@ -97,12 +100,21 @@ export class EraService {
       let paymentDate: Date | undefined;
       if (parts.length >= 1) patientName = parts[0] || '';
       if (parts.length >= 2) claimNumber = parts[1] || '';
-      if (parts.length >= 3) amount = parseFloat(parts[2]) || 0;
-      if (parts.length >= 4 && parts[3]) {
-        const d = new Date(parts[3]);
-        if (!isNaN(d.getTime())) paymentDate = d;
+      if (parts.length >= 3) amount = parseFloat(parts[2] ?? '') || 0;
+      if (parts.length >= 4) {
+        const dateStr = parts[3];
+        if (dateStr) {
+          const d = new Date(dateStr);
+          if (!isNaN(d.getTime())) paymentDate = d;
+        }
       }
-      rows.push({ patientName, claimNumber, amount, paymentDate });
+      const row: { patientName: string; claimNumber: string; amount: number; paymentDate?: Date } = {
+        patientName,
+        claimNumber,
+        amount,
+      };
+      if (paymentDate !== undefined) row.paymentDate = paymentDate;
+      rows.push(row);
     }
     return rows;
   }
