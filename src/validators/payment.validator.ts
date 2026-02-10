@@ -11,6 +11,7 @@ export const paymentIdValidator: ValidationChain[] = [
 export const paymentSearchValidator: ValidationChain[] = [
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
   query('limit').optional().isInt({ min: 1 }).withMessage('Limit must be a positive integer'),
+  query('search').optional().isString().trim().withMessage('Search must be a string'),
   query('patientId')
     .optional()
     .isLength({ min: 36, max: 36 })

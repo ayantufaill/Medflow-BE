@@ -64,6 +64,10 @@ export const createEstimateValidator: ValidationChain[] = [
 ];
 
 export const updateEstimateValidator: ValidationChain[] = [
+  body('patientId')
+    .optional()
+    .isLength({ min: 36, max: 36 })
+    .withMessage('Invalid patient ID format'),
   body('providerId')
     .optional()
     .isLength({ min: 36, max: 36 })

@@ -43,8 +43,8 @@ const ClaimSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ['submitted', 'accepted', 'denied', 'partially_paid', 'paid'],
-      default: 'submitted',
+      enum: ['draft', 'submitted', 'accepted', 'denied', 'partially_paid', 'paid'],
+      default: 'draft',
     },
     denialReason: {
       type: String,
@@ -56,6 +56,12 @@ const ClaimSchema = new Schema(
       type: Number,
       min: 0,
       default: 0,
+    },
+    payerType: {
+      type: String,
+      enum: ['primary', 'secondary', 'tertiary'],
+      default: 'primary',
+      index: true,
     },
     clearinghouse: {
       type: String,

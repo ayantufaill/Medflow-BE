@@ -10,7 +10,7 @@ import rateLimit from 'express-rate-limit';
 
 export const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20, // Limit each IP to 20 requests per windowMs
+  max: 50, // Limit each IP to 50 requests per windowMs (register, forgot-password, etc.)
   message: {
     success: false,
     error: {
@@ -55,8 +55,8 @@ export const loginRateLimiter = rateLimit({
 });
 
 export const apiRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200, // Limit each IP to 200 requests per windowMs (increased)
+  windowMs: 1 * 60 * 1000, // 1 minute window (resets faster)
+  max: 300, // 300 requests per minute – normal use (pages, logout, etc.) should not hit this
   message: {
     success: false,
     error: {

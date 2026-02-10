@@ -31,3 +31,49 @@ export const uploadOCRImage = multer({
   },
 });
 
+// Allowed MIME types for claim documents (PDF, images, common docs)
+const claimDocMimeTypes = [
+  'application/pdf',
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'application/msword', // .doc
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+];
+
+const claimDocFileFilter = (req: Express.Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  if (claimDocMimeTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error(`Invalid file type. Allowed: PDF, images, Word documents. Got: ${file.mimetype}`));
+  }
+};
+
+// Multer for claim document uploads (10MB max)
+export const uploadClaimDocument = multer({
+  storage,
+  fileFilter: claimDocFileFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB
+  },
+});
+
+// ERA/EOB file types (.835, .txt, .edi, .csv for demo)
+const eraFileExtensions = ['.835', '.txt', '.edi', '.csv'];
+const eraMimeTypes = ['application/octet-stream', 'text/plain', 'text/csv', 'application/csv'];
+
+const eraFileFilter = (req: Express.Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
+  const ext = file.originalname?.toLowerCase().slice(file.originalname.lastIndexOf('.'));
+  const ok = eraFileExtensions.includes(ext) || eraMimeTypes.includes(file.mimetype);
+  if (ok) cb(null, true);
+  else cb(new Error('Invalid ERA file. Use .835, .txt, .edi, or .csv'));
+};
+
+export const uploadERAFile = multer({
+  storage,
+  fileFilter: eraFileFilter,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+});
+

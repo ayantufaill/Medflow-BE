@@ -30,6 +30,7 @@ export class PaymentService {
       patientId?: string;
       invoiceId?: string;
       paymentMethod?: string;
+      search?: string;
       startDate?: string;
       endDate?: string;
     } = {}
@@ -40,6 +41,14 @@ export class PaymentService {
     if (filters.patientId) query.patientId = filters.patientId;
     if (filters.invoiceId) query.invoiceId = filters.invoiceId;
     if (filters.paymentMethod) query.paymentMethod = filters.paymentMethod;
+
+    if (filters.search?.trim()) {
+      const searchRegex = { $regex: filters.search.trim(), $options: 'i' };
+      query.$or = [
+        { paymentCode: searchRegex },
+        { referenceNumber: searchRegex },
+      ];
+    }
 
     if (filters.startDate || filters.endDate) {
       query.paymentDate = {};

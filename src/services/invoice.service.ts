@@ -101,6 +101,7 @@ export class InvoiceService {
         },
       })
       .populate('appointmentId', 'appointmentDate startTime endTime')
+      .populate('insuranceCompanyId', 'name')
       .lean();
       
     if (!invoice) {
@@ -118,6 +119,7 @@ export class InvoiceService {
         patient: invoice.patientId,
         provider: invoice.providerId,
         appointment: invoice.appointmentId,
+        insuranceCompany: invoice.insuranceCompanyId,
         dateOfService: (invoice.appointmentId as any)?.appointmentDate,
       },
       items,

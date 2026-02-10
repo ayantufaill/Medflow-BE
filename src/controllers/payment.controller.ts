@@ -11,6 +11,7 @@ export class PaymentController {
         patientId?: string;
         invoiceId?: string;
         paymentMethod?: string;
+        search?: string;
         startDate?: string;
         endDate?: string;
       } = {};
@@ -18,11 +19,13 @@ export class PaymentController {
       const patientId = req.query.patientId as string | undefined;
       const invoiceId = req.query.invoiceId as string | undefined;
       const paymentMethod = req.query.paymentMethod as string | undefined;
+      const search = req.query.search as string | undefined;
       const startDate = req.query.startDate as string | undefined;
       const endDate = req.query.endDate as string | undefined;
 
       if (patientId) filters.patientId = patientId;
       if (invoiceId) filters.invoiceId = invoiceId;
+      if (search?.trim()) filters.search = search.trim();
       if (paymentMethod) filters.paymentMethod = paymentMethod;
       if (startDate) filters.startDate = startDate;
       if (endDate) filters.endDate = endDate;

@@ -1,6 +1,7 @@
 import { AppointmentModel } from '../models/appointment.model';
 import { EstimateModel } from '../models/estimate.model';
 import { InvoiceModel } from '../models/invoice.model';
+import { ClaimModel } from '../models/claim.model';
 import { ConflictError, NotFoundError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 
@@ -53,6 +54,7 @@ export class EstimateService {
 
     const [estimates, total] = await Promise.all([
       EstimateModel.find(query)
+        .populate('patientId', 'firstName lastName')
         .sort({ createdDate: -1 })
         .skip(skip)
         .limit(limit)
@@ -60,8 +62,16 @@ export class EstimateService {
       EstimateModel.countDocuments(query),
     ]);
 
+    const mapped = (estimates as any[]).map((e) => ({
+      ...e,
+      patient: e.patientId,
+      estimateDate: e.createdDate,
+      validUntil: e.expirationDate,
+      totalAmount: e.estimatedAmount,
+    }));
+
     return {
-      estimates,
+      estimates: mapped,
       pagination: {
         page,
         limit,
@@ -72,11 +82,47 @@ export class EstimateService {
   }
 
   async getEstimateById(estimateId: string) {
-    const estimate = await EstimateModel.findById(estimateId).lean();
+    const estimate = await EstimateModel.findById(estimateId)
+      .populate('patientId', 'firstName lastName')
+      .lean();
     if (!estimate) {
       throw new NotFoundError('Estimate not found');
     }
-    return estimate;
+    const e = estimate as any;
+    const patient = e.patientId;
+    const patientIdStr = patient?._id ? String(patient._id) : e.patientId;
+
+    // Estimate vs actual: when converted, get linked claim paid amount
+    let actualPaidAmount: number | null = null;
+    let claimId: string | null = null;
+    let invoiceId: string | null = null;
+    if (e.convertedToInvoiceId) {
+      invoiceId = String(e.convertedToInvoiceId);
+      const claim = await ClaimModel.findOne({ invoiceId: e.convertedToInvoiceId }).select('_id paidAmount').lean();
+      if (claim) {
+        claimId = String((claim as any)._id);
+        actualPaidAmount = Number((claim as any).paidAmount) || 0;
+      }
+    }
+
+    return {
+      ...e,
+      patient,
+      patientId: patientIdStr,
+      estimateDate: e.createdDate,
+      validUntil: e.expirationDate,
+      totalAmount: e.estimatedAmount,
+      lineItems: e.lineItems?.length
+        ? e.lineItems
+        : e.description
+          ? [{ description: e.description, quantity: 1, unitPrice: e.estimatedAmount ?? 0, total: e.estimatedAmount ?? 0 }]
+          : [],
+      // Estimate vs actual
+      convertedInvoiceId: invoiceId,
+      linkedClaimId: claimId,
+      actualPaidAmount,
+      estimatedAmount: e.estimatedAmount,
+    };
   }
 
   async createEstimate(
@@ -130,6 +176,7 @@ export class EstimateService {
   async updateEstimate(
     estimateId: string,
     updates: Partial<{
+      patientId: string;
       providerId: string;
       description: string;
       estimatedAmount: number;

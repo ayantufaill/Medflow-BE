@@ -23,6 +23,7 @@ export * from './service.model';
 export * from './invoice.model';
 export * from './invoice-item.model';
 export * from './claim.model';
+export * from './claim-document.model';
 export * from './payment.model';
 export * from './payment-plan.model';
 export * from './estimate.model';
