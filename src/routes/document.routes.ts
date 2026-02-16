@@ -3,6 +3,7 @@ import { documentController } from '../controllers/document.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
+import { uploadDocument as uploadDocumentMiddleware } from '../middleware/upload.middleware';
 import {
   documentIdValidator,
   patientIdParamValidator,
@@ -52,6 +53,14 @@ router.get(
   requirePermission('documents.read'),
   validate(documentIdValidator),
   documentController.getDocumentById
+);
+
+router.post(
+  '/upload',
+  authenticate,
+  requirePermission('documents.create'),
+  uploadDocumentMiddleware.any(),
+  documentController.uploadDocument
 );
 
 router.post(

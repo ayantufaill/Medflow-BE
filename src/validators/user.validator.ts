@@ -76,6 +76,16 @@ export const createUserValidator: ValidationChain[] = [
     .trim()
     .notEmpty()
     .withMessage('Role ID cannot be empty'),
+  body('roleIds')
+    .optional()
+    .isArray()
+    .withMessage('roleIds must be an array'),
+  body('roleIds.*')
+    .optional()
+    .isString()
+    .trim()
+    .notEmpty()
+    .withMessage('Each roleId must be a non-empty string'),
 ];
 
 export const queryValidator: ValidationChain[] = [
@@ -92,6 +102,16 @@ export const queryValidator: ValidationChain[] = [
     .trim()
     .isLength({ min: 1, max: 100 })
     .withMessage('Search query must be between 1 and 100 characters'),
+  query('roleId')
+    .optional()
+    .isString()
+    .trim()
+    .notEmpty()
+    .withMessage('roleId must be a non-empty string'),
+  query('status')
+    .optional()
+    .isIn(['active', 'inactive'])
+    .withMessage('status must be active or inactive'),
   query('startDate')
     .optional()
     .isISO8601()
@@ -101,4 +121,3 @@ export const queryValidator: ValidationChain[] = [
     .isISO8601()
     .withMessage('End date must be a valid ISO 8601 date string'),
 ];
-

@@ -381,5 +381,12 @@ export const patientSearchValidator: ValidationChain[] = [
     .optional()
     .isIn(['active', 'inactive'])
     .withMessage('Status must be either active or inactive'),
+  query('dobStart')
+    .optional()
+    .isISO8601()
+    .withMessage('dobStart must be a valid ISO 8601 date'),
+  query('dobEnd')
+    .optional()
+    .isISO8601()
+    .withMessage('dobEnd must be a valid ISO 8601 date'),
 ];
-

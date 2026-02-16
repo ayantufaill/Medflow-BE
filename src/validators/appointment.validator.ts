@@ -223,19 +223,25 @@ export const appointmentQueryValidator: ValidationChain[] = [
     .optional()
     .isLength({ min: 36, max: 36 })
     .withMessage('Invalid appointment type ID format'),
+  query('search')
+    .optional()
+    .isString()
+    .withMessage('search must be a string'),
 ];
 
 export const scheduleQueryValidator: ValidationChain[] = [
   query('startDate')
-    .notEmpty()
-    .withMessage('startDate is required')
+    .optional()
     .isISO8601()
     .withMessage('startDate must be a valid ISO 8601 date'),
   query('endDate')
-    .notEmpty()
-    .withMessage('endDate is required')
+    .optional()
     .isISO8601()
     .withMessage('endDate must be a valid ISO 8601 date'),
+  query('date')
+    .optional()
+    .isISO8601()
+    .withMessage('date must be a valid ISO 8601 date'),
   query('view')
     .optional()
     .isIn(['day', 'week', 'month'])

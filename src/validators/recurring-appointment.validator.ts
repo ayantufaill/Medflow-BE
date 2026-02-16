@@ -126,4 +126,16 @@ export const recurringAppointmentQueryValidator: ValidationChain[] = [
     .optional()
     .isIn(['true', 'false'])
     .withMessage('isActive must be either true or false'),
+  query('search')
+    .optional()
+    .isString()
+    .withMessage('search must be a string'),
+  query('startDateFrom')
+    .optional()
+    .isISO8601()
+    .withMessage('startDateFrom must be a valid ISO 8601 date'),
+  query('startDateTo')
+    .optional()
+    .isISO8601()
+    .withMessage('startDateTo must be a valid ISO 8601 date'),
 ];

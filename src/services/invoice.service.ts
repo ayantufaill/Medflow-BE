@@ -22,6 +22,7 @@ type StatementMeta = {
   submissionMethod?: string;
   createdBy?: string;
   dueDate?: string;
+  voidReason?: string;
 };
 
 type ItemMeta = {
@@ -280,7 +281,7 @@ export class InvoiceService {
   async createInvoiceFromAppointment(
     appointmentId: string,
     data: {
-      dueDate: Date;
+      dueDate?: Date;
       insuranceCompanyId?: string;
       providerId?: string;
       notes?: string;
@@ -313,6 +314,7 @@ export class InvoiceService {
 
     const invoiceNumber = await getInvoiceNumber();
     const statementNum = await getNextId('statement', 'StatementNum');
+    const dueDate = data.dueDate ?? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
     const meta: StatementMeta = {
       appointmentId,
@@ -324,7 +326,7 @@ export class InvoiceService {
       discountAmount: 0,
       status: 'draft',
       createdBy,
-      dueDate: data.dueDate.toISOString(),
+      dueDate: dueDate.toISOString(),
     };
 
     const statement = await prisma.statement.create({
@@ -333,7 +335,7 @@ export class InvoiceService {
         PatNum: appointment.PatNum ?? null,
         DateSent: new Date(),
         DateRangeFrom: appointment.AptDateTime ?? null,
-        DateRangeTo: data.dueDate ?? null,
+        DateRangeTo: dueDate,
         Note: data.notes ?? null,
         NoteBold: buildJson(meta),
         IsInvoice: 1,
@@ -641,7 +643,7 @@ export class InvoiceService {
       notes: string;
       discountAmount: number;
       copayAmount: number;
-      status: 'draft' | 'submitted' | 'partially_paid' | 'paid' | 'denied' | 'void';
+      status: 'draft' | 'pending' | 'submitted' | 'partially_paid' | 'paid' | 'denied' | 'void';
       insuranceCoveragePercent: number;
       insurancePortion: number;
       patientPortion: number;
@@ -757,6 +759,112 @@ export class InvoiceService {
     });
 
     return invoice;
+  }
+
+  async getInvoicesByPatient(patientId: string, page = 1, limit = 10) {
+    return this.getAllInvoices(page, limit, { patientId });
+  }
+
+  async getPatientBalance(patientId: string) {
+    const rows = await prisma.statement.findMany({
+      where: {
+        IsInvoice: 1,
+        PatNum: BigInt(patientId),
+      },
+      select: {
+        BalTotal: true,
+      },
+    });
+
+    const totalBalance = rows.reduce((sum, row) => sum + (Number(row.BalTotal) || 0), 0);
+    const openInvoices = rows.filter((row) => Number(row.BalTotal) > 0).length;
+
+    return {
+      patientId,
+      totalBalance: roundCurrency(totalBalance),
+      openInvoices,
+    };
+  }
+
+  async finalizeInvoice(invoiceId: string, userId: string) {
+    const invoice = await this.getStatementById(invoiceId);
+    if (!invoice) {
+      throw new NotFoundError('Invoice not found');
+    }
+
+    const meta = parseJson<StatementMeta>(invoice.NoteBold);
+    if (String(meta.status) !== 'draft') {
+      throw new BadRequestError('Only draft invoices can be finalized');
+    }
+
+    await this.recalculateInvoice(invoiceId);
+
+    const nextMeta: StatementMeta = {
+      ...meta,
+      status: 'pending',
+    };
+
+    const updated = await prisma.statement.update({
+      where: { StatementNum: invoice.StatementNum },
+      data: {
+        StatementType: 'pending',
+        NoteBold: buildJson(nextMeta),
+      },
+    });
+
+    await logActivity(
+      userId,
+      'updated',
+      'invoices',
+      invoiceId,
+      this.mapStatementToInvoice(invoice, meta),
+      this.mapStatementToInvoice(updated, nextMeta),
+      undefined,
+      undefined,
+      'low'
+    );
+
+    return this.mapStatementToInvoice(updated, nextMeta);
+  }
+
+  async voidInvoice(invoiceId: string, reason: string | undefined, userId: string) {
+    const invoice = await this.getStatementById(invoiceId);
+    if (!invoice) {
+      throw new NotFoundError('Invoice not found');
+    }
+
+    const meta = parseJson<StatementMeta>(invoice.NoteBold);
+    if (String(meta.status) === 'void') {
+      throw new BadRequestError('Invoice is already void');
+    }
+
+    const nextMeta: StatementMeta = {
+      ...meta,
+      status: 'void',
+      voidReason: reason ?? meta.voidReason,
+    };
+
+    const updated = await prisma.statement.update({
+      where: { StatementNum: invoice.StatementNum },
+      data: {
+        StatementType: 'void',
+        NoteBold: buildJson(nextMeta),
+      },
+    });
+
+    await logActivity(
+      userId,
+      'updated',
+      'invoices',
+      invoiceId,
+      this.mapStatementToInvoice(invoice, meta),
+      this.mapStatementToInvoice(updated, nextMeta),
+      undefined,
+      undefined,
+      'medium'
+    );
+
+    return this.mapStatementToInvoice(updated, nextMeta);
   }
 }
 

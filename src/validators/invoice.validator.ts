@@ -24,6 +24,14 @@ export const appointmentIdParamValidator: ValidationChain[] = [
     .withMessage('Invalid appointment ID format'),
 ];
 
+export const patientIdParamValidator: ValidationChain[] = [
+  param('patientId')
+    .notEmpty()
+    .withMessage('Patient ID is required')
+    .isLength({ min: 36, max: 36 })
+    .withMessage('Invalid patient ID format'),
+];
+
 export const invoiceSearchValidator: ValidationChain[] = [
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
   query('limit').optional().isInt({ min: 1 }).withMessage('Limit must be a positive integer'),
@@ -45,7 +53,7 @@ export const invoiceSearchValidator: ValidationChain[] = [
     .withMessage('Invalid insurance company ID format'),
   query('status')
     .optional()
-    .isIn(['draft', 'submitted', 'partially_paid', 'paid', 'denied', 'void'])
+    .isIn(['draft', 'pending', 'submitted', 'partially_paid', 'paid', 'denied', 'void'])
     .withMessage('Invalid status value'),
   query('startDate').optional().isISO8601().withMessage('startDate must be a valid date'),
   query('endDate').optional().isISO8601().withMessage('endDate must be a valid date'),
@@ -54,8 +62,7 @@ export const invoiceSearchValidator: ValidationChain[] = [
 
 export const createInvoiceFromAppointmentValidator: ValidationChain[] = [
   body('dueDate')
-    .notEmpty()
-    .withMessage('Due date is required')
+    .optional()
     .isISO8601()
     .withMessage('Due date must be a valid date'),
   body('insuranceCompanyId')
@@ -94,7 +101,7 @@ export const updateInvoiceValidator: ValidationChain[] = [
     .withMessage('Copay amount must be a positive number'),
   body('status')
     .optional()
-    .isIn(['draft', 'submitted', 'partially_paid', 'paid', 'denied', 'void'])
+    .isIn(['draft', 'pending', 'submitted', 'partially_paid', 'paid', 'denied', 'void'])
     .withMessage('Invalid status value'),
   body('insuranceCoveragePercent')
     .optional()
@@ -159,4 +166,13 @@ export const recalculateInvoiceValidator: ValidationChain[] = [
     .optional()
     .isFloat({ min: 0, max: 100 })
     .withMessage('Insurance coverage percent must be between 0 and 100'),
+];
+
+export const voidInvoiceValidator: ValidationChain[] = [
+  body('reason')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('reason must be less than 500 characters'),
 ];

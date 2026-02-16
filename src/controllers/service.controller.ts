@@ -142,6 +142,77 @@ export class ServiceController {
       next(error);
     }
   }
+
+  async activateService(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const { serviceId } = req.params;
+      if (!serviceId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Service ID is required' },
+        });
+      }
+
+      const service = await serviceService.activateService(serviceId, req.userId);
+
+      res.status(200).json({
+        success: true,
+        data: { service },
+        message: 'Service activated successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deactivateService(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const { serviceId } = req.params;
+      if (!serviceId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Service ID is required' },
+        });
+      }
+
+      const service = await serviceService.deactivateService(serviceId, req.userId);
+
+      res.status(200).json({
+        success: true,
+        data: { service },
+        message: 'Service deactivated successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getCategories(req: Request, res: Response, next: NextFunction) {
+    try {
+      const categories = await serviceService.getCategories();
+
+      res.status(200).json({
+        success: true,
+        data: { categories },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const serviceController = new ServiceController();

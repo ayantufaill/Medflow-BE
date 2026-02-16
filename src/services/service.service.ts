@@ -431,6 +431,40 @@ export class ServiceService {
 
     return { message: 'Service deleted successfully' };
   }
+
+  async activateService(serviceId: string, updatedBy: string) {
+    return this.updateService(
+      serviceId,
+      {
+        isActive: true,
+      },
+      updatedBy
+    );
+  }
+
+  async deactivateService(serviceId: string, updatedBy: string) {
+    return this.updateService(
+      serviceId,
+      {
+        isActive: false,
+      },
+      updatedBy
+    );
+  }
+
+  async getCategories() {
+    const categories = await prisma.definition.findMany({
+      where: {
+        Category: 18,
+        IsHidden: 0,
+      },
+      orderBy: { ItemName: 'asc' },
+    });
+
+    return categories
+      .map((category) => category.ItemName)
+      .filter((name): name is string => Boolean(name && name.trim().length > 0));
+  }
 }
 
 export const serviceService = new ServiceService();

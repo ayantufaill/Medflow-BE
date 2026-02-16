@@ -136,7 +136,11 @@ export class PatientService {
       throw new NotFoundError('Patient not found');
     }
 
-    return mapPatientToApi(patient);
+    const mapped = mapPatientToApi(patient);
+    return {
+      ...mapped,
+      ssn: null,
+    };
   }
 
   /**

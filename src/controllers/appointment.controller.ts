@@ -82,14 +82,47 @@ export class AppointmentController {
         });
       }
       
-      const startDate = req.query.startDate as string;
-      const endDate = req.query.endDate as string;
       const view = (req.query.view as 'day' | 'week' | 'month') || 'week';
+      const date = req.query.date as string | undefined;
+      let startDate = req.query.startDate as string | undefined;
+      let endDate = req.query.endDate as string | undefined;
+
+      if ((!startDate || !endDate) && date) {
+        const baseDate = new Date(date);
+        if (Number.isNaN(baseDate.getTime())) {
+          return res.status(400).json({
+            success: false,
+            error: { message: 'date must be a valid date' },
+          });
+        }
+
+        const start = new Date(baseDate);
+        const end = new Date(baseDate);
+
+        if (view === 'day') {
+          start.setHours(0, 0, 0, 0);
+          end.setHours(23, 59, 59, 999);
+        } else if (view === 'week') {
+          const day = start.getDay();
+          start.setDate(start.getDate() - day);
+          start.setHours(0, 0, 0, 0);
+          end.setDate(start.getDate() + 6);
+          end.setHours(23, 59, 59, 999);
+        } else {
+          start.setDate(1);
+          start.setHours(0, 0, 0, 0);
+          end.setMonth(end.getMonth() + 1, 0);
+          end.setHours(23, 59, 59, 999);
+        }
+
+        startDate = start.toISOString();
+        endDate = end.toISOString();
+      }
 
       if (!startDate || !endDate) {
         return res.status(400).json({
           success: false,
-          error: { message: 'startDate and endDate are required' },
+          error: { message: 'Provide either date or both startDate and endDate' },
         });
       }
 

@@ -23,6 +23,9 @@ import serviceRoutes from './service.routes';
 import invoiceRoutes from './invoice.routes';
 import paymentRoutes from './payment.routes';
 import estimateRoutes from './estimate.routes';
+import authorizationRoutes from './authorization.routes';
+import claimRoutes from './claim.routes';
+import eraRoutes from './era.routes';
 
 const router = Router();
 
@@ -50,5 +53,8 @@ router.use('/services', serviceRoutes);
 router.use('/invoices', invoiceRoutes);
 router.use('/payments', paymentRoutes);
 router.use('/estimates', estimateRoutes);
+router.use('/authorizations', authorizationRoutes);
+router.use('/claims', claimRoutes);
+router.use('/era', eraRoutes);
 
 export default router;

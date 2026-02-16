@@ -20,6 +20,7 @@ type PaymentMeta = {
   method?: string;
   status?: string;
   notes?: string;
+  voidReason?: string;
 };
 
 export class PaymentService {
@@ -33,6 +34,7 @@ export class PaymentService {
       status?: string;
       startDate?: string;
       endDate?: string;
+      search?: string;
     } = {}
   ) {
     const skip = (page - 1) * limit;
@@ -78,6 +80,21 @@ export class PaymentService {
     }
     if (filters.status) {
       payments = payments.filter((payment) => payment.status === filters.status);
+    }
+    if (filters.search) {
+      const term = filters.search.toLowerCase();
+      payments = payments.filter((payment) =>
+        [
+          payment._id,
+          payment.patientId,
+          payment.invoiceId,
+          payment.method,
+          payment.status,
+          payment.notes,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(term))
+      );
     }
 
     return {
@@ -234,6 +251,25 @@ export class PaymentService {
     await logActivity(userId, 'updated', 'payments', paymentId, payment, updated);
 
     return updated;
+  }
+
+  async getPaymentsByPatient(patientId: string, page = 1, limit = 10) {
+    return this.getAllPayments(page, limit, { patientId });
+  }
+
+  async getPaymentsByInvoice(invoiceId: string, page = 1, limit = 10) {
+    return this.getAllPayments(page, limit, { invoiceId });
+  }
+
+  async voidPayment(paymentId: string, reason: string | undefined, userId: string) {
+    return this.updatePayment(
+      paymentId,
+      {
+        status: 'void',
+        notes: reason,
+      },
+      userId
+    );
   }
 }
 

@@ -21,6 +21,13 @@ router.get(
 );
 
 router.get(
+  '/categories',
+  authenticate,
+  requirePermission('services.read'),
+  serviceController.getCategories.bind(serviceController)
+);
+
+router.get(
   '/:serviceId',
   authenticate,
   requirePermission('services.read'),
@@ -50,6 +57,22 @@ router.delete(
   requirePermission('services.delete'),
   validate(serviceIdValidator),
   serviceController.deleteService.bind(serviceController)
+);
+
+router.patch(
+  '/:serviceId/activate',
+  authenticate,
+  requirePermission('services.update'),
+  validate(serviceIdValidator),
+  serviceController.activateService.bind(serviceController)
+);
+
+router.patch(
+  '/:serviceId/deactivate',
+  authenticate,
+  requirePermission('services.update'),
+  validate(serviceIdValidator),
+  serviceController.deactivateService.bind(serviceController)
 );
 
 export default router;

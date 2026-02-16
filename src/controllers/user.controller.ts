@@ -340,7 +340,7 @@ export class UserController {
 
   async createUser(req: Request, res: Response, next: NextFunction) {
     try {
-      const { email, firstName, lastName, phone, preferredLanguage, roleIds } = req.body;
+      const { email, firstName, lastName, phone, preferredLanguage, roleIds, roleId } = req.body;
 
       if (!req.userId) {
         return res.status(401).json({
@@ -364,8 +364,16 @@ export class UserController {
       
       if (phone) userData.phone = phone;
       if (preferredLanguage) userData.preferredLanguage = preferredLanguage;
+      const normalizedRoleIds: string[] = [];
+      if (roleId) {
+        normalizedRoleIds.push(roleId);
+      }
       if (roleIds) {
-        userData.roleIds = Array.isArray(roleIds) ? roleIds : [roleIds];
+        normalizedRoleIds.push(...(Array.isArray(roleIds) ? roleIds : [roleIds]));
+      }
+
+      if (normalizedRoleIds.length > 0) {
+        userData.roleIds = Array.from(new Set(normalizedRoleIds.map(String)));
       }
 
       const result = await userService.createUser(

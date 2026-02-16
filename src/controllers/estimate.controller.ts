@@ -12,17 +12,20 @@ export class EstimateController {
         status?: string;
         startDate?: string;
         endDate?: string;
+        search?: string;
       } = {};
 
       const patientId = req.query.patientId as string | undefined;
       const status = req.query.status as string | undefined;
       const startDate = req.query.startDate as string | undefined;
       const endDate = req.query.endDate as string | undefined;
+      const search = req.query.search as string | undefined;
 
       if (patientId) filters.patientId = patientId;
       if (status) filters.status = status;
       if (startDate) filters.startDate = startDate;
       if (endDate) filters.endDate = endDate;
+      if (search) filters.search = search;
 
       const result = await estimateService.getAllEstimates(page, limit, filters);
 
@@ -163,6 +166,111 @@ export class EstimateController {
         success: true,
         data: { invoice },
         message: 'Estimate converted to invoice successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getEstimatesByPatient(req: Request, res: Response, next: NextFunction) {
+    try {
+      const patientId = req.params.patientId as string;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const result = await estimateService.getEstimatesByPatient(patientId, page, limit);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async sendToPatient(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const estimateId = req.params.estimateId as string;
+      const estimate = await estimateService.sendEstimateToPatient(estimateId, req.userId);
+
+      res.status(200).json({
+        success: true,
+        data: { estimate },
+        message: 'Estimate sent successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async acceptEstimate(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const estimateId = req.params.estimateId as string;
+      const estimate = await estimateService.acceptEstimate(estimateId, req.userId);
+
+      res.status(200).json({
+        success: true,
+        data: { estimate },
+        message: 'Estimate accepted successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async declineEstimate(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const estimateId = req.params.estimateId as string;
+      const reason = req.body.reason as string | undefined;
+      const estimate = await estimateService.declineEstimate(estimateId, reason, req.userId);
+
+      res.status(200).json({
+        success: true,
+        data: { estimate },
+        message: 'Estimate declined successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async expireEstimate(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const estimateId = req.params.estimateId as string;
+      const estimate = await estimateService.expireEstimate(estimateId, req.userId);
+
+      res.status(200).json({
+        success: true,
+        data: { estimate },
+        message: 'Estimate expired successfully',
       });
     } catch (error) {
       next(error);

@@ -13,6 +13,51 @@ const fileFilter = (req: Express.Request, file: Express.Multer.File, cb: multer.
   }
 };
 
+const documentFileFilter = (
+  req: Express.Request,
+  file: Express.Multer.File,
+  cb: multer.FileFilterCallback
+) => {
+  const validTypes = [
+    'image/jpeg',
+    'image/jpg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+    'application/pdf',
+    'text/plain',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  ];
+
+  if (validTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Invalid file type. Upload an image, PDF, TXT, DOC, or DOCX file.'));
+  }
+};
+
+const eraFileFilter = (
+  req: Express.Request,
+  file: Express.Multer.File,
+  cb: multer.FileFilterCallback
+) => {
+  const validTypes = [
+    'text/plain',
+    'text/csv',
+    'application/csv',
+    'application/edi-x12',
+    'application/octet-stream',
+    'application/xml',
+  ];
+
+  if (validTypes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Invalid ERA file type. Upload .835, .txt, .edi, or .csv.'));
+  }
+};
+
 // Multer configuration for logos (5MB max)
 export const uploadLogo = multer({
   storage,
@@ -31,3 +76,20 @@ export const uploadOCRImage = multer({
   },
 });
 
+// Multer configuration for patient documents (20MB max)
+export const uploadDocument = multer({
+  storage,
+  fileFilter: documentFileFilter,
+  limits: {
+    fileSize: 20 * 1024 * 1024,
+  },
+});
+
+// Multer configuration for ERA files (10MB max)
+export const uploadEraFile = multer({
+  storage,
+  fileFilter: eraFileFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+  },
+});

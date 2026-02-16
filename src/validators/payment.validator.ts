@@ -8,9 +8,26 @@ export const paymentIdValidator: ValidationChain[] = [
     .withMessage('Invalid payment ID format'),
 ];
 
+export const patientIdParamValidator: ValidationChain[] = [
+  param('patientId')
+    .notEmpty()
+    .withMessage('Patient ID is required')
+    .isLength({ min: 36, max: 36 })
+    .withMessage('Invalid patient ID format'),
+];
+
+export const invoiceIdParamValidator: ValidationChain[] = [
+  param('invoiceId')
+    .notEmpty()
+    .withMessage('Invoice ID is required')
+    .isLength({ min: 36, max: 36 })
+    .withMessage('Invalid invoice ID format'),
+];
+
 export const paymentSearchValidator: ValidationChain[] = [
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
   query('limit').optional().isInt({ min: 1 }).withMessage('Limit must be a positive integer'),
+  query('search').optional().isString().withMessage('search must be a string'),
   query('patientId')
     .optional()
     .isLength({ min: 36, max: 36 })
@@ -80,4 +97,13 @@ export const applyPaymentValidator: ValidationChain[] = [
     .withMessage('Amount is required')
     .isFloat({ min: 0.01 })
     .withMessage('Amount must be greater than 0'),
+];
+
+export const voidPaymentValidator: ValidationChain[] = [
+  body('reason')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('reason must be less than 500 characters'),
 ];

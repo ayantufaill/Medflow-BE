@@ -1,6 +1,8 @@
 import type { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import { documentService } from '../services/document.service';
 import { logActivityFromRequest } from '../utils/activity-logger.util';
+import { uploadToS3 } from '../utils/s3.util';
 
 export class DocumentController {
   async getAllDocuments(req: Request, res: Response, next: NextFunction) {
@@ -94,6 +96,75 @@ export class DocumentController {
       }
 
       const document = await documentService.createDocument(req.body, req.userId);
+
+      res.status(201).json({
+        success: true,
+        data: { document },
+        message: 'Document uploaded successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async uploadDocument(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const uploadedFile =
+        req.file ?? (Array.isArray(req.files) ? (req.files[0] as Express.Multer.File | undefined) : undefined);
+
+      if (!uploadedFile) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'No file uploaded' },
+        });
+      }
+
+      const patientId = req.body.patientId as string | undefined;
+      const documentType = req.body.documentType as string | undefined;
+      const appointmentId = req.body.appointmentId as string | undefined;
+      const documentName = (req.body.documentName as string | undefined) ?? uploadedFile.originalname;
+      const description = req.body.description as string | undefined;
+      const isConfidential = req.body.isConfidential === 'true' || req.body.isConfidential === true;
+      const tagsRaw = req.body.tags as string | string[] | undefined;
+
+      if (!patientId || !documentType) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'patientId and documentType are required' },
+        });
+      }
+
+      const storagePath = await uploadToS3(uploadedFile, 'documents');
+      const checksum = crypto.createHash('sha256').update(uploadedFile.buffer).digest('hex');
+      const tags = Array.isArray(tagsRaw)
+        ? tagsRaw
+        : typeof tagsRaw === 'string' && tagsRaw.length > 0
+          ? tagsRaw.split(',').map((value) => value.trim()).filter(Boolean)
+          : [];
+
+      const document = await documentService.createDocument(
+        {
+          patientId,
+          appointmentId,
+          documentName,
+          documentType,
+          storagePath,
+          fileSizeInBytes: uploadedFile.size,
+          mimeType: uploadedFile.mimetype,
+          description,
+          isConfidential,
+          checksum,
+          tags,
+        },
+        req.userId
+      );
 
       res.status(201).json({
         success: true,

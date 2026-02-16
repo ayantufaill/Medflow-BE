@@ -22,6 +22,8 @@ const statusToClaimStatus = (status?: string) => {
       return 'S';
     case 'approved':
       return 'A';
+    case 'declined':
+      return 'R';
     case 'converted':
       return 'C';
     case 'expired':
@@ -37,6 +39,8 @@ const claimStatusToStatus = (value?: string | null) => {
       return 'sent';
     case 'A':
       return 'approved';
+    case 'R':
+      return 'declined';
     case 'C':
       return 'converted';
     case 'E':
@@ -51,6 +55,8 @@ type ClaimMeta = {
   expirationDate?: string;
   convertedToInvoiceId?: string;
   createdBy?: string;
+  sentDate?: string;
+  declineReason?: string;
 };
 
 const generateEstimateNumber = async (): Promise<string> => {
@@ -84,6 +90,8 @@ export class EstimateService {
       createdDate: claim.DateService ?? null,
       expirationDate: meta.expirationDate ? new Date(meta.expirationDate) : null,
       approvedDate: meta.approvedDate ? new Date(meta.approvedDate) : null,
+      sentDate: meta.sentDate ? new Date(meta.sentDate) : null,
+      declineReason: meta.declineReason ?? null,
       convertedToInvoiceId: meta.convertedToInvoiceId ?? null,
       createdBy: meta.createdBy ?? null,
     };
@@ -97,6 +105,7 @@ export class EstimateService {
       status?: string;
       startDate?: string;
       endDate?: string;
+      search?: string;
     } = {}
   ) {
     const skip = (page - 1) * limit;
@@ -106,6 +115,12 @@ export class EstimateService {
 
     if (filters.patientId) where.PatNum = BigInt(filters.patientId);
     if (filters.status) where.ClaimStatus = statusToClaimStatus(filters.status);
+    if (filters.search) {
+      where.OR = [
+        { ClaimNote: { contains: filters.search, mode: 'insensitive' } },
+        { PreAuthString: { contains: filters.search, mode: 'insensitive' } },
+      ];
+    }
 
     if (filters.startDate || filters.endDate) {
       where.DateService = {};
@@ -157,7 +172,7 @@ export class EstimateService {
       estimatedAmount: number;
       insurancePortion?: number;
       patientPortion?: number;
-      status?: 'draft' | 'sent' | 'approved' | 'converted' | 'expired';
+      status?: 'draft' | 'sent' | 'approved' | 'declined' | 'converted' | 'expired';
       createdDate?: Date;
       expirationDate?: Date;
     },
@@ -213,9 +228,11 @@ export class EstimateService {
       estimatedAmount: number;
       insurancePortion: number;
       patientPortion: number;
-      status: 'draft' | 'sent' | 'approved' | 'converted' | 'expired';
+      status: 'draft' | 'sent' | 'approved' | 'declined' | 'converted' | 'expired';
       expirationDate: Date;
       approvedDate: Date;
+      sentDate: Date;
+      declineReason: string;
     }>,
     userId: string
   ) {
@@ -231,6 +248,8 @@ export class EstimateService {
       ...meta,
       approvedDate: updates.approvedDate ? updates.approvedDate.toISOString() : meta.approvedDate,
       expirationDate: updates.expirationDate ? updates.expirationDate.toISOString() : meta.expirationDate,
+      sentDate: updates.sentDate ? updates.sentDate.toISOString() : meta.sentDate,
+      declineReason: updates.declineReason ?? meta.declineReason,
     };
 
     const updated = await prisma.claim.update({
@@ -353,6 +372,53 @@ export class EstimateService {
     );
 
     return invoice;
+  }
+
+  async getEstimatesByPatient(patientId: string, page = 1, limit = 10) {
+    return this.getAllEstimates(page, limit, { patientId });
+  }
+
+  async sendEstimateToPatient(estimateId: string, userId: string) {
+    return this.updateEstimate(
+      estimateId,
+      {
+        status: 'sent',
+        sentDate: new Date(),
+      },
+      userId
+    );
+  }
+
+  async acceptEstimate(estimateId: string, userId: string) {
+    return this.updateEstimate(
+      estimateId,
+      {
+        status: 'approved',
+        approvedDate: new Date(),
+      },
+      userId
+    );
+  }
+
+  async declineEstimate(estimateId: string, reason: string | undefined, userId: string) {
+    return this.updateEstimate(
+      estimateId,
+      {
+        status: 'declined',
+        declineReason: reason,
+      },
+      userId
+    );
+  }
+
+  async expireEstimate(estimateId: string, userId: string) {
+    return this.updateEstimate(
+      estimateId,
+      {
+        status: 'expired',
+      },
+      userId
+    );
   }
 }
 

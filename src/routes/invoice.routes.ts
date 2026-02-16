@@ -7,12 +7,14 @@ import {
   invoiceIdValidator,
   invoiceItemIdValidator,
   appointmentIdParamValidator,
+  patientIdParamValidator,
   invoiceSearchValidator,
   createInvoiceFromAppointmentValidator,
   updateInvoiceValidator,
   createInvoiceItemValidator,
   updateInvoiceItemValidator,
   recalculateInvoiceValidator,
+  voidInvoiceValidator,
 } from '../validators/invoice.validator';
 
 const router = Router();
@@ -23,6 +25,22 @@ router.get(
   requirePermission('invoices.read'),
   validate(invoiceSearchValidator),
   invoiceController.getAllInvoices.bind(invoiceController)
+);
+
+router.get(
+  '/patient/:patientId',
+  authenticate,
+  requirePermission('invoices.read'),
+  validate(patientIdParamValidator),
+  invoiceController.getInvoicesByPatient.bind(invoiceController)
+);
+
+router.get(
+  '/patient/:patientId/balance',
+  authenticate,
+  requirePermission('invoices.read'),
+  validate(patientIdParamValidator),
+  invoiceController.getPatientBalance.bind(invoiceController)
 );
 
 router.get(
@@ -87,6 +105,22 @@ router.post(
   requirePermission('invoices.update'),
   validate([...invoiceIdValidator, ...recalculateInvoiceValidator]),
   invoiceController.recalculateInvoice.bind(invoiceController)
+);
+
+router.patch(
+  '/:invoiceId/finalize',
+  authenticate,
+  requirePermission('invoices.update'),
+  validate(invoiceIdValidator),
+  invoiceController.finalizeInvoice.bind(invoiceController)
+);
+
+router.patch(
+  '/:invoiceId/void',
+  authenticate,
+  requirePermission('invoices.update'),
+  validate([...invoiceIdValidator, ...voidInvoiceValidator]),
+  invoiceController.voidInvoice.bind(invoiceController)
 );
 
 export default router;

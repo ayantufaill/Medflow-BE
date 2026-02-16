@@ -25,6 +25,7 @@ export class PatientController {
   async getPatientById(req: Request, res: Response, next: NextFunction) {
     try {
       const { patientId } = req.params;
+      const includeSSN = req.query.includeSSN === 'true';
       
       if (!patientId) {
         return res.status(400).json({
@@ -33,8 +34,9 @@ export class PatientController {
         });
       }
 
-      // Always return patient with SSN included
-      const patient = await patientService.getPatientById(patientId);
+      const patient = includeSSN
+        ? await patientService.getPatientByIdWithSSN(patientId)
+        : await patientService.getPatientById(patientId);
 
       // Log activity
       if (req.userId) {

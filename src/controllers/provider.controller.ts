@@ -221,11 +221,11 @@ export class ProviderController {
         });
       }
 
-      await providerService.deleteProvider(providerId, req.userId);
+      const result = await providerService.deleteProvider(providerId, req.userId);
 
       res.status(200).json({
         success: true,
-        message: 'Provider permanently deleted',
+        data: result,
       });
     } catch (error) {
       next(error);

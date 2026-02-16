@@ -153,6 +153,24 @@ export const PERMISSIONS = {
     DELETE: 'authorizations.delete',
   },
 
+  // Claims
+  CLAIMS: {
+    CREATE: 'claims.create',
+    READ: 'claims.read',
+    UPDATE: 'claims.update',
+    DELETE: 'claims.delete',
+    PROCESS: 'claims.process',
+  },
+
+  // ERA / EOB
+  ERA: {
+    CREATE: 'era.create',
+    READ: 'era.read',
+    UPDATE: 'era.update',
+    DELETE: 'era.delete',
+    PROCESS: 'era.process',
+  },
+
   // Providers
   PROVIDERS: {
     CREATE: 'providers.create',
@@ -226,4 +244,3 @@ export const PERMISSION_CATEGORIES = {
   REPORTS: 'Reports',
   SYSTEM: 'System Administration',
 } as const;
-

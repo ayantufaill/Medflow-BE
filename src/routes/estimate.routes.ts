@@ -9,7 +9,9 @@ import {
   createEstimateValidator,
   updateEstimateValidator,
   convertEstimateValidator,
+  declineEstimateValidator,
 } from '../validators/estimate.validator';
+import { patientIdValidator } from '../validators/patient.validator';
 
 const router = Router();
 
@@ -19,6 +21,14 @@ router.get(
   requirePermission('invoices.read'),
   validate(estimateSearchValidator),
   estimateController.getAllEstimates.bind(estimateController)
+);
+
+router.get(
+  '/patient/:patientId',
+  authenticate,
+  requirePermission('invoices.read'),
+  validate(patientIdValidator),
+  estimateController.getEstimatesByPatient.bind(estimateController)
 );
 
 router.get(
@@ -59,6 +69,38 @@ router.post(
   requirePermission('invoices.create'),
   validate([...estimateIdValidator, ...convertEstimateValidator]),
   estimateController.convertToInvoice.bind(estimateController)
+);
+
+router.post(
+  '/:estimateId/send',
+  authenticate,
+  requirePermission('invoices.update'),
+  validate(estimateIdValidator),
+  estimateController.sendToPatient.bind(estimateController)
+);
+
+router.patch(
+  '/:estimateId/accept',
+  authenticate,
+  requirePermission('invoices.update'),
+  validate(estimateIdValidator),
+  estimateController.acceptEstimate.bind(estimateController)
+);
+
+router.patch(
+  '/:estimateId/decline',
+  authenticate,
+  requirePermission('invoices.update'),
+  validate([...estimateIdValidator, ...declineEstimateValidator]),
+  estimateController.declineEstimate.bind(estimateController)
+);
+
+router.patch(
+  '/:estimateId/expire',
+  authenticate,
+  requirePermission('invoices.update'),
+  validate(estimateIdValidator),
+  estimateController.expireEstimate.bind(estimateController)
 );
 
 export default router;
