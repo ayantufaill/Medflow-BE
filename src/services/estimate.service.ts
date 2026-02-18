@@ -3,6 +3,7 @@ import { ConflictError, NotFoundError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { invoiceService } from './invoice.service';
+import { mapPatientToApi, mapProviderToApi } from '../utils/opendental-mappers.util';
 
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;
@@ -57,6 +58,12 @@ type ClaimMeta = {
   createdBy?: string;
   sentDate?: string;
   declineReason?: string;
+  lineItems?: Array<{
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+  }>;
 };
 
 const generateEstimateNumber = async (): Promise<string> => {
@@ -77,6 +84,19 @@ const generateEstimateNumber = async (): Promise<string> => {
 
 export class EstimateService {
   private mapClaimToEstimate(claim: any, meta: ClaimMeta) {
+    const fallbackTotal = Number(claim.ClaimFee) || 0;
+    const lineItems =
+      Array.isArray(meta.lineItems) && meta.lineItems.length > 0
+        ? meta.lineItems
+        : [
+            {
+              description: claim.ClaimNote ?? 'Estimated Service',
+              quantity: 1,
+              unitPrice: fallbackTotal,
+              total: fallbackTotal,
+            },
+          ];
+
     return {
       _id: claim.ClaimNum.toString(),
       patientId: claim.PatNum?.toString() ?? null,
@@ -84,16 +104,45 @@ export class EstimateService {
       estimateNumber: claim.PreAuthString ?? '',
       description: claim.ClaimNote ?? '',
       estimatedAmount: Number(claim.ClaimFee) || 0,
+      totalAmount: Number(claim.ClaimFee) || 0,
       insurancePortion: Number(claim.InsPayEst) || 0,
       patientPortion: Number(claim.DedApplied) || 0,
       status: claimStatusToStatus(claim.ClaimStatus),
+      estimateDate: claim.DateService ?? null,
       createdDate: claim.DateService ?? null,
+      validUntil: meta.expirationDate ? new Date(meta.expirationDate) : null,
       expirationDate: meta.expirationDate ? new Date(meta.expirationDate) : null,
       approvedDate: meta.approvedDate ? new Date(meta.approvedDate) : null,
       sentDate: meta.sentDate ? new Date(meta.sentDate) : null,
       declineReason: meta.declineReason ?? null,
       convertedToInvoiceId: meta.convertedToInvoiceId ?? null,
       createdBy: meta.createdBy ?? null,
+      lineItems,
+    };
+  }
+
+  private async enrichEstimate(estimate: any) {
+    const [patient, provider] = await Promise.all([
+      estimate.patientId && /^\d+$/.test(estimate.patientId)
+        ? prisma.patient.findUnique({ where: { PatNum: BigInt(estimate.patientId) } })
+        : null,
+      estimate.providerId && /^\d+$/.test(estimate.providerId)
+        ? prisma.provider.findUnique({
+            where: { ProvNum: BigInt(estimate.providerId) },
+            include: { definition: true },
+          })
+        : null,
+    ]);
+
+    return {
+      ...estimate,
+      patient: patient ? mapPatientToApi(patient) : null,
+      provider: provider
+        ? mapProviderToApi(provider, {
+            specialtyName: provider.definition?.ItemName ?? null,
+            userId: provider.CustomID ?? null,
+          })
+        : null,
     };
   }
 
@@ -138,11 +187,15 @@ export class EstimateService {
       prisma.claim.count({ where }),
     ]);
 
-    return {
-      estimates: rows.map((row) => {
+    const estimates = await Promise.all(
+      rows.map(async (row) => {
         const meta = parseJson<ClaimMeta>(row.Narrative);
-        return this.mapClaimToEstimate(row, meta);
-      }),
+        return this.enrichEstimate(this.mapClaimToEstimate(row, meta));
+      })
+    );
+
+    return {
+      estimates,
       pagination: {
         page,
         limit,
@@ -160,7 +213,7 @@ export class EstimateService {
       throw new NotFoundError('Estimate not found');
     }
     const meta = parseJson<ClaimMeta>(estimate.Narrative);
-    return this.mapClaimToEstimate(estimate, meta);
+    return this.enrichEstimate(this.mapClaimToEstimate(estimate, meta));
   }
 
   async createEstimate(

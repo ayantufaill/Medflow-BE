@@ -4,7 +4,7 @@ export const estimateIdValidator: ValidationChain[] = [
   param('estimateId')
     .notEmpty()
     .withMessage('Estimate ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid estimate ID format'),
 ];
 
@@ -14,7 +14,7 @@ export const estimateSearchValidator: ValidationChain[] = [
   query('search').optional().isString().withMessage('search must be a string'),
   query('patientId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   query('status')
     .optional()
@@ -28,11 +28,11 @@ export const createEstimateValidator: ValidationChain[] = [
   body('patientId')
     .notEmpty()
     .withMessage('Patient ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   body('providerId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
   body('description')
     .trim()
@@ -67,7 +67,7 @@ export const createEstimateValidator: ValidationChain[] = [
 export const updateEstimateValidator: ValidationChain[] = [
   body('providerId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
   body('description')
     .optional()
@@ -101,7 +101,7 @@ export const convertEstimateValidator: ValidationChain[] = [
   body('appointmentId')
     .notEmpty()
     .withMessage('Appointment ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment ID format'),
   body('dueDate')
     .notEmpty()

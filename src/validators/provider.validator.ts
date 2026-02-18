@@ -4,7 +4,7 @@ export const providerIdValidator: ValidationChain[] = [
   param('providerId')
     .notEmpty()
     .withMessage('Provider ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
 ];
 
@@ -12,7 +12,7 @@ export const createProviderValidator: ValidationChain[] = [
   body('userId')
     .notEmpty()
     .withMessage('User ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid user ID format'),
   body('npiNumber')
     .notEmpty()

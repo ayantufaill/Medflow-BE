@@ -3,6 +3,8 @@ import { NotFoundError, BadRequestError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { appointmentService } from './appointment.service';
 import { getNextId } from '../utils/opendental-ids.util';
+import { mapAppointmentTypeToApi, mapPatientToApi, mapProviderToApi } from '../utils/opendental-mappers.util';
+import { mapUser } from '../utils/opendental-auth.util';
 
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;
@@ -92,6 +94,66 @@ const generateOccurrences = (meta: RecurringMeta, count: number) => {
 };
 
 export class RecurringAppointmentService {
+  private async mapRecurringRow(row: any) {
+    const meta = parseJson<RecurringMeta>(row.Note);
+    const [patient, provider, appointmentType, creatorUser, providerUser] = await Promise.all([
+      meta.patientId ? prisma.patient.findUnique({ where: { PatNum: BigInt(meta.patientId) } }) : null,
+      meta.providerId
+        ? prisma.provider.findUnique({ where: { ProvNum: BigInt(meta.providerId) }, include: { definition: true } })
+        : null,
+      meta.appointmentTypeId
+        ? prisma.appointmenttype.findUnique({ where: { AppointmentTypeNum: BigInt(meta.appointmentTypeId) } })
+        : null,
+      meta.createdBy ? prisma.userod.findUnique({ where: { UserNum: BigInt(meta.createdBy) } }) : null,
+      null as any,
+    ]);
+
+    const linkedProviderUser = provider?.CustomID
+      ? await prisma.userod.findUnique({ where: { UserNum: BigInt(provider.CustomID) } })
+      : providerUser;
+    const mappedCreator = creatorUser ? await mapUser(creatorUser) : null;
+    const mappedProviderUser = linkedProviderUser ? await mapUser(linkedProviderUser) : null;
+
+    return {
+      _id: row.ScheduleNum.toString(),
+      patientId: patient ? mapPatientToApi(patient) : meta.patientId ?? null,
+      providerId: provider
+        ? mapProviderToApi(provider, {
+            specialtyName: provider.definition?.ItemName ?? null,
+            userId: provider.CustomID ?? null,
+            user: mappedProviderUser
+              ? {
+                  _id: mappedProviderUser._id,
+                  firstName: mappedProviderUser.firstName,
+                  lastName: mappedProviderUser.lastName,
+                  email: mappedProviderUser.email || null,
+                }
+              : null,
+          })
+        : meta.providerId ?? null,
+      appointmentTypeId: appointmentType ? mapAppointmentTypeToApi(appointmentType) : meta.appointmentTypeId ?? null,
+      frequency: meta.frequency,
+      frequencyValue: meta.frequencyValue,
+      startDate: meta.startDate ? new Date(meta.startDate) : row.SchedDate,
+      endDate: meta.endDate ? new Date(meta.endDate) : null,
+      preferredTime: meta.preferredTime,
+      preferredDayOfWeek: meta.preferredDayOfWeek ?? null,
+      totalAppointments: meta.totalAppointments ?? null,
+      appointmentsCreated: meta.appointmentsCreated ?? 0,
+      isActive: meta.isActive ?? row.Status === 0,
+      createdBy: mappedCreator
+        ? {
+            _id: mappedCreator._id,
+            firstName: mappedCreator.firstName,
+            lastName: mappedCreator.lastName,
+            email: mappedCreator.email || null,
+          }
+        : (meta.createdBy ? { _id: meta.createdBy, firstName: '', lastName: '', email: null } : null),
+      createdAt: row.SchedDate ?? null,
+      updatedAt: row.SchedDate ?? null,
+    };
+  }
+
   async getAllRecurringAppointments(
     page = 1,
     limit = 10,
@@ -125,30 +187,13 @@ export class RecurringAppointmentService {
       prisma.schedule.count({ where }),
     ]);
 
-    let recurringAppointments = rows.map((row) => {
-      const meta = parseJson<RecurringMeta>(row.Note);
-      return {
-        _id: row.ScheduleNum.toString(),
-        patientId: meta.patientId,
-        providerId: meta.providerId,
-        appointmentTypeId: meta.appointmentTypeId ?? null,
-        frequency: meta.frequency,
-        frequencyValue: meta.frequencyValue,
-        startDate: meta.startDate ? new Date(meta.startDate) : row.SchedDate,
-        endDate: meta.endDate ? new Date(meta.endDate) : null,
-        preferredTime: meta.preferredTime,
-        preferredDayOfWeek: meta.preferredDayOfWeek ?? null,
-        totalAppointments: meta.totalAppointments ?? null,
-        appointmentsCreated: meta.appointmentsCreated ?? 0,
-        isActive: meta.isActive ?? row.Status === 0,
-        createdBy: meta.createdBy,
-      };
-    });
+    let recurringAppointments = await Promise.all(rows.map((row) => this.mapRecurringRow(row)));
 
     if (filters?.patientId) {
-      recurringAppointments = recurringAppointments.filter(
-        (rec) => rec.patientId === filters.patientId
-      );
+      recurringAppointments = recurringAppointments.filter((rec: any) => {
+        const pid = typeof rec.patientId === 'object' ? rec.patientId?._id : rec.patientId;
+        return pid === filters.patientId;
+      });
     }
 
     if (filters?.search) {
@@ -177,23 +222,7 @@ export class RecurringAppointmentService {
       throw new NotFoundError('Recurring appointment not found');
     }
 
-    const meta = parseJson<RecurringMeta>(row.Note);
-    return {
-      _id: row.ScheduleNum.toString(),
-      patientId: meta.patientId,
-      providerId: meta.providerId,
-      appointmentTypeId: meta.appointmentTypeId ?? null,
-      frequency: meta.frequency,
-      frequencyValue: meta.frequencyValue,
-      startDate: meta.startDate ? new Date(meta.startDate) : row.SchedDate,
-      endDate: meta.endDate ? new Date(meta.endDate) : null,
-      preferredTime: meta.preferredTime,
-      preferredDayOfWeek: meta.preferredDayOfWeek ?? null,
-      totalAppointments: meta.totalAppointments ?? null,
-      appointmentsCreated: meta.appointmentsCreated ?? 0,
-      isActive: meta.isActive ?? row.Status === 0,
-      createdBy: meta.createdBy,
-    };
+    return this.mapRecurringRow(row);
   }
 
   async createRecurringAppointment(
@@ -300,14 +329,18 @@ export class RecurringAppointmentService {
       'medium'
     );
 
+    const mappedRecurringAppointment = await this.getRecurringAppointmentById(
+      recurringAppointment.ScheduleNum.toString()
+    );
+
     if (generatedInfo) {
       return {
-        recurringAppointment,
+        recurringAppointment: mappedRecurringAppointment,
         ...generatedInfo,
       };
     }
 
-    return recurringAppointment;
+    return mappedRecurringAppointment;
   }
 
   async previewRecurringAppointments(data: {

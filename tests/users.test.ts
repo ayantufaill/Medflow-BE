@@ -34,14 +34,14 @@ describe('Users', () => {
 
   it('validates user id on get', async () => {
     const res = await request(app)
-      .get('/api/users/1')
+      .get('/api/users/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates user id on update', async () => {
     const res = await request(app)
-      .put('/api/users/1')
+      .put('/api/users/invalid-id')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -65,7 +65,7 @@ describe('Users', () => {
 
   it('validates assign role payload', async () => {
     const res = await request(app)
-      .post('/api/users/1/roles')
+      .post('/api/users/invalid-id/roles')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -73,56 +73,56 @@ describe('Users', () => {
 
   it('validates remove role params', async () => {
     const res = await request(app)
-      .delete('/api/users/1/roles/1')
+      .delete('/api/users/invalid-id/roles/1')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates delete user params', async () => {
     const res = await request(app)
-      .delete('/api/users/1')
+      .delete('/api/users/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates activate user params', async () => {
     const res = await request(app)
-      .patch('/api/users/1/activate')
+      .patch('/api/users/invalid-id/activate')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates deactivate user params', async () => {
     const res = await request(app)
-      .patch('/api/users/1/deactivate')
+      .patch('/api/users/invalid-id/deactivate')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates user permissions params', async () => {
     const res = await request(app)
-      .get('/api/users/1/permissions')
+      .get('/api/users/invalid-id/permissions')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates user roles params', async () => {
     const res = await request(app)
-      .get('/api/users/1/roles')
+      .get('/api/users/invalid-id/roles')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates user activity params', async () => {
     const res = await request(app)
-      .get('/api/users/1/activity')
+      .get('/api/users/invalid-id/activity')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates user login history params', async () => {
     const res = await request(app)
-      .get('/api/users/1/login-history')
+      .get('/api/users/invalid-id/login-history')
       .set(authHeader);
     expect(res.status).toBe(400);
   });

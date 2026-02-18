@@ -2,6 +2,11 @@ import type { Request } from 'express';
 import { prisma } from '../config/db';
 import { getNextId } from './opendental-ids.util';
 
+const safeStringify = (value: unknown): string =>
+  JSON.stringify(value, (_key, currentValue) =>
+    typeof currentValue === 'bigint' ? currentValue.toString() : currentValue
+  );
+
 export const getClientIp = (req: Request): string => {
   return (
     (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
@@ -39,7 +44,7 @@ export const logSecurityEvent = async (
   ipAddress?: string,
   riskLevel: 'low' | 'medium' | 'high' = 'low'
 ): Promise<void> => {
-  const payload = JSON.stringify({
+  const payload = safeStringify({
     type: 'security_event',
     eventType,
     description,
@@ -61,7 +66,7 @@ export const logActivity = async (
   userAgent?: string,
   riskLevel: 'low' | 'medium' | 'high' = 'low'
 ): Promise<void> => {
-  const payload = JSON.stringify({
+  const payload = safeStringify({
     type: 'activity',
     action,
     tableName,

@@ -4,7 +4,7 @@ export const recurringAppointmentIdValidator: ValidationChain[] = [
   param('recurringAppointmentId')
     .notEmpty()
     .withMessage('Recurring appointment ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid recurring appointment ID format'),
 ];
 
@@ -12,17 +12,17 @@ export const createRecurringAppointmentValidator: ValidationChain[] = [
   body('patientId')
     .notEmpty()
     .withMessage('Patient ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   body('providerId')
     .notEmpty()
     .withMessage('Provider ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
   body('appointmentTypeId')
     .notEmpty()
     .withMessage('Appointment type ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment type ID format'),
   body('frequency')
     .notEmpty()
@@ -61,7 +61,7 @@ export const createRecurringAppointmentValidator: ValidationChain[] = [
 export const updateRecurringAppointmentValidator: ValidationChain[] = [
   body('appointmentTypeId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment type ID format'),
   body('frequency')
     .optional()
@@ -116,11 +116,11 @@ export const recurringAppointmentQueryValidator: ValidationChain[] = [
     .withMessage('Limit must be between 1 and 100'),
   query('patientId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   query('providerId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
   query('isActive')
     .optional()

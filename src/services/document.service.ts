@@ -14,6 +14,14 @@ const parseJson = <T>(value?: string | null): T => {
 };
 
 const buildJson = (value: Record<string, unknown>) => JSON.stringify(value);
+const toIsoString = (value?: string | Date | null): string | undefined => {
+  if (!value) return undefined;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+};
 
 type DocumentMeta = {
   appointmentId?: string;
@@ -32,6 +40,28 @@ type DocumentMeta = {
 };
 
 export class DocumentService {
+  private mapDocumentRow(doc: any) {
+    const meta = parseJson<DocumentMeta>(doc.Note);
+    return {
+      _id: doc.DocNum.toString(),
+      patientId: doc.PatNum?.toString() ?? null,
+      appointmentId: meta.appointmentId ?? null,
+      documentName: doc.Description ?? doc.FileName ?? 'Document',
+      documentType: meta.documentType ?? 'other',
+      storagePath: meta.storagePath ?? doc.FileName ?? null,
+      fileSizeInBytes: meta.fileSizeInBytes ?? null,
+      mimeType: meta.mimeType ?? null,
+      description: meta.description ?? null,
+      isConfidential: meta.isConfidential ?? false,
+      expirationDate: meta.expirationDate ? new Date(meta.expirationDate) : null,
+      ocrText: meta.ocrText ?? doc.OcrResponseData ?? null,
+      uploadedBy: meta.uploadedBy ?? doc.UserNum?.toString() ?? null,
+      checksum: meta.checksum ?? doc.ChartLetterHash ?? null,
+      tags: meta.tags ?? [],
+      createdAt: doc.DateCreated ?? null,
+    };
+  }
+
   async getAllDocuments(page = 1, limit = 10, filters: { patientId?: string; appointmentId?: string; documentType?: string } = {}) {
     const skip = (page - 1) * limit;
     const where: any = {};
@@ -48,27 +78,7 @@ export class DocumentService {
       prisma.document.count({ where }),
     ]);
 
-    let documents = rows.map((doc) => {
-      const meta = parseJson<DocumentMeta>(doc.Note);
-      return {
-        _id: doc.DocNum.toString(),
-        patientId: doc.PatNum?.toString() ?? null,
-        appointmentId: meta.appointmentId ?? null,
-        documentName: doc.Description ?? doc.FileName ?? 'Document',
-        documentType: meta.documentType ?? 'other',
-        storagePath: meta.storagePath ?? doc.FileName ?? null,
-        fileSizeInBytes: meta.fileSizeInBytes ?? null,
-        mimeType: meta.mimeType ?? null,
-        description: meta.description ?? doc.Note ?? null,
-        isConfidential: meta.isConfidential ?? false,
-        expirationDate: meta.expirationDate ? new Date(meta.expirationDate) : null,
-        ocrText: meta.ocrText ?? doc.OcrResponseData ?? null,
-        uploadedBy: meta.uploadedBy ?? doc.UserNum?.toString() ?? null,
-        checksum: meta.checksum ?? doc.ChartLetterHash ?? null,
-        tags: meta.tags ?? [],
-        createdAt: doc.DateCreated ?? null,
-      };
-    });
+    let documents = rows.map((doc) => this.mapDocumentRow(doc));
 
     if (filters.appointmentId) {
       documents = documents.filter((doc) => doc.appointmentId === filters.appointmentId);
@@ -96,25 +106,7 @@ export class DocumentService {
       throw new NotFoundError('Document not found');
     }
 
-    const meta = parseJson<DocumentMeta>(doc.Note);
-    return {
-      _id: doc.DocNum.toString(),
-      patientId: doc.PatNum?.toString() ?? null,
-      appointmentId: meta.appointmentId ?? null,
-      documentName: doc.Description ?? doc.FileName ?? 'Document',
-      documentType: meta.documentType ?? 'other',
-      storagePath: meta.storagePath ?? doc.FileName ?? null,
-      fileSizeInBytes: meta.fileSizeInBytes ?? null,
-      mimeType: meta.mimeType ?? null,
-      description: meta.description ?? doc.Note ?? null,
-      isConfidential: meta.isConfidential ?? false,
-      expirationDate: meta.expirationDate ? new Date(meta.expirationDate) : null,
-      ocrText: meta.ocrText ?? doc.OcrResponseData ?? null,
-      uploadedBy: meta.uploadedBy ?? doc.UserNum?.toString() ?? null,
-      checksum: meta.checksum ?? doc.ChartLetterHash ?? null,
-      tags: meta.tags ?? [],
-      createdAt: doc.DateCreated ?? null,
-    };
+    return this.mapDocumentRow(doc);
   }
 
   async getDocumentsByPatient(patientId: string, page = 1, limit = 10, documentType?: string) {
@@ -129,7 +121,7 @@ export class DocumentService {
         return { doc, meta };
       })
       .filter((item) => item.meta.appointmentId === appointmentId)
-      .map((item) => item.doc);
+      .map((item) => this.mapDocumentRow(item.doc));
   }
 
   async createDocument(
@@ -143,7 +135,7 @@ export class DocumentService {
       mimeType?: string;
       description?: string;
       isConfidential?: boolean;
-      expirationDate?: Date;
+      expirationDate?: Date | string;
       ocrText?: string;
       checksum?: string;
       tags?: string[];
@@ -159,7 +151,7 @@ export class DocumentService {
       mimeType: data.mimeType,
       description: data.description,
       isConfidential: data.isConfidential,
-      expirationDate: data.expirationDate ? data.expirationDate.toISOString() : undefined,
+      expirationDate: toIsoString(data.expirationDate),
       ocrText: data.ocrText,
       uploadedBy,
       checksum: data.checksum,
@@ -181,7 +173,7 @@ export class DocumentService {
 
     await logActivity(uploadedBy, 'created', 'documents', doc.DocNum.toString(), undefined, doc);
 
-    return doc;
+    return this.mapDocumentRow(doc);
   }
 
   async updateDocument(
@@ -194,7 +186,7 @@ export class DocumentService {
       mimeType: string;
       description: string;
       isConfidential: boolean;
-      expirationDate: Date;
+      expirationDate: Date | string;
       ocrText: string;
       checksum: string;
       tags: string[];
@@ -217,7 +209,7 @@ export class DocumentService {
       mimeType: updates.mimeType ?? meta.mimeType,
       description: updates.description ?? meta.description,
       isConfidential: updates.isConfidential ?? meta.isConfidential,
-      expirationDate: updates.expirationDate ? updates.expirationDate.toISOString() : meta.expirationDate,
+      expirationDate: toIsoString(updates.expirationDate) ?? meta.expirationDate,
       ocrText: updates.ocrText ?? meta.ocrText,
       checksum: updates.checksum ?? meta.checksum,
       tags: updates.tags ?? meta.tags,
@@ -235,7 +227,7 @@ export class DocumentService {
 
     await logActivity(userId, 'updated', 'documents', documentId, doc, updated);
 
-    return updated;
+    return this.mapDocumentRow(updated);
   }
 
   async deleteDocument(documentId: string, userId: string) {
@@ -273,7 +265,7 @@ export class DocumentService {
 
     await logActivity(userId, 'updated', 'documents', documentId, doc, updated);
 
-    return updated;
+    return this.mapDocumentRow(updated);
   }
 
   async getDocumentTypes() {

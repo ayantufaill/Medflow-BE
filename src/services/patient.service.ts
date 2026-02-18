@@ -7,6 +7,7 @@ import {
   mapGenderToDb,
   mapPatientToApi,
 } from '../utils/opendental-mappers.util';
+import { getPatientMeta, setPatientMeta } from '../utils/opendental-auth.util';
 
 /**
  * Generate unique patient code (e.g., PAT001, PAT002, etc.)
@@ -113,8 +114,21 @@ export class PatientService {
       prisma.patient.count({ where }),
     ]);
 
+    const patientMetaMap = new Map(
+      await Promise.all(
+        patients.map(async (patient) => [patient.PatNum.toString(), await getPatientMeta(patient.PatNum)] as const)
+      )
+    );
+
     return {
-      patients: patients.map(mapPatientToApi),
+      patients: patients.map((patient) =>
+        mapPatientToApi(patient, {
+          emergencyContact: patientMetaMap.get(patient.PatNum.toString())?.emergencyContact ?? null,
+          portalAccessEnabled: patientMetaMap.get(patient.PatNum.toString())?.portalAccessEnabled ?? false,
+          referralSource: patientMetaMap.get(patient.PatNum.toString())?.referralSource ?? null,
+          customFields: patientMetaMap.get(patient.PatNum.toString())?.customFields ?? {},
+        })
+      ),
       pagination: {
         page,
         limit,
@@ -136,7 +150,13 @@ export class PatientService {
       throw new NotFoundError('Patient not found');
     }
 
-    const mapped = mapPatientToApi(patient);
+    const patientMeta = await getPatientMeta(patient.PatNum);
+    const mapped = mapPatientToApi(patient, {
+      emergencyContact: patientMeta.emergencyContact ?? null,
+      portalAccessEnabled: patientMeta.portalAccessEnabled ?? false,
+      referralSource: patientMeta.referralSource ?? null,
+      customFields: patientMeta.customFields ?? {},
+    });
     return {
       ...mapped,
       ssn: null,
@@ -155,7 +175,13 @@ export class PatientService {
       throw new NotFoundError('Patient not found');
     }
 
-    return mapPatientToApi(patient);
+    const patientMeta = await getPatientMeta(patient.PatNum);
+    return mapPatientToApi(patient, {
+      emergencyContact: patientMeta.emergencyContact ?? null,
+      portalAccessEnabled: patientMeta.portalAccessEnabled ?? false,
+      referralSource: patientMeta.referralSource ?? null,
+      customFields: patientMeta.customFields ?? {},
+    });
   }
 
   /**
@@ -207,7 +233,7 @@ export class PatientService {
 
     const duplicates = await prisma.patient.findMany({ where });
 
-    return duplicates.map(mapPatientToApi);
+    return duplicates.map((patient) => mapPatientToApi(patient));
   }
 
   /**
@@ -244,6 +270,7 @@ export class PatientService {
       lastVisitDate?: Date;
       referralSource?: string;
       notes?: string;
+      customFields?: Record<string, unknown>;
     },
     createdBy?: string
   ) {
@@ -303,6 +330,13 @@ export class PatientService {
       },
     });
 
+    await setPatientMeta(patient.PatNum, {
+      emergencyContact: data.emergencyContact ?? null,
+      portalAccessEnabled: data.portalAccessEnabled ?? false,
+      referralSource: data.referralSource?.trim() || null,
+      customFields: data.customFields ?? {},
+    });
+
     // Log activity
     if (createdBy) {
       const patientApi = mapPatientToApi(patient);
@@ -357,6 +391,7 @@ export class PatientService {
       lastVisitDate?: Date;
       referralSource?: string;
       notes?: string;
+      customFields?: Record<string, unknown>;
     },
     updatedBy?: string
   ) {
@@ -374,6 +409,7 @@ export class PatientService {
       email: patient.Email,
       isActive: patient.PatStatus === null ? true : patient.PatStatus !== 2,
     };
+    const currentMeta = await getPatientMeta(patient.PatNum);
 
     const updated = await prisma.patient.update({
       where: { PatNum: BigInt(patientId) },
@@ -419,6 +455,16 @@ export class PatientService {
         DateFirstVisit: updates.lastVisitDate ?? undefined,
         AddrNote: updates.notes !== undefined ? (updates.notes.trim() || null) : undefined,
       },
+    });
+
+    await setPatientMeta(patient.PatNum, {
+      emergencyContact: updates.emergencyContact ?? currentMeta.emergencyContact ?? null,
+      portalAccessEnabled: updates.portalAccessEnabled ?? currentMeta.portalAccessEnabled ?? false,
+      referralSource:
+        updates.referralSource !== undefined
+          ? updates.referralSource.trim() || null
+          : currentMeta.referralSource ?? null,
+      customFields: updates.customFields ?? currentMeta.customFields ?? {},
     });
 
     // Log activity

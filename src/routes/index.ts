@@ -26,6 +26,7 @@ import estimateRoutes from './estimate.routes';
 import authorizationRoutes from './authorization.routes';
 import claimRoutes from './claim.routes';
 import eraRoutes from './era.routes';
+import portalRoutes from './portal.routes';
 
 const router = Router();
 
@@ -56,5 +57,6 @@ router.use('/estimates', estimateRoutes);
 router.use('/authorizations', authorizationRoutes);
 router.use('/claims', claimRoutes);
 router.use('/era', eraRoutes);
+router.use('/portal', portalRoutes);
 
 export default router;

@@ -6,7 +6,7 @@ export const practiceInfoIdValidator: ValidationChain[] = [
     .withMessage('Practice info ID is required')
     .isString()
     .trim()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid practice info ID format'),
 ];
 

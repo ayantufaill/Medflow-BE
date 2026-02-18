@@ -79,6 +79,49 @@ export class PatientFormService {
     };
   }
 
+  async updateForm(
+    formId: string,
+    updates: {
+      templateId?: string;
+      formData?: any;
+    }
+  ) {
+    const row = await prisma.commlog.findFirst({
+      where: { Note: { contains: `"formPatNum":"${formId}"` } },
+    });
+    if (!row) {
+      throw new NotFoundError('Form not found');
+    }
+
+    const meta = parseJson<FormMeta>(row.Note);
+    const nowIso = new Date().toISOString();
+    const nextMeta: FormMeta = {
+      ...meta,
+      type: 'patient_form',
+      formPatNum: meta.formPatNum ?? formId,
+      templateId: updates.templateId ?? meta.templateId,
+      formData: updates.formData ?? meta.formData ?? {},
+      status: meta.status ?? 'submitted',
+      submittedAt: meta.submittedAt ?? nowIso,
+    };
+
+    await prisma.commlog.update({
+      where: { CommlogNum: row.CommlogNum },
+      data: {
+        Note: buildJson(nextMeta as unknown as Record<string, unknown>),
+      },
+    });
+
+    return {
+      _id: nextMeta.formPatNum ?? formId,
+      patientId: row.PatNum?.toString() ?? null,
+      templateId: nextMeta.templateId ?? null,
+      formData: nextMeta.formData ?? null,
+      status: nextMeta.status ?? 'submitted',
+      submittedAt: nextMeta.submittedAt ? new Date(nextMeta.submittedAt) : row.CommDateTime ?? null,
+    };
+  }
+
   async createForm(data: { patientId: string; formData: any; templateId?: string }) {
     const nextId = await getNextId('formpat', 'FormPatNum');
     await prisma.formpat.create({

@@ -30,7 +30,7 @@ export const userIdValidator: ValidationChain[] = [
   param('userId')
     .notEmpty()
     .withMessage('User ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid user ID format'),
 ];
 
@@ -38,7 +38,7 @@ export const assignRoleValidator: ValidationChain[] = [
   body('roleId')
     .notEmpty()
     .withMessage('Role ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid role ID format'),
 ];
 

@@ -4,7 +4,7 @@ export const invoiceIdValidator: ValidationChain[] = [
   param('invoiceId')
     .notEmpty()
     .withMessage('Invoice ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid invoice ID format'),
 ];
 
@@ -12,7 +12,7 @@ export const invoiceItemIdValidator: ValidationChain[] = [
   param('itemId')
     .notEmpty()
     .withMessage('Invoice item ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid invoice item ID format'),
 ];
 
@@ -20,7 +20,7 @@ export const appointmentIdParamValidator: ValidationChain[] = [
   param('appointmentId')
     .notEmpty()
     .withMessage('Appointment ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment ID format'),
 ];
 
@@ -28,7 +28,7 @@ export const patientIdParamValidator: ValidationChain[] = [
   param('patientId')
     .notEmpty()
     .withMessage('Patient ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
 ];
 
@@ -37,19 +37,19 @@ export const invoiceSearchValidator: ValidationChain[] = [
   query('limit').optional().isInt({ min: 1 }).withMessage('Limit must be a positive integer'),
   query('patientId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   query('appointmentId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment ID format'),
   query('providerId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
   query('insuranceCompanyId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid insurance company ID format'),
   query('status')
     .optional()
@@ -67,11 +67,11 @@ export const createInvoiceFromAppointmentValidator: ValidationChain[] = [
     .withMessage('Due date must be a valid date'),
   body('insuranceCompanyId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid insurance company ID format'),
   body('providerId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
   body('notes').optional().isString().withMessage('Notes must be a string'),
   body('copayAmount')
@@ -84,11 +84,11 @@ export const updateInvoiceValidator: ValidationChain[] = [
   body('dueDate').optional().isISO8601().withMessage('Due date must be a valid date'),
   body('insuranceCompanyId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid insurance company ID format'),
   body('providerId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
   body('notes').optional().isString().withMessage('Notes must be a string'),
   body('discountAmount')
@@ -120,7 +120,7 @@ export const updateInvoiceValidator: ValidationChain[] = [
 export const createInvoiceItemValidator: ValidationChain[] = [
   body('serviceId')
     .optional() // Optional - allows manual line items without a service
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid service ID format'),
   body('quantity')
     .optional()
@@ -144,7 +144,7 @@ export const createInvoiceItemValidator: ValidationChain[] = [
 export const updateInvoiceItemValidator: ValidationChain[] = [
   body('serviceId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid service ID format'),
   body('quantity')
     .optional()

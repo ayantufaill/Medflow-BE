@@ -8,6 +8,7 @@ import {
   mapRelationshipFromDb,
   mapRelationshipToDb,
 } from '../utils/opendental-mappers.util';
+import { getPatientInsuranceMeta, setPatientInsuranceMeta } from '../utils/opendental-auth.util';
 
 export class PatientInsuranceService {
   /**
@@ -35,6 +36,12 @@ export class PatientInsuranceService {
       orderBy: { Ordinal: 'asc' },
     });
 
+    const metaMap = new Map(
+      await Promise.all(
+        patPlans.map(async (patplan) => [patplan.PatPlanNum.toString(), await getPatientInsuranceMeta(patplan.PatPlanNum)] as const)
+      )
+    );
+
     return patPlans.map((patplan) => ({
       _id: patplan.PatPlanNum.toString(),
       patientId,
@@ -47,16 +54,21 @@ export class PatientInsuranceService {
         : null,
       policyNumber: patplan.inssub?.SubscriberID ?? '',
       groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
-      subscriberName: '',
-      subscriberDateOfBirth: null,
+      subscriberName: patplan.inssub?.insplan?.GroupName ?? '',
+      subscriberDateOfBirth:
+        metaMap.get(patplan.PatPlanNum.toString())?.subscriberDateOfBirth ?? null,
       relationshipToPatient: mapRelationshipFromDb(patplan.Relationship),
       insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
       effectiveDate: patplan.inssub?.DateEffective ?? null,
       expirationDate: patplan.inssub?.DateTerm ?? null,
-      copayAmount: null,
-      deductibleAmount: null,
-      autoVerify: true,
-      verificationStatus: 'pending',
+      copayAmount: metaMap.get(patplan.PatPlanNum.toString())?.copayAmount ?? null,
+      deductibleAmount:
+        metaMap.get(patplan.PatPlanNum.toString())?.deductibleAmount ?? null,
+      autoVerify: metaMap.get(patplan.PatPlanNum.toString())?.autoVerify ?? true,
+      verificationStatus:
+        metaMap.get(patplan.PatPlanNum.toString())?.verificationStatus ?? 'pending',
+      verificationDate:
+        metaMap.get(patplan.PatPlanNum.toString())?.verificationDate ?? null,
       isActive: patplan.IsPending ? false : true,
       notes: patplan.inssub?.SubscNote ?? null,
     }));
@@ -85,6 +97,8 @@ export class PatientInsuranceService {
       throw new NotFoundError('Patient insurance not found');
     }
 
+    const insuranceMeta = await getPatientInsuranceMeta(patplan.PatPlanNum);
+
     return {
       _id: patplan.PatPlanNum.toString(),
       patientId: patplan.PatNum?.toString() ?? '',
@@ -97,16 +111,17 @@ export class PatientInsuranceService {
         : null,
       policyNumber: patplan.inssub?.SubscriberID ?? '',
       groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
-      subscriberName: '',
-      subscriberDateOfBirth: null,
+      subscriberName: patplan.inssub?.insplan?.GroupName ?? '',
+      subscriberDateOfBirth: insuranceMeta.subscriberDateOfBirth ?? null,
       relationshipToPatient: mapRelationshipFromDb(patplan.Relationship),
       insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
       effectiveDate: patplan.inssub?.DateEffective ?? null,
       expirationDate: patplan.inssub?.DateTerm ?? null,
-      copayAmount: null,
-      deductibleAmount: null,
-      autoVerify: true,
-      verificationStatus: 'pending',
+      copayAmount: insuranceMeta.copayAmount ?? null,
+      deductibleAmount: insuranceMeta.deductibleAmount ?? null,
+      autoVerify: insuranceMeta.autoVerify ?? true,
+      verificationStatus: insuranceMeta.verificationStatus ?? 'pending',
+      verificationDate: insuranceMeta.verificationDate ?? null,
       isActive: patplan.IsPending ? false : true,
       notes: patplan.inssub?.SubscNote ?? null,
     };
@@ -131,6 +146,7 @@ export class PatientInsuranceService {
       deductibleAmount?: number;
       autoVerify?: boolean;
       verificationStatus?: string;
+      verificationDate?: Date;
       notes?: string;
     },
     createdBy?: string
@@ -222,6 +238,15 @@ export class PatientInsuranceService {
       },
     });
 
+    await setPatientInsuranceMeta(patPlanNum, {
+      subscriberDateOfBirth: data.subscriberDateOfBirth ?? null,
+      copayAmount: data.copayAmount ?? null,
+      deductibleAmount: data.deductibleAmount ?? null,
+      autoVerify: data.autoVerify ?? true,
+      verificationStatus: data.verificationStatus ?? 'pending',
+      verificationDate: data.verificationDate ?? null,
+    });
+
     // Log activity
     if (createdBy) {
       await logActivity(
@@ -259,6 +284,7 @@ export class PatientInsuranceService {
       isActive?: boolean;
       autoVerify?: boolean;
       verificationStatus?: string;
+      verificationDate?: Date;
       notes?: string;
     },
     updatedBy?: string
@@ -294,6 +320,7 @@ export class PatientInsuranceService {
       insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
       isActive: patplan.IsPending ? false : true,
     };
+    const currentMeta = await getPatientInsuranceMeta(patplan.PatPlanNum);
 
     if (patplan.inssub) {
       await prisma.inssub.update({
@@ -326,6 +353,18 @@ export class PatientInsuranceService {
             ? mapRelationshipToDb(updates.relationshipToPatient)
             : undefined,
       },
+    });
+
+    await setPatientInsuranceMeta(patplan.PatPlanNum, {
+      subscriberDateOfBirth:
+        updates.subscriberDateOfBirth ?? currentMeta.subscriberDateOfBirth ?? null,
+      copayAmount: updates.copayAmount ?? currentMeta.copayAmount ?? null,
+      deductibleAmount:
+        updates.deductibleAmount ?? currentMeta.deductibleAmount ?? null,
+      autoVerify: updates.autoVerify ?? currentMeta.autoVerify ?? true,
+      verificationStatus:
+        updates.verificationStatus ?? currentMeta.verificationStatus ?? 'pending',
+      verificationDate: updates.verificationDate ?? currentMeta.verificationDate ?? null,
     });
 
     // Log activity

@@ -47,7 +47,7 @@ const buildJson = (value: Record<string, unknown>) => JSON.stringify(value);
 
 const toBigInt = (value?: string | null): bigint | null => {
   if (!value) return null;
-  return /^\\d+$/.test(value) ? BigInt(value) : null;
+  return /^\d+$/.test(value) ? BigInt(value) : null;
 };
 
 const getInvoiceNumber = async (): Promise<string> => {
@@ -68,6 +68,24 @@ const getInvoiceNumber = async (): Promise<string> => {
 };
 
 export class InvoiceService {
+  private mapProcedureLogToInvoiceItem(item: any, invoiceId?: string, code?: any) {
+    const meta = parseJson<ItemMeta>(item.BillingNote);
+    const quantity = Number(meta.quantity ?? item.UnitQty ?? 1) || 1;
+    const unitPrice = Number(meta.unitPrice ?? (item.ProcFee ?? 0) / quantity) || 0;
+    const totalPrice = Number(item.ProcFee) || roundCurrency(unitPrice * quantity);
+
+    return {
+      _id: item.ProcNum.toString(),
+      invoiceId: invoiceId ?? item.StatementNum?.toString() ?? null,
+      serviceId: item.CodeNum?.toString() ?? meta.serviceId ?? null,
+      cptCode: meta.cptCode ?? code?.ProcCode ?? null,
+      description: meta.description ?? code?.Descript ?? 'Service',
+      quantity,
+      unitPrice,
+      totalPrice,
+    };
+  }
+
   private async getDefaultFeeSchedNum(): Promise<bigint> {
     const existing = await prisma.feesched.findFirst({
       where: { IsHidden: 0 },
@@ -91,20 +109,33 @@ export class InvoiceService {
   }
 
   private async resolveProvider(providerId?: string | null) {
-    if (!providerId) return null;
+    if (!providerId || !/^\d+$/.test(providerId)) return null;
     const provider = await prisma.provider.findUnique({
       where: { ProvNum: BigInt(providerId) },
       include: { definition: true },
     });
     if (!provider) return null;
+    const linkedUser =
+      provider.CustomID && /^\d+$/.test(provider.CustomID)
+        ? await prisma.userod.findUnique({ where: { UserNum: BigInt(provider.CustomID) } })
+        : null;
+
     return mapProviderToApi(provider, {
       specialtyName: provider.definition?.ItemName ?? null,
       userId: provider.CustomID ?? null,
+      user: linkedUser
+        ? {
+            _id: linkedUser.UserNum.toString(),
+            firstName: linkedUser.UserName ?? '',
+            lastName: '',
+            email: null,
+          }
+        : null,
     });
   }
 
   private async resolveAppointment(appointmentId?: string | null) {
-    if (!appointmentId) return null;
+    if (!appointmentId || !/^\d+$/.test(appointmentId)) return null;
     const appointment = await prisma.appointment.findUnique({
       where: { AptNum: BigInt(appointmentId) },
     });
@@ -114,6 +145,20 @@ export class InvoiceService {
       appointmentDate: appointment.AptDateTime ?? null,
       startTime: appointment.AptDateTime ?? null,
       endTime: appointment.AptDateTime ?? null,
+      providerId: appointment.ProvNum?.toString() ?? null,
+    };
+  }
+
+  private async resolveInsuranceCompany(insuranceCompanyId?: string | null) {
+    if (!insuranceCompanyId || !/^\d+$/.test(insuranceCompanyId)) return null;
+    const carrier = await prisma.carrier.findUnique({
+      where: { CarrierNum: BigInt(insuranceCompanyId) },
+    });
+    if (!carrier) return null;
+    return {
+      _id: carrier.CarrierNum.toString(),
+      name: carrier.CarrierName ?? '',
+      payerId: carrier.ElectID ?? null,
     };
   }
 
@@ -168,23 +213,7 @@ export class InvoiceService {
 
     const codeMap = new Map(codes.map((code) => [code.CodeNum?.toString(), code]));
 
-    return items.map((item) => {
-      const meta = parseJson<ItemMeta>(item.BillingNote);
-      const code = item.CodeNum ? codeMap.get(item.CodeNum.toString()) : null;
-      const quantity = Number(meta.quantity ?? item.UnitQty ?? 1) || 1;
-      const unitPrice = Number(meta.unitPrice ?? (item.ProcFee ?? 0) / quantity) || 0;
-      const totalPrice = Number(item.ProcFee) || roundCurrency(unitPrice * quantity);
-      return {
-        _id: item.ProcNum.toString(),
-        invoiceId: statementNum.toString(),
-        serviceId: item.CodeNum?.toString() ?? null,
-        cptCode: meta.cptCode ?? code?.ProcCode ?? null,
-        description: meta.description ?? code?.Descript ?? 'Service',
-        quantity,
-        unitPrice,
-        totalPrice,
-      };
-    });
+    return items.map((item) => this.mapProcedureLogToInvoiceItem(item, statementNum.toString(), item.CodeNum ? codeMap.get(item.CodeNum.toString()) : null));
   }
 
   async getAllInvoices(
@@ -231,6 +260,25 @@ export class InvoiceService {
       return this.mapStatementToInvoice(row, meta);
     });
 
+    invoices = await Promise.all(
+      invoices.map(async (invoice) => {
+        const [patient, provider, insuranceCompany] = await Promise.all([
+          invoice.patientId && /^\d+$/.test(invoice.patientId)
+            ? prisma.patient.findUnique({ where: { PatNum: BigInt(invoice.patientId) } })
+            : null,
+          this.resolveProvider(invoice.providerId ?? null),
+          this.resolveInsuranceCompany(invoice.insuranceCompanyId ?? null),
+        ]);
+
+        return {
+          ...invoice,
+          patient: patient ? mapPatientToApi(patient) : null,
+          provider,
+          insuranceCompany,
+        };
+      })
+    );
+
     if (filters.appointmentId || filters.providerId || filters.insuranceCompanyId) {
       invoices = invoices.filter((invoice) => {
         if (filters.appointmentId && invoice.appointmentId !== filters.appointmentId) return false;
@@ -261,8 +309,9 @@ export class InvoiceService {
     const patient = invoice.PatNum
       ? await prisma.patient.findUnique({ where: { PatNum: invoice.PatNum } })
       : null;
-    const provider = await this.resolveProvider(meta.providerId ?? null);
     const appointment = await this.resolveAppointment(meta.appointmentId ?? null);
+    const provider = await this.resolveProvider(meta.providerId ?? appointment?.providerId ?? null);
+    const insuranceCompany = await this.resolveInsuranceCompany(meta.insuranceCompanyId ?? null);
 
     const items = await this.getInvoiceItems(invoice.StatementNum);
 
@@ -271,6 +320,7 @@ export class InvoiceService {
         ...this.mapStatementToInvoice(invoice, meta),
         patient: patient ? mapPatientToApi(patient) : null,
         provider,
+        insuranceCompany,
         appointment,
         dateOfService: appointment?.appointmentDate ?? null,
       },
@@ -474,7 +524,8 @@ export class InvoiceService {
       'low'
     );
 
-    return item;
+    const mappedItem = this.mapProcedureLogToInvoiceItem(item, invoiceId, service);
+    return mappedItem;
   }
 
   async updateInvoiceItem(
@@ -566,7 +617,8 @@ export class InvoiceService {
       'low'
     );
 
-    return updated;
+    const mappedItem = this.mapProcedureLogToInvoiceItem(updated, invoiceId, service);
+    return mappedItem;
   }
 
   async deleteInvoiceItem(invoiceId: string, itemId: string, userId: string) {

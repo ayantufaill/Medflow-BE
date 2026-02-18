@@ -4,7 +4,7 @@ export const roomIdValidator: ValidationChain[] = [
   param('roomId')
     .notEmpty()
     .withMessage('Room ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid room ID format'),
 ];
 

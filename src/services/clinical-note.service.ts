@@ -2,6 +2,9 @@ import { prisma } from '../config/db';
 import { NotFoundError, ConflictError, ValidationError, BadRequestError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
+import { allergyService } from './allergy.service';
+import { mapPatientToApi, mapProviderToApi } from '../utils/opendental-mappers.util';
+import { getProviderMeta, mapUser } from '../utils/opendental-auth.util';
 
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;
@@ -39,6 +42,78 @@ type ClinicalNoteMeta = {
 };
 
 export class ClinicalNoteService {
+  private async enrichClinicalNotes(notes: any[]) {
+    const patientIds = Array.from(
+      new Set(notes.map((note) => note.patientId).filter((id): id is string => Boolean(id)))
+    );
+    const providerIds = Array.from(
+      new Set(notes.map((note) => note.providerId).filter((id): id is string => Boolean(id)))
+    );
+
+    const [patients, providers] = await Promise.all([
+      patientIds.length
+        ? prisma.patient.findMany({ where: { PatNum: { in: patientIds.map((id) => BigInt(id)) } } })
+        : Promise.resolve([]),
+      providerIds.length
+        ? prisma.provider.findMany({ where: { ProvNum: { in: providerIds.map((id) => BigInt(id)) } } })
+        : Promise.resolve([]),
+    ]);
+
+    const patientMap = new Map(patients.map((patient) => [patient.PatNum.toString(), mapPatientToApi(patient)]));
+
+    const userIds = Array.from(
+      new Set(
+        providers
+          .map((provider) => provider.CustomID)
+          .filter((id): id is string => Boolean(id))
+      )
+    );
+    const linkedUsers = userIds.length
+      ? await prisma.userod.findMany({
+          where: { UserNum: { in: userIds.map((id) => BigInt(id)) } },
+        })
+      : [];
+    const linkedUsersMap = new Map(
+      await Promise.all(
+        linkedUsers.map(async (user) => {
+          const mappedUser = await mapUser(user);
+          return [
+            user.UserNum.toString(),
+            {
+              _id: mappedUser._id,
+              firstName: mappedUser.firstName,
+              lastName: mappedUser.lastName,
+              email: mappedUser.email || null,
+            },
+          ] as const;
+        })
+      )
+    );
+    const providerMap = new Map(
+      await Promise.all(
+        providers.map(async (provider) => [
+          provider.ProvNum.toString(),
+          mapProviderToApi(provider, {
+            userId: provider.CustomID ?? null,
+            user: provider.CustomID ? linkedUsersMap.get(provider.CustomID) ?? null : null,
+            appointmentBufferMinutes: (await getProviderMeta(provider.ProvNum)).appointmentBufferMinutes ?? 0,
+            workingHours: (await getProviderMeta(provider.ProvNum)).workingHours ?? [],
+            maxDailyAppointments: (await getProviderMeta(provider.ProvNum)).maxDailyAppointments ?? null,
+            consultationFee: (await getProviderMeta(provider.ProvNum)).consultationFee ?? null,
+            isAcceptingNewPatients: (await getProviderMeta(provider.ProvNum)).isAcceptingNewPatients ?? true,
+            telehealthEnabled: (await getProviderMeta(provider.ProvNum)).telehealthEnabled ?? false,
+          }),
+        ] as const)
+      )
+    );
+
+    return notes.map((note) => ({
+      ...note,
+      patientId: note.patientId ? patientMap.get(note.patientId) ?? null : null,
+      providerId: note.providerId ? providerMap.get(note.providerId) ?? null : null,
+    }));
+  }
+
   private mapCommlogToClinicalNote(row: any, meta: ClinicalNoteMeta) {
     return {
       _id: row.CommlogNum.toString(),
@@ -126,7 +201,7 @@ export class ClinicalNoteService {
     clinicalNotes = clinicalNotes.slice(skip, skip + limit);
 
     return {
-      clinicalNotes,
+      clinicalNotes: await this.enrichClinicalNotes(clinicalNotes),
       pagination: {
         page,
         limit,
@@ -146,7 +221,9 @@ export class ClinicalNoteService {
     }
 
     const meta = parseJson<ClinicalNoteMeta>(row.Note);
-    return this.mapCommlogToClinicalNote(row, meta);
+    const mapped = this.mapCommlogToClinicalNote(row, meta);
+    const [enriched] = await this.enrichClinicalNotes([mapped]);
+    return enriched ?? mapped;
   }
 
   async getClinicalNotesByPatient(patientId: string, page = 1, limit = 10) {
@@ -162,11 +239,12 @@ export class ClinicalNoteService {
       prisma.commlog.count({ where: { PatNum: BigInt(patientId) } }),
     ]);
 
-    return {
-      clinicalNotes: rows.map((row) => {
+    const mapped = rows.map((row) => {
         const meta = parseJson<ClinicalNoteMeta>(row.Note);
         return this.mapCommlogToClinicalNote(row, meta);
-      }),
+      });
+    return {
+      clinicalNotes: await this.enrichClinicalNotes(mapped),
       pagination: {
         page,
         limit,
@@ -184,7 +262,9 @@ export class ClinicalNoteService {
 
     if (!row) return null;
     const meta = parseJson<ClinicalNoteMeta>(row.Note);
-    return this.mapCommlogToClinicalNote(row, meta);
+    const mapped = this.mapCommlogToClinicalNote(row, meta);
+    const [enriched] = await this.enrichClinicalNotes([mapped]);
+    return enriched ?? mapped;
   }
 
   async createClinicalNote(
@@ -592,22 +672,10 @@ export class ClinicalNoteService {
     const historyData: any = { patientId };
 
     if (includeAllergies) {
-      const allergies = await prisma.allergy.findMany({
-        where: { PatNum: BigInt(patientId) },
-        take: limit,
-        orderBy: { AllergyNum: 'desc' },
-        include: { allergydef: true },
-      });
-      historyData.allergies = allergies.map((allergy) => ({
-        _id: allergy.AllergyNum.toString(),
-        patientId,
-        allergen: allergy.allergydef?.Description ?? 'Allergy',
-        reaction: null,
-        severity: 'mild',
-        isActive: true,
-        documentedBy: null,
-        documentedDate: null,
-      }));
+      historyData.allergies = await allergyService.getAllergiesByPatient(patientId);
+      historyData.allergies = historyData.allergies
+        .sort((a: any, b: any) => Number(b._id) - Number(a._id))
+        .slice(0, limit);
     }
 
     if (includeVitals) {

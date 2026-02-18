@@ -2,6 +2,7 @@ import { prisma } from '../config/db';
 import { NotFoundError, ConflictError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
+import { mapUser } from '../utils/opendental-auth.util';
 
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;
@@ -22,9 +23,37 @@ type TemplateMeta = {
   specialty?: string | null;
   isActive?: boolean;
   createdBy?: string | null;
+  createdAt?: string | null;
 };
 
 export class NoteTemplateService {
+  private async mapTemplateRow(row: any) {
+    const meta = parseJson<TemplateMeta>(row.MainText);
+    const creatorUser = meta.createdBy
+      ? await prisma.userod.findUnique({ where: { UserNum: BigInt(meta.createdBy) } })
+      : null;
+    const mappedCreator = creatorUser ? await mapUser(creatorUser) : null;
+
+    return {
+      _id: row.AutoNoteNum.toString(),
+      name: row.AutoNoteName ?? '',
+      description: meta.description ?? null,
+      templateStructure: meta.templateStructure ?? null,
+      defaultContent: meta.defaultContent ?? null,
+      specialty: meta.specialty ?? null,
+      isActive: meta.isActive ?? true,
+      createdBy: mappedCreator
+        ? {
+            _id: mappedCreator._id,
+            firstName: mappedCreator.firstName,
+            lastName: mappedCreator.lastName,
+            email: mappedCreator.email || null,
+          }
+        : (meta.createdBy ? { _id: meta.createdBy, firstName: '', lastName: '', email: null } : null),
+      createdAt: meta.createdAt ?? null,
+    };
+  }
+
   async getAllNoteTemplates(
     page = 1,
     limit = 10,
@@ -49,19 +78,7 @@ export class NoteTemplateService {
       prisma.autonote.count({ where }),
     ]);
 
-    let templates = rows.map((row) => {
-      const meta = parseJson<TemplateMeta>(row.MainText);
-      return {
-        _id: row.AutoNoteNum.toString(),
-        name: row.AutoNoteName ?? '',
-        description: meta.description ?? null,
-        templateStructure: meta.templateStructure ?? null,
-        defaultContent: meta.defaultContent ?? null,
-        specialty: meta.specialty ?? null,
-        isActive: meta.isActive ?? true,
-        createdBy: meta.createdBy ?? null,
-      };
-    });
+    let templates = await Promise.all(rows.map((row) => this.mapTemplateRow(row)));
 
     if (isActive !== undefined) {
       templates = templates.filter((t) => t.isActive === isActive);
@@ -89,17 +106,7 @@ export class NoteTemplateService {
       throw new NotFoundError('Note template not found');
     }
 
-    const meta = parseJson<TemplateMeta>(row.MainText);
-    return {
-      _id: row.AutoNoteNum.toString(),
-      name: row.AutoNoteName ?? '',
-      description: meta.description ?? null,
-      templateStructure: meta.templateStructure ?? null,
-      defaultContent: meta.defaultContent ?? null,
-      specialty: meta.specialty ?? null,
-      isActive: meta.isActive ?? true,
-      createdBy: meta.createdBy ?? null,
-    };
+    return this.mapTemplateRow(row);
   }
 
   async createNoteTemplate(
@@ -128,6 +135,7 @@ export class NoteTemplateService {
       specialty: data.specialty ?? null,
       isActive: data.isActive ?? true,
       createdBy,
+      createdAt: new Date().toISOString(),
     };
 
     const template = await prisma.autonote.create({
@@ -140,16 +148,7 @@ export class NoteTemplateService {
 
     await logActivity(createdBy, 'created', 'note_templates', template.AutoNoteNum.toString(), undefined, template);
 
-    return {
-      _id: template.AutoNoteNum.toString(),
-      name: template.AutoNoteName ?? '',
-      description: data.description ?? null,
-      templateStructure: data.templateStructure,
-      defaultContent: data.defaultContent ?? null,
-      specialty: data.specialty ?? null,
-      isActive: data.isActive ?? true,
-      createdBy,
-    };
+    return this.mapTemplateRow(template);
   }
 
   async updateNoteTemplate(
@@ -200,16 +199,7 @@ export class NoteTemplateService {
 
     await logActivity(userId, 'updated', 'note_templates', noteTemplateId, row, updated);
 
-    return {
-      _id: updated.AutoNoteNum.toString(),
-      name: updated.AutoNoteName ?? '',
-      description: nextMeta.description ?? null,
-      templateStructure: nextMeta.templateStructure ?? null,
-      defaultContent: nextMeta.defaultContent ?? null,
-      specialty: nextMeta.specialty ?? null,
-      isActive: nextMeta.isActive ?? true,
-      createdBy: nextMeta.createdBy ?? null,
-    };
+    return this.mapTemplateRow(updated);
   }
 
   async deleteNoteTemplate(noteTemplateId: string, userId: string) {
@@ -252,7 +242,7 @@ export class NoteTemplateService {
 
     await logActivity(userId, 'created', 'note_templates', created.AutoNoteNum.toString(), undefined, created);
 
-    return created;
+    return this.mapTemplateRow(created);
   }
 
   async duplicateNoteTemplate(noteTemplateId: string, newName: string, userId: string) {

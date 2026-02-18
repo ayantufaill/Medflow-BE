@@ -4,7 +4,7 @@ export const patientIdValidator: ValidationChain[] = [
   param('patientId')
     .notEmpty()
     .withMessage('Patient ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
 ];
 
@@ -167,9 +167,13 @@ export const createPatientValidator: ValidationChain[] = [
     .optional()
     .isIn(['phone', 'email', 'sms', 'portal'])
     .withMessage('Communication preference must be one of: phone, email, sms, portal'),
+  body('portalAccessEnabled')
+    .optional()
+    .isBoolean()
+    .withMessage('portalAccessEnabled must be a boolean'),
   body('userAccountId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid user account ID format'),
   body('referralSource')
     .optional()
@@ -181,6 +185,10 @@ export const createPatientValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 1000 })
     .withMessage('Notes must be less than 1000 characters'),
+  body('customFields')
+    .optional()
+    .isObject()
+    .withMessage('customFields must be an object'),
 ];
 
 export const updatePatientValidator: ValidationChain[] = [
@@ -361,6 +369,10 @@ export const updatePatientValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 1000 })
     .withMessage('Notes must be less than 1000 characters'),
+  body('customFields')
+    .optional()
+    .isObject()
+    .withMessage('customFields must be an object'),
 ];
 
 export const patientSearchValidator: ValidationChain[] = [

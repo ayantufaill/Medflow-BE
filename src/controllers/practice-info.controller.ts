@@ -1,6 +1,15 @@
 import type { Request, Response, NextFunction } from 'express';
 import { practiceInfoService } from '../services/practice-info.service';
-import { uploadToS3, deleteFromS3, isValidFileSize } from '../utils/s3.util';
+import { isValidFileSize } from '../utils/s3.util';
+
+const MOCK_AWS_REGION = 'us-west-2';
+const MOCK_AWS_BUCKET = 'medflow-practice-logos-dev';
+
+const buildMockS3Url = (filename: string) => {
+  const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const key = `practice-logos/${Date.now()}-${safeName}`;
+  return `https://${MOCK_AWS_BUCKET}.s3.${MOCK_AWS_REGION}.amazonaws.com/${key}`;
+};
 
 export class PracticeInfoController {
   /**
@@ -76,7 +85,7 @@ export class PracticeInfoController {
 
       // FormData is already parsed by validateFormData middleware
 
-      // Handle logo upload to S3
+      // Temporary hardcoded AWS behavior: build mock S3 URL without uploading.
       let logoUrl: string | undefined;
       if (req.file) {
         // Validate file size
@@ -92,17 +101,7 @@ export class PracticeInfoController {
           });
         }
 
-        try {
-          logoUrl = await uploadToS3(req.file, 'practice-logos');
-        } catch (uploadError: any) {
-          console.error('Logo upload error:', uploadError);
-          // Return the actual error message for better debugging
-          const errorMessage = uploadError?.message || 'Failed to upload logo to S3';
-          return res.status(500).json({
-            success: false,
-            error: { message: errorMessage },
-          });
-        }
+        logoUrl = buildMockS3Url(req.file.originalname || 'practice-logo.png');
       }
 
       // Prepare data with logo URL
@@ -153,7 +152,7 @@ export class PracticeInfoController {
         // If practice not found, continue without old logo
       }
 
-      // Handle logo upload to S3
+      // Temporary hardcoded AWS behavior: build mock S3 URL without uploading.
       let logoUrl: string | undefined;
       if (req.file) {
         // Validate file size
@@ -169,19 +168,7 @@ export class PracticeInfoController {
           });
         }
 
-        try {
-          logoUrl = await uploadToS3(req.file, 'practice-logos');
-          
-          // Delete old logo from S3 if it exists and is from S3
-          if (oldLogoUrl && oldLogoUrl.includes('amazonaws.com')) {
-            await deleteFromS3(oldLogoUrl);
-          }
-        } catch (uploadError) {
-          return res.status(500).json({
-            success: false,
-            error: { message: 'Failed to upload logo to S3' },
-          });
-        }
+        logoUrl = buildMockS3Url(req.file.originalname || 'practice-logo.png');
       }
 
       // Prepare data with logo URL

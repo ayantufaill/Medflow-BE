@@ -15,7 +15,14 @@ app.use(helmet(helmetOptions));
 app.use(cors(corsOptions));
 
 // Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
+app.use(
+  express.json({
+    limit: '10mb',
+    verify: (req, _res, buf) => {
+      (req as any).rawBody = buf.toString('utf8');
+    },
+  })
+);
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Rate limiting (skip in test environment)
@@ -35,7 +42,7 @@ app.get('/', (req: Request, res: Response) => {
 
 app.get('/health', (req: Request, res: Response) => {
   res.json({
-    status: 'healthy',
+    status: 'healthyyy',
     timestamp: new Date().toISOString(),
   });
 });

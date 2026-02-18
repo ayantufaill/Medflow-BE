@@ -1,8 +1,35 @@
 import { prisma } from '../config/db';
 import { NotFoundError } from '../utils/error.util';
 import { getNextId } from '../utils/opendental-ids.util';
+import {
+  getAllergyMeta,
+  setAllergyMeta,
+  mapUser,
+} from '../utils/opendental-auth.util';
 
 export class AllergyService {
+  private async mapDocumentedBy(documentedBy?: string | null) {
+    if (!documentedBy) return null;
+    const user = await prisma.userod.findUnique({
+      where: { UserNum: BigInt(documentedBy) },
+    });
+    if (!user) {
+      return {
+        _id: documentedBy,
+        firstName: '',
+        lastName: '',
+        email: null,
+      };
+    }
+    const mappedUser = await mapUser(user);
+    return {
+      _id: mappedUser._id,
+      firstName: mappedUser.firstName,
+      lastName: mappedUser.lastName,
+      email: mappedUser.email ?? null,
+    };
+  }
+
   async createAllergy(data: {
     patientId: string;
     allergen: string;
@@ -39,34 +66,72 @@ export class AllergyService {
       },
     });
 
+    const documentedDate = data.documentedDate ?? new Date();
+    const allergyMeta = {
+      reaction: data.reaction ?? null,
+      severity: data.severity ?? 'mild',
+      documentedBy: data.documentedBy ?? null,
+      documentedDate: documentedDate.toISOString(),
+      isActive: data.isActive ?? true,
+    };
+    await setAllergyMeta(allergyNum, allergyMeta);
+
+    const documentedByUser = await this.mapDocumentedBy(allergyMeta.documentedBy);
+
     return {
       _id: allergy.AllergyNum.toString(),
       patientId: data.patientId,
       allergen: data.allergen,
-      reaction: data.reaction,
-      severity: data.severity,
-      isActive: true,
-      documentedBy: data.documentedBy,
-      documentedDate: new Date(),
+      reaction: allergyMeta.reaction,
+      severity: allergyMeta.severity,
+      isActive: allergyMeta.isActive,
+      documentedBy: documentedByUser,
+      documentedDate,
     };
   }
 
-  async getAllergiesByPatient(patientId: string) {
+  async getAllergiesByPatient(patientId: string, isActive?: boolean) {
     const allergies = await prisma.allergy.findMany({
       where: { PatNum: BigInt(patientId) },
       include: { allergydef: true },
     });
 
-    return allergies.map((allergy) => ({
+    const metaMap = new Map(
+      await Promise.all(
+        allergies.map(async (allergy) => [
+          allergy.AllergyNum.toString(),
+          await getAllergyMeta(allergy.AllergyNum),
+        ] as const)
+      )
+    );
+
+    const documentedByMap = new Map(
+      await Promise.all(
+        Array.from(
+          new Set(
+            allergies
+              .map((allergy) => metaMap.get(allergy.AllergyNum.toString())?.documentedBy)
+              .filter((value): value is string => Boolean(value))
+          )
+        ).map(async (documentedBy) => [documentedBy, await this.mapDocumentedBy(documentedBy)] as const)
+      )
+    );
+
+    const mappedAllergies = allergies.map((allergy) => ({
       _id: allergy.AllergyNum.toString(),
       patientId,
       allergen: allergy.allergydef?.Description ?? 'Allergy',
-      reaction: null,
-      severity: 'mild',
-      isActive: true,
-      documentedBy: null,
-      documentedDate: null,
+      reaction: metaMap.get(allergy.AllergyNum.toString())?.reaction ?? null,
+      severity: metaMap.get(allergy.AllergyNum.toString())?.severity ?? 'mild',
+      isActive: metaMap.get(allergy.AllergyNum.toString())?.isActive ?? true,
+      documentedBy:
+        documentedByMap.get(metaMap.get(allergy.AllergyNum.toString())?.documentedBy ?? '') ??
+        null,
+      documentedDate: metaMap.get(allergy.AllergyNum.toString())?.documentedDate ?? null,
     }));
+
+    if (isActive === undefined) return mappedAllergies;
+    return mappedAllergies.filter((allergy) => allergy.isActive === isActive);
   }
 
   async getAllergyById(allergyId: string) {
@@ -78,15 +143,19 @@ export class AllergyService {
       throw new NotFoundError('Allergy not found');
     }
 
+    const allergyMeta = await getAllergyMeta(allergy.AllergyNum);
+
+    const documentedByUser = await this.mapDocumentedBy(allergyMeta.documentedBy);
+
     return {
       _id: allergy.AllergyNum.toString(),
       patientId: allergy.PatNum?.toString() ?? null,
       allergen: allergy.allergydef?.Description ?? 'Allergy',
-      reaction: null,
-      severity: 'mild',
-      isActive: true,
-      documentedBy: null,
-      documentedDate: null,
+      reaction: allergyMeta.reaction ?? null,
+      severity: allergyMeta.severity ?? 'mild',
+      isActive: allergyMeta.isActive ?? true,
+      documentedBy: documentedByUser,
+      documentedDate: allergyMeta.documentedDate ?? null,
     };
   }
 
@@ -113,15 +182,30 @@ export class AllergyService {
       });
     }
 
+    const existingMeta = await getAllergyMeta(allergy.AllergyNum);
+    const nextMeta = {
+      reaction: updates.reaction ?? existingMeta.reaction ?? null,
+      severity: updates.severity ?? existingMeta.severity ?? 'mild',
+      documentedBy: updates.documentedBy ?? existingMeta.documentedBy ?? null,
+      documentedDate:
+        updates.documentedDate?.toISOString() ??
+        existingMeta.documentedDate ??
+        null,
+      isActive: updates.isActive ?? existingMeta.isActive ?? true,
+    };
+    await setAllergyMeta(allergy.AllergyNum, nextMeta);
+
+    const documentedByUser = await this.mapDocumentedBy(nextMeta.documentedBy);
+
     return {
       _id: allergy.AllergyNum.toString(),
       patientId: allergy.PatNum?.toString() ?? null,
       allergen: updates.allergen ?? allergy.allergydef?.Description ?? 'Allergy',
-      reaction: updates.reaction ?? null,
-      severity: updates.severity ?? 'mild',
-      isActive: true,
-      documentedBy: null,
-      documentedDate: null,
+      reaction: nextMeta.reaction,
+      severity: nextMeta.severity,
+      isActive: nextMeta.isActive,
+      documentedBy: documentedByUser,
+      documentedDate: nextMeta.documentedDate,
     };
   }
 
@@ -137,8 +221,8 @@ export class AllergyService {
     return { message: 'Allergy deleted successfully' };
   }
 
-  async getAllergies(patientId: string) {
-    return this.getAllergiesByPatient(patientId);
+  async getAllergies(patientId: string, isActive?: boolean) {
+    return this.getAllergiesByPatient(patientId, isActive);
   }
 }
 

@@ -4,6 +4,7 @@ import { logActivity } from '../utils/activity-logger.util';
 import { appointmentService } from './appointment.service';
 import { getNextId } from '../utils/opendental-ids.util';
 import { mapAppointmentTypeToApi, mapPatientToApi, mapProviderToApi } from '../utils/opendental-mappers.util';
+import { mapUser } from '../utils/opendental-auth.util';
 
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;
@@ -140,6 +141,29 @@ export class WaitlistService {
       providerIds.length ? prisma.provider.findMany({ where: { ProvNum: { in: providerIds } }, include: { definition: true } }) : [],
       appointmentTypeIds.length ? prisma.appointmenttype.findMany({ where: { AppointmentTypeNum: { in: appointmentTypeIds } } }) : [],
     ]);
+    const providerUserIds = Array.from(
+      new Set(providers.map((provider) => provider.CustomID).filter((id): id is string => Boolean(id)))
+    );
+    const creatorIds = Array.from(
+      new Set(rows.map((row) => parseJson<AsapMeta>(row.Note).createdBy).filter((id): id is string => Boolean(id)))
+    );
+    const userIds = Array.from(new Set([...providerUserIds, ...creatorIds]));
+    const users = userIds.length
+      ? await prisma.userod.findMany({ where: { UserNum: { in: userIds.map((id) => BigInt(id)) } } })
+      : [];
+    const usersMap = new Map(
+      await Promise.all(
+        users.map(async (user) => {
+          const mappedUser = await mapUser(user);
+          return [user.UserNum.toString(), {
+            _id: mappedUser._id,
+            firstName: mappedUser.firstName,
+            lastName: mappedUser.lastName,
+            email: mappedUser.email || null,
+          }] as const;
+        })
+      )
+    );
 
     const patientMap = new Map(patients.map((patient) => [patient.PatNum.toString(), patient]));
     const providerMap = new Map(providers.map((provider) => [provider.ProvNum.toString(), provider]));
@@ -163,12 +187,15 @@ export class WaitlistService {
         priority: fKeyTypeToPriority(row.FKeyType),
         status: responseStatusToStatus(row.ResponseStatus),
         notes: meta.notes ?? null,
-        createdBy: meta.createdBy ?? null,
+        createdBy: meta.createdBy ? usersMap.get(meta.createdBy) ?? { _id: meta.createdBy, firstName: '', lastName: '', email: null } : null,
+        createdAt: row.DateTimeEntry ?? null,
+        updatedAt: row.DateTimeOrig ?? row.DateTimeEntry ?? null,
         patient: patient ? mapPatientToApi(patient) : null,
         provider: provider
           ? mapProviderToApi(provider, {
               specialtyName: provider.definition?.ItemName ?? null,
               userId: provider.CustomID ?? null,
+              user: provider.CustomID ? usersMap.get(provider.CustomID) ?? null : null,
             })
           : null,
         appointmentType: appointmentType ? mapAppointmentTypeToApi(appointmentType) : null,
@@ -224,6 +251,23 @@ export class WaitlistService {
         })
       : null;
 
+    const creatorUser = meta.createdBy
+      ? await prisma.userod.findUnique({ where: { UserNum: BigInt(meta.createdBy) } })
+      : null;
+    const mappedCreator = creatorUser ? await mapUser(creatorUser) : null;
+    const providerUser = provider?.CustomID
+      ? await prisma.userod.findUnique({ where: { UserNum: BigInt(provider.CustomID) } })
+      : null;
+    const mappedProviderUser = providerUser ? await mapUser(providerUser) : null;
+    const creator = mappedCreator
+      ? {
+          _id: mappedCreator._id,
+          firstName: mappedCreator.firstName,
+          lastName: mappedCreator.lastName,
+          email: mappedCreator.email || null,
+        }
+      : (meta.createdBy ? { _id: meta.createdBy, firstName: '', lastName: '', email: null } : null);
+
     return {
       _id: row.AsapCommNum.toString(),
       patientId: row.PatNum?.toString() ?? null,
@@ -235,12 +279,22 @@ export class WaitlistService {
       priority: fKeyTypeToPriority(row.FKeyType),
       status: responseStatusToStatus(row.ResponseStatus),
       notes: meta.notes ?? null,
-      createdBy: meta.createdBy ?? null,
+      createdBy: creator,
+      createdAt: row.DateTimeEntry ?? null,
+      updatedAt: row.DateTimeOrig ?? row.DateTimeEntry ?? null,
       patient: patient ? mapPatientToApi(patient) : null,
       provider: provider
         ? mapProviderToApi(provider, {
             specialtyName: provider.definition?.ItemName ?? null,
             userId: provider.CustomID ?? null,
+            user: mappedProviderUser
+              ? {
+                  _id: mappedProviderUser._id,
+                  firstName: mappedProviderUser.firstName,
+                  lastName: mappedProviderUser.lastName,
+                  email: mappedProviderUser.email || null,
+                }
+              : null,
           })
         : null,
       appointmentType: appointmentType ? mapAppointmentTypeToApi(appointmentType) : null,
@@ -349,7 +403,7 @@ export class WaitlistService {
       'low'
     );
 
-    return waitlistEntry;
+    return this.getWaitlistEntryById(waitlistEntry.AsapCommNum.toString());
   }
 
   /**
@@ -428,7 +482,7 @@ export class WaitlistService {
       'low'
     );
 
-    return updated;
+    return this.getWaitlistEntryById(updated.AsapCommNum.toString());
   }
 
   /**
@@ -516,9 +570,7 @@ export class WaitlistService {
 
     return {
       appointment,
-      waitlistEntry: await prisma.asapcomm.findUnique({
-        where: { AsapCommNum: BigInt(waitlistEntryId) },
-      }),
+      waitlistEntry: await this.getWaitlistEntryById(waitlistEntryId),
     };
   }
 

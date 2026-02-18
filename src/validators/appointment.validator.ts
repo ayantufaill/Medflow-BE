@@ -4,7 +4,7 @@ export const appointmentIdValidator: ValidationChain[] = [
   param('appointmentId')
     .notEmpty()
     .withMessage('Appointment ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment ID format'),
 ];
 
@@ -12,7 +12,7 @@ export const providerIdValidator: ValidationChain[] = [
   param('providerId')
     .notEmpty()
     .withMessage('Provider ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
 ];
 
@@ -20,16 +20,16 @@ export const createAppointmentValidator: ValidationChain[] = [
   body('patientId')
     .notEmpty()
     .withMessage('Patient ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   body('providerId')
     .notEmpty()
     .withMessage('Provider ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
   body('appointmentTypeId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment type ID format'),
   body('appointmentDate')
     .notEmpty()
@@ -95,7 +95,7 @@ export const createAppointmentValidator: ValidationChain[] = [
 export const updateAppointmentValidator: ValidationChain[] = [
   body('appointmentTypeId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment type ID format'),
   body('appointmentDate')
     .optional()
@@ -201,11 +201,11 @@ export const appointmentQueryValidator: ValidationChain[] = [
     .withMessage('Limit must be between 1 and 100'),
   query('providerId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
   query('patientId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   query('status')
     .optional()
@@ -221,7 +221,7 @@ export const appointmentQueryValidator: ValidationChain[] = [
     .withMessage('End date must be a valid ISO 8601 date'),
   query('appointmentTypeId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment type ID format'),
   query('search')
     .optional()

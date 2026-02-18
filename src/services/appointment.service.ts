@@ -8,6 +8,12 @@ import {
   mapAppointmentStatusFromDb,
   mapProviderToApi,
 } from '../utils/opendental-mappers.util';
+import {
+  getAppointmentMeta,
+  getProviderMeta,
+  mapUser,
+  setAppointmentMeta,
+} from '../utils/opendental-auth.util';
 
 /**
  * Generate unique appointment code (e.g., APT001, APT002, etc.)
@@ -145,6 +151,74 @@ async function checkConflicts(
 }
 
 export class AppointmentService {
+  private async mapAppointmentWithMeta(
+    appointment: any,
+    options?: {
+      patient?: any;
+      provider?: any;
+      appointmentType?: any;
+      createdBy?: any;
+    }
+  ) {
+    const meta = await getAppointmentMeta(appointment.AptNum);
+    const dbStatus = mapAppointmentStatusFromDb(appointment.AptStatus);
+    const resolvedStatus =
+      dbStatus === 'completed' || dbStatus === 'cancelled' || dbStatus === 'no_show'
+        ? dbStatus
+        : (meta.status ?? dbStatus);
+    const mapped = mapAppointmentToApi(appointment, {
+      ...options,
+      requiresInterpreter: meta.requiresInterpreter ?? false,
+      interpreterLanguage: meta.interpreterLanguage ?? null,
+      insuranceVerified: meta.insuranceVerified ?? Boolean(appointment.InsPlan1 || appointment.InsPlan2),
+      copayCollected: meta.copayCollected ?? 0,
+      reminderSent: meta.reminderSent ?? false,
+      customFields: meta.customFields ?? {},
+      cancellationReason: meta.cancellationReason ?? null,
+      checkInAt: meta.checkInAt ? new Date(meta.checkInAt) : appointment.DateTimeArrived ?? null,
+      completedAt: meta.completedAt ? new Date(meta.completedAt) : appointment.DateTimeDismissed ?? null,
+    });
+    mapped.status = resolvedStatus;
+
+    if (options?.provider) {
+      const providerMeta = await getProviderMeta(options.provider.ProvNum);
+      let linkedUser: {
+        _id: string;
+        firstName?: string | null;
+        lastName?: string | null;
+        email?: string | null;
+      } | null = null;
+
+      if (options.provider.CustomID) {
+        const user = await prisma.userod.findUnique({
+          where: { UserNum: BigInt(options.provider.CustomID) },
+        });
+        if (user) {
+          const mappedUser = await mapUser(user);
+          linkedUser = {
+            _id: mappedUser._id,
+            firstName: mappedUser.firstName,
+            lastName: mappedUser.lastName,
+            email: mappedUser.email || null,
+          };
+        }
+      }
+
+      mapped.providerId = mapProviderToApi(options.provider, {
+        userId: options.provider.CustomID ?? null,
+        user: linkedUser,
+        appointmentBufferMinutes: providerMeta.appointmentBufferMinutes ?? 0,
+        workingHours: providerMeta.workingHours ?? [],
+        maxDailyAppointments: providerMeta.maxDailyAppointments ?? null,
+        consultationFee: providerMeta.consultationFee ?? null,
+        isAcceptingNewPatients: providerMeta.isAcceptingNewPatients ?? true,
+        telehealthEnabled: providerMeta.telehealthEnabled ?? false,
+      });
+    }
+
+    return mapped;
+  }
+
   /**
    * Get all appointments with pagination and filters
    */
@@ -244,20 +318,30 @@ export class AppointmentService {
       prisma.appointment.count({ where }),
     ]);
 
-    return {
-      appointments: appointments.map((apt) =>
-        mapAppointmentToApi(apt, {
+    const mappedAppointments = await Promise.all(
+      appointments.map((apt) =>
+        this.mapAppointmentWithMeta(apt, {
           patient: apt.patient,
           provider: apt.provider_appointment_ProvNumToprovider,
           appointmentType: apt.appointmenttype,
           createdBy: apt.userod,
         })
-      ),
+      )
+    );
+
+    const filteredAppointments = filters?.status
+      ? mappedAppointments.filter((apt) => apt.status === filters.status)
+      : mappedAppointments;
+
+    return {
+      appointments: filteredAppointments,
       pagination: {
         page,
         limit,
-        total,
-        pages: Math.ceil(total / limit),
+        total: filters?.status ? filteredAppointments.length : total,
+        pages: filters?.status
+          ? Math.max(1, Math.ceil(filteredAppointments.length / limit))
+          : Math.ceil(total / limit),
       },
     };
   }
@@ -280,7 +364,7 @@ export class AppointmentService {
       throw new NotFoundError('Appointment not found');
     }
 
-    return mapAppointmentToApi(appointment, {
+    return this.mapAppointmentWithMeta(appointment, {
       patient: appointment.patient,
       provider: appointment.provider_appointment_ProvNumToprovider,
       appointmentType: appointment.appointmenttype,
@@ -319,11 +403,13 @@ export class AppointmentService {
 
     return {
       provider: mapProviderToApi(provider),
-      appointments: appointments.map((apt) =>
-        mapAppointmentToApi(apt, {
-          patient: apt.patient,
-          appointmentType: apt.appointmenttype,
-        })
+      appointments: await Promise.all(
+        appointments.map((apt) =>
+          this.mapAppointmentWithMeta(apt, {
+            patient: apt.patient,
+            appointmentType: apt.appointmenttype,
+          })
+        )
       ),
       view,
       dateRange: {
@@ -578,6 +664,7 @@ export class AppointmentService {
     copayCollected?: number;
     reminderSent?: boolean;
     customFields?: Record<string, any>;
+    status?: string;
   }, createdBy: string) {
     // Validate patient exists
     const patient = await prisma.patient.findUnique({
@@ -652,12 +739,25 @@ export class AppointmentService {
         ProcDescript: data.chiefComplaint ?? null,
         Note: data.notes ?? null,
         Op: data.roomId ? BigInt(data.roomId) : null,
-        AptStatus: mapAppointmentStatusToDb('scheduled'),
+        AptStatus: mapAppointmentStatusToDb(data.status ?? 'scheduled'),
         DateTimeArrived: null,
         DateTimeDismissed: null,
         SecUserNumEntry: createdBy ? BigInt(createdBy) : null,
         SecDateTEntry: new Date(),
       },
+    });
+
+    await setAppointmentMeta(appointment.AptNum, {
+      status: data.status ?? 'scheduled',
+      requiresInterpreter: data.requiresInterpreter ?? false,
+      interpreterLanguage: data.interpreterLanguage ?? null,
+      insuranceVerified: data.insuranceVerified ?? false,
+      copayCollected: data.copayCollected ?? 0,
+      reminderSent: data.reminderSent ?? false,
+      customFields: data.customFields ?? {},
+      cancellationReason: null,
+      checkInAt: null,
+      completedAt: null,
     });
 
     // Log activity
@@ -667,13 +767,13 @@ export class AppointmentService {
       'appointments',
       String(appointment.AptNum),
       undefined,
-      mapAppointmentToApi(appointment),
+      await this.mapAppointmentWithMeta(appointment),
       undefined,
       undefined,
       'medium'
     );
 
-    return mapAppointmentToApi(appointment);
+    return this.mapAppointmentWithMeta(appointment);
   }
 
   /**
@@ -758,7 +858,7 @@ export class AppointmentService {
       }
     }
 
-    const oldData = mapAppointmentToApi(appointment);
+    const oldData = await this.mapAppointmentWithMeta(appointment);
     const aptDateTime =
       updates.appointmentDate || updates.startTime
         ? toDateTime(
@@ -788,6 +888,27 @@ export class AppointmentService {
       },
     });
 
+    const existingMeta = await getAppointmentMeta(appointment.AptNum);
+    const nextMeta = {
+      status: updates.status ?? existingMeta.status ?? mapAppointmentStatusFromDb(updated.AptStatus),
+      requiresInterpreter: updates.requiresInterpreter ?? existingMeta.requiresInterpreter ?? false,
+      interpreterLanguage: updates.interpreterLanguage ?? existingMeta.interpreterLanguage ?? null,
+      insuranceVerified: updates.insuranceVerified ?? existingMeta.insuranceVerified ?? Boolean(updated.InsPlan1 || updated.InsPlan2),
+      copayCollected: updates.copayCollected ?? existingMeta.copayCollected ?? 0,
+      reminderSent: updates.reminderSent ?? existingMeta.reminderSent ?? false,
+      customFields: updates.customFields ?? existingMeta.customFields ?? {},
+      cancellationReason: updates.cancellationReason ?? existingMeta.cancellationReason ?? null,
+      checkInAt:
+        updates.status === 'checked_in'
+          ? new Date().toISOString()
+          : existingMeta.checkInAt ?? (updated.DateTimeArrived ? updated.DateTimeArrived.toISOString() : null),
+      completedAt:
+        updates.status === 'completed'
+          ? new Date().toISOString()
+          : existingMeta.completedAt ?? (updated.DateTimeDismissed ? updated.DateTimeDismissed.toISOString() : null),
+    };
+    await setAppointmentMeta(updated.AptNum, nextMeta);
+
     // Log activity
     await logActivity(
       updatedBy,
@@ -795,13 +916,13 @@ export class AppointmentService {
       'appointments',
       appointmentId,
       oldData,
-      mapAppointmentToApi(updated),
+      await this.mapAppointmentWithMeta(updated),
       undefined,
       undefined,
       'medium'
     );
 
-    return mapAppointmentToApi(updated);
+    return this.mapAppointmentWithMeta(updated);
   }
 
   /**
@@ -823,7 +944,7 @@ export class AppointmentService {
       throw new BadRequestError('Cannot cancel a completed appointment');
     }
 
-    const oldData = mapAppointmentToApi(appointment);
+    const oldData = await this.mapAppointmentWithMeta(appointment);
 
     const updated = await prisma.appointment.update({
       where: { AptNum: BigInt(appointmentId) },
@@ -831,6 +952,12 @@ export class AppointmentService {
         AptStatus: mapAppointmentStatusToDb('cancelled'),
         Note: cancellationReason ? `${appointment.Note || ''}\nCancellation: ${cancellationReason}` : appointment.Note,
       },
+    });
+    const existingMeta = await getAppointmentMeta(updated.AptNum);
+    await setAppointmentMeta(updated.AptNum, {
+      ...existingMeta,
+      status: 'cancelled',
+      cancellationReason: cancellationReason ?? existingMeta.cancellationReason ?? null,
     });
 
     // Log activity
@@ -840,13 +967,13 @@ export class AppointmentService {
       'appointments',
       appointmentId,
       oldData,
-      mapAppointmentToApi(updated),
+      await this.mapAppointmentWithMeta(updated),
       undefined,
       undefined,
       'medium'
     );
 
-    return mapAppointmentToApi(updated);
+    return this.mapAppointmentWithMeta(updated);
   }
 
   /**
@@ -892,7 +1019,7 @@ export class AppointmentService {
       throw new ConflictError(conflictType);
     }
 
-    const oldData = mapAppointmentToApi(appointment);
+    const oldData = await this.mapAppointmentWithMeta(appointment);
     const updated = await prisma.appointment.update({
       where: { AptNum: BigInt(appointmentId) },
       data: {
@@ -908,13 +1035,13 @@ export class AppointmentService {
       'appointments',
       appointmentId,
       oldData,
-      mapAppointmentToApi(updated),
+      await this.mapAppointmentWithMeta(updated),
       undefined,
       undefined,
       'medium'
     );
 
-    return mapAppointmentToApi(updated);
+    return this.mapAppointmentWithMeta(updated);
   }
 
   /**
@@ -940,7 +1067,7 @@ export class AppointmentService {
       throw new BadRequestError('Cannot check in a completed appointment');
     }
 
-    const oldData = mapAppointmentToApi(appointment);
+    const oldData = await this.mapAppointmentWithMeta(appointment);
 
     const updated = await prisma.appointment.update({
       where: { AptNum: BigInt(appointmentId) },
@@ -948,6 +1075,12 @@ export class AppointmentService {
         AptStatus: mapAppointmentStatusToDb('checked_in'),
         DateTimeArrived: new Date(),
       },
+    });
+    const existingMeta = await getAppointmentMeta(updated.AptNum);
+    await setAppointmentMeta(updated.AptNum, {
+      ...existingMeta,
+      status: 'checked_in',
+      checkInAt: updated.DateTimeArrived ? updated.DateTimeArrived.toISOString() : existingMeta.checkInAt ?? null,
     });
 
     // Log activity
@@ -957,13 +1090,13 @@ export class AppointmentService {
       'appointments',
       appointmentId,
       oldData,
-      mapAppointmentToApi(updated),
+      await this.mapAppointmentWithMeta(updated),
       undefined,
       undefined,
       'low'
     );
 
-    return mapAppointmentToApi(updated);
+    return this.mapAppointmentWithMeta(updated);
   }
 
   /**
@@ -977,7 +1110,7 @@ export class AppointmentService {
       throw new NotFoundError('Appointment not found');
     }
 
-    const oldData = mapAppointmentToApi(appointment);
+    const oldData = await this.mapAppointmentWithMeta(appointment);
 
     // Hard delete - remove from database
     await prisma.appointment.delete({

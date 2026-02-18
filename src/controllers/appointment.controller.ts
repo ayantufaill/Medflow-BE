@@ -234,6 +234,7 @@ export class AppointmentController {
         copayCollected,
         reminderSent,
         customFields,
+        status,
       } = req.body;
 
       const appointment = await appointmentService.createAppointment(
@@ -254,6 +255,7 @@ export class AppointmentController {
           copayCollected,
           reminderSent,
           customFields,
+          status,
         },
         req.userId
       );
@@ -326,8 +328,8 @@ export class AppointmentController {
 
       const appointment = await appointmentService.cancelAppointment(
         appointmentId,
-        cancellationReason,
-        req.userId
+        req.userId,
+        cancellationReason
       );
 
       res.status(200).json({

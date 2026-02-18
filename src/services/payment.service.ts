@@ -2,6 +2,7 @@ import { prisma } from '../config/db';
 import { NotFoundError, BadRequestError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
+import { mapPatientToApi } from '../utils/opendental-mappers.util';
 
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;
@@ -18,12 +19,68 @@ const buildJson = (value: Record<string, unknown>) => JSON.stringify(value);
 type PaymentMeta = {
   invoiceId?: string;
   method?: string;
+  paymentMethod?: string;
+  paymentSource?: string;
+  referenceNumber?: string;
+  processorFee?: number;
+  paidAt?: string;
   status?: string;
   notes?: string;
   voidReason?: string;
 };
 
 export class PaymentService {
+  private mapPaymentToApi(row: any) {
+    const meta = parseJson<PaymentMeta>(row.PayNote);
+    const receiptNumber = meta.referenceNumber ?? row.PayNum.toString();
+    return {
+      _id: row.PayNum.toString(),
+      patientId: row.PatNum?.toString() ?? null,
+      invoiceId: meta.invoiceId ?? null,
+      receiptNumber,
+      paymentCode: receiptNumber,
+      amount: Number(row.PayAmt) || 0,
+      method: meta.method ?? meta.paymentMethod ?? null,
+      paymentMethod: meta.paymentMethod ?? meta.method ?? null,
+      paymentSource: meta.paymentSource ?? null,
+      referenceNumber: meta.referenceNumber ?? null,
+      processorFee: Number(meta.processorFee) || 0,
+      status: meta.status ?? 'completed',
+      paidAt: meta.paidAt ? new Date(meta.paidAt) : row.PayDate ?? null,
+      paymentDate: meta.paidAt ? new Date(meta.paidAt) : row.PayDate ?? null,
+      notes: meta.notes ?? null,
+    };
+  }
+
+  private mapInvoiceSummary(statement: any) {
+    return {
+      _id: statement.StatementNum.toString(),
+      invoiceNumber: statement.ShortGUID ?? '',
+      invoiceDate: statement.DateSent ?? null,
+      dueDate: statement.DateRangeTo ?? null,
+      totalAmount: Number(statement.BalTotal) || 0,
+      balanceDue: Number(statement.BalTotal) || 0,
+      status: statement.StatementType ?? 'draft',
+    };
+  }
+
+  private async enrichPayment(payment: any) {
+    const [patient, invoice] = await Promise.all([
+      payment.patientId && /^\d+$/.test(payment.patientId)
+        ? prisma.patient.findUnique({ where: { PatNum: BigInt(payment.patientId) } })
+        : null,
+      payment.invoiceId && /^\d+$/.test(payment.invoiceId)
+        ? prisma.statement.findUnique({ where: { StatementNum: BigInt(payment.invoiceId) } })
+        : null,
+    ]);
+
+    return {
+      ...payment,
+      patient: patient ? mapPatientToApi(patient) : null,
+      invoice: invoice ? this.mapInvoiceSummary(invoice) : null,
+    };
+  }
+
   async getAllPayments(
     page = 1,
     limit = 10,
@@ -58,19 +115,7 @@ export class PaymentService {
       prisma.payment.count({ where }),
     ]);
 
-    let payments = rows.map((row) => {
-      const meta = parseJson<PaymentMeta>(row.PayNote);
-      return {
-        _id: row.PayNum.toString(),
-        patientId: row.PatNum?.toString() ?? null,
-        invoiceId: meta.invoiceId ?? null,
-        amount: Number(row.PayAmt) || 0,
-        method: meta.method ?? null,
-        status: meta.status ?? 'completed',
-        paidAt: row.PayDate ?? null,
-        notes: meta.notes ?? null,
-      };
-    });
+    let payments = rows.map((row) => this.mapPaymentToApi(row));
 
     if (filters.invoiceId) {
       payments = payments.filter((payment) => payment.invoiceId === filters.invoiceId);
@@ -97,6 +142,8 @@ export class PaymentService {
       );
     }
 
+    payments = await Promise.all(payments.map((payment) => this.enrichPayment(payment)));
+
     return {
       payments,
       pagination: {
@@ -116,17 +163,7 @@ export class PaymentService {
       throw new NotFoundError('Payment not found');
     }
 
-    const meta = parseJson<PaymentMeta>(payment.PayNote);
-    return {
-      _id: payment.PayNum.toString(),
-      patientId: payment.PatNum?.toString() ?? null,
-      invoiceId: meta.invoiceId ?? null,
-      amount: Number(payment.PayAmt) || 0,
-      method: meta.method ?? null,
-      status: meta.status ?? 'completed',
-      paidAt: payment.PayDate ?? null,
-      notes: meta.notes ?? null,
-    };
+    return this.enrichPayment(this.mapPaymentToApi(payment));
   }
 
   async createPayment(
@@ -135,9 +172,14 @@ export class PaymentService {
       invoiceId?: string;
       amount: number;
       method?: string;
+      paymentMethod?: string;
+      paymentSource?: string;
+      referenceNumber?: string;
+      processorFee?: number;
       notes?: string;
       status?: string;
       paidAt?: Date;
+      paymentDate?: string;
     },
     userId: string
   ) {
@@ -145,16 +187,25 @@ export class PaymentService {
       throw new BadRequestError('Payment amount must be greater than zero');
     }
 
+    const resolvedMethod = data.method ?? data.paymentMethod ?? null;
+    const resolvedPaidAt =
+      data.paidAt ?? (data.paymentDate ? new Date(data.paymentDate) : undefined) ?? new Date();
+
     const payNum = await getNextId('payment', 'PayNum');
     const payment = await prisma.payment.create({
       data: {
         PayNum: payNum,
         PatNum: BigInt(data.patientId),
         PayAmt: data.amount,
-        PayDate: data.paidAt ?? new Date(),
+        PayDate: resolvedPaidAt,
         PayNote: buildJson({
           invoiceId: data.invoiceId ?? null,
-          method: data.method ?? null,
+          method: resolvedMethod,
+          paymentMethod: resolvedMethod,
+          paymentSource: data.paymentSource ?? null,
+          referenceNumber: data.referenceNumber ?? null,
+          processorFee: data.processorFee ?? 0,
+          paidAt: resolvedPaidAt.toISOString(),
           status: data.status ?? 'completed',
           notes: data.notes ?? null,
         }),
@@ -164,7 +215,7 @@ export class PaymentService {
 
     await logActivity(userId, 'created', 'payments', payment.PayNum.toString(), undefined, payment);
 
-    return payment;
+    return this.enrichPayment(this.mapPaymentToApi(payment));
   }
 
   async updatePayment(
@@ -204,7 +255,7 @@ export class PaymentService {
 
     await logActivity(userId, 'updated', 'payments', paymentId, payment, updated);
 
-    return updated;
+    return this.enrichPayment(this.mapPaymentToApi(updated));
   }
 
   async deletePayment(paymentId: string, userId: string) {
@@ -250,7 +301,7 @@ export class PaymentService {
 
     await logActivity(userId, 'updated', 'payments', paymentId, payment, updated);
 
-    return updated;
+    return this.enrichPayment(this.mapPaymentToApi(updated));
   }
 
   async getPaymentsByPatient(patientId: string, page = 1, limit = 10) {

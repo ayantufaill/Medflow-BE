@@ -4,7 +4,7 @@ export const insuranceCompanyIdValidator: ValidationChain[] = [
   param('insuranceCompanyId')
     .notEmpty()
     .withMessage('Insurance company ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid insurance company ID format'),
 ];
 
@@ -111,7 +111,7 @@ export const patientInsuranceIdValidator: ValidationChain[] = [
   param('patientInsuranceId')
     .notEmpty()
     .withMessage('Patient insurance ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient insurance ID format'),
 ];
 
@@ -119,7 +119,7 @@ export const createPatientInsuranceValidator: ValidationChain[] = [
   body('insuranceCompanyId')
     .notEmpty()
     .withMessage('Insurance company ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid insurance company ID format'),
   body('policyNumber')
     .trim()
@@ -335,7 +335,7 @@ export const allergyIdValidator: ValidationChain[] = [
   param('allergyId')
     .notEmpty()
     .withMessage('Allergy ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid allergy ID format'),
 ];
 

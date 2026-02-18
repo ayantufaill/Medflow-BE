@@ -4,7 +4,7 @@ export const noteTemplateIdValidator: ValidationChain[] = [
   param('noteTemplateId')
     .notEmpty()
     .withMessage('Note template ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid note template ID format'),
 ];
 

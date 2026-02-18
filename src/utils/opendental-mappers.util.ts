@@ -90,18 +90,30 @@ export const mapContactPreferenceToDb = (value?: string | null): number => {
   }
 };
 
-export const mapAppointmentTypeToApi = (row: appointmenttype) => ({
+export const mapAppointmentTypeToApi = (
+  row: appointmenttype,
+  options?: {
+    description?: string | null;
+    defaultDuration?: number | null;
+    defaultPrice?: number | null;
+    colorCode?: string | null;
+    bufferBefore?: number | null;
+    bufferAfter?: number | null;
+  }
+) => ({
   _id: row.AppointmentTypeNum.toString(),
   name: row.AppointmentTypeName ?? '',
-  description: null,
-  defaultDuration: 0,
-  defaultPrice: 0,
-  colorCode: row.AppointmentTypeColor !== null && row.AppointmentTypeColor !== undefined
-    ? String(row.AppointmentTypeColor)
-    : null,
+  description: options?.description ?? null,
+  defaultDuration: options?.defaultDuration ?? 0,
+  defaultPrice: options?.defaultPrice ?? 0,
+  colorCode:
+    options?.colorCode ??
+    (row.AppointmentTypeColor !== null && row.AppointmentTypeColor !== undefined
+      ? `#${row.AppointmentTypeColor.toString(16).toUpperCase().padStart(6, '0')}`
+      : null),
   requiresAuthorization: Boolean(row.RequiredProcCodesNeeded),
-  bufferBefore: 0,
-  bufferAfter: 0,
+  bufferBefore: options?.bufferBefore ?? 0,
+  bufferAfter: options?.bufferAfter ?? 0,
   isActive: !row.IsHidden,
 });
 
@@ -131,7 +143,19 @@ export const mapServiceToApi = (
   isActive: row.BypassGlobalLock ? false : true,
 });
 
-export const mapPatientToApi = (row: patient) => ({
+export const mapPatientToApi = (
+  row: patient,
+  options?: {
+    emergencyContact?: {
+      name?: string;
+      relationship?: string;
+      phone?: string;
+    } | null;
+    portalAccessEnabled?: boolean;
+    referralSource?: string | null;
+    customFields?: Record<string, unknown>;
+  }
+) => ({
   _id: row.PatNum.toString(),
   patientCode: row.ChartNumber ?? `PAT${row.PatNum.toString()}`,
   userAccountId: null,
@@ -152,15 +176,15 @@ export const mapPatientToApi = (row: patient) => ({
     state: row.State ?? null,
     postalCode: row.Zip ?? null,
   },
-  emergencyContact: null,
+  emergencyContact: options?.emergencyContact ?? null,
   isActive: row.PatStatus === null ? true : row.PatStatus !== 2,
   preferredLanguage: row.Language ?? 'en',
   communicationPreference: mapContactPreferenceFromDb(row.PreferContactMethod),
-  portalAccessEnabled: false,
+  portalAccessEnabled: options?.portalAccessEnabled ?? false,
   lastVisitDate: row.DateFirstVisit ?? null,
-  referralSource: null,
+  referralSource: options?.referralSource ?? null,
   notes: row.AddrNote ?? null,
-  customFields: {},
+  customFields: options?.customFields ?? {},
 });
 
 export const mapProviderToApi = (
@@ -168,28 +192,57 @@ export const mapProviderToApi = (
   options?: {
     specialtyName?: string | null;
     userId?: string | null;
+    user?: {
+      _id: string;
+      firstName?: string | null;
+      lastName?: string | null;
+      email?: string | null;
+    } | null;
+    appointmentBufferMinutes?: number | null;
+    workingHours?: Array<{
+      dayOfWeek: number;
+      startTime: string;
+      endTime: string;
+      isAvailable: boolean;
+    }> | null;
+    maxDailyAppointments?: number | null;
+    consultationFee?: number | null;
+    isAcceptingNewPatients?: boolean | null;
+    telehealthEnabled?: boolean | null;
   }
 ) => ({
   _id: row.ProvNum.toString(),
   providerCode: row.Abbr ?? null,
+  npiNumber: row.NationalProvID ?? null,
+  licenseNumber: row.StateLicense ?? null,
   specialty: options?.specialtyName ? [options.specialtyName] : [],
   title: row.Suffix ?? null,
-  userId: options?.userId
+  userId: options?.user
     ? {
-        _id: options.userId,
-        firstName: row.FName ?? '',
-        lastName: row.LName ?? '',
-        email: null,
+        _id: options.user._id,
+        firstName: options.user.firstName ?? '',
+        lastName: options.user.lastName ?? '',
+        email: options.user.email ?? null,
       }
+    : options?.userId
+      ? {
+          _id: options.userId,
+          firstName: row.FName ?? '',
+          lastName: row.LName ?? '',
+          email: null,
+        }
     : {
         _id: row.ProvNum.toString(),
         firstName: row.FName ?? '',
         lastName: row.LName ?? '',
         email: null,
       },
-  appointmentBufferMinutes: 0,
-  workingHours: [],
-  maxDailyAppointments: null,
+  appointmentBufferMinutes: options?.appointmentBufferMinutes ?? 0,
+  workingHours: options?.workingHours ?? [],
+  maxDailyAppointments: options?.maxDailyAppointments ?? null,
+  consultationFee: options?.consultationFee ?? null,
+  isAcceptingNewPatients: options?.isAcceptingNewPatients ?? true,
+  telehealthEnabled: options?.telehealthEnabled ?? false,
   isActive: !row.IsHidden,
 });
 
@@ -292,6 +345,15 @@ export const mapAppointmentToApi = (
     provider?: provider | null;
     appointmentType?: appointmenttype | null;
     createdBy?: userod | null;
+    requiresInterpreter?: boolean | null;
+    interpreterLanguage?: string | null;
+    insuranceVerified?: boolean | null;
+    copayCollected?: number | null;
+    reminderSent?: boolean | null;
+    customFields?: Record<string, unknown> | null;
+    cancellationReason?: string | null;
+    checkInAt?: Date | null;
+    completedAt?: Date | null;
   }
 ) => {
   const startDateTime = row.AptDateTime ? new Date(row.AptDateTime) : null;
@@ -319,15 +381,15 @@ export const mapAppointmentToApi = (
     status: mapAppointmentStatusFromDb(row.AptStatus),
     chiefComplaint: row.ProcDescript ?? null,
     notes: row.Note ?? null,
-    insuranceVerified: Boolean(row.InsPlan1 || row.InsPlan2),
-    copayCollected: 0,
-    requiresInterpreter: false,
-    interpreterLanguage: null,
-    reminderSent: false,
-    customFields: {},
-    cancellationReason: null,
-    checkInAt: row.DateTimeArrived ?? null,
-    completedAt: row.DateTimeDismissed ?? null,
+    insuranceVerified: options?.insuranceVerified ?? Boolean(row.InsPlan1 || row.InsPlan2),
+    copayCollected: options?.copayCollected ?? 0,
+    requiresInterpreter: options?.requiresInterpreter ?? false,
+    interpreterLanguage: options?.interpreterLanguage ?? null,
+    reminderSent: options?.reminderSent ?? false,
+    customFields: options?.customFields ?? {},
+    cancellationReason: options?.cancellationReason ?? null,
+    checkInAt: options?.checkInAt ?? row.DateTimeArrived ?? null,
+    completedAt: options?.completedAt ?? row.DateTimeDismissed ?? null,
     parentAppointmentId: row.NextAptNum?.toString() ?? null,
     patient: undefined,
     provider: undefined,

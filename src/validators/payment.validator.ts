@@ -4,7 +4,7 @@ export const paymentIdValidator: ValidationChain[] = [
   param('paymentId')
     .notEmpty()
     .withMessage('Payment ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid payment ID format'),
 ];
 
@@ -12,7 +12,7 @@ export const patientIdParamValidator: ValidationChain[] = [
   param('patientId')
     .notEmpty()
     .withMessage('Patient ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
 ];
 
@@ -20,7 +20,7 @@ export const invoiceIdParamValidator: ValidationChain[] = [
   param('invoiceId')
     .notEmpty()
     .withMessage('Invoice ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid invoice ID format'),
 ];
 
@@ -30,11 +30,11 @@ export const paymentSearchValidator: ValidationChain[] = [
   query('search').optional().isString().withMessage('search must be a string'),
   query('patientId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   query('invoiceId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid invoice ID format'),
   query('paymentMethod')
     .optional()
@@ -48,16 +48,16 @@ export const createPaymentValidator: ValidationChain[] = [
   body('invoiceId')
     .notEmpty()
     .withMessage('Invoice ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid invoice ID format'),
   body('patientId')
     .notEmpty()
     .withMessage('Patient ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   body('insuranceCompanyId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid insurance company ID format'),
   body('amount')
     .notEmpty()
@@ -90,7 +90,7 @@ export const applyPaymentValidator: ValidationChain[] = [
   body('invoiceId')
     .notEmpty()
     .withMessage('Invoice ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid invoice ID format'),
   body('amount')
     .notEmpty()

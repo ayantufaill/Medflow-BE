@@ -4,7 +4,7 @@ import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { mapServiceToApi } from '../utils/opendental-mappers.util';
 
-const toBigInt = (value: string): bigint | null => (/^\\d+$/.test(value) ? BigInt(value) : null);
+const toBigInt = (value: string): bigint | null => (/^\d+$/.test(value) ? BigInt(value) : null);
 
 export class ServiceService {
   private async getDefaultFeeSchedNum(): Promise<bigint> {

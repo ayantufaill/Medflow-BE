@@ -3,7 +3,85 @@ import { NotFoundError, ConflictError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 
+const INSURANCE_COMPANY_META_FKEY_TYPE = 214;
+
+type InsuranceCompanyMeta = {
+  email?: string | null;
+};
+
+const parseMeta = (value?: string | null): InsuranceCompanyMeta => {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? (parsed as InsuranceCompanyMeta) : {};
+  } catch {
+    return {};
+  }
+};
+
 export class InsuranceCompanyService {
+  private resolveEmailValue(input: any): string | undefined {
+    if (!input || typeof input !== 'object') return undefined;
+
+    const entries = Object.entries(input as Record<string, unknown>);
+    const match = entries.find(([key]) => key.trim().toLowerCase() === 'email');
+    if (!match) return undefined;
+
+    const value = match[1];
+    if (value === undefined || value === null) return undefined;
+    const normalized = String(value).trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  private async getMetaMap(carrierNums: bigint[]) {
+    if (carrierNums.length === 0) return new Map<string, InsuranceCompanyMeta>();
+    const rows = await prisma.userodpref.findMany({
+      where: {
+        FkeyType: INSURANCE_COMPANY_META_FKEY_TYPE,
+        Fkey: { in: carrierNums },
+      },
+      orderBy: { UserOdPrefNum: 'desc' },
+    });
+
+    const map = new Map<string, InsuranceCompanyMeta>();
+    for (const row of rows) {
+      if (!row.Fkey) continue;
+      const key = row.Fkey.toString();
+      if (map.has(key)) continue;
+      map.set(key, parseMeta(row.ValueString));
+    }
+    return map;
+  }
+
+  private async saveMeta(carrierNum: bigint, meta: InsuranceCompanyMeta) {
+    const existing = await prisma.userodpref.findFirst({
+      where: {
+        FkeyType: INSURANCE_COMPANY_META_FKEY_TYPE,
+        Fkey: carrierNum,
+      },
+      orderBy: { UserOdPrefNum: 'desc' },
+    });
+
+    const valueString = JSON.stringify({ email: meta.email ?? null });
+    if (existing) {
+      await prisma.userodpref.update({
+        where: { UserOdPrefNum: existing.UserOdPrefNum },
+        data: { ValueString: valueString },
+      });
+      return;
+    }
+
+    const nextPrefId = await getNextId('userodpref', 'UserOdPrefNum');
+    await prisma.userodpref.create({
+      data: {
+        UserOdPrefNum: nextPrefId,
+        FkeyType: INSURANCE_COMPANY_META_FKEY_TYPE,
+        Fkey: carrierNum,
+        ValueString: valueString,
+      },
+    });
+  }
+
   /**
    * Get all insurance companies with search, pagination, and status filter
    */
@@ -38,6 +116,7 @@ export class InsuranceCompanyService {
       }),
       prisma.carrier.count({ where }),
     ]);
+    const metaMap = await this.getMetaMap(companies.map((c) => c.CarrierNum));
 
     return {
       companies: companies.map((c) => ({
@@ -49,7 +128,7 @@ export class InsuranceCompanyService {
         city: c.City ?? null,
         state: c.State ?? null,
         zipCode: c.Zip ?? null,
-        email: null,
+        email: metaMap.get(c.CarrierNum.toString())?.email ?? c.TIN ?? null,
         isActive: !c.IsHidden,
       })),
       pagination: {
@@ -72,6 +151,7 @@ export class InsuranceCompanyService {
     if (!company) {
       throw new NotFoundError('Insurance company not found');
     }
+    const metaMap = await this.getMetaMap([company.CarrierNum]);
 
     return {
       _id: company.CarrierNum.toString(),
@@ -82,7 +162,7 @@ export class InsuranceCompanyService {
       city: company.City ?? null,
       state: company.State ?? null,
       zipCode: company.Zip ?? null,
-      email: null,
+      email: metaMap.get(company.CarrierNum.toString())?.email ?? company.TIN ?? null,
       isActive: !company.IsHidden,
     };
   }
@@ -104,6 +184,7 @@ export class InsuranceCompanyService {
     },
     createdBy?: string
   ) {
+    const emailValue = this.resolveEmailValue(data) ?? data.email;
     // Check if company with same name exists
     const existing = await prisma.carrier.findFirst({
       where: { CarrierName: { equals: data.name } },
@@ -135,9 +216,11 @@ export class InsuranceCompanyService {
         City: data.city ?? null,
         State: data.state ?? null,
         Zip: data.zipCode ?? null,
+        TIN: emailValue ?? null,
         IsHidden: data.isActive === false ? 1 : 0,
       },
     });
+    await this.saveMeta(company.CarrierNum, { email: emailValue ?? null });
 
     // Log activity
     if (createdBy) {
@@ -163,7 +246,7 @@ export class InsuranceCompanyService {
       city: company.City ?? null,
       state: company.State ?? null,
       zipCode: company.Zip ?? null,
-      email: null,
+      email: emailValue ?? company.TIN ?? null,
       isActive: !company.IsHidden,
     };
   }
@@ -186,6 +269,7 @@ export class InsuranceCompanyService {
     },
     updatedBy?: string
   ) {
+    const emailValue = this.resolveEmailValue(updates) ?? updates.email;
     const company = await prisma.carrier.findUnique({
       where: { CarrierNum: BigInt(insuranceCompanyId) },
     });
@@ -236,9 +320,14 @@ export class InsuranceCompanyService {
         City: updates.city ?? undefined,
         State: updates.state ?? undefined,
         Zip: updates.zipCode ?? undefined,
+        TIN: emailValue ?? undefined,
         IsHidden: updates.isActive !== undefined ? (updates.isActive ? 0 : 1) : undefined,
       },
     });
+    if (emailValue !== undefined) {
+      await this.saveMeta(updated.CarrierNum, { email: emailValue ?? null });
+    }
+    const metaMap = await this.getMetaMap([updated.CarrierNum]);
 
     // Log activity
     if (updatedBy) {
@@ -264,7 +353,7 @@ export class InsuranceCompanyService {
       city: updated.City ?? null,
       state: updated.State ?? null,
       zipCode: updated.Zip ?? null,
-      email: null,
+      email: metaMap.get(updated.CarrierNum.toString())?.email ?? updated.TIN ?? null,
       isActive: !updated.IsHidden,
     };
   }

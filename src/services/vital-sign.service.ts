@@ -256,7 +256,7 @@ export class VitalSignService {
   async createVitalSign(
     data: {
       patientId: string;
-      appointmentId: string;
+      appointmentId?: string;
       bloodPressureSystolic?: number;
       bloodPressureDiastolic?: number;
       temperature?: number;
@@ -278,19 +278,21 @@ export class VitalSignService {
       throw new NotFoundError('Patient not found');
     }
 
-    const appointment = await prisma.appointment.findUnique({
-      where: { AptNum: BigInt(data.appointmentId) },
-    });
-    if (!appointment) {
-      throw new NotFoundError('Appointment not found');
-    }
+    if (data.appointmentId) {
+      const appointment = await prisma.appointment.findUnique({
+        where: { AptNum: BigInt(data.appointmentId) },
+      });
+      if (!appointment) {
+        throw new NotFoundError('Appointment not found');
+      }
 
-    const existingVitalSign = await prisma.vitalsign.findFirst({
-      where: { Documentation: { contains: `"appointmentId":"${data.appointmentId}"` } },
-    });
+      const existingVitalSign = await prisma.vitalsign.findFirst({
+        where: { Documentation: { contains: `"appointmentId":"${data.appointmentId}"` } },
+      });
 
-    if (existingVitalSign) {
-      throw new ConflictError('Vital signs already recorded for this appointment');
+      if (existingVitalSign) {
+        throw new ConflictError('Vital signs already recorded for this appointment');
+      }
     }
 
     const bmi = this.calculateBMI(data.weight, data.height);
@@ -329,7 +331,7 @@ export class VitalSignService {
       {
         _id: vitalSign.VitalsignNum.toString(),
         patientId: data.patientId,
-        appointmentId: data.appointmentId,
+        appointmentId: data.appointmentId ?? null,
         bloodPressureSystolic: data.bloodPressureSystolic ?? null,
         bloodPressureDiastolic: data.bloodPressureDiastolic ?? null,
         temperature: data.temperature ?? null,
@@ -352,7 +354,7 @@ export class VitalSignService {
     return {
       _id: vitalSign.VitalsignNum.toString(),
       patientId: data.patientId,
-      appointmentId: data.appointmentId,
+      appointmentId: data.appointmentId ?? null,
       bloodPressureSystolic: data.bloodPressureSystolic ?? null,
       bloodPressureDiastolic: data.bloodPressureDiastolic ?? null,
       temperature: data.temperature ?? null,

@@ -70,6 +70,7 @@ export class AppointmentTypeController {
         requiresAuthorization,
         bufferBefore,
         bufferAfter,
+        isActive,
       } = req.body;
 
       const appointmentType = await appointmentTypeService.createAppointmentType(
@@ -82,6 +83,7 @@ export class AppointmentTypeController {
           requiresAuthorization,
           bufferBefore,
           bufferAfter,
+          isActive,
         },
         req.userId
       );
