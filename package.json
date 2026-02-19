@@ -14,6 +14,7 @@
     "seed:all": "tsx src/scripts/seedAll.ts",
     "seed:users": "tsx src/scripts/seedUsers.ts",
     "seed:specialities": "tsx src/scripts/seedSpecialties.ts",
+    "seed:provider-specialties": "tsx src/scripts/seedProviderSpecialties.ts",
     "seed:languages": "tsx src/scripts/seedLanguages.ts",
     "seed:appointment-types": "tsx src/scripts/seedAppointmentTypes.ts",
     "delete:tooth-services": "tsx src/scripts/deleteToothPlantingServices.ts"
