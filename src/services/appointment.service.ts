@@ -151,6 +151,32 @@ async function checkConflicts(
 }
 
 export class AppointmentService {
+  private async resolveAppointmentTypeId(appointmentTypeId?: string): Promise<string> {
+    if (appointmentTypeId) {
+      const appointmentType = await prisma.appointmenttype.findUnique({
+        where: { AppointmentTypeNum: BigInt(appointmentTypeId) },
+      });
+      if (!appointmentType || appointmentType.IsHidden) {
+        throw new NotFoundError('Appointment type not found or inactive');
+      }
+      return appointmentTypeId;
+    }
+
+    const defaultAppointmentType = await prisma.appointmenttype.findFirst({
+      where: { IsHidden: 0 },
+      orderBy: [{ AppointmentTypeName: 'asc' }, { AppointmentTypeNum: 'asc' }],
+      select: { AppointmentTypeNum: true },
+    });
+
+    if (!defaultAppointmentType) {
+      throw new NotFoundError(
+        'No active appointment type found. Please create an active appointment type first'
+      );
+    }
+
+    return defaultAppointmentType.AppointmentTypeNum.toString();
+  }
+
   private async mapAppointmentWithMeta(
     appointment: any,
     options?: {
@@ -686,19 +712,10 @@ export class AppointmentService {
       throw new NotFoundError('Provider not found or inactive');
     }
 
-    // Validate appointment type if provided
-    if (data.appointmentTypeId) {
-      const appointmentType = await prisma.appointmenttype.findUnique({
-        where: { AppointmentTypeNum: BigInt(data.appointmentTypeId) },
-      });
-      if (!appointmentType || appointmentType.IsHidden) {
-        throw new NotFoundError('Appointment type not found or inactive');
-      }
+    const resolvedAppointmentTypeId = await this.resolveAppointmentTypeId(data.appointmentTypeId);
 
-      // Use appointment type duration if not provided
-      if (!data.durationMinutes) {
-        data.durationMinutes = 30;
-      }
+    if (!data.durationMinutes) {
+      data.durationMinutes = 30;
     }
 
     // Check for conflicts (including buffers and room)
@@ -708,7 +725,7 @@ export class AppointmentService {
       data.startTime,
       data.endTime,
       undefined,
-      data.appointmentTypeId,
+      resolvedAppointmentTypeId,
       data.roomId
     );
 
@@ -733,7 +750,7 @@ export class AppointmentService {
         AptNum: nextId,
         PatNum: BigInt(data.patientId),
         ProvNum: BigInt(data.providerId),
-        AppointmentTypeNum: data.appointmentTypeId ? BigInt(data.appointmentTypeId) : null,
+        AppointmentTypeNum: BigInt(resolvedAppointmentTypeId),
         AptDateTime: aptDateTime,
         Pattern: String(durationMinutes),
         ProcDescript: data.chiefComplaint ?? null,

@@ -11,6 +11,7 @@ import {
   portalNotificationIdValidator,
   portalNotificationPreferencesValidator,
   portalPaginationValidator,
+  portalProviderPatientIdValidator,
   portalProfileUpdateValidator,
   portalProviderReplyValidator,
   portalRescheduleAppointmentValidator,
@@ -153,6 +154,12 @@ router.get(
   requireRoles('Provider', 'Doctor', 'Admin'),
   validate(portalThreadIdValidator),
   portalController.getProviderThreadMessages.bind(portalController)
+);
+router.get(
+  '/provider/patients/:patientId/context',
+  requireRoles('Provider', 'Doctor', 'Admin'),
+  validate(portalProviderPatientIdValidator),
+  portalController.getProviderPatientContext.bind(portalController)
 );
 router.post(
   '/provider/messages/reply',

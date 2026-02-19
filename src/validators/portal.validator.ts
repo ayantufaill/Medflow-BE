@@ -185,6 +185,10 @@ export const portalProviderReplyValidator: ValidationChain[] = [
     .withMessage('message must be a string'),
 ];
 
+export const portalProviderPatientIdValidator: ValidationChain[] = [
+  idValidator('patientId', 'Patient ID', 'param'),
+];
+
 export const portalNotificationIdValidator: ValidationChain[] = [
   idValidator('notificationId', 'Notification ID', 'param'),
 ];

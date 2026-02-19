@@ -290,6 +290,29 @@ export class PortalService {
     return form;
   }
 
+  private async assertProviderPatientAccess(providerId: string, patientId: string) {
+    const [appointmentLink, messageLink] = await Promise.all([
+      prisma.appointment.findFirst({
+        where: {
+          ProvNum: BigInt(providerId),
+          PatNum: BigInt(patientId),
+        },
+        select: { AptNum: true },
+      }),
+      prisma.commlog.findFirst({
+        where: {
+          PatNum: BigInt(patientId),
+          Note: { contains: `"providerId":"${providerId}"` },
+        },
+        select: { CommlogNum: true },
+      }),
+    ]);
+
+    if (!appointmentLink && !messageLink) {
+      throw new AuthorizationError('You are not authorized to access this patient context');
+    }
+  }
+
   private async ensureSlotIsAvailable(
     providerId: string,
     date: string,
@@ -1267,6 +1290,87 @@ export class PortalService {
       patientId: patNum.toString(),
       isRead: payload.isRead ?? false,
       createdAt: created.CommDateTime,
+    };
+  }
+
+  async getProviderPatientContext(userId: string, patientId: string) {
+    const context = await this.getProviderContext(userId);
+    await this.assertProviderPatientAccess(context.providerId, patientId);
+
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) },
+    });
+    if (!patient) {
+      throw new NotFoundError('Patient not found');
+    }
+
+    const patientMeta = await getPatientMeta(patient.PatNum);
+    const mappedPatient = mapPatientToApi(patient, {
+      emergencyContact: patientMeta.emergencyContact ?? null,
+      portalAccessEnabled: patientMeta.portalAccessEnabled ?? false,
+      referralSource: patientMeta.referralSource ?? null,
+      customFields: patientMeta.customFields ?? {},
+    });
+
+    const [appointmentsRes, formsRes, clinicalRows] = await Promise.all([
+      this.appointmentSvc.getAllAppointments(1, 10, {
+        patientId,
+        providerId: context.providerId,
+      }),
+      patientFormService.getAllForms(1, 10, patientId),
+      prisma.commlog.findMany({
+        where: {
+          PatNum: BigInt(patientId),
+          Note: { contains: `"providerId":"${context.providerId}"` },
+        },
+        orderBy: { CommDateTime: 'desc' },
+        take: 30,
+      }),
+    ]);
+
+    const clinicalNotes = clinicalRows
+      .map((row) => {
+        const meta = parseJson<Record<string, unknown>>(row.Note);
+        if (!meta || typeof meta !== 'object') return null;
+
+        const noteType = typeof meta.noteType === 'string' ? meta.noteType : '';
+        if (!noteType.trim()) return null;
+        const chiefComplaint =
+          typeof meta.chiefComplaint === 'string' ? meta.chiefComplaint : null;
+        const appointmentId =
+          typeof meta.appointmentId === 'string' ? meta.appointmentId : null;
+        const providerId = typeof meta.providerId === 'string' ? meta.providerId : null;
+        const signedAtRaw = typeof meta.signedAt === 'string' ? meta.signedAt : null;
+        const signedAt = signedAtRaw ? new Date(signedAtRaw) : null;
+
+        const summary =
+          String(chiefComplaint || '').trim() ||
+          String(meta.assessment || '').trim() ||
+          String(meta.subjective || '').trim() ||
+          String(meta.objective || '').trim() ||
+          String(meta.plan || '').trim();
+
+        return {
+          _id: row.CommlogNum.toString(),
+          patientId: row.PatNum?.toString() ?? null,
+          appointmentId,
+          providerId,
+          noteType,
+          chiefComplaint,
+          isSigned: Boolean(meta.isSigned),
+          signedAt,
+          createdAt: row.CommDateTime ?? null,
+          summary: summary || 'Clinical note',
+        };
+      })
+      .filter((note): note is NonNullable<typeof note> => Boolean(note))
+      .slice(0, 10);
+
+    return {
+      patient: mappedPatient,
+      appointments: appointmentsRes.appointments || [],
+      forms: formsRes.forms || [],
+      clinicalNotes,
     };
   }
 

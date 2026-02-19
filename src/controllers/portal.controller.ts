@@ -271,6 +271,17 @@ export class PortalController {
     }
   }
 
+  async getProviderPatientContext(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = requireUserId(req);
+      const patientId = req.params.patientId as string;
+      const result = await portalService.getProviderPatientContext(userId, patientId);
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getNotifications(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = requireUserId(req);
