@@ -32,8 +32,7 @@ export const createPatientValidator: ValidationChain[] = [
     .isLength({ max: 50 })
     .withMessage('Preferred name must be less than 50 characters'),
   body('dateOfBirth')
-    .notEmpty()
-    .withMessage('Date of birth is required')
+    .optional()
     .isISO8601()
     .withMessage('Date of birth must be a valid date'),
   body('gender')
@@ -180,6 +179,14 @@ export const createPatientValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 100 })
     .withMessage('Referral source must be less than 100 characters'),
+  body('lastVisitDate')
+    .optional()
+    .isISO8601()
+    .withMessage('Last visit date must be a valid date'),
+  body('isActive')
+    .optional()
+    .isBoolean()
+    .withMessage('isActive must be a boolean'),
   body('notes')
     .optional()
     .trim()

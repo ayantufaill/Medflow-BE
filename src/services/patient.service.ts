@@ -209,15 +209,18 @@ export class PatientService {
   async findDuplicatePatients(data: {
     firstName: string;
     lastName: string;
-    dateOfBirth: Date;
+    dateOfBirth?: Date;
     phonePrimary?: string;
     email?: string;
   }) {
     const where: any = {
       FName: { equals: data.firstName },
       LName: { equals: data.lastName },
-      Birthdate: data.dateOfBirth,
     };
+
+    if (data.dateOfBirth) {
+      where.Birthdate = data.dateOfBirth;
+    }
 
     if (data.phonePrimary || data.email) {
       where.OR = [];
@@ -245,7 +248,7 @@ export class PatientService {
       lastName: string;
       middleName?: string;
       preferredName?: string;
-      dateOfBirth: Date;
+      dateOfBirth?: Date;
       gender?: string;
       ssn?: string;
       phonePrimary?: string;
@@ -268,6 +271,7 @@ export class PatientService {
       portalAccessEnabled?: boolean;
       userAccountId?: string;
       lastVisitDate?: Date;
+      isActive?: boolean;
       referralSource?: string;
       notes?: string;
       customFields?: Record<string, unknown>;
@@ -278,23 +282,25 @@ export class PatientService {
     const duplicateData: {
       firstName: string;
       lastName: string;
-      dateOfBirth: Date;
+      dateOfBirth?: Date;
       phonePrimary?: string;
       email?: string;
     } = {
       firstName: data.firstName,
       lastName: data.lastName,
-      dateOfBirth: data.dateOfBirth,
     };
+    if (data.dateOfBirth) duplicateData.dateOfBirth = data.dateOfBirth;
     if (data.phonePrimary) duplicateData.phonePrimary = data.phonePrimary;
     if (data.email) duplicateData.email = data.email;
 
-    const duplicates = await this.findDuplicatePatients(duplicateData);
+    if (data.dateOfBirth) {
+      const duplicates = await this.findDuplicatePatients(duplicateData);
 
-    if (duplicates.length > 0) {
-      throw new ConflictError(
-        `A patient already exist with given details. Existing patient code is:  ${String(duplicates[0]?.patientCode || '')}`
-      );
+      if (duplicates.length > 0) {
+        throw new ConflictError(
+          `A patient already exist with given details. Existing patient code is:  ${String(duplicates[0]?.patientCode || '')}`
+        );
+      }
     }
 
     // Generate unique patient code
@@ -310,7 +316,7 @@ export class PatientService {
         LName: data.lastName,
         MiddleI: data.middleName?.trim() || null,
         Preferred: data.preferredName?.trim() || null,
-        Birthdate: data.dateOfBirth,
+        Birthdate: data.dateOfBirth ?? null,
         Gender: mapGenderToDb(data.gender),
         SSN: data.ssn && data.ssn.trim() ? data.ssn.replace(/-/g, '').trim() : null,
         WirelessPhone: data.phonePrimary?.trim() || null,
@@ -324,7 +330,7 @@ export class PatientService {
         Zip: data.address?.postalCode?.trim() || null,
         Language: data.preferredLanguage?.trim() || 'en',
         PreferContactMethod: mapContactPreferenceToDb(data.communicationPreference),
-        PatStatus: 0,
+        PatStatus: data.isActive === false ? 2 : 0,
         DateFirstVisit: data.lastVisitDate ?? null,
         AddrNote: data.notes?.trim() || null,
       },
