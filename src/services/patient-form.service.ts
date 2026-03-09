@@ -21,6 +21,9 @@ type FormMeta = {
   templateId?: string;
   status?: string;
   submittedAt?: string;
+  requestId?: string;
+  sourceSection?: string;
+  submittedByRole?: string;
 };
 
 export class PatientFormService {
@@ -49,6 +52,9 @@ export class PatientFormService {
           formData: meta.formData ?? null,
           status: meta.status ?? 'submitted',
           submittedAt: meta.submittedAt ? new Date(meta.submittedAt) : row.CommDateTime ?? null,
+          requestId: meta.requestId ?? null,
+          sourceSection: meta.sourceSection ?? null,
+          submittedByRole: meta.submittedByRole ?? null,
         };
       }),
       pagination: {
@@ -76,6 +82,9 @@ export class PatientFormService {
       formData: meta.formData ?? null,
       status: meta.status ?? 'submitted',
       submittedAt: meta.submittedAt ? new Date(meta.submittedAt) : row.CommDateTime ?? null,
+      requestId: meta.requestId ?? null,
+      sourceSection: meta.sourceSection ?? null,
+      submittedByRole: meta.submittedByRole ?? null,
     };
   }
 
@@ -84,6 +93,9 @@ export class PatientFormService {
     updates: {
       templateId?: string;
       formData?: any;
+      requestId?: string;
+      sourceSection?: string;
+      submittedByRole?: string;
     }
   ) {
     const row = await prisma.commlog.findFirst({
@@ -103,6 +115,9 @@ export class PatientFormService {
       formData: updates.formData ?? meta.formData ?? {},
       status: meta.status ?? 'submitted',
       submittedAt: meta.submittedAt ?? nowIso,
+      requestId: updates.requestId ?? meta.requestId,
+      sourceSection: updates.sourceSection ?? meta.sourceSection,
+      submittedByRole: updates.submittedByRole ?? meta.submittedByRole,
     };
 
     await prisma.commlog.update({
@@ -119,10 +134,20 @@ export class PatientFormService {
       formData: nextMeta.formData ?? null,
       status: nextMeta.status ?? 'submitted',
       submittedAt: nextMeta.submittedAt ? new Date(nextMeta.submittedAt) : row.CommDateTime ?? null,
+      requestId: nextMeta.requestId ?? null,
+      sourceSection: nextMeta.sourceSection ?? null,
+      submittedByRole: nextMeta.submittedByRole ?? null,
     };
   }
 
-  async createForm(data: { patientId: string; formData: any; templateId?: string }) {
+  async createForm(data: {
+    patientId: string;
+    formData: any;
+    templateId?: string;
+    requestId?: string;
+    sourceSection?: string;
+    submittedByRole?: string;
+  }) {
     const nextId = await getNextId('formpat', 'FormPatNum');
     await prisma.formpat.create({
       data: {
@@ -139,6 +164,9 @@ export class PatientFormService {
       templateId: data.templateId,
       status: 'submitted',
       submittedAt: new Date().toISOString(),
+      requestId: data.requestId,
+      sourceSection: data.sourceSection,
+      submittedByRole: data.submittedByRole,
     };
 
     const commlogNum = await getNextId('commlog', 'CommlogNum');

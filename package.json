@@ -17,7 +17,8 @@
     "seed:provider-specialties": "tsx src/scripts/seedProviderSpecialties.ts",
     "seed:languages": "tsx src/scripts/seedLanguages.ts",
     "seed:appointment-types": "tsx src/scripts/seedAppointmentTypes.ts",
-    "delete:tooth-services": "tsx src/scripts/deleteToothPlantingServices.ts"
+    "delete:tooth-services": "tsx src/scripts/deleteToothPlantingServices.ts",
+    "schema:map": "node scripts/generateSchemaRelationMap.mjs"
   },
   "keywords": [],
   "author": "",

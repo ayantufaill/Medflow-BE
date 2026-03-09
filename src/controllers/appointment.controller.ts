@@ -417,6 +417,203 @@ export class AppointmentController {
     }
   }
 
+  async getAppointmentWorkspace(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const result = await appointmentService.getAppointmentWorkspace(appointmentId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateAppointmentWorkspace(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const result = await appointmentService.updateAppointmentWorkspace(
+        appointmentId,
+        req.body,
+        req.userId
+      );
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getAppointmentProcedures(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const result = await appointmentService.getAppointmentProcedures(appointmentId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async addAppointmentProcedure(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const result = await appointmentService.addAppointmentProcedure(
+        appointmentId,
+        req.body,
+        req.userId
+      );
+      res.status(201).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getAppointmentTags(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const result = await appointmentService.getAppointmentTags(appointmentId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async addAppointmentTag(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const result = await appointmentService.addAppointmentTag(appointmentId, req.body, req.userId);
+      res.status(201).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async addAppointmentLabOrder(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const result = await appointmentService.addAppointmentLabOrder(
+        appointmentId,
+        req.body,
+        req.userId
+      );
+      res.status(201).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async checkOutAppointment(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const appointment = await appointmentService.checkOutAppointment(appointmentId, req.userId);
+      res.status(200).json({
+        success: true,
+        data: { appointment },
+        message: 'Patient checked out successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createAppointmentCommunication(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const result = await appointmentService.createAppointmentCommunication(
+        appointmentId,
+        req.body,
+        req.userId
+      );
+      res.status(201).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async deleteAppointment(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.userId) {

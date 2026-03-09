@@ -12,6 +12,11 @@ import {
   appointmentQueryValidator,
   scheduleQueryValidator,
   availableSlotsQueryValidator,
+  appointmentWorkspaceValidator,
+  appointmentProcedureValidator,
+  appointmentTagValidator,
+  appointmentLabOrderValidator,
+  appointmentCommunicationValidator,
 } from '../validators/appointment.validator';
 
 const router = Router();
@@ -39,6 +44,59 @@ router.get(
   '/:appointmentId',
   validate(appointmentIdValidator),
   appointmentController.getAppointmentById.bind(appointmentController)
+);
+
+router.get(
+  '/:appointmentId/workspace',
+  validate(appointmentIdValidator),
+  appointmentController.getAppointmentWorkspace.bind(appointmentController)
+);
+
+router.patch(
+  '/:appointmentId/workspace',
+  requireRoles('Front Desk', 'Admin'),
+  validate([...appointmentIdValidator, ...appointmentWorkspaceValidator]),
+  appointmentController.updateAppointmentWorkspace.bind(appointmentController)
+);
+
+router.get(
+  '/:appointmentId/procedures',
+  validate(appointmentIdValidator),
+  appointmentController.getAppointmentProcedures.bind(appointmentController)
+);
+
+router.post(
+  '/:appointmentId/procedures',
+  requireRoles('Front Desk', 'Admin'),
+  validate([...appointmentIdValidator, ...appointmentProcedureValidator]),
+  appointmentController.addAppointmentProcedure.bind(appointmentController)
+);
+
+router.get(
+  '/:appointmentId/tags',
+  validate(appointmentIdValidator),
+  appointmentController.getAppointmentTags.bind(appointmentController)
+);
+
+router.post(
+  '/:appointmentId/tags',
+  requireRoles('Front Desk', 'Admin'),
+  validate([...appointmentIdValidator, ...appointmentTagValidator]),
+  appointmentController.addAppointmentTag.bind(appointmentController)
+);
+
+router.post(
+  '/:appointmentId/lab-orders',
+  requireRoles('Front Desk', 'Admin'),
+  validate([...appointmentIdValidator, ...appointmentLabOrderValidator]),
+  appointmentController.addAppointmentLabOrder.bind(appointmentController)
+);
+
+router.post(
+  '/:appointmentId/communications/send',
+  requireRoles('Front Desk', 'Admin'),
+  validate([...appointmentIdValidator, ...appointmentCommunicationValidator]),
+  appointmentController.createAppointmentCommunication.bind(appointmentController)
 );
 
 // Get provider schedule (day/week/month view)
@@ -102,6 +160,13 @@ router.post(
   requireRoles('Front Desk', 'Admin', 'Nursing'),
   validate(appointmentIdValidator),
   appointmentController.checkInAppointment.bind(appointmentController)
+);
+
+router.post(
+  '/:appointmentId/check-out',
+  requireRoles('Front Desk', 'Admin', 'Nursing'),
+  validate(appointmentIdValidator),
+  appointmentController.checkOutAppointment.bind(appointmentController)
 );
 
 // Delete appointment (soft delete)

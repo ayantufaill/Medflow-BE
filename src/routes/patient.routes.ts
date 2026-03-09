@@ -2,14 +2,22 @@ import { Router } from 'express';
 import { body } from 'express-validator';
 import { patientController } from '../controllers/patient.controller';
 import { patientInsuranceController } from '../controllers/patient-insurance.controller';
+import { insurancePlanController } from '../controllers/insurance-plan.controller';
 import { allergyController } from '../controllers/allergy.controller';
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
   patientIdValidator,
+  patientRequestIdValidator,
   createPatientValidator,
   updatePatientValidator,
   patientSearchValidator,
+  patientWorkspaceMetaValidator,
+  createPatientUpdateRequestValidator,
+  applyPatientReconciliationValidator,
+  patientCommunicationValidator,
+  patientMedicalHistoryValidator,
+  patientDentalHistoryValidator,
 } from '../validators/patient.validator';
 import {
   createPatientInsuranceValidator,
@@ -80,6 +88,48 @@ router.get(
   patientController.getPatientById.bind(patientController)
 );
 
+router.get(
+  '/:patientId/workspace',
+  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
+  validate(patientIdValidator),
+  patientController.getPatientWorkspace.bind(patientController)
+);
+
+router.get(
+  '/:patientId/medical-history',
+  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
+  validate(patientIdValidator),
+  patientController.getStructuredMedicalHistory.bind(patientController)
+);
+
+router.patch(
+  '/:patientId/medical-history',
+  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
+  validate([...patientIdValidator, ...patientMedicalHistoryValidator]),
+  patientController.updateStructuredMedicalHistory.bind(patientController)
+);
+
+router.get(
+  '/:patientId/dental-history',
+  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
+  validate(patientIdValidator),
+  patientController.getDentalHistory.bind(patientController)
+);
+
+router.patch(
+  '/:patientId/dental-history',
+  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
+  validate([...patientIdValidator, ...patientDentalHistoryValidator]),
+  patientController.updateDentalHistory.bind(patientController)
+);
+
+router.patch(
+  '/:patientId/workspace',
+  requireRoles('Receptionist', 'Admin'),
+  validate([...patientIdValidator, ...patientWorkspaceMetaValidator]),
+  patientController.updatePatientWorkspaceMeta.bind(patientController)
+);
+
 // Update patient
 router.put(
   '/:patientId',
@@ -94,6 +144,97 @@ router.delete(
   requireRoles('Admin'),
   validate(patientIdValidator),
   patientController.deletePatient.bind(patientController)
+);
+
+router.get(
+  '/:patientId/update-requests',
+  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
+  validate(patientIdValidator),
+  patientController.getPatientUpdateRequests.bind(patientController)
+);
+
+router.post(
+  '/:patientId/update-requests',
+  requireRoles('Receptionist', 'Admin'),
+  validate([...patientIdValidator, ...createPatientUpdateRequestValidator]),
+  patientController.createPatientUpdateRequest.bind(patientController)
+);
+
+router.get(
+  '/:patientId/reconciliation/:requestId',
+  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
+  validate([...patientIdValidator, ...patientRequestIdValidator]),
+  patientController.getPatientReconciliation.bind(patientController)
+);
+
+router.post(
+  '/:patientId/reconciliation/:requestId/apply',
+  requireRoles('Receptionist', 'Admin'),
+  validate([...patientIdValidator, ...patientRequestIdValidator, ...applyPatientReconciliationValidator]),
+  patientController.applyPatientReconciliation.bind(patientController)
+);
+
+router.get(
+  '/:patientId/audit-history',
+  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
+  validate(patientIdValidator),
+  patientController.getPatientAuditHistory.bind(patientController)
+);
+
+router.get(
+  '/:patientId/communications',
+  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
+  validate(patientIdValidator),
+  patientController.getPatientCommunications.bind(patientController)
+);
+
+router.post(
+  '/:patientId/communications/send',
+  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
+  validate([...patientIdValidator, ...patientCommunicationValidator]),
+  patientController.createPatientCommunication.bind(patientController)
+);
+
+router.get(
+  '/:patientId/coverages',
+  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  validate(patientIdValidator),
+  insurancePlanController.getPatientCoverages.bind(insurancePlanController)
+);
+
+router.post(
+  '/:patientId/coverages',
+  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  validate([...patientIdValidator, ...createPatientInsuranceValidator]),
+  insurancePlanController.createPatientCoverage.bind(insurancePlanController)
+);
+
+router.get(
+  '/:patientId/reports/summary',
+  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
+  validate(patientIdValidator),
+  patientController.getPatientReportSummary.bind(patientController)
+);
+
+router.get(
+  '/:patientId/reports/showcase',
+  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
+  validate(patientIdValidator),
+  patientController.getPatientReportShowcase.bind(patientController)
+);
+
+router.get(
+  '/:patientId/reports/concerns',
+  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
+  validate(patientIdValidator),
+  patientController.getPatientReportConcerns.bind(patientController)
+);
+
+router.post(
+  '/:patientId/reports/refresh',
+  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
+  validate(patientIdValidator),
+  patientController.refreshPatientReports.bind(patientController)
 );
 
 // Patient Insurance routes

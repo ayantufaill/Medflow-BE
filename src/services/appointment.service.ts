@@ -14,6 +14,7 @@ import {
   mapUser,
   setAppointmentMeta,
 } from '../utils/opendental-auth.util';
+import { patientWorkspaceService } from './patient-workspace.service';
 
 /**
  * Generate unique appointment code (e.g., APT001, APT002, etc.)
@@ -61,6 +62,11 @@ const toDateTime = (date: Date, time: string): Date => {
   const dt = new Date(date);
   dt.setHours(hours, minutes, 0, 0);
   return dt;
+};
+
+const normalizeText = (value?: string | null) => {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
 };
 
 /**
@@ -151,6 +157,45 @@ async function checkConflicts(
 }
 
 export class AppointmentService {
+  private async mapProcedure(proc: any) {
+    return {
+      _id: proc.ProcNum.toString(),
+      appointmentId: proc.AptNum?.toString() ?? null,
+      patientId: proc.PatNum?.toString() ?? null,
+      codeNum: proc.CodeNum?.toString() ?? null,
+      code: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? proc.OldCode ?? null,
+      description:
+        proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ??
+        proc.BillingNote ??
+        'Procedure',
+      tooth: proc.ToothNum ?? null,
+      surface: proc.Surf ?? null,
+      status: proc.ProcStatus ?? null,
+      quantity: proc.UnitQty ?? 1,
+      fee: proc.ProcFee ?? 0,
+      providerId: proc.ProvNum?.toString() ?? null,
+      createdAt: proc.SecDateEntry ?? null,
+    };
+  }
+
+  private mapLabOrder(labCase: any) {
+    return {
+      _id: labCase.LabCaseNum.toString(),
+      appointmentId: labCase.AptNum?.toString() ?? null,
+      patientId: labCase.PatNum?.toString() ?? null,
+      laboratoryId: labCase.LaboratoryNum?.toString() ?? null,
+      providerId: labCase.ProvNum?.toString() ?? null,
+      dueDate: labCase.DateTimeDue ?? null,
+      createdAt: labCase.DateTimeCreated ?? null,
+      sentAt: labCase.DateTimeSent ?? null,
+      receivedAt: labCase.DateTimeRecd ?? null,
+      checkedAt: labCase.DateTimeChecked ?? null,
+      instructions: labCase.Instructions ?? null,
+      labFee: labCase.LabFee ?? 0,
+      invoiceNumber: labCase.InvoiceNum ?? null,
+    };
+  }
+
   private async resolveAppointmentTypeId(appointmentTypeId?: string): Promise<string> {
     if (appointmentTypeId) {
       const appointmentType = await prisma.appointmenttype.findUnique({
@@ -192,7 +237,7 @@ export class AppointmentService {
       dbStatus === 'completed' || dbStatus === 'cancelled' || dbStatus === 'no_show'
         ? dbStatus
         : (meta.status ?? dbStatus);
-    const mapped = mapAppointmentToApi(appointment, {
+    const mapped: any = mapAppointmentToApi(appointment, {
       ...options,
       requiresInterpreter: meta.requiresInterpreter ?? false,
       interpreterLanguage: meta.interpreterLanguage ?? null,
@@ -205,6 +250,14 @@ export class AppointmentService {
       completedAt: meta.completedAt ? new Date(meta.completedAt) : appointment.DateTimeDismissed ?? null,
     });
     mapped.status = resolvedStatus;
+    mapped.referralSource = meta.referralSource ?? null;
+    mapped.reminderPreferences = meta.reminderPreferences ?? {
+      dontSendReminders: false,
+    };
+    mapped.tags = meta.tags ?? [];
+    mapped.participants = meta.participants ?? [];
+    mapped.workspaceNotes = meta.workspaceNotes ?? [];
+    mapped.systemEvents = meta.systemEvents ?? [];
 
     if (options?.provider) {
       const providerMeta = await getProviderMeta(options.provider.ProvNum);
@@ -772,6 +825,12 @@ export class AppointmentService {
       copayCollected: data.copayCollected ?? 0,
       reminderSent: data.reminderSent ?? false,
       customFields: data.customFields ?? {},
+      reminderPreferences: { dontSendReminders: false },
+      tags: [],
+      participants: [],
+      workspaceNotes: [],
+      systemEvents: [],
+      referralSource: null,
       cancellationReason: null,
       checkInAt: null,
       completedAt: null,
@@ -914,7 +973,16 @@ export class AppointmentService {
       copayCollected: updates.copayCollected ?? existingMeta.copayCollected ?? 0,
       reminderSent: updates.reminderSent ?? existingMeta.reminderSent ?? false,
       customFields: updates.customFields ?? existingMeta.customFields ?? {},
-      cancellationReason: updates.cancellationReason ?? existingMeta.cancellationReason ?? null,
+      cancellationReason:
+        updates.status === 'completed'
+          ? null
+          : updates.cancellationReason ?? existingMeta.cancellationReason ?? null,
+      reminderPreferences: existingMeta.reminderPreferences ?? { dontSendReminders: false },
+      tags: existingMeta.tags ?? [],
+      participants: existingMeta.participants ?? [],
+      workspaceNotes: existingMeta.workspaceNotes ?? [],
+      systemEvents: existingMeta.systemEvents ?? [],
+      referralSource: existingMeta.referralSource ?? null,
       checkInAt:
         updates.status === 'checked_in'
           ? new Date().toISOString()
@@ -1148,6 +1216,374 @@ export class AppointmentService {
     );
 
     return { message: 'Appointment deleted successfully' };
+  }
+
+  async getAppointmentWorkspace(appointmentId: string) {
+    const appointment = await prisma.appointment.findUnique({
+      where: { AptNum: BigInt(appointmentId) },
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        appointmenttype: true,
+        userod: true,
+      },
+    });
+    if (!appointment) {
+      throw new NotFoundError('Appointment not found');
+    }
+
+    const [meta, procedures, labOrders] = await Promise.all([
+      getAppointmentMeta(appointment.AptNum),
+      prisma.procedurelog.findMany({
+        where: { AptNum: appointment.AptNum },
+        include: { procedurecode_procedurelog_CodeNumToprocedurecode: true },
+        orderBy: { ProcNum: 'asc' },
+      }),
+      prisma.labcase.findMany({
+        where: { AptNum: appointment.AptNum },
+        orderBy: { LabCaseNum: 'desc' },
+      }),
+    ]);
+
+    return {
+      appointment: await this.mapAppointmentWithMeta(appointment, {
+        patient: appointment.patient,
+        provider: appointment.provider_appointment_ProvNumToprovider,
+        appointmentType: appointment.appointmenttype,
+        createdBy: appointment.userod,
+      }),
+      workspace: {
+        referralSource: meta?.referralSource ?? null,
+        reminderPreferences: meta?.reminderPreferences ?? { dontSendReminders: false },
+        tags: meta?.tags ?? [],
+        participants: meta?.participants ?? [],
+        notes: meta?.workspaceNotes ?? [],
+        systemEvents: meta?.systemEvents ?? [],
+        procedures: await Promise.all(procedures.map((proc) => this.mapProcedure(proc))),
+        labOrders: labOrders.map((labCase) => this.mapLabOrder(labCase)),
+      },
+    };
+  }
+
+  async updateAppointmentWorkspace(
+    appointmentId: string,
+    updates: {
+      referralSource?: string | null;
+      reminderPreferences?: Record<string, unknown>;
+      tags?: Array<Record<string, unknown> | string>;
+      participants?: Array<Record<string, unknown>>;
+      notes?: Array<Record<string, unknown>>;
+      systemEvents?: Array<Record<string, unknown>>;
+      customFields?: Record<string, unknown>;
+    },
+    updatedBy: string
+  ) {
+    const appointment = await prisma.appointment.findUnique({
+      where: { AptNum: BigInt(appointmentId) },
+    });
+    if (!appointment) {
+      throw new NotFoundError('Appointment not found');
+    }
+    const existingMeta = await getAppointmentMeta(appointment.AptNum);
+    await setAppointmentMeta(appointment.AptNum, {
+      ...existingMeta,
+      referralSource:
+        updates.referralSource !== undefined
+          ? normalizeText(updates.referralSource)
+          : existingMeta.referralSource ?? null,
+      reminderPreferences:
+        updates.reminderPreferences ?? existingMeta.reminderPreferences ?? { dontSendReminders: false },
+      tags: updates.tags ?? existingMeta.tags ?? [],
+      participants: updates.participants ?? existingMeta.participants ?? [],
+      workspaceNotes: updates.notes ?? existingMeta.workspaceNotes ?? [],
+      systemEvents: updates.systemEvents ?? existingMeta.systemEvents ?? [],
+      customFields: updates.customFields ?? existingMeta.customFields ?? {},
+    });
+
+    await logActivity(
+      updatedBy,
+      'updated',
+      'appointment_workspace',
+      appointmentId,
+      existingMeta,
+      await getAppointmentMeta(appointment.AptNum),
+      undefined,
+      undefined,
+      'low'
+    );
+
+    return this.getAppointmentWorkspace(appointmentId);
+  }
+
+  async getAppointmentProcedures(appointmentId: string) {
+    const appointment = await prisma.appointment.findUnique({
+      where: { AptNum: BigInt(appointmentId) },
+    });
+    if (!appointment) {
+      throw new NotFoundError('Appointment not found');
+    }
+    const procedures = await prisma.procedurelog.findMany({
+      where: { AptNum: appointment.AptNum },
+      include: { procedurecode_procedurelog_CodeNumToprocedurecode: true },
+      orderBy: { ProcNum: 'asc' },
+    });
+    return {
+      procedures: await Promise.all(procedures.map((proc) => this.mapProcedure(proc))),
+    };
+  }
+
+  async addAppointmentProcedure(
+    appointmentId: string,
+    data: {
+      code?: string;
+      codeNum?: string;
+      description: string;
+      tooth?: string;
+      surface?: string;
+      fee?: number;
+      quantity?: number;
+      status?: string;
+      providerId?: string;
+    },
+    userId: string
+  ) {
+    const appointment = await prisma.appointment.findUnique({
+      where: { AptNum: BigInt(appointmentId) },
+    });
+    if (!appointment) {
+      throw new NotFoundError('Appointment not found');
+    }
+
+    let procedureCode = null;
+    if (data.codeNum) {
+      procedureCode = await prisma.procedurecode.findUnique({
+        where: { CodeNum: BigInt(data.codeNum) },
+      });
+    } else if (data.code) {
+      procedureCode = await prisma.procedurecode.findFirst({
+        where: { ProcCode: data.code },
+      });
+    }
+
+    const procNum = await getNextId('procedurelog', 'ProcNum');
+    const procedure = await prisma.procedurelog.create({
+      data: {
+        ProcNum: procNum,
+        PatNum: appointment.PatNum,
+        AptNum: appointment.AptNum,
+        ProcDate: appointment.AptDateTime ?? new Date(),
+        ProcFee: data.fee ?? 0,
+        UnitQty: data.quantity ?? 1,
+        ProcStatus: data.status ? Number.parseInt(data.status, 10) || 1 : 1,
+        ProvNum: data.providerId ? BigInt(data.providerId) : appointment.ProvNum,
+        CodeNum: procedureCode?.CodeNum ?? (data.codeNum ? BigInt(data.codeNum) : null),
+        OldCode: data.code ?? procedureCode?.ProcCode ?? null,
+        ToothNum: normalizeText(data.tooth),
+        Surf: normalizeText(data.surface),
+        BillingNote: data.description,
+        SecUserNumEntry: BigInt(userId),
+        SecDateEntry: new Date(),
+      },
+      include: { procedurecode_procedurelog_CodeNumToprocedurecode: true },
+    });
+
+    return {
+      procedure: await this.mapProcedure(procedure),
+    };
+  }
+
+  async getAppointmentTags(appointmentId: string) {
+    const appointment = await prisma.appointment.findUnique({
+      where: { AptNum: BigInt(appointmentId) },
+    });
+    if (!appointment) {
+      throw new NotFoundError('Appointment not found');
+    }
+    const meta = await getAppointmentMeta(appointment.AptNum);
+    return { tags: meta?.tags ?? [] };
+  }
+
+  async addAppointmentTag(
+    appointmentId: string,
+    data: { tag: string; color?: string },
+    userId: string
+  ) {
+    const appointment = await prisma.appointment.findUnique({
+      where: { AptNum: BigInt(appointmentId) },
+    });
+    if (!appointment) {
+      throw new NotFoundError('Appointment not found');
+    }
+    const meta = await getAppointmentMeta(appointment.AptNum);
+    const nextTags = [
+      ...(meta?.tags ?? []),
+      {
+        id: `tag-${Date.now()}`,
+        label: data.tag,
+        color: data.color ?? null,
+        addedBy: userId,
+        addedAt: new Date().toISOString(),
+      },
+    ];
+    await setAppointmentMeta(appointment.AptNum, {
+      ...(meta ?? {}),
+      tags: nextTags,
+    });
+    return { tags: nextTags };
+  }
+
+  async addAppointmentLabOrder(
+    appointmentId: string,
+    data: {
+      laboratoryId?: string;
+      dueDate?: string;
+      instructions?: string;
+      labFee?: number;
+      invoiceNumber?: string;
+    },
+    userId: string
+  ) {
+    const appointment = await prisma.appointment.findUnique({
+      where: { AptNum: BigInt(appointmentId) },
+    });
+    if (!appointment) {
+      throw new NotFoundError('Appointment not found');
+    }
+
+    const labCaseNum = await getNextId('labcase', 'LabCaseNum');
+    const labCase = await prisma.labcase.create({
+      data: {
+        LabCaseNum: labCaseNum,
+        AptNum: appointment.AptNum,
+        PlannedAptNum: appointment.AptNum,
+        PatNum: appointment.PatNum,
+        ProvNum: appointment.ProvNum,
+        LaboratoryNum: data.laboratoryId ? BigInt(data.laboratoryId) : null,
+        DateTimeDue: data.dueDate ? new Date(data.dueDate) : null,
+        DateTimeCreated: new Date(),
+        Instructions: normalizeText(data.instructions),
+        LabFee: data.labFee ?? 0,
+        InvoiceNum: normalizeText(data.invoiceNumber),
+      },
+    });
+
+    const meta = await getAppointmentMeta(appointment.AptNum);
+    await setAppointmentMeta(appointment.AptNum, {
+      ...(meta ?? {}),
+      systemEvents: [
+        ...(meta?.systemEvents ?? []),
+        {
+          id: `event-${Date.now()}`,
+          type: 'lab_order_created',
+          message: 'Lab order created',
+          createdAt: new Date().toISOString(),
+          createdBy: userId,
+        },
+      ],
+    });
+
+    return { labOrder: this.mapLabOrder(labCase) };
+  }
+
+  async checkOutAppointment(appointmentId: string, checkedOutBy: string) {
+    const appointment = await prisma.appointment.findUnique({
+      where: { AptNum: BigInt(appointmentId) },
+    });
+    if (!appointment) {
+      throw new NotFoundError('Appointment not found');
+    }
+
+    const currentStatus = mapAppointmentStatusFromDb(appointment.AptStatus);
+    if (currentStatus === 'cancelled') {
+      throw new BadRequestError('Cannot check out a cancelled appointment');
+    }
+    if (currentStatus === 'completed') {
+      throw new BadRequestError('Appointment is already checked out');
+    }
+
+    const oldData = await this.mapAppointmentWithMeta(appointment);
+    const updated = await prisma.appointment.update({
+      where: { AptNum: BigInt(appointmentId) },
+      data: {
+        AptStatus: mapAppointmentStatusToDb('completed'),
+        DateTimeDismissed: new Date(),
+      },
+    });
+    const existingMeta = await getAppointmentMeta(updated.AptNum);
+    await setAppointmentMeta(updated.AptNum, {
+      ...existingMeta,
+      status: 'completed',
+      completedAt:
+        updated.DateTimeDismissed?.toISOString() ?? new Date().toISOString(),
+      cancellationReason: null,
+    });
+
+    await logActivity(
+      checkedOutBy,
+      'updated',
+      'appointments',
+      appointmentId,
+      oldData,
+      await this.mapAppointmentWithMeta(updated),
+      undefined,
+      undefined,
+      'low'
+    );
+
+    return this.mapAppointmentWithMeta(updated);
+  }
+
+  async createAppointmentCommunication(
+    appointmentId: string,
+    data: {
+      patientId?: string;
+      channel: 'text' | 'email' | 'call_note' | 'review_request' | 'welcome' | 'portal_invite' | 'quick_payment' | 'update_request';
+      message: string;
+      subject?: string;
+    },
+    userId: string
+  ) {
+    const appointment = await prisma.appointment.findUnique({
+      where: { AptNum: BigInt(appointmentId) },
+    });
+    if (!appointment) {
+      throw new NotFoundError('Appointment not found');
+    }
+    const patientId = data.patientId ?? appointment.PatNum?.toString();
+    if (!patientId) {
+      throw new BadRequestError('Appointment does not have a patient');
+    }
+
+    await patientWorkspaceService.createCommunication(
+      patientId,
+      {
+        appointmentId,
+        channel: data.channel,
+        message: data.message,
+        subject: data.subject,
+      },
+      userId
+    );
+
+    const meta = await getAppointmentMeta(appointment.AptNum);
+    await setAppointmentMeta(appointment.AptNum, {
+      ...(meta ?? {}),
+      systemEvents: [
+        ...(meta?.systemEvents ?? []),
+        {
+          id: `event-${Date.now()}`,
+          type: 'communication',
+          channel: data.channel,
+          message: data.message,
+          createdAt: new Date().toISOString(),
+          createdBy: userId,
+        },
+      ],
+    });
+
+    return {
+      success: true,
+    };
   }
 }
 

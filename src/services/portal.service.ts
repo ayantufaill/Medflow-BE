@@ -4,6 +4,7 @@ import { patientInsuranceService } from './patient-insurance.service';
 import { patientFormService } from './patient-form.service';
 import { notificationService } from './notification.service';
 import { providerService } from './provider.service';
+import { patientWorkspaceService } from './patient-workspace.service';
 import {
   getPatientMeta,
   mapUser,
@@ -978,6 +979,7 @@ export class PortalService {
   async getPendingForms(userId: string) {
     const context = await this.getPatientContext(userId);
     const submitted = await patientFormService.getAllForms(1, 200, context.patientId);
+    const updateRequests = await patientWorkspaceService.getUpdateRequests(context.patientId);
 
     const submittedTemplateIds = new Set(
       (submitted.forms || [])
@@ -985,10 +987,26 @@ export class PortalService {
         .filter((templateId): templateId is string => Boolean(templateId))
     );
 
+    const requestedForms = (updateRequests.updateRequests || [])
+      .filter((request: any) => request.status === 'pending')
+      .flatMap((request: any) =>
+        (request.sections || []).map((section: string) => ({
+          templateId: section,
+          name: section
+            .split('-')
+            .map((part: string) => part.charAt(0).toUpperCase() + part.slice(1))
+            .join(' '),
+          description: `Requested by office on ${new Date(request.sentAt).toLocaleDateString()}`,
+          requestId: request._id,
+          sourceSection: section,
+        }))
+      );
+
     return {
-      pendingForms: PENDING_FORM_TEMPLATES.filter(
-        (template) => !submittedTemplateIds.has(template.templateId)
-      ),
+      pendingForms: [
+        ...PENDING_FORM_TEMPLATES.filter((template) => !submittedTemplateIds.has(template.templateId)),
+        ...requestedForms,
+      ],
     };
   }
 
@@ -996,6 +1014,8 @@ export class PortalService {
     userId: string,
     data: {
       templateId?: string;
+      requestId?: string;
+      sourceSection?: string;
       formData: Record<string, unknown>;
     }
   ) {
@@ -1005,7 +1025,19 @@ export class PortalService {
       patientId: context.patientId,
       templateId: data.templateId,
       formData: data.formData,
+      requestId: data.requestId,
+      sourceSection: data.sourceSection,
+      submittedByRole: 'patient',
     });
+
+    if (data.requestId) {
+      await patientWorkspaceService.markUpdateRequestSubmitted(
+        context.patientId,
+        data.requestId,
+        form._id,
+        userId
+      );
+    }
 
     await notificationService.createNotification({
       userId,
@@ -1028,6 +1060,8 @@ export class PortalService {
     formId: string,
     data: {
       templateId?: string;
+      requestId?: string;
+      sourceSection?: string;
       formData: Record<string, unknown>;
     }
   ) {
@@ -1037,7 +1071,19 @@ export class PortalService {
     const form = await patientFormService.updateForm(formId, {
       templateId: data.templateId,
       formData: data.formData,
+      requestId: data.requestId,
+      sourceSection: data.sourceSection,
+      submittedByRole: 'patient',
     });
+
+    if (data.requestId) {
+      await patientWorkspaceService.markUpdateRequestSubmitted(
+        context.patientId,
+        data.requestId,
+        form._id,
+        userId
+      );
+    }
 
     return form;
   }

@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { patientService } from '../services/patient.service';
+import { patientWorkspaceService } from '../services/patient-workspace.service';
 import { logActivityFromRequest } from '../utils/activity-logger.util';
 
 export class PatientController {
@@ -187,6 +188,337 @@ export class PatientController {
       }
       
       const result = await patientService.deletePatient(patientId, req.userId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPatientWorkspace(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID is required' } });
+      }
+      const patient = await patientWorkspaceService.getPatientWorkspace(patientId);
+      res.status(200).json({
+        success: true,
+        data: { patient },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getStructuredMedicalHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID is required' } });
+      }
+      const result = await patientService.getStructuredMedicalHistory(patientId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getDentalHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID is required' } });
+      }
+      const result = await patientService.getDentalHistory(patientId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateStructuredMedicalHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID is required' } });
+      }
+      const result = await patientService.updateStructuredMedicalHistory(patientId, req.body, req.userId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateDentalHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID is required' } });
+      }
+      const result = await patientService.updateDentalHistory(patientId, req.body, req.userId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updatePatientWorkspaceMeta(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID is required' } });
+      }
+      const patient = await patientWorkspaceService.updatePatientWorkspaceMeta(
+        patientId,
+        req.body,
+        req.userId
+      );
+      res.status(200).json({
+        success: true,
+        data: { patient },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPatientUpdateRequests(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID is required' } });
+      }
+      const result = await patientWorkspaceService.getUpdateRequests(patientId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createPatientUpdateRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID is required' } });
+      }
+      const result = await patientWorkspaceService.createUpdateRequest(
+        patientId,
+        req.body,
+        req.userId
+      );
+      res.status(201).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPatientReconciliation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId, requestId } = req.params;
+      if (!patientId || !requestId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID and request ID are required' } });
+      }
+      const result = await patientWorkspaceService.getReconciliation(patientId, requestId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async applyPatientReconciliation(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { patientId, requestId } = req.params;
+      if (!patientId || !requestId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID and request ID are required' } });
+      }
+      const result = await patientWorkspaceService.applyReconciliation(
+        patientId,
+        requestId,
+        req.body,
+        req.userId
+      );
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPatientAuditHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID is required' } });
+      }
+      const result = await patientWorkspaceService.getAuditHistory(patientId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPatientCommunications(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID is required' } });
+      }
+      const result = await patientWorkspaceService.getCommunications(patientId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createPatientCommunication(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID is required' } });
+      }
+      const result = await patientWorkspaceService.createCommunication(
+        patientId,
+        req.body,
+        req.userId
+      );
+      res.status(201).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPatientReportSummary(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID is required' } });
+      }
+      const result = await patientWorkspaceService.getReportSummary(patientId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPatientReportShowcase(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID is required' } });
+      }
+      const result = await patientWorkspaceService.getReportShowcase(patientId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPatientReportConcerns(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID is required' } });
+      }
+      const result = await patientWorkspaceService.getReportConcerns(patientId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async refreshPatientReports(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID is required' } });
+      }
+      const result = await patientWorkspaceService.refreshReportSnapshots(patientId, req.userId);
       res.status(200).json({
         success: true,
         data: result,

@@ -159,6 +159,8 @@ export const portalSendMessageValidator: ValidationChain[] = [
 
 export const portalSubmitFormValidator: ValidationChain[] = [
   body('templateId').optional().isString().withMessage('templateId must be a string'),
+  body('requestId').optional().isString().withMessage('requestId must be a string'),
+  body('sourceSection').optional().isString().withMessage('sourceSection must be a string'),
   body('formData').notEmpty().withMessage('formData is required').isObject().withMessage('formData must be an object'),
 ];
 
@@ -168,6 +170,8 @@ export const portalFormIdValidator: ValidationChain[] = [
 
 export const portalUpdateFormValidator: ValidationChain[] = [
   body('templateId').optional().isString().withMessage('templateId must be a string'),
+  body('requestId').optional().isString().withMessage('requestId must be a string'),
+  body('sourceSection').optional().isString().withMessage('sourceSection must be a string'),
   body('formData').notEmpty().withMessage('formData is required').isObject().withMessage('formData must be an object'),
 ];
 

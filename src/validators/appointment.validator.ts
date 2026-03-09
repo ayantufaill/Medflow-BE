@@ -259,3 +259,146 @@ export const availableSlotsQueryValidator: ValidationChain[] = [
     .isInt({ min: 5 })
     .withMessage('Duration must be at least 5 minutes'),
 ];
+
+export const appointmentWorkspaceValidator: ValidationChain[] = [
+  body('referralSource')
+    .optional()
+    .isString()
+    .withMessage('referralSource must be a string'),
+  body('reminderPreferences')
+    .optional()
+    .isObject()
+    .withMessage('reminderPreferences must be an object'),
+  body('participants')
+    .optional()
+    .isArray()
+    .withMessage('participants must be an array'),
+  body('participants.*.providerId')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('participants.providerId must be a numeric ID'),
+  body('participants.*.role')
+    .optional()
+    .isString()
+    .withMessage('participants.role must be a string'),
+  body('participants.*.minutes')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('participants.minutes must be a non-negative integer'),
+  body('notes')
+    .optional()
+    .isArray()
+    .withMessage('notes must be an array'),
+  body('notes.*.message')
+    .optional()
+    .isString()
+    .withMessage('notes.message must be a string'),
+  body('systemEvents')
+    .optional()
+    .isArray()
+    .withMessage('systemEvents must be an array'),
+  body('systemEvents.*.message')
+    .optional()
+    .isString()
+    .withMessage('systemEvents.message must be a string'),
+  body('customFields')
+    .optional()
+    .isObject()
+    .withMessage('customFields must be an object'),
+];
+
+export const appointmentProcedureValidator: ValidationChain[] = [
+  body('code')
+    .optional()
+    .isString()
+    .withMessage('code must be a string'),
+  body('codeNum')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('codeNum must be a numeric ID'),
+  body('description')
+    .notEmpty()
+    .withMessage('description is required')
+    .isString()
+    .withMessage('description must be a string'),
+  body('tooth')
+    .optional()
+    .isString()
+    .withMessage('tooth must be a string'),
+  body('surface')
+    .optional()
+    .isString()
+    .withMessage('surface must be a string'),
+  body('fee')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('fee must be a non-negative number'),
+  body('quantity')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('quantity must be at least 1'),
+  body('status')
+    .optional()
+    .isString()
+    .withMessage('status must be a string'),
+  body('providerId')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('providerId must be a numeric ID'),
+];
+
+export const appointmentTagValidator: ValidationChain[] = [
+  body('tag')
+    .notEmpty()
+    .withMessage('tag is required')
+    .isString()
+    .withMessage('tag must be a string'),
+  body('color')
+    .optional()
+    .isString()
+    .withMessage('color must be a string'),
+];
+
+export const appointmentLabOrderValidator: ValidationChain[] = [
+  body('laboratoryId')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('laboratoryId must be a numeric ID'),
+  body('dueDate')
+    .optional()
+    .isISO8601()
+    .withMessage('dueDate must be a valid ISO 8601 date'),
+  body('instructions')
+    .optional()
+    .isString()
+    .withMessage('instructions must be a string'),
+  body('labFee')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('labFee must be a non-negative number'),
+  body('invoiceNumber')
+    .optional()
+    .isString()
+    .withMessage('invoiceNumber must be a string'),
+];
+
+export const appointmentCommunicationValidator: ValidationChain[] = [
+  body('patientId')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('patientId must be a numeric ID'),
+  body('channel')
+    .notEmpty()
+    .withMessage('channel is required')
+    .isIn(['text', 'email', 'call_note', 'review_request', 'welcome', 'portal_invite', 'quick_payment', 'update_request'])
+    .withMessage('Invalid channel'),
+  body('message')
+    .notEmpty()
+    .withMessage('message is required')
+    .isString()
+    .withMessage('message must be a string'),
+  body('subject')
+    .optional()
+    .isString()
+    .withMessage('subject must be a string'),
+];

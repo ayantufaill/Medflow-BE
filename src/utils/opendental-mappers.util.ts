@@ -154,17 +154,43 @@ export const mapPatientToApi = (
     portalAccessEnabled?: boolean;
     referralSource?: string | null;
     customFields?: Record<string, unknown>;
+    preferredDentistId?: string | null;
+    preferredHygienistId?: string | null;
+    headOfCommunication?: Record<string, unknown> | null;
+    household?: Array<Record<string, unknown>>;
+    spouseInfo?: Record<string, unknown> | null;
+    patientFlags?: string[];
+    financialResponsibility?: Record<string, unknown> | null;
+    sexAtBirth?: string | null;
+    genderIdentity?: string | null;
+    maritalStatus?: string | null;
+    occupation?: string | null;
+    employer?: string | null;
+    guardianEmployer?: string | null;
+    workAddress?: {
+      country?: string | null;
+      line1?: string | null;
+      line2?: string | null;
+      city?: string | null;
+      state?: string | null;
+      postalCode?: string | null;
+    } | null;
+    patientProfileType?: string | null;
+    medicalHistory?: Record<string, unknown> | null;
   }
 ) => ({
   _id: row.PatNum.toString(),
   patientCode: row.ChartNumber ?? `PAT${row.PatNum.toString()}`,
   userAccountId: null,
+  title: row.Title ?? null,
   firstName: row.FName ?? '',
   middleName: row.MiddleI ?? null,
   lastName: row.LName ?? '',
   preferredName: row.Preferred ?? null,
   dateOfBirth: row.Birthdate ?? null,
   gender: mapGenderFromDb(row.Gender),
+  sexAtBirth: options?.sexAtBirth ?? mapGenderFromDb(row.Gender),
+  genderIdentity: options?.genderIdentity ?? mapGenderFromDb(row.Gender),
   ssn: row.SSN ?? null,
   phonePrimary: row.WirelessPhone ?? row.HmPhone ?? null,
   phoneSecondary: row.WkPhone ?? null,
@@ -175,6 +201,7 @@ export const mapPatientToApi = (
     city: row.City ?? null,
     state: row.State ?? null,
     postalCode: row.Zip ?? null,
+    country: row.Country ?? null,
   },
   emergencyContact: options?.emergencyContact ?? null,
   isActive: row.PatStatus === null ? true : row.PatStatus !== 2,
@@ -185,6 +212,20 @@ export const mapPatientToApi = (
   referralSource: options?.referralSource ?? null,
   notes: row.AddrNote ?? null,
   customFields: options?.customFields ?? {},
+  preferredDentistId: options?.preferredDentistId ?? null,
+  preferredHygienistId: options?.preferredHygienistId ?? null,
+  headOfCommunication: options?.headOfCommunication ?? null,
+  household: options?.household ?? [],
+  spouseInfo: options?.spouseInfo ?? null,
+  patientFlags: options?.patientFlags ?? [],
+  financialResponsibility: options?.financialResponsibility ?? null,
+  maritalStatus: options?.maritalStatus ?? null,
+  occupation: options?.occupation ?? null,
+  employer: options?.employer ?? null,
+  guardianEmployer: options?.guardianEmployer ?? null,
+  workAddress: options?.workAddress ?? null,
+  patientProfileType: options?.patientProfileType ?? 'adult',
+  medicalHistory: options?.medicalHistory ?? null,
 });
 
 export const mapProviderToApi = (
