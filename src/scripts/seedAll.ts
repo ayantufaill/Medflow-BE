@@ -16,6 +16,7 @@ const scripts = [
   'src/scripts/seedAppointmentTypes.ts',
   'src/scripts/seedLanguages.ts',
   'src/scripts/seedInsuranceCompanies.ts',
+  'src/scripts/seedPatients.ts',
 ];
 
 for (const script of scripts) {
