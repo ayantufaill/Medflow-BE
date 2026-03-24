@@ -8,10 +8,17 @@ import {
   mapPatientToApi,
 } from '../utils/opendental-mappers.util';
 import { getPatientMeta, setPatientMeta } from '../utils/opendental-auth.util';
-import { parseCommlogJson } from '../utils/commlog-json.util';
+import {
+  mapProcedureStatusToText,
+  normalizeMedicalHistoryRows,
+  normalizeDentalHistorySections,
+  buildVisitDates,
+} from '../utils/patient-history.util';
+import { DEFAULT_MEDICAL_HISTORY, DEFAULT_DENTAL_HISTORY } from './patient-history-defaults';
 import { patientWorkspaceService } from './patient-workspace.service';
 import { clinicalNoteService } from './clinical-note.service';
 
+// Builds options object for mapPatientToApi from stored patient meta
 const buildPatientMapperOptions = (patientMeta: Record<string, any>) => ({
   emergencyContact: patientMeta.emergencyContact ?? null,
   portalAccessEnabled: patientMeta.portalAccessEnabled ?? false,
@@ -35,205 +42,6 @@ const buildPatientMapperOptions = (patientMeta: Record<string, any>) => ({
   medicalHistory: patientMeta.medicalHistory ?? null,
 });
 
-const DEFAULT_MEDICAL_HISTORY = {
-  generalInfo: {
-    healthEstimate: '',
-    physicianName: '',
-    physicianSpecialty: '',
-    lastExamDate: null,
-    purpose: '',
-    weight: '',
-    weightUnit: 'LBS',
-    height: '',
-    heightUnit: 'FT/IN',
-  },
-  premed: {
-    requiresPremed: false,
-  },
-  risk: {
-    asaClass: 'ASA 1',
-    level: 'low',
-  },
-  review: {
-    reviewedWithPatient: false,
-    reviewedAt: null,
-    signatureUrl: null,
-  },
-  sections: [
-    {
-      id: 'hospitalization',
-      number: 1,
-      group: 'medical',
-      question: 'hospitalization for illness or injury',
-      answer: 'no',
-      comment: '',
-      doctorNote: '',
-      additionalInfo: [],
-    },
-    {
-      id: 'supplements',
-      number: 50,
-      group: 'medical',
-      question: 'taking any of the following Supplements',
-      answer: 'no',
-      comment: '',
-      doctorNote: '',
-      additionalInfo: [],
-    },
-  ],
-  medications: [],
-  supplements: [],
-};
-
-const DEFAULT_DENTAL_HISTORY = {
-  generalInfo: {
-    mouthCondition: '',
-    previousDentist: '',
-    recentExamDate: null,
-    recentTreatmentDate: null,
-    immediateConcern: '',
-    patientSince: '',
-    recentXrayDate: null,
-    dentistVisitFrequency: '6mo',
-  },
-  personalHistory: [
-    {
-      id: 'fearful-treatment',
-      number: 1,
-      question: 'Are you fearful of dental treatment?',
-      answer: 'No',
-      scale: '',
-      note: '',
-      additionalInfo: '',
-    },
-    {
-      id: 'unfavorable-experience',
-      number: 2,
-      question: 'Have you had an unfavorable dental experience?',
-      answer: 'No',
-      scale: '',
-      note: '',
-      additionalInfo: '',
-    },
-    {
-      id: 'treatment-complications',
-      number: 3,
-      question: 'Have you ever had complications from past dental treatment?',
-      answer: 'No',
-      scale: '',
-      note: '',
-      additionalInfo: '',
-    },
-    {
-      id: 'grind-clench',
-      number: 4,
-      question: 'Do you grind or clench your teeth?',
-      answer: 'No',
-      scale: '',
-      note: '',
-      additionalInfo: '',
-    },
-    {
-      id: 'oral-surgery',
-      number: 5,
-      question: 'Have you had any oral surgery?',
-      answer: 'No',
-      scale: '',
-      note: '',
-      additionalInfo: '',
-    },
-    {
-      id: 'missing-teeth-trauma',
-      number: 6,
-      question: 'Have you had any teeth removed or missing teeth due to trauma?',
-      answer: 'No',
-      scale: '',
-      note: '',
-      additionalInfo: '',
-    },
-  ],
-  review: {
-    reviewedWithPatient: false,
-    reviewedAt: null,
-    signatureDataUrl: null,
-  },
-};
-
-const mapProcedureStatusToText = (status?: number | null) => {
-  switch (status) {
-    case 1:
-      return 'Completed';
-    case 2:
-      return 'Treatment Planned';
-    case 3:
-      return 'Existing Current';
-    case 4:
-      return 'Existing Other';
-    case 5:
-      return 'Referred Out';
-    case 6:
-      return 'Deleted';
-    case 7:
-      return 'Condition';
-    default:
-      return 'Unknown';
-  }
-};
-
-const normalizeMedicalHistoryRows = (rows: any[] = []) =>
-  rows.map((row, index) => ({
-    id: row?.id ?? String(index + 1),
-    drug: typeof row?.drug === 'string' ? row.drug : '',
-    dosage: typeof row?.dosage === 'string' ? row.dosage : '',
-    purpose: typeof row?.purpose === 'string' ? row.purpose : '',
-  }));
-
-const normalizeDentalHistorySections = (rows: any[] = []) =>
-  rows.map((row, index) => ({
-    id: row?.id ?? `section-${index + 1}`,
-    number: row?.number ?? index + 1,
-    question: typeof row?.question === 'string' ? row.question : '',
-    answer: typeof row?.answer === 'string' ? row.answer : '',
-    scale:
-      typeof row?.scale === 'string' || typeof row?.scale === 'number'
-        ? String(row.scale)
-        : '',
-    note: typeof row?.note === 'string' ? row.note : '',
-    additionalInfo: typeof row?.additionalInfo === 'string' ? row.additionalInfo : '',
-  }));
-
-const getReadableCommlogNote = (value?: string | null) => {
-  const raw = value?.trim();
-  if (!raw) return null;
-  if (!raw.startsWith('{')) return raw;
-
-  const meta = parseCommlogJson<Record<string, unknown> & { type?: string }>(raw);
-  if (!meta?.type) return raw;
-
-  switch (meta.type) {
-    case 'patient_audit_event':
-    case 'patient_report_snapshot':
-      return null;
-    case 'patient_update_request':
-      return typeof meta.note === 'string' && meta.note.trim()
-        ? meta.note
-        : 'Patient update request';
-    case 'patient_communication':
-      return (
-        (typeof meta.subject === 'string' && meta.subject.trim()) ||
-        (typeof meta.message === 'string' && meta.message.trim()) ||
-        'Patient communication'
-      );
-    default:
-      return (
-        (typeof meta.message === 'string' && meta.message.trim()) ||
-        (typeof meta.note === 'string' && meta.note.trim()) ||
-        (typeof meta.action === 'string' && meta.action.trim()) ||
-        raw
-      );
-  }
-};
-
 /**
  * Generate unique patient code (e.g., PAT001, PAT002, etc.)
  */
@@ -244,7 +52,7 @@ async function generatePatientCode(): Promise<string> {
 
 export class PatientService {
   /**
-   * Get all patients with pagination and search
+   * Get all patients with pagination, search, status, and DOB range filters
    */
   async getAllPatients(
     page = 1,
@@ -262,7 +70,7 @@ export class PatientService {
       const searchTerms = search.trim().split(/\s+/).filter(term => term.length > 0);
 
       if (searchTerms.length > 1) {
-        // Multiple words - try both orders for name
+        // Multiple words - try both orders for name matching
         const firstNameSearch = searchTerms[0];
         const lastNameSearch = searchTerms.slice(1).join(' ');
         const reverseFirstNameSearch = searchTerms[searchTerms.length - 1];
@@ -291,7 +99,7 @@ export class PatientService {
           { AddrNote: { contains: search } },
         ];
       } else {
-        // Single word - search in all fields
+        // Single word - search across all relevant fields
         where.OR = [
           { ChartNumber: { contains: search } },
           { Email: { contains: search } },
@@ -305,7 +113,7 @@ export class PatientService {
       }
     }
 
-    // Status filter
+    // Status filter (PatStatus: 0 = active, 2 = inactive)
     if (status !== undefined && status !== '') {
       if (status === 'active') {
         where.PatStatus = 0;
@@ -359,7 +167,7 @@ export class PatientService {
   }
 
   /**
-   * Get patient by ID
+   * Get patient by ID (SSN is excluded from the response)
    */
   async getPatientById(patientId: string) {
     const patient = await prisma.patient.findUnique({
@@ -500,7 +308,7 @@ export class PatientService {
     },
     createdBy?: string
   ) {
-    // Check for duplicates
+    // Check for duplicates before creating
     const duplicateData: {
       firstName: string;
       lastName: string;
@@ -527,7 +335,7 @@ export class PatientService {
     const patientCode = await generatePatientCode();
     const nextId = await getNextId('patient', 'PatNum');
 
-    // Create patient
+    // Create patient record
     const patient = await prisma.patient.create({
       data: {
         PatNum: nextId,
@@ -801,6 +609,10 @@ export class PatientService {
     return this.getPatientByIdWithSSN(updated.PatNum.toString());
   }
 
+  /**
+   * Get the full structured medical history for a patient, merged with
+   * live clinical timeline data (allergies, vitals, prescriptions, etc.)
+   */
   async getStructuredMedicalHistory(patientId: string) {
     const patient = await prisma.patient.findUnique({
       where: { PatNum: BigInt(patientId) },
@@ -826,23 +638,9 @@ export class PatientService {
       ...(patientMeta.medicalHistory ?? {}),
     };
 
-    const visitDates = (Array.from(
-      new Set(
-        (timelineData.timeline || [])
-          .map((item: any) => item?.date)
-          .filter((date: string | null | undefined) => date)
-          .map((date: string) => new Date(date).toISOString().split('T')[0])
-      )
-    ) as string[])
-      .sort((a, b) => new Date(a).getTime() - new Date(b).getTime())
-      .map((date: string) => ({
-        date,
-        label: new Date(date).toLocaleDateString('en-US', {
-          month: 'short',
-          day: '2-digit',
-          year: 'numeric',
-        }),
-      }));
+    const visitDates = buildVisitDates(
+      (timelineData.timeline || []).map((item: any) => ({ date: item?.date }))
+    );
 
     return {
       patient: mapPatientToApi(patient, buildPatientMapperOptions(patientMeta)),
@@ -859,6 +657,10 @@ export class PatientService {
     };
   }
 
+  /**
+   * Update the structured medical history for a patient.
+   * Merges the incoming payload with the existing history and persists via patient meta.
+   */
   async updateStructuredMedicalHistory(
     patientId: string,
     payload: Record<string, any>,
@@ -932,6 +734,10 @@ export class PatientService {
     return this.getStructuredMedicalHistory(patientId);
   }
 
+  /**
+   * Get the full dental history for a patient, including procedures, clinical notes,
+   * x-rays, and personal history questionnaire. Also returns a combined timeline.
+   */
   async getDentalHistory(patientId: string) {
     const patient = await prisma.patient.findUnique({
       where: { PatNum: BigInt(patientId) },
@@ -1015,6 +821,7 @@ export class PatientService {
       })
       .filter((note): note is { _id: string; date: Date | string | null; note: string; noteType: string } => Boolean(note));
 
+    // Filter documents to x-rays only
     const xrays = documents
       .filter((doc) => {
         const name = `${doc.Description || ''} ${doc.FileName || ''}`.toLowerCase();
@@ -1027,6 +834,7 @@ export class PatientService {
         url: doc.FileName ?? null,
       }));
 
+    // Build a unified timeline sorted newest-first
     const timeline = [
       ...mappedProcedures.map((item) => ({
         _id: `procedure-${item._id}`,
@@ -1065,25 +873,7 @@ export class PatientService {
       },
     };
 
-    const normalizedVisitDates = timeline
-      .map((item) => item?.date)
-      .filter((date): date is string | Date => Boolean(date))
-      .map((date) => new Date(date).toISOString().split('T')[0]);
-
-    const uniqueVisitDates = Array.from(new Set(normalizedVisitDates)).filter(
-      (date): date is string => typeof date === 'string' && date.length > 0
-    );
-
-    const visitDates = uniqueVisitDates
-      .sort((a: string, b: string) => new Date(a).getTime() - new Date(b).getTime())
-      .map((date: string) => ({
-        date,
-        label: new Date(date).toLocaleDateString('en-US', {
-          month: 'short',
-          day: '2-digit',
-          year: 'numeric',
-        }),
-      }));
+    const visitDates = buildVisitDates(timeline.map((item) => ({ date: item.date })));
 
     return {
       patient: mapPatientToApi(patient, buildPatientMapperOptions(patientMeta)),
@@ -1110,6 +900,10 @@ export class PatientService {
     };
   }
 
+  /**
+   * Update dental history general info, personal history questionnaire, and review status.
+   * Merges with existing data and persists via patient meta.
+   */
   async updateDentalHistory(
     patientId: string,
     payload: Record<string, any>,
@@ -1172,7 +966,7 @@ export class PatientService {
   }
 
   /**
-   * Delete patient (soft delete by setting isActive to false)
+   * Delete patient (soft delete by setting PatStatus to 2 / inactive)
    */
   async deletePatient(patientId: string, deletedBy?: string) {
     const patient = await prisma.patient.findUnique({
