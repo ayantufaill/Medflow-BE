@@ -24,7 +24,42 @@ const router = Router();
 // All user routes require authentication
 router.use(authenticate);
 
-// Create user (Admin only) - creates inactive user and sends verification link
+/**
+ * @swagger
+ * /users:
+ *   post:
+ *     summary: Create new user (Admin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - firstName
+ *               - lastName
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               firstName:
+ *                 type: string
+ *               lastName:
+ *                 type: string
+ *               roleId:
+ *                 type: integer
+ *     responses:
+ *       201:
+ *         description: User created (inactive, verification email sent)
+ *       403:
+ *         description: Admin only
+ *       409:
+ *         description: Email already exists
+ */
 router.post(
   '/',
   requireRoles('Admin'),
@@ -32,7 +67,33 @@ router.post(
   userController.createUser.bind(userController)
 );
 
-// Get all users (Admin only)
+/**
+ * @swagger
+ * /users:
+ *   get:
+ *     summary: Get all users (Admin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [active, inactive] }
+ *     responses:
+ *       200:
+ *         description: List of users
+ *       403:
+ *         description: Admin only
+ */
 router.get(
   '/',
   requireRoles('Admin'),
@@ -40,7 +101,32 @@ router.get(
   userController.getAllUsers.bind(userController)
 );
 
-// Get users by role name (Admin only)
+/**
+ * @swagger
+ * /users/by-role/{roleName}:
+ *   get:
+ *     summary: Get users by role name (Admin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: roleName
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [active, inactive] }
+ *     responses:
+ *       200:
+ *         description: List of users with specified role
+ */
 router.get(
   '/by-role/:roleName',
   requireRoles('Admin'),
@@ -53,35 +139,166 @@ router.get(
   userController.getUsersByRoleName.bind(userController)
 );
 
-// Get user by ID
+/**
+ * @swagger
+ * /users/{userId}:
+ *   get:
+ *     summary: Get user by ID
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: User details
+ *       404:
+ *         description: User not found
+ */
 router.get(
   '/:userId',
   validate(userIdValidator),
   userController.getUserById.bind(userController)
 );
 
-// Update user (Admin can update any user, users can only update themselves)
+/**
+ * @swagger
+ * /users/{userId}:
+ *   put:
+ *     summary: Update user (Admin can update any, users can update themselves)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               firstName:
+ *                 type: string
+ *               lastName:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: User updated
+ *       404:
+ *         description: User not found
+ */
 router.put(
   '/:userId',
   validate([...userIdValidator, ...updateUserValidator]),
   userController.updateUser.bind(userController)
 );
 
-// Update own profile
+/**
+ * @swagger
+ * /users/profile/me:
+ *   put:
+ *     summary: Update own profile
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               firstName:
+ *                 type: string
+ *               lastName:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Profile updated
+ */
 router.put(
   '/profile/me',
   validate(updateUserValidator),
   userController.updateProfile.bind(userController)
 );
 
-// Change password
+/**
+ * @swagger
+ * /users/profile/change-password:
+ *   post:
+ *     summary: Change own password
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - currentPassword
+ *               - newPassword
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *                 format: password
+ *               newPassword:
+ *                 type: string
+ *                 format: password
+ *     responses:
+ *       200:
+ *         description: Password changed
+ *       401:
+ *         description: Current password incorrect
+ */
 router.post(
   '/profile/change-password',
   validate(changePasswordValidator),
   userController.changePassword.bind(userController)
 );
 
-// Assign role (Admin only)
+/**
+ * @swagger
+ * /users/{userId}/roles:
+ *   post:
+ *     summary: Assign role to user (Admin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - roleId
+ *             properties:
+ *               roleId:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Role assigned
+ *       403:
+ *         description: Admin only
+ */
 router.post(
   '/:userId/roles',
   requireRoles('Admin'),
@@ -89,7 +306,29 @@ router.post(
   userController.assignRole.bind(userController)
 );
 
-// Remove role (Admin only)
+/**
+ * @swagger
+ * /users/{userId}/roles/{roleId}:
+ *   delete:
+ *     summary: Remove role from user (Admin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: roleId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Role removed
+ *       403:
+ *         description: Admin only
+ */
 router.delete(
   '/:userId/roles/:roleId',
   requireRoles('Admin'),
@@ -97,7 +336,25 @@ router.delete(
   userController.removeRole.bind(userController)
 );
 
-// Delete user (Admin only)
+/**
+ * @swagger
+ * /users/{userId}:
+ *   delete:
+ *     summary: Delete user (Admin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: User deleted
+ *       403:
+ *         description: Admin only
+ */
 router.delete(
   '/:userId',
   requireRoles('Admin'),
@@ -105,7 +362,25 @@ router.delete(
   userController.deleteUser.bind(userController)
 );
 
-// Activate user (Admin only)
+/**
+ * @swagger
+ * /users/{userId}/activate:
+ *   patch:
+ *     summary: Activate user (Admin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: User activated
+ *       403:
+ *         description: Admin only
+ */
 router.patch(
   '/:userId/activate',
   requireRoles('Admin'),
@@ -113,7 +388,25 @@ router.patch(
   userController.activateUser.bind(userController)
 );
 
-// Deactivate user (Admin only)
+/**
+ * @swagger
+ * /users/{userId}/deactivate:
+ *   patch:
+ *     summary: Deactivate user (Admin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: User deactivated
+ *       403:
+ *         description: Admin only
+ */
 router.patch(
   '/:userId/deactivate',
   requireRoles('Admin'),
@@ -121,21 +414,77 @@ router.patch(
   userController.deactivateUser.bind(userController)
 );
 
-// Get user permissions
+/**
+ * @swagger
+ * /users/{userId}/permissions:
+ *   get:
+ *     summary: Get user permissions
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: List of user permissions
+ */
 router.get(
   '/:userId/permissions',
   validate(userIdValidator),
   roleController.getUserPermissions.bind(roleController)
 );
 
-// Get user roles
+/**
+ * @swagger
+ * /users/{userId}/roles:
+ *   get:
+ *     summary: Get user roles
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: List of user roles
+ */
 router.get(
   '/:userId/roles',
   validate(userIdValidator),
   roleController.getUserRoles.bind(roleController)
 );
 
-// Get user activity (Admin only)
+/**
+ * @swagger
+ * /users/{userId}/activity:
+ *   get:
+ *     summary: Get user activity log (Admin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: User activity log
+ *       403:
+ *         description: Admin only
+ */
 router.get(
   '/:userId/activity',
   requireRoles('Admin'),
@@ -143,7 +492,31 @@ router.get(
   userController.getUserActivity.bind(userController)
 );
 
-// Get user login history (Admin only)
+/**
+ * @swagger
+ * /users/{userId}/login-history:
+ *   get:
+ *     summary: Get user login history (Admin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: User login history
+ *       403:
+ *         description: Admin only
+ */
 router.get(
   '/:userId/login-history',
   requireRoles('Admin'),
@@ -152,4 +525,3 @@ router.get(
 );
 
 export default router;
-

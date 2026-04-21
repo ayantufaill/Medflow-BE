@@ -16,7 +16,29 @@ const router = Router();
 // All practice info routes require authentication
 router.use(authenticate);
 
-// Get all practice info records (Admin only)
+/**
+ * @swagger
+ * /practice-info:
+ *   get:
+ *     summary: Get all practice info records (Admin only)
+ *     tags: [Practice Info]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: List of practice info records
+ *       403:
+ *         description: Admin only
+ *       401:
+ *         description: Unauthorized
+ */
 router.get(
   '/',
   requireRoles('Admin'),
@@ -24,14 +46,43 @@ router.get(
   practiceInfoController.getAllPracticeInfo.bind(practiceInfoController)
 );
 
-// Get single practice info (most recent) (Admin only)
+/**
+ * @swagger
+ * /practice-info/current:
+ *   get:
+ *     summary: Get current practice info (most recent)
+ *     tags: [Practice Info]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Current practice information
+ */
 router.get(
   '/current',
   requireRoles('Admin'),
   practiceInfoController.getPracticeInfo.bind(practiceInfoController)
 );
 
-// Get practice info by ID (Admin only)
+/**
+ * @swagger
+ * /practice-info/{practiceInfoId}:
+ *   get:
+ *     summary: Get practice info by ID (Admin only)
+ *     tags: [Practice Info]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: practiceInfoId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Practice info details
+ *       404:
+ *         description: Practice info not found
+ */
 router.get(
   '/:practiceInfoId',
   requireRoles('Admin'),
@@ -39,8 +90,44 @@ router.get(
   practiceInfoController.getPracticeInfoById.bind(practiceInfoController)
 );
 
-// Create practice info (Admin only)
-// Note: multer must come before validation to parse FormData
+/**
+ * @swagger
+ * /practice-info:
+ *   post:
+ *     summary: Create practice info (Admin only)
+ *     tags: [Practice Info]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - practiceName
+ *             properties:
+ *               practiceName:
+ *                 type: string
+ *               address:
+ *                 type: string
+ *               phone:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *               website:
+ *                 type: string
+ *               logo:
+ *                 type: string
+ *                 format: binary
+ *               taxId:
+ *                 type: string
+ *               npi:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Practice info created
+ */
 router.post(
   '/',
   requireRoles('Admin'),
@@ -49,8 +136,49 @@ router.post(
   practiceInfoController.createPracticeInfo.bind(practiceInfoController)
 );
 
-// Update practice info (Admin only)
-// Note: multer must come before validation to parse FormData
+/**
+ * @swagger
+ * /practice-info/{practiceInfoId}:
+ *   put:
+ *     summary: Update practice info (Admin only)
+ *     tags: [Practice Info]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: practiceInfoId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               practiceName:
+ *                 type: string
+ *               address:
+ *                 type: string
+ *               phone:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *               website:
+ *                 type: string
+ *               logo:
+ *                 type: string
+ *                 format: binary
+ *               taxId:
+ *                 type: string
+ *               npi:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Practice info updated
+ *       404:
+ *         description: Practice info not found
+ */
 router.put(
   '/:practiceInfoId',
   requireRoles('Admin'),
@@ -59,7 +187,25 @@ router.put(
   practiceInfoController.updatePracticeInfo.bind(practiceInfoController)
 );
 
-// Delete practice info (Admin only)
+/**
+ * @swagger
+ * /practice-info/{practiceInfoId}:
+ *   delete:
+ *     summary: Delete practice info (Admin only)
+ *     tags: [Practice Info]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: practiceInfoId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Practice info deleted
+ *       404:
+ *         description: Practice info not found
+ */
 router.delete(
   '/:practiceInfoId',
   requireRoles('Admin'),
@@ -68,4 +214,3 @@ router.delete(
 );
 
 export default router;
-

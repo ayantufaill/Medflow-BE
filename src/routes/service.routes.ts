@@ -12,6 +12,33 @@ import {
 
 const router = Router();
 
+/**
+ * @swagger
+ * /services:
+ *   get:
+ *     summary: Get all services
+ *     tags: [Services]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: category
+ *         schema: { type: string }
+ *       - in: query
+ *         name: isActive
+ *         schema: { type: boolean }
+ *     responses:
+ *       200:
+ *         description: List of services
+ *       401:
+ *         description: Unauthorized
+ */
 router.get(
   '/',
   authenticate,
@@ -20,6 +47,18 @@ router.get(
   serviceController.getAllServices.bind(serviceController)
 );
 
+/**
+ * @swagger
+ * /services/categories:
+ *   get:
+ *     summary: Get service categories
+ *     tags: [Services]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of service categories
+ */
 router.get(
   '/categories',
   authenticate,
@@ -27,6 +66,25 @@ router.get(
   serviceController.getCategories.bind(serviceController)
 );
 
+/**
+ * @swagger
+ * /services/{serviceId}:
+ *   get:
+ *     summary: Get service by ID
+ *     tags: [Services]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: serviceId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Service details
+ *       404:
+ *         description: Service not found
+ */
 router.get(
   '/:serviceId',
   authenticate,
@@ -35,6 +93,40 @@ router.get(
   serviceController.getServiceById.bind(serviceController)
 );
 
+/**
+ * @swagger
+ * /services:
+ *   post:
+ *     summary: Create new service
+ *     tags: [Services]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - price
+ *             properties:
+ *               name:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               price:
+ *                 type: number
+ *               category:
+ *                 type: string
+ *               duration:
+ *                 type: integer
+ *     responses:
+ *       201:
+ *         description: Service created
+ *       403:
+ *         description: Insufficient permissions
+ */
 router.post(
   '/',
   authenticate,
@@ -43,6 +135,42 @@ router.post(
   serviceController.createService.bind(serviceController)
 );
 
+/**
+ * @swagger
+ * /services/{serviceId}:
+ *   put:
+ *     summary: Update service
+ *     tags: [Services]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: serviceId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               price:
+ *                 type: number
+ *               category:
+ *                 type: string
+ *               duration:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Service updated
+ *       404:
+ *         description: Service not found
+ */
 router.put(
   '/:serviceId',
   authenticate,
@@ -51,6 +179,25 @@ router.put(
   serviceController.updateService.bind(serviceController)
 );
 
+/**
+ * @swagger
+ * /services/{serviceId}:
+ *   delete:
+ *     summary: Delete service
+ *     tags: [Services]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: serviceId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Service deleted
+ *       404:
+ *         description: Service not found
+ */
 router.delete(
   '/:serviceId',
   authenticate,
@@ -59,6 +206,23 @@ router.delete(
   serviceController.deleteService.bind(serviceController)
 );
 
+/**
+ * @swagger
+ * /services/{serviceId}/activate:
+ *   patch:
+ *     summary: Activate service
+ *     tags: [Services]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: serviceId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Service activated
+ */
 router.patch(
   '/:serviceId/activate',
   authenticate,
@@ -67,6 +231,23 @@ router.patch(
   serviceController.activateService.bind(serviceController)
 );
 
+/**
+ * @swagger
+ * /services/{serviceId}/deactivate:
+ *   patch:
+ *     summary: Deactivate service
+ *     tags: [Services]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: serviceId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Service deactivated
+ */
 router.patch(
   '/:serviceId/deactivate',
   authenticate,

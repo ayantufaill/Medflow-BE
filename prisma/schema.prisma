@@ -5,6 +5,7 @@ generator client {
 
 datasource db {
   provider = "sqlserver"
+  url      = env("DATABASE_URL")
 }
 
 model account {
@@ -7386,3 +7387,4 @@ model zipcode {
   State         String? @db.VarChar(20)
   IsFrequent    Int?    @db.TinyInt
 }
+
