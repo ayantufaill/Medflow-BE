@@ -195,6 +195,266 @@ export class PracticeInfoController {
   }
 
   /**
+   * Update practice opening hours
+   */
+  async updateOpeningHours(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { practiceInfoId } = req.params;
+      const { businessHours } = req.body;
+
+      if (!practiceInfoId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Practice info ID is required' },
+        });
+      }
+
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { businessHours });
+      res.status(200).json({
+        success: true,
+        data: { practiceInfo: result },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Update practice billing configuration
+   */
+  async updateBillingConfig(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { practiceInfoId } = req.params;
+      const { billingOutOfNetwork, billingAssignmentType, billingProvider } = req.body;
+
+      if (!practiceInfoId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Practice info ID is required' },
+        });
+      }
+
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, {
+        billingOutOfNetwork,
+        billingAssignmentType,
+        billingProvider,
+      });
+      res.status(200).json({
+        success: true,
+        data: { practiceInfo: result },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Update kiosk settings
+   */
+  async updateKioskSettings(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { practiceInfoId } = req.params;
+      const { kioskSettings } = req.body;
+
+      if (!practiceInfoId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Practice info ID is required' },
+        });
+      }
+
+      const updates: any = {};
+      if (kioskSettings?.password !== undefined) updates.kioskPassword = kioskSettings.password;
+      if (kioskSettings?.accounts !== undefined) updates.kioskAccounts = kioskSettings.accounts;
+
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, updates);
+      res.status(200).json({
+        success: true,
+        data: { practiceInfo: result },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Update MyChart settings
+   */
+  async updateMyChartSettings(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { practiceInfoId } = req.params;
+      const { mychartSettings } = req.body;
+
+      if (!practiceInfoId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Practice info ID is required' },
+        });
+      }
+
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, {
+        myChartSettings: mychartSettings,
+      });
+      res.status(200).json({
+        success: true,
+        data: { practiceInfo: result },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Update office timings
+   */
+  async updateOfficeTimings(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { practiceInfoId } = req.params;
+      const { officeTimings } = req.body;
+
+      if (!practiceInfoId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Practice info ID is required' },
+        });
+      }
+
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { officeTimings });
+      res.status(200).json({
+        success: true,
+        data: { practiceInfo: result },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Update online schedule configuration
+   */
+  async updateOnlineSchedule(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { practiceInfoId } = req.params;
+      const { onlineSchedule } = req.body;
+
+      if (!practiceInfoId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Practice info ID is required' },
+        });
+      }
+
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { onlineSchedule });
+      res.status(200).json({
+        success: true,
+        data: { practiceInfo: result },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Update patient flags
+   */
+  async updatePatientFlags(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { practiceInfoId } = req.params;
+      const { patientFlags } = req.body;
+
+      if (!practiceInfoId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Practice info ID is required' },
+        });
+      }
+
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { patientFlags });
+      res.status(200).json({
+        success: true,
+        data: { practiceInfo: result },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Update document categories
+   */
+  async updateDocumentCategories(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { practiceInfoId } = req.params;
+      const { documentCategories } = req.body;
+
+      if (!practiceInfoId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Practice info ID is required' },
+        });
+      }
+
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { documentCategories });
+      res.status(200).json({
+        success: true,
+        data: { practiceInfo: result },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Update schedule configuration
+   */
+  async updateScheduleConfig(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { practiceInfoId } = req.params;
+      const { scheduleConfig } = req.body;
+
+      if (!practiceInfoId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Practice info ID is required' },
+        });
+      }
+
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { scheduleConfig });
+      res.status(200).json({
+        success: true,
+        data: { practiceInfo: result },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Update practice settings
+   */
+  async updatePracticeSettings(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { practiceInfoId } = req.params;
+      const { practiceSettings } = req.body;
+
+      if (!practiceInfoId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Practice info ID is required' },
+        });
+      }
+
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { practiceSettings });
+      res.status(200).json({
+        success: true,
+        data: { practiceInfo: result },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * Delete practice info
    */
   async deletePracticeInfo(req: Request, res: Response, next: NextFunction) {

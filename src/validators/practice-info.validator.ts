@@ -106,6 +106,54 @@ export const createPracticeInfoValidator: ValidationChain[] = [
     .withMessage('Please provide a valid billing contact email address')
     .normalizeEmail()
     .toLowerCase(),
+  body('billingOutOfNetwork')
+    .optional()
+    .isIn(['yes', 'no'])
+    .withMessage('Billing Out of Network must be "yes" or "no"'),
+  body('billingAssignmentType')
+    .optional()
+    .isIn(['in-assignment', 'non-assignment'])
+    .withMessage('Billing Assignment Type must be "in-assignment" or "non-assignment"'),
+  body('billingProvider')
+    .optional()
+    .isIn(['default', 'treating', 'business'])
+    .withMessage('Billing Provider must be "default", "treating", or "business"'),
+  body('kioskPassword')
+    .optional()
+    .isString()
+    .withMessage('Kiosk password must be a string'),
+  body('kioskAccounts')
+    .optional()
+    .isArray()
+    .withMessage('Kiosk accounts must be an array'),
+  body('myChartSettings')
+    .optional()
+    .isObject()
+    .withMessage('MyChart settings must be an object'),
+  body('officeTimings')
+    .optional()
+    .isObject()
+    .withMessage('Office timings must be an object'),
+  body('onlineSchedule')
+    .optional()
+    .isObject()
+    .withMessage('Online schedule must be an object'),
+  body('patientFlags')
+    .optional()
+    .isArray()
+    .withMessage('Patient flags must be an array'),
+  body('documentCategories')
+    .optional()
+    .isArray()
+    .withMessage('Document categories must be an array'),
+  body('scheduleConfig')
+    .optional()
+    .isObject()
+    .withMessage('Schedule config must be an object'),
+  body('practiceSettings')
+    .optional()
+    .isObject()
+    .withMessage('Practice settings must be an object'),
 ];
 
 export const updatePracticeInfoValidator: ValidationChain[] = [
@@ -200,6 +248,54 @@ export const updatePracticeInfoValidator: ValidationChain[] = [
     .withMessage('Please provide a valid billing contact email address')
     .normalizeEmail()
     .toLowerCase(),
+  body('billingOutOfNetwork')
+    .optional()
+    .isIn(['yes', 'no'])
+    .withMessage('Billing Out of Network must be "yes" or "no"'),
+  body('billingAssignmentType')
+    .optional()
+    .isIn(['in-assignment', 'non-assignment'])
+    .withMessage('Billing Assignment Type must be "in-assignment" or "non-assignment"'),
+  body('billingProvider')
+    .optional()
+    .isIn(['default', 'treating', 'business'])
+    .withMessage('Billing Provider must be "default", "treating", or "business"'),
+  body('kioskPassword')
+    .optional()
+    .isString()
+    .withMessage('Kiosk password must be a string'),
+  body('kioskAccounts')
+    .optional()
+    .isArray()
+    .withMessage('Kiosk accounts must be an array'),
+  body('myChartSettings')
+    .optional()
+    .isObject()
+    .withMessage('MyChart settings must be an object'),
+  body('officeTimings')
+    .optional()
+    .isObject()
+    .withMessage('Office timings must be an object'),
+  body('onlineSchedule')
+    .optional()
+    .isObject()
+    .withMessage('Online schedule must be an object'),
+  body('patientFlags')
+    .optional()
+    .isArray()
+    .withMessage('Patient flags must be an array'),
+  body('documentCategories')
+    .optional()
+    .isArray()
+    .withMessage('Document categories must be an array'),
+  body('scheduleConfig')
+    .optional()
+    .isObject()
+    .withMessage('Schedule config must be an object'),
+  body('practiceSettings')
+    .optional()
+    .isObject()
+    .withMessage('Practice settings must be an object'),
 ];
 
 export const queryValidator: ValidationChain[] = [
