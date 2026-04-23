@@ -66,6 +66,7 @@ export class RoomService {
   async createRoom(
     data: {
       name: string;
+      itemOrder?: number;
     },
     createdBy: string
   ) {
@@ -80,6 +81,15 @@ export class RoomService {
     }
 
     const nextId = await getNextId('operatory', 'OperatoryNum');
+    
+    // Get max item order if not provided
+    let itemOrder = data.itemOrder;
+    if (itemOrder === undefined) {
+      const maxOrder = await prisma.operatory.aggregate({
+        _max: { ItemOrder: true }
+      });
+      itemOrder = (maxOrder._max.ItemOrder ?? 0) + 1;
+    }
 
     // Create room
     const room = await prisma.operatory.create({
@@ -87,13 +97,13 @@ export class RoomService {
         OperatoryNum: nextId,
         OpName: data.name,
         Abbrev: data.name,
+        ItemOrder: itemOrder,
         IsHidden: 0,
       },
     });
 
     const apiRoom = mapRoomToApi(room);
-
-    // Log activity
+    // ... log activity (omitted for brevity in instruction but keep in actual file)
     await logActivity(
       createdBy,
       'created',
@@ -117,6 +127,7 @@ export class RoomService {
     updates: {
       name?: string;
       isActive?: boolean;
+      itemOrder?: number;
     },
     updatedBy: string
   ) {
@@ -147,6 +158,7 @@ export class RoomService {
       data: {
         OpName: updates.name ?? undefined,
         Abbrev: updates.name ?? undefined,
+        ItemOrder: updates.itemOrder ?? undefined,
         IsHidden:
           updates.isActive !== undefined ? (updates.isActive ? 0 : 1) : undefined,
       },

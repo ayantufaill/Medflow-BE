@@ -120,6 +120,7 @@ export const mapAppointmentTypeToApi = (
 export const mapRoomToApi = (row: operatory) => ({
   _id: row.OperatoryNum.toString(),
   name: row.OpName ?? row.Abbrev ?? '',
+  itemOrder: row.ItemOrder ?? 0,
   isActive: !row.IsHidden,
 });
 

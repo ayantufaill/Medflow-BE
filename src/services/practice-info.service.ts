@@ -43,7 +43,7 @@ type PracticeInfoMeta = {
   officeTimings?: Record<string, unknown> | null;
   onlineSchedule?: Record<string, unknown> | null;
   patientFlags?: any[] | null;
-  documentCategories?: any[] | null;
+  documentCategories?: Record<string, unknown> | null;
   scheduleConfig?: Record<string, unknown> | null;
   practiceSettings?: Record<string, unknown> | null;
 };
@@ -77,7 +77,7 @@ type PracticeInfoPayload = {
   officeTimings?: Record<string, unknown>;
   onlineSchedule?: Record<string, unknown>;
   patientFlags?: any[];
-  documentCategories?: any[];
+  documentCategories?: Record<string, unknown>;
   scheduleConfig?: Record<string, unknown>;
   practiceSettings?: Record<string, unknown>;
 };
@@ -156,7 +156,7 @@ const setMetaFromPref = (
       meta.patientFlags = prefValue ? JSON.parse(prefValue) : [];
       break;
     case PREF_DOCUMENT_CATEGORIES:
-      meta.documentCategories = prefValue ? JSON.parse(prefValue) : [];
+      meta.documentCategories = parseJsonObject(prefValue);
       break;
     case PREF_SCHEDULE_CONFIG:
       meta.scheduleConfig = parseJsonObject(prefValue);
@@ -190,7 +190,7 @@ const normalizeMetaFromInput = (data: Partial<PracticeInfoPayload>): PracticeInf
   officeTimings: data.officeTimings ?? {},
   onlineSchedule: data.onlineSchedule ?? {},
   patientFlags: data.patientFlags ?? [],
-  documentCategories: data.documentCategories ?? [],
+  documentCategories: data.documentCategories ?? {},
   scheduleConfig: data.scheduleConfig ?? {},
   practiceSettings: data.practiceSettings ?? {},
 });
@@ -349,7 +349,7 @@ export class PracticeInfoService {
       await this.setClinicPref(clinicNum, PREF_PATIENT_FLAGS, JSON.stringify(data.patientFlags ?? []));
     }
     if ('documentCategories' in data) {
-      await this.setClinicPref(clinicNum, PREF_DOCUMENT_CATEGORIES, JSON.stringify(data.documentCategories ?? []));
+      await this.setClinicPref(clinicNum, PREF_DOCUMENT_CATEGORIES, JSON.stringify(data.documentCategories ?? {}));
     }
     if ('scheduleConfig' in data) {
       await this.setClinicPref(clinicNum, PREF_SCHEDULE_CONFIG, JSON.stringify(data.scheduleConfig ?? {}));

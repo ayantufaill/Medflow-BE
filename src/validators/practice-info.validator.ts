@@ -144,8 +144,8 @@ export const createPracticeInfoValidator: ValidationChain[] = [
     .withMessage('Patient flags must be an array'),
   body('documentCategories')
     .optional()
-    .isArray()
-    .withMessage('Document categories must be an array'),
+    .isObject()
+    .withMessage('Document categories must be an object'),
   body('scheduleConfig')
     .optional()
     .isObject()
@@ -286,8 +286,8 @@ export const updatePracticeInfoValidator: ValidationChain[] = [
     .withMessage('Patient flags must be an array'),
   body('documentCategories')
     .optional()
-    .isArray()
-    .withMessage('Document categories must be an array'),
+    .isObject()
+    .withMessage('Document categories must be an object'),
   body('scheduleConfig')
     .optional()
     .isObject()
