@@ -24,6 +24,7 @@ const PREF_PATIENT_FLAGS = `${PREF_PREFIX}patientFlags`;
 const PREF_DOCUMENT_CATEGORIES = `${PREF_PREFIX}documentCategories`;
 const PREF_SCHEDULE_CONFIG = `${PREF_PREFIX}scheduleConfig`;
 const PREF_PRACTICE_SETTINGS = `${PREF_PREFIX}practiceSettings`;
+const PREF_COUNTRY = `${PREF_PREFIX}country`;
 
 type PracticeInfoMeta = {
   taxId?: string | null;
@@ -46,6 +47,7 @@ type PracticeInfoMeta = {
   documentCategories?: Record<string, unknown> | null;
   scheduleConfig?: Record<string, unknown> | null;
   practiceSettings?: Record<string, unknown> | null;
+  country?: string | null;
 };
 
 type PracticeInfoPayload = {
@@ -62,6 +64,7 @@ type PracticeInfoPayload = {
     city?: string;
     state?: string;
     postalCode?: string;
+    country?: string;
   };
   logoPath?: string;
   businessHours?: Map<string, unknown> | Record<string, unknown>;
@@ -164,6 +167,9 @@ const setMetaFromPref = (
     case PREF_PRACTICE_SETTINGS:
       meta.practiceSettings = parseJsonObject(prefValue);
       break;
+    case PREF_COUNTRY:
+      meta.country = prefValue ?? null;
+      break;
     default:
       break;
   }
@@ -193,6 +199,7 @@ const normalizeMetaFromInput = (data: Partial<PracticeInfoPayload>): PracticeInf
   documentCategories: data.documentCategories ?? {},
   scheduleConfig: data.scheduleConfig ?? {},
   practiceSettings: data.practiceSettings ?? {},
+  country: data.address?.country ?? null,
 });
 
 export class PracticeInfoService {
@@ -234,6 +241,7 @@ export class PracticeInfoService {
         city: row.City ?? null,
         state: row.State ?? null,
         postalCode: row.Zip ?? null,
+        country: meta.country ?? 'United States',
       },
       logoPath: meta.logoPath ?? null,
       businessHours: meta.businessHours ?? {},
@@ -249,7 +257,7 @@ export class PracticeInfoService {
       officeTimings: meta.officeTimings ?? {},
       onlineSchedule: meta.onlineSchedule ?? {},
       patientFlags: meta.patientFlags ?? [],
-      documentCategories: meta.documentCategories ?? [],
+      documentCategories: meta.documentCategories ?? {},
       scheduleConfig: meta.scheduleConfig ?? {},
       practiceSettings: meta.practiceSettings ?? {},
     };
@@ -356,6 +364,9 @@ export class PracticeInfoService {
     }
     if ('practiceSettings' in data) {
       await this.setClinicPref(clinicNum, PREF_PRACTICE_SETTINGS, JSON.stringify(data.practiceSettings ?? {}));
+    }
+    if (data.address?.country) {
+      await this.setClinicPref(clinicNum, PREF_COUNTRY, data.address.country);
     }
   }
 
