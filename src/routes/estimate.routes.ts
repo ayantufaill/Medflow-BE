@@ -119,28 +119,72 @@ router.get(
  *             required:
  *               - patientId
  *               - items
+ *               - description
+ *               - estimatedAmount
  *             properties:
  *               patientId:
  *                 type: integer
+ *                 description: Patient ID (must be a valid patient ID, not 0)
+ *                 example: 1
+ *               description:
+ *                 type: string
+ *                 description: Description of the estimate
+ *                 example: "Dental cleaning and X-rays estimate"
+ *               estimatedAmount:
+ *                 type: number
+ *                 description: Total estimated amount
+ *                 example: 350.00
  *               items:
  *                 type: array
+ *                 description: List of items/services
  *                 items:
  *                   type: object
+ *                   required:
+ *                     - description
+ *                     - quantity
+ *                     - unitPrice
  *                   properties:
  *                     description:
  *                       type: string
+ *                       description: Item description
+ *                       example: "Dental Cleaning"
  *                     quantity:
  *                       type: integer
+ *                       description: Quantity
+ *                       example: 1
  *                     unitPrice:
  *                       type: number
+ *                       description: Unit price
+ *                       example: 150.00
  *               notes:
  *                 type: string
+ *                 description: Additional notes
+ *                 example: "Valid for 30 days"
  *               expirationDays:
  *                 type: integer
+ *                 description: Number of days until estimate expires
  *                 default: 30
+ *                 example: 30
  *     responses:
  *       201:
  *         description: Estimate created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *       400:
+ *         description: Invalid input - missing required fields or invalid patient ID
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Patient not found
  */
 router.post(
   '/',
@@ -170,6 +214,10 @@ router.post(
  *           schema:
  *             type: object
  *             properties:
+ *               description:
+ *                 type: string
+ *               estimatedAmount:
+ *                 type: number
  *               items:
  *                 type: array
  *               notes:
@@ -230,18 +278,51 @@ router.delete(
  *         name: estimateId
  *         required: true
  *         schema: { type: integer }
+ *         description: Estimate ID to convert
+ *         example: 1
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
+ *             required:
+ *               - appointmentId
+ *               - dueDate
  *             properties:
+ *               appointmentId:
+ *                 type: integer
+ *                 description: Appointment ID associated with the invoice
+ *                 example: 1
+ *               dueDate:
+ *                 type: string
+ *                 format: date
+ *                 description: Invoice due date (YYYY-MM-DD)
+ *                 example: "2026-05-27"
  *               invoiceNotes:
  *                 type: string
+ *                 description: Additional notes for the invoice
+ *                 example: "Converted from estimate #123"
  *     responses:
  *       201:
  *         description: Invoice created from estimate
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *       400:
+ *         description: Invalid input - missing appointmentId or dueDate
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Estimate not found
  */
 router.post(
   '/:estimateId/convert',
@@ -325,6 +406,7 @@ router.patch(
  *             properties:
  *               reason:
  *                 type: string
+ *                 example: "Patient chose alternative treatment"
  *     responses:
  *       200:
  *         description: Estimate declined

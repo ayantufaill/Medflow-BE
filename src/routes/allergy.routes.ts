@@ -30,27 +30,61 @@ router.use(authenticate);
  *             type: object
  *             required:
  *               - patientId
- *               - allergyName
+ *               - allergen
+ *               - reaction
+ *               - severity
+ *               - documentedDate
  *             properties:
  *               patientId:
  *                 type: integer
- *                 example: 1001
- *               allergyName:
+ *                 example: 1
+ *                 description: Patient ID (required)
+ *               allergen:
  *                 type: string
  *                 example: Penicillin
+ *                 description: Name of the allergen (required)
  *               reaction:
  *                 type: string
  *                 example: Hives, difficulty breathing
+ *                 description: Reaction to the allergen (required)
  *               severity:
  *                 type: string
  *                 enum: [mild, moderate, severe]
+ *                 example: mild
+ *                 description: Severity level (required)
+ *               documentedDate:
+ *                 type: string
+ *                 format: date
+ *                 example: 2026-04-25
+ *                 description: Date when allergy was documented (required)
  *               notes:
  *                 type: string
+ *                 example: Patient has known reaction
+ *                 description: Additional notes (optional)
+ *           example:
+ *             patientId: 1
+ *             allergen: Penicillin
+ *             reaction: Hives, difficulty breathing
+ *             severity: mild
+ *             documentedDate: 2026-04-25
+ *             notes: Patient has known reaction
  *     responses:
  *       201:
  *         description: Allergy created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
  *       400:
- *         description: Invalid input
+ *         description: Invalid input - Missing required fields (patientId, allergen, reaction, severity, documentedDate)
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
  */
 router.post(
   '/',
@@ -68,15 +102,28 @@ router.post(
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
- *         name: patientId
+ *         name: patient_id
  *         required: true
- *         schema: { type: integer }
- *         description: Patient ID
+ *         schema: 
+ *           type: integer
+ *         description: Patient ID (use patient_id, not patientId)
+ *         example: 1
  *     responses:
  *       200:
  *         description: List of allergies
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
  *       400:
- *         description: patientId is required
+ *         description: patient_id is required
  */
 router.get(
   '/',
@@ -96,7 +143,10 @@ router.get(
  *       - in: path
  *         name: id
  *         required: true
- *         schema: { type: integer }
+ *         schema: 
+ *           type: integer
+ *         description: Allergy ID
+ *         example: 1
  *     responses:
  *       200:
  *         description: Allergy details
@@ -121,7 +171,10 @@ router.get(
  *       - in: path
  *         name: id
  *         required: true
- *         schema: { type: integer }
+ *         schema: 
+ *           type: integer
+ *         description: Allergy ID
+ *         example: 1
  *     requestBody:
  *       required: true
  *       content:
@@ -129,20 +182,27 @@ router.get(
  *           schema:
  *             type: object
  *             properties:
- *               allergyName:
+ *               allergen:
  *                 type: string
+ *                 example: Amoxicillin
  *               reaction:
  *                 type: string
+ *                 example: Skin rash
  *               severity:
  *                 type: string
- *               status:
- *                 type: string
- *                 enum: [active, inactive]
+ *                 enum: [mild, moderate, severe]
+ *                 example: moderate
+ *               isActive:
+ *                 type: boolean
+ *                 example: true
  *               notes:
  *                 type: string
+ *                 example: Updated reaction notes
  *     responses:
  *       200:
  *         description: Allergy updated
+ *       400:
+ *         description: Invalid input
  *       404:
  *         description: Allergy not found
  */
@@ -164,10 +224,22 @@ router.put(
  *       - in: path
  *         name: id
  *         required: true
- *         schema: { type: integer }
+ *         schema: 
+ *           type: integer
+ *         description: Allergy ID
+ *         example: 1
  *     responses:
  *       200:
  *         description: Allergy deleted
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
  *       404:
  *         description: Allergy not found
  */

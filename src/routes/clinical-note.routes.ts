@@ -205,22 +205,56 @@ router.get(
  *             required:
  *               - patientId
  *               - appointmentId
+ *               - providerId
  *             properties:
  *               patientId:
  *                 type: integer
+ *                 description: Patient ID (must be a valid patient ID)
+ *                 example: 1
  *               appointmentId:
  *                 type: integer
+ *                 description: Appointment ID (must be a valid appointment ID)
+ *                 example: 1
+ *               providerId:
+ *                 type: integer
+ *                 description: Provider/Doctor ID (must be a valid provider ID)
+ *                 example: 1
  *               content:
  *                 type: string
+ *                 description: Clinical note content
+ *                 example: "Patient presented with mild fever and cough"
  *               diagnosis:
  *                 type: string
+ *                 description: Diagnosis
+ *                 example: "Upper Respiratory Infection"
  *               treatment:
  *                 type: string
+ *                 description: Treatment plan
+ *                 example: "Prescribed amoxicillin 500mg twice daily"
  *               notes:
  *                 type: string
+ *                 description: Additional notes
+ *                 example: "Follow up in 2 weeks"
  *     responses:
  *       201:
  *         description: Clinical note created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *       400:
+ *         description: Invalid input - missing required fields or invalid ID format
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Patient, appointment, or provider not found
  */
 router.post(
   '/',
@@ -243,6 +277,8 @@ router.post(
  *         name: templateId
  *         required: true
  *         schema: { type: integer }
+ *         description: Template ID to use for creating the note
+ *         example: 1
  *     requestBody:
  *       required: true
  *       content:
@@ -252,16 +288,47 @@ router.post(
  *             required:
  *               - patientId
  *               - appointmentId
+ *               - providerId
  *             properties:
  *               patientId:
  *                 type: integer
+ *                 description: Patient ID (must be a valid patient ID, not 0)
+ *                 example: 1
  *               appointmentId:
  *                 type: integer
+ *                 description: Appointment ID (must be a valid appointment ID, not 0)
+ *                 example: 1
+ *               providerId:
+ *                 type: integer
+ *                 description: Provider/Doctor ID (must be a valid provider ID)
+ *                 example: 1
  *               customContent:
  *                 type: object
+ *                 description: Custom content to merge with the template
+ *                 example: {
+ *                   "chiefComplaint": "Chest pain",
+ *                   "duration": "3 days"
+ *                 }
  *     responses:
  *       201:
  *         description: Clinical note created from template
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *       400:
+ *         description: Invalid input - missing required fields or invalid ID format
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Patient, appointment, provider, or template not found
  */
 router.post(
   '/from-template/:templateId',
@@ -389,6 +456,8 @@ router.post(
  *         name: clinicalNoteId
  *         required: true
  *         schema: { type: integer }
+ *         description: Clinical note ID
+ *         example: 1
  *     requestBody:
  *       required: true
  *       content:
@@ -396,13 +465,45 @@ router.post(
  *           schema:
  *             type: object
  *             required:
- *               - documentId
+ *               - attachmentUrl
  *             properties:
+ *               attachmentUrl:
+ *                 type: string
+ *                 format: uri
+ *                 description: URL of the attachment (e.g., document URL, image URL, file URL)
+ *                 example: "https://storage.example.com/documents/xray-001.pdf"
  *               documentId:
  *                 type: integer
+ *                 description: Optional document ID if the attachment is from an existing document
+ *                 example: 1
+ *               fileName:
+ *                 type: string
+ *                 description: Optional file name for the attachment
+ *                 example: "xray-image-001.jpg"
+ *               fileType:
+ *                 type: string
+ *                 description: Optional file type (e.g., pdf, jpg, png)
+ *                 example: "pdf"
  *     responses:
  *       200:
  *         description: Attachment added
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *       400:
+ *         description: Invalid input - missing attachment URL
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Clinical note not found
  */
 router.post(
   '/:clinicalNoteId/attachments',
@@ -432,13 +533,28 @@ router.post(
  *           schema:
  *             type: object
  *             required:
- *               - documentId
+ *               - attachmentUrl
  *             properties:
+ *               attachmentUrl:
+ *                 type: string
+ *                 format: uri
+ *                 description: URL of the attachment to remove
+ *                 example: "https://storage.example.com/documents/xray-001.pdf"
  *               documentId:
  *                 type: integer
+ *                 description: Optional document ID of the attachment to remove
+ *                 example: 1
  *     responses:
  *       200:
  *         description: Attachment removed
+ *       400:
+ *         description: Invalid input - missing attachment URL
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Clinical note or attachment not found
  */
 router.delete(
   '/:clinicalNoteId/attachments',
