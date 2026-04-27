@@ -14,6 +14,7 @@
     "seed:roles": "tsx src/scripts/seedRoles.ts",
     "seed:all": "tsx src/scripts/seedAll.ts",
     "seed:users": "tsx src/scripts/seedUsers.ts",
+    "seed:role-users": "tsx src/scripts/seedRoleUsers.ts",
     "seed:specialities": "tsx src/scripts/seedSpecialties.ts",
     "seed:provider-specialties": "tsx src/scripts/seedProviderSpecialties.ts",
     "seed:languages": "tsx src/scripts/seedLanguages.ts",

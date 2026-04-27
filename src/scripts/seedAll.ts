@@ -11,6 +11,7 @@ const bin = path.join(
 const scripts = [
   'src/scripts/seedRoles.ts',
   'src/scripts/seedUsers.ts',
+  'src/scripts/seedRoleUsers.ts',
   'src/scripts/seedSpecialties.ts',
   'src/scripts/seedProviderSpecialties.ts',
   'src/scripts/seedAppointmentTypes.ts',
