@@ -46,15 +46,34 @@ router.use(authenticate);
  *               email:
  *                 type: string
  *                 format: email
+ *                 description: User's email address
+ *                 example: "john.doe@example.com"
  *               firstName:
  *                 type: string
+ *                 description: User's first name
+ *                 example: "John"
  *               lastName:
  *                 type: string
+ *                 description: User's last name
+ *                 example: "Doe"
  *               roleId:
- *                 type: integer
+ *                 type: string
+ *                 description: Role ID (must be a string)
+ *                 example: "1"
  *     responses:
  *       201:
  *         description: User created (inactive, verification email sent)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *       400:
+ *         description: Invalid input
  *       403:
  *         description: Admin only
  *       409:
@@ -292,7 +311,9 @@ router.post(
  *               - roleId
  *             properties:
  *               roleId:
- *                 type: integer
+ *                 type: string
+ *                 description: Role ID (must be a string)
+ *                 example: "1"
  *     responses:
  *       200:
  *         description: Role assigned
@@ -322,7 +343,7 @@ router.post(
  *       - in: path
  *         name: roleId
  *         required: true
- *         schema: { type: integer }
+ *         schema: { type: string }
  *     responses:
  *       200:
  *         description: Role removed
@@ -351,9 +372,15 @@ router.delete(
  *         schema: { type: integer }
  *     responses:
  *       200:
- *         description: User deleted
+ *         description: User deleted successfully
+ *       400:
+ *         description: Cannot delete user with existing related records
  *       403:
  *         description: Admin only
+ *       404:
+ *         description: User not found
+ *       409:
+ *         description: Cannot delete user due to foreign key constraints (user has existing appointments, communications, or other records)
  */
 router.delete(
   '/:userId',

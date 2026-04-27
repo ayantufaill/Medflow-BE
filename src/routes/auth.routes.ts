@@ -26,13 +26,36 @@ const router = Router();
  *             type: object
  *             required: [email, password, firstName, lastName]
  *             properties:
- *               email: { type: string, format: email }
- *               password: { type: string, format: password }
- *               firstName: { type: string }
- *               lastName: { type: string }
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: user@example.com
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 example: "Password123!"
+ *               firstName:
+ *                 type: string
+ *                 example: John
+ *               lastName:
+ *                 type: string
+ *                 example: Doe
  *     responses:
- *       200: { description: Verification email sent }
- *       409: { description: Email already exists }
+ *       200:
+ *         description: Verification email sent
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *       409:
+ *         description: Email already exists
+ *       400:
+ *         description: Invalid input
  */
 router.post('/register', authRateLimiter, validate(registerValidator), authController.initiateRegistration.bind(authController));
 
@@ -50,13 +73,36 @@ router.post('/register', authRateLimiter, validate(registerValidator), authContr
  *             type: object
  *             required: [email, password, firstName, lastName]
  *             properties:
- *               email: { type: string, format: email }
- *               password: { type: string, format: password }
- *               firstName: { type: string }
- *               lastName: { type: string }
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: user@example.com
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 example: "Password123!"
+ *               firstName:
+ *                 type: string
+ *                 example: John
+ *               lastName:
+ *                 type: string
+ *                 example: Doe
  *     responses:
- *       200: { description: Verification email sent }
- *       409: { description: Email already exists }
+ *       200:
+ *         description: Verification email sent
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *       409:
+ *         description: Email already exists
+ *       400:
+ *         description: Invalid input
  */
 router.post('/register/initiate', authRateLimiter, validate(registerValidator), authController.initiateRegistration.bind(authController));
 
@@ -74,10 +120,23 @@ router.post('/register/initiate', authRateLimiter, validate(registerValidator), 
  *             type: object
  *             required: [token]
  *             properties:
- *               token: { type: string }
+ *               token:
+ *                 type: string
+ *                 example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
  *     responses:
- *       200: { description: Account activated }
- *       400: { description: Invalid or expired token }
+ *       200:
+ *         description: Account activated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Invalid or expired token
  */
 router.post('/register/verify', authRateLimiter, validate(verifyEmailValidator), authController.verifyEmailAndRegister.bind(authController));
 
@@ -95,10 +154,24 @@ router.post('/register/verify', authRateLimiter, validate(verifyEmailValidator),
  *             type: object
  *             required: [email]
  *             properties:
- *               email: { type: string, format: email }
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: user@example.com
  *     responses:
- *       200: { description: Verification email resent }
- *       404: { description: Email not found }
+ *       200:
+ *         description: Verification email resent
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *       404:
+ *         description: Email not found
  */
 router.post('/register/resend-link', authRateLimiter, validate(resendCodeValidator), authController.resendVerificationCode.bind(authController));
 
@@ -113,16 +186,44 @@ router.post('/register/resend-link', authRateLimiter, validate(resendCodeValidat
  *       content:
  *         application/json:
  *           schema:
- *             $ref: '#/components/schemas/LoginRequest'
+ *             type: object
+ *             required: [email, password]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: admin@example.com
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 example: "Admin123!"
  *     responses:
  *       200:
  *         description: Login successful
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/LoginResponse'
- *       401: { description: Invalid credentials }
- *       429: { description: Too many attempts }
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     accessToken:
+ *                       type: string
+ *                     refreshToken:
+ *                       type: string
+ *                     expiresIn:
+ *                       type: integer
+ *                     user:
+ *                       type: object
+ *       401:
+ *         description: Invalid credentials
+ *       400:
+ *         description: Email not verified
+ *       429:
+ *         description: Too many attempts
  */
 router.post('/login', loginRateLimiter, validate(loginValidator), authController.login.bind(authController));
 
@@ -134,9 +235,52 @@ router.post('/login', loginRateLimiter, validate(loginValidator), authController
  *     tags: [Auth]
  *     security:
  *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - refreshToken
+ *             properties:
+ *               refreshToken:
+ *                 type: string
+ *                 example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *                 description: Refresh token to invalidate (required)
+ *           example:
+ *             refreshToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
  *     responses:
- *       200: { description: Logout successful }
- *       401: { description: Unauthorized }
+ *       200:
+ *         description: Logout successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                   example: Logged out successfully
+ *       400:
+ *         description: Missing refresh token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     message:
+ *                       type: string
+ *       401:
+ *         description: Unauthorized - Invalid or missing access token
+ *       500:
+ *         description: Internal server error
  */
 router.post('/logout', authenticate, authController.logout.bind(authController));
 
@@ -154,10 +298,30 @@ router.post('/logout', authenticate, authController.logout.bind(authController))
  *             type: object
  *             required: [refreshToken]
  *             properties:
- *               refreshToken: { type: string }
+ *               refreshToken:
+ *                 type: string
+ *                 example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
  *     responses:
- *       200: { description: New access token generated }
- *       401: { description: Invalid or expired refresh token }
+ *       200:
+ *         description: New access token generated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     accessToken:
+ *                       type: string
+ *                     expiresIn:
+ *                       type: integer
+ *       401:
+ *         description: Invalid or expired refresh token
+ *       400:
+ *         description: Missing refresh token
  */
 router.post('/refresh-token', validate(refreshTokenValidator), authController.refreshToken.bind(authController));
 
@@ -170,8 +334,30 @@ router.post('/refresh-token', validate(refreshTokenValidator), authController.re
  *     security:
  *       - bearerAuth: []
  *     responses:
- *       200: { description: User profile }
- *       401: { description: Unauthorized }
+ *       200:
+ *         description: User profile
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     email:
+ *                       type: string
+ *                     firstName:
+ *                       type: string
+ *                     lastName:
+ *                       type: string
+ *                     roles:
+ *                       type: array
+ *       401:
+ *         description: Unauthorized
  */
 router.get('/profile', authenticate, authController.getProfile.bind(authController));
 
@@ -189,10 +375,24 @@ router.get('/profile', authenticate, authController.getProfile.bind(authControll
  *             type: object
  *             required: [email]
  *             properties:
- *               email: { type: string, format: email }
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: user@example.com
  *     responses:
- *       200: { description: Reset code sent }
- *       404: { description: Email not found }
+ *       200:
+ *         description: Reset code sent
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *       404:
+ *         description: Email not found
  */
 router.post('/forgot-password', authRateLimiter, validate(requestPasswordResetValidator), authController.requestPasswordReset.bind(authController));
 
@@ -210,11 +410,27 @@ router.post('/forgot-password', authRateLimiter, validate(requestPasswordResetVa
  *             type: object
  *             required: [email, code]
  *             properties:
- *               email: { type: string, format: email }
- *               code: { type: string }
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: user@example.com
+ *               code:
+ *                 type: string
+ *                 example: "123456"
  *     responses:
- *       200: { description: Code verified }
- *       400: { description: Invalid or expired code }
+ *       200:
+ *         description: Code verified
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Invalid or expired code
  */
 router.post('/forgot-password/verify', authRateLimiter, validate(verifyPasswordResetValidator), authController.verifyPasswordResetCode.bind(authController));
 
@@ -232,12 +448,31 @@ router.post('/forgot-password/verify', authRateLimiter, validate(verifyPasswordR
  *             type: object
  *             required: [email, code, newPassword]
  *             properties:
- *               email: { type: string, format: email }
- *               code: { type: string }
- *               newPassword: { type: string, format: password }
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: user@example.com
+ *               code:
+ *                 type: string
+ *                 example: "123456"
+ *               newPassword:
+ *                 type: string
+ *                 format: password
+ *                 example: "NewPassword123!"
  *     responses:
- *       200: { description: Password reset successful }
- *       400: { description: Invalid or expired code }
+ *       200:
+ *         description: Password reset successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Invalid or expired code
  */
 router.post('/forgot-password/reset', authRateLimiter, validate(resetPasswordValidator), authController.resetPassword.bind(authController));
 
@@ -255,9 +490,24 @@ router.post('/forgot-password/reset', authRateLimiter, validate(resetPasswordVal
  *             type: object
  *             required: [email]
  *             properties:
- *               email: { type: string, format: email }
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: user@example.com
  *     responses:
- *       200: { description: Code resent }
+ *       200:
+ *         description: Code resent
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *       404:
+ *         description: Email not found
  */
 router.post('/forgot-password/resend-code', authRateLimiter, validate(resendCodeValidator), authController.resendPasswordResetCode.bind(authController));
 
@@ -275,11 +525,27 @@ router.post('/forgot-password/resend-code', authRateLimiter, validate(resendCode
  *             type: object
  *             required: [token, password]
  *             properties:
- *               token: { type: string }
- *               password: { type: string, format: password }
+ *               token:
+ *                 type: string
+ *                 example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 example: "MyPassword123!"
  *     responses:
- *       200: { description: Password set successfully }
- *       400: { description: Invalid or expired token }
+ *       200:
+ *         description: Password set successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Invalid or expired token
  */
 router.post('/setup-password', authRateLimiter, validate(setupPasswordValidator), authController.verifyTokenAndSetPassword.bind(authController));
 

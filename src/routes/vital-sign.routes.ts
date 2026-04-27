@@ -205,30 +205,78 @@ router.get(
  *             type: object
  *             required:
  *               - patientId
+ *               - recordedDate
+ *               - recordedTime
  *             properties:
  *               patientId:
  *                 type: integer
+ *                 description: Patient ID (must be a valid number)
+ *                 example: 1
  *               appointmentId:
  *                 type: integer
+ *                 description: Optional appointment ID
+ *                 example: 1
+ *               recordedDate:
+ *                 type: string
+ *                 format: date
+ *                 description: Date when vitals were recorded (YYYY-MM-DD)
+ *                 example: "2026-04-27"
+ *               recordedTime:
+ *                 type: string
+ *                 description: Time when vitals were recorded (HH:MM format)
+ *                 example: "10:30"
  *               height:
  *                 type: number
+ *                 description: Height in inches (must be between 10-120 inches)
+ *                 example: 68
  *               weight:
  *                 type: number
+ *                 description: Weight in lbs (must be between 1-1500 lbs)
+ *                 example: 160.5
  *               bloodPressureSystolic:
  *                 type: integer
+ *                 description: Systolic blood pressure (mmHg) (50-300)
+ *                 example: 120
  *               bloodPressureDiastolic:
  *                 type: integer
+ *                 description: Diastolic blood pressure (mmHg) (30-200)
+ *                 example: 80
  *               pulse:
  *                 type: integer
+ *                 description: Pulse rate (beats per minute)
+ *                 example: 72
  *               temperature:
  *                 type: number
+ *                 description: Body temperature (Fahrenheit) (90-110)
+ *                 example: 98.6
  *               respiratoryRate:
  *                 type: integer
+ *                 description: Respiratory rate (breaths per minute) (5-60)
+ *                 example: 16
  *               notes:
  *                 type: string
+ *                 description: Additional notes
+ *                 example: "Patient felt dizzy during measurement"
  *     responses:
  *       201:
  *         description: Vital sign record created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *       400:
+ *         description: Invalid input - missing required fields or invalid patient ID
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       500:
+ *         description: Internal server error
  */
 router.post(
   '/',
@@ -260,20 +308,45 @@ router.post(
  *             properties:
  *               height:
  *                 type: number
+ *                 description: Height in inches (must be between 10-120 inches)
+ *                 example: 68
  *               weight:
  *                 type: number
+ *                 description: Weight in lbs (must be between 1-1500 lbs)
+ *                 example: 160.5
  *               bloodPressureSystolic:
  *                 type: integer
+ *                 description: Systolic blood pressure (mmHg) (50-300)
+ *                 example: 120
  *               bloodPressureDiastolic:
  *                 type: integer
+ *                 description: Diastolic blood pressure (mmHg) (30-200)
+ *                 example: 80
  *               pulse:
  *                 type: integer
+ *                 description: Pulse rate (beats per minute)
+ *                 example: 72
  *               temperature:
  *                 type: number
+ *                 description: Body temperature (Fahrenheit) (90-110)
+ *                 example: 98.6
  *               respiratoryRate:
  *                 type: integer
+ *                 description: Respiratory rate (breaths per minute) (5-60)
+ *                 example: 16
+ *               recordedDate:
+ *                 type: string
+ *                 format: date
+ *                 description: Date when vitals were recorded (YYYY-MM-DD)
+ *                 example: "2026-04-27"
+ *               recordedTime:
+ *                 type: string
+ *                 description: Time when vitals were recorded (HH:MM format)
+ *                 example: "10:30"
  *               notes:
  *                 type: string
+ *                 description: Additional notes
+ *                 example: "Patient felt dizzy during measurement"
  *     responses:
  *       200:
  *         description: Vital sign record updated

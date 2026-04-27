@@ -253,6 +253,41 @@ export class VitalSignService {
     return Math.round((weightInKg / (heightInMeters * heightInMeters)) * 10) / 10;
   }
 
+  /**
+   * Convert recordedDate and recordedTime to proper ISO DateTime
+   */
+  private formatDateTime(date?: Date | string, time?: string): Date | undefined {
+    if (!date) return undefined;
+    
+    try {
+      // If date is already a Date object, use it
+      if (date instanceof Date) {
+        if (time) {
+          const [hours, minutes] = time.split(':');
+          const newDate = new Date(date);
+          newDate.setHours(parseInt(hours) || 0, parseInt(minutes) || 0);
+          return newDate;
+        }
+        return date;
+      }
+      
+      // If date is a string
+      const dateStr = typeof date === 'string' ? date : date.toISOString().split('T')[0];
+      
+      if (time) {
+        // Combine date and time
+        const dateTimeStr = `${dateStr}T${time}:00.000Z`;
+        return new Date(dateTimeStr);
+      } else {
+        // Just date, default to midnight UTC
+        return new Date(`${dateStr}T00:00:00.000Z`);
+      }
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return new Date(); // Fallback to current date
+    }
+  }
+
   async createVitalSign(
     data: {
       patientId: string;
@@ -308,11 +343,14 @@ export class VitalSignService {
       notes: data.notes,
     });
 
+    // FIXED: Convert recordedDate and recordedTime to proper DateTime
+    const dateTaken = this.formatDateTime(data.recordedDate, data.recordedTime);
+
     const vitalSign = await prisma.vitalsign.create({
       data: {
         VitalsignNum: vitalsNum,
         PatNum: BigInt(data.patientId),
-        DateTaken: data.recordedDate,
+        DateTaken: dateTaken,
         BpSystolic: data.bloodPressureSystolic ?? null,
         BpDiastolic: data.bloodPressureDiastolic ?? null,
         Height: data.height ?? null,
@@ -341,7 +379,7 @@ export class VitalSignService {
         respiratoryRate: data.respiratoryRate ?? null,
         oxygenSaturation: data.oxygenSaturation ?? null,
         bmi,
-        recordedDate: data.recordedDate,
+        recordedDate: dateTaken,
         recordedTime: data.recordedTime,
         recordedBy: userId,
         notes: data.notes ?? null,
@@ -364,7 +402,7 @@ export class VitalSignService {
       respiratoryRate: data.respiratoryRate ?? null,
       oxygenSaturation: data.oxygenSaturation ?? null,
       bmi,
-      recordedDate: data.recordedDate,
+      recordedDate: dateTaken,
       recordedTime: data.recordedTime,
       recordedBy: userId,
       notes: data.notes ?? null,
@@ -428,10 +466,16 @@ export class VitalSignService {
       notes: updates.notes ?? doc.notes,
     });
 
+    // FIXED: Convert recordedDate and recordedTime to proper DateTime if provided
+    let dateTaken = vitalSign.DateTaken;
+    if (updates.recordedDate) {
+      dateTaken = this.formatDateTime(updates.recordedDate, updates.recordedTime);
+    }
+
     const updated = await prisma.vitalsign.update({
       where: { VitalsignNum: BigInt(vitalSignId) },
       data: {
-        DateTaken: updates.recordedDate ?? undefined,
+        DateTaken: dateTaken,
         BpSystolic: updates.bloodPressureSystolic ?? undefined,
         BpDiastolic: updates.bloodPressureDiastolic ?? undefined,
         Height: updates.height ?? undefined,

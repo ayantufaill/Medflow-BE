@@ -32,9 +32,9 @@ router.use(authenticate);
  *         name: limit
  *         schema: { type: integer }
  *       - in: query
- *         name: companyId
+ *         name: insuranceCompanyId
  *         schema: { type: integer }
- *         description: Filter by insurance company
+ *         description: Filter by insurance company ID
  *       - in: query
  *         name: isActive
  *         schema: { type: boolean }
@@ -67,20 +67,50 @@ router.get(
  *             type: object
  *             required:
  *               - name
- *               - companyId
+ *               - insuranceCompanyId
  *             properties:
  *               name:
  *                 type: string
- *                 example: PPO Gold
- *               companyId:
+ *                 description: Insurance plan name
+ *                 example: "PPO Gold"
+ *               insuranceCompanyId:
  *                 type: integer
+ *                 description: Insurance company ID (must be a valid company ID, not 0)
+ *                 example: 1
  *               groupNumber:
  *                 type: string
+ *                 description: Group number for the plan
+ *                 example: "GRP-12345"
  *               coverageDetails:
  *                 type: object
+ *                 description: Coverage details and rules
+ *                 example: {
+ *                   "deductible": 1000,
+ *                   "copay": 25,
+ *                   "coinsurance": 80
+ *                 }
  *     responses:
  *       201:
  *         description: Insurance plan created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *       400:
+ *         description: Invalid input - missing required fields or invalid company ID
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Insurance company not found
+ *       409:
+ *         description: Insurance plan already exists
  */
 router.post(
   '/',
@@ -126,8 +156,16 @@ router.get(
  *             properties:
  *               name:
  *                 type: string
+ *                 description: Template name
+ *                 example: "Standard Health Coverage"
  *               coverageRules:
  *                 type: object
+ *                 description: Coverage rules
+ *                 example: {
+ *                   "primaryCare": 80,
+ *                   "specialist": 70,
+ *                   "emergency": 60
+ *                 }
  *     responses:
  *       201:
  *         description: Coverage template created
@@ -152,6 +190,7 @@ router.post(
  *         name: planId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *     responses:
  *       200:
  *         description: Insurance plan details
@@ -178,6 +217,7 @@ router.get(
  *         name: planId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *     requestBody:
  *       required: true
  *       content:
@@ -187,15 +227,35 @@ router.get(
  *             properties:
  *               name:
  *                 type: string
+ *                 description: Insurance plan name
+ *                 example: "PPO Platinum"
  *               groupNumber:
  *                 type: string
+ *                 description: Group number
+ *                 example: "GRP-67890"
  *               isActive:
  *                 type: boolean
+ *                 description: Whether the plan is active
+ *                 example: true
  *               coverageDetails:
  *                 type: object
+ *                 description: Coverage details
+ *                 example: {
+ *                   "deductible": 500,
+ *                   "copay": 20,
+ *                   "coinsurance": 85
+ *                 }
  *     responses:
  *       200:
  *         description: Insurance plan updated
+ *       400:
+ *         description: Invalid input
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Plan not found
  */
 router.patch(
   '/:planId',
@@ -217,6 +277,7 @@ router.patch(
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *     responses:
  *       200:
  *         description: Patient insurance coverages
@@ -241,6 +302,7 @@ router.get(
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *     requestBody:
  *       required: true
  *       content:
@@ -249,17 +311,91 @@ router.get(
  *             type: object
  *             required:
  *               - planId
+ *               - insuranceCompanyId
+ *               - insuranceType
+ *               - policyNumber
+ *               - subscriberName
+ *               - subscriberDateOfBirth
+ *               - relationshipToPatient
+ *               - effectiveDate
  *             properties:
  *               planId:
  *                 type: integer
+ *                 description: Insurance plan ID
+ *                 example: 1
+ *               insuranceCompanyId:
+ *                 type: integer
+ *                 description: Insurance company ID
+ *                 example: 1
+ *               insuranceType:
+ *                 type: string
+ *                 description: Insurance type (primary, secondary, tertiary)
+ *                 enum: [primary, secondary, tertiary]
+ *                 example: "primary"
+ *               policyNumber:
+ *                 type: string
+ *                 description: Policy number
+ *                 example: "POL-12345678"
+ *               groupNumber:
+ *                 type: string
+ *                 description: Group number
+ *                 example: "GRP-98765"
+ *               subscriberName:
+ *                 type: string
+ *                 description: Full name of the subscriber
+ *                 example: "John Doe"
  *               subscriberId:
  *                 type: string
- *               relationship:
+ *                 description: Subscriber ID
+ *                 example: "SUB-12345"
+ *               subscriberDateOfBirth:
  *                 type: string
+ *                 format: date
+ *                 description: Subscriber's date of birth (YYYY-MM-DD)
+ *                 example: "1975-06-15"
+ *               relationshipToPatient:
+ *                 type: string
+ *                 description: Relationship to patient
  *                 enum: [self, spouse, child, other]
+ *                 example: "self"
+ *               effectiveDate:
+ *                 type: string
+ *                 format: date
+ *                 description: Coverage effective date (YYYY-MM-DD)
+ *                 example: "2026-01-01"
+ *               expirationDate:
+ *                 type: string
+ *                 format: date
+ *                 description: Coverage expiration date (YYYY-MM-DD)
+ *                 example: "2026-12-31"
+ *               isPrimary:
+ *                 type: boolean
+ *                 description: Whether this is the primary insurance
+ *                 example: true
+ *               notes:
+ *                 type: string
+ *                 description: Additional notes
+ *                 example: "Family plan with $500 deductible"
  *     responses:
  *       201:
  *         description: Patient coverage added
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *       400:
+ *         description: Invalid input - missing required fields
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Patient or plan not found
  */
 router.post(
   '/patients/:patientId/coverages',

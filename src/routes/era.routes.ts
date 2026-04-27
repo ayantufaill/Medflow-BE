@@ -36,6 +36,7 @@ const router = Router();
  *                 format: binary
  *               carrierId:
  *                 type: integer
+ *                 example: 1
  *     responses:
  *       200:
  *         description: ERA file imported
@@ -130,7 +131,9 @@ router.get(
  *       - in: path
  *         name: eraItemId
  *         required: true
- *         schema: { type: integer }
+ *         schema: 
+ *           type: integer
+ *           example: 1
  *     requestBody:
  *       required: true
  *       content:
@@ -141,12 +144,29 @@ router.get(
  *               - claimId
  *             properties:
  *               claimId:
- *                 type: integer
+ *                 type: string
+ *                 description: Claim ID (must be a string)
+ *                 example: "CLM001"
  *               notes:
  *                 type: string
+ *                 description: Additional notes about the match
+ *                 example: "Matched to claim CLM001"
  *     responses:
  *       200:
  *         description: ERA item matched
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *       400:
+ *         description: Invalid input
+ *       401:
+ *         description: Unauthorized
  *       404:
  *         description: Item or claim not found
  */
@@ -170,7 +190,9 @@ router.post(
  *       - in: path
  *         name: eraId
  *         required: true
- *         schema: { type: integer }
+ *         schema: 
+ *           type: integer
+ *           example: 1
  *     responses:
  *       200:
  *         description: ERA details
@@ -197,7 +219,9 @@ router.get(
  *       - in: path
  *         name: eraId
  *         required: true
- *         schema: { type: integer }
+ *         schema: 
+ *           type: integer
+ *           example: 1
  *       - in: query
  *         name: isMatched
  *         schema: { type: boolean }
@@ -225,12 +249,27 @@ router.get(
  *       - in: path
  *         name: eraId
  *         required: true
- *         schema: { type: integer }
+ *         schema: 
+ *           type: integer
+ *           example: 1
  *     responses:
  *       200:
  *         description: Payments posted automatically
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
  *       400:
  *         description: Some items could not be matched
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: ERA not found
  */
 router.post(
   '/:eraId/auto-post',

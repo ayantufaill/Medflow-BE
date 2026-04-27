@@ -28,6 +28,26 @@ const router = Router();
  *     responses:
  *       200:
  *         description: List of document types
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                     enum:
+ *                       - XRAY
+ *                       - LAB_RESULT
+ *                       - PRESCRIPTION
+ *                       - CONSENT_FORM
+ *                       - INSURANCE_CARD
+ *                       - ID_PROOF
+ *                       - MEDICAL_HISTORY
+ *                       - OTHER
  */
 router.get(
   '/types',
@@ -167,19 +187,46 @@ router.get(
  *             type: object
  *             required:
  *               - file
+ *               - patientId
+ *               - documentType
  *             properties:
  *               file:
  *                 type: string
  *                 format: binary
+ *                 description: The document file to upload
  *               patientId:
  *                 type: integer
- *               type:
+ *                 description: Patient ID
+ *                 example: 1
+ *               documentType:
  *                 type: string
+ *                 description: Document type (must be one of the valid types)
+ *                 enum: [XRAY, LAB_RESULT, PRESCRIPTION, CONSENT_FORM, INSURANCE_CARD, ID_PROOF, MEDICAL_HISTORY, OTHER]
+ *                 example: "XRAY"
  *               description:
  *                 type: string
+ *                 description: Document description
+ *                 example: "Chest X-ray from March 2026"
  *     responses:
  *       201:
  *         description: Document uploaded
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *       400:
+ *         description: Invalid input - missing patientId or documentType
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Patient not found
  */
 router.post(
   '/upload',
@@ -205,19 +252,59 @@ router.post(
  *             type: object
  *             required:
  *               - patientId
- *               - type
+ *               - documentType
+ *               - documentName
  *             properties:
  *               patientId:
  *                 type: integer
- *               type:
+ *                 description: Patient ID (must be a valid patient ID, not 0)
+ *                 example: 1
+ *               documentType:
  *                 type: string
+ *                 description: Document type
+ *                 enum:
+ *                   - XRAY
+ *                   - LAB_RESULT
+ *                   - PRESCRIPTION
+ *                   - CONSENT_FORM
+ *                   - INSURANCE_CARD
+ *                   - ID_PROOF
+ *                   - MEDICAL_HISTORY
+ *                   - OTHER
+ *                 example: "LAB_RESULT"
+ *               documentName:
+ *                 type: string
+ *                 description: Document name/title
+ *                 example: "Blood Test Results - March 2026"
  *               description:
  *                 type: string
+ *                 description: Document description
+ *                 example: "Complete blood count and metabolic panel"
  *               url:
  *                 type: string
+ *                 format: uri
+ *                 description: URL to the document (if already hosted)
+ *                 example: "https://storage.example.com/documents/lab-results-001.pdf"
  *     responses:
  *       201:
  *         description: Document created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *       400:
+ *         description: Invalid input - invalid patient ID, document type, or missing required fields
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Patient not found
  */
 router.post(
   '/',
@@ -247,10 +334,19 @@ router.post(
  *           schema:
  *             type: object
  *             properties:
+ *               documentName:
+ *                 type: string
+ *                 description: Document name
+ *                 example: "Updated Blood Test Results"
  *               description:
  *                 type: string
- *               type:
+ *                 description: Document description
+ *                 example: "Updated lab results with additional tests"
+ *               documentType:
  *                 type: string
+ *                 description: Document type
+ *                 enum: [XRAY, LAB_RESULT, PRESCRIPTION, CONSENT_FORM, INSURANCE_CARD, ID_PROOF, MEDICAL_HISTORY, OTHER]
+ *                 example: "LAB_RESULT"
  *     responses:
  *       200:
  *         description: Document updated
@@ -289,6 +385,8 @@ router.put(
  *             properties:
  *               clinicalNoteId:
  *                 type: integer
+ *                 description: Clinical note ID
+ *                 example: 1
  *     responses:
  *       200:
  *         description: Document attached to note
