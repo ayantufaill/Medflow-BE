@@ -283,22 +283,26 @@ router.delete(
  *             type: object
  *             required:
  *               - description
- *               - amount
+ *               - unitPrice
  *             properties:
  *               description:
  *                 type: string
- *               amount:
+ *                 description: Item description
+ *               unitPrice:
  *                 type: number
+ *                 description: Unit price of the item
  *               quantity:
  *                 type: integer
  *                 default: 1
+ *                 description: Quantity of the item
  *               procedureId:
  *                 type: integer
+ *                 description: Optional procedure ID (if provided, procedure price overrides unitPrice)
  *     responses:
  *       201:
  *         description: Item added to invoice
  *       400:
- *         description: Cannot add items to finalized invoice
+ *         description: Cannot add items to finalized invoice or missing required fields
  *       404:
  *         description: Invoice not found
  */
@@ -399,6 +403,7 @@ router.delete(
  *         required: true
  *         schema: { type: integer }
  *     requestBody:
+ *       required: false
  *       content:
  *         application/json:
  *           schema:
@@ -406,13 +411,41 @@ router.delete(
  *             properties:
  *               discount:
  *                 type: number
+ *                 description: Discount amount to apply
+ *                 example: 10
  *               tax:
  *                 type: number
+ *                 description: Tax amount to apply
+ *                 example: 5
  *     responses:
  *       200:
- *         description: Invoice recalculated
+ *         description: Invoice recalculated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     subtotal:
+ *                       type: number
+ *                     discount:
+ *                       type: number
+ *                     tax:
+ *                       type: number
+ *                     total:
+ *                       type: number
+ *       400:
+ *         description: Invalid request or cannot recalculate finalized invoice
  *       404:
  *         description: Invoice not found
+ *       500:
+ *         description: Internal server error
  */
 router.post(
   '/:invoiceId/recalculate',

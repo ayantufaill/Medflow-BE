@@ -131,19 +131,44 @@ router.get(
  *             type: object
  *             required:
  *               - name
- *               - content
+ *               - structure
  *             properties:
  *               name:
  *                 type: string
+ *                 description: Template name
+ *                 example: "General Consultation Note"
+ *               structure:
+ *                 type: string
+ *                 description: Template structure/content (required)
+ *                 example: "{\"sections\": [{\"title\": \"Chief Complaint\", \"content\": \"\"}]}"
  *               content:
  *                 type: string
+ *                 description: Alternative field name for template content (deprecated, use structure)
+ *                 example: "Patient presents with..."
  *               specialty:
  *                 type: string
+ *                 description: Medical specialty
+ *                 example: "Cardiology"
  *               category:
  *                 type: string
+ *                 description: Template category
+ *                 example: "Consultation"
  *     responses:
  *       201:
- *         description: Template created
+ *         description: Template created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Bad request - missing required fields like structure
  *       403:
  *         description: Admin or Doctor only
  */
@@ -179,9 +204,15 @@ router.post(
  *             properties:
  *               name:
  *                 type: string
+ *                 description: Name for the duplicated template
+ *                 example: "General Consultation Note (Copy)"
  *     responses:
  *       201:
- *         description: Template duplicated
+ *         description: Template duplicated successfully
+ *       400:
+ *         description: Bad request
+ *       404:
+ *         description: Source template not found
  */
 router.post(
   '/:noteTemplateId/duplicate',
@@ -213,15 +244,24 @@ router.post(
  *             properties:
  *               name:
  *                 type: string
- *               content:
+ *                 description: Template name
+ *               structure:
  *                 type: string
+ *                 description: Template structure/content
  *               specialty:
  *                 type: string
+ *                 description: Medical specialty
  *               category:
  *                 type: string
+ *                 description: Template category
+ *               isActive:
+ *                 type: boolean
+ *                 description: Active status
  *     responses:
  *       200:
- *         description: Template updated
+ *         description: Template updated successfully
+ *       400:
+ *         description: Bad request
  *       404:
  *         description: Template not found
  */
@@ -248,7 +288,25 @@ router.put(
  *         schema: { type: integer }
  *     responses:
  *       200:
- *         description: Template status toggled
+ *         description: Template status toggled successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     isActive:
+ *                       type: boolean
+ *                 message:
+ *                   type: string
+ *       404:
+ *         description: Template not found
  */
 router.patch(
   '/:noteTemplateId/status',
@@ -273,7 +331,7 @@ router.patch(
  *         schema: { type: integer }
  *     responses:
  *       200:
- *         description: Template deleted
+ *         description: Template deleted successfully
  *       404:
  *         description: Template not found
  */

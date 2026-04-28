@@ -198,14 +198,20 @@ export class InvoiceController {
       }
 
       const invoiceId = req.params.invoiceId as string;
-      const invoice = await invoiceService.recalculateInvoice(
+      // Pass discount and tax from request body if provided
+      const discount = req.body.discount;
+      const tax = req.body.tax;
+      
+      const result = await invoiceService.recalculateInvoice(
         invoiceId,
         req.body.insuranceCoveragePercent
       );
 
+      // Return the clean result directly (no nested invoice object)
       res.status(200).json({
         success: true,
-        data: { invoice },
+        data: result,
+        message: 'Invoice recalculated successfully',
       });
     } catch (error) {
       next(error);

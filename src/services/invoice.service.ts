@@ -33,6 +33,17 @@ type ItemMeta = {
   serviceId?: string;
 };
 
+type RecalculateResult = {
+  invoiceId: string;
+  subtotal: number;
+  discount: number;
+  tax: number;
+  total: number;
+  insurancePortion: number;
+  patientPortion: number;
+  balanceDue: number;
+};
+
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;
   try {
@@ -754,7 +765,7 @@ export class InvoiceService {
     return this.mapStatementToInvoice(updated, nextMeta);
   }
 
-  async recalculateInvoice(invoiceId: string, insuranceCoveragePercent?: number) {
+  async recalculateInvoice(invoiceId: string, insuranceCoveragePercent?: number): Promise<RecalculateResult> {
     const invoice = await this.getStatementById(invoiceId);
     if (!invoice) {
       throw new NotFoundError('Invoice not found');
@@ -775,23 +786,24 @@ export class InvoiceService {
       : [];
     const codeMap = new Map(codes.map((code) => [code.CodeNum?.toString(), code]));
 
-    const totalAmount = items.reduce((sum, item) => sum + (Number(item.ProcFee) || 0), 0);
+    const subtotal = items.reduce((sum, item) => sum + (Number(item.ProcFee) || 0), 0);
     const taxAmount = items.reduce((sum, item) => {
       const code = item.CodeNum ? codeMap.get(item.CodeNum.toString()) : null;
       const rate = code?.TaxCode ? Number.parseFloat(code.TaxCode) : 0;
       return sum + (Number(item.ProcFee) || 0) * ((Number.isFinite(rate) ? rate : 0) / 100);
     }, 0);
 
-    const discountAmount = Math.min(Number(meta.discountAmount) || 0, totalAmount);
-    const subtotal = totalAmount - discountAmount + taxAmount;
+    const discountAmount = Math.min(Number(meta.discountAmount) || 0, subtotal);
+    const totalAfterDiscount = subtotal - discountAmount;
+    const totalWithTax = totalAfterDiscount + taxAmount;
 
     let insurancePortion = Number(meta.insurancePortion) || 0;
     if (insuranceCoveragePercent !== undefined) {
-      insurancePortion = roundCurrency((subtotal * insuranceCoveragePercent) / 100);
+      insurancePortion = roundCurrency((totalWithTax * insuranceCoveragePercent) / 100);
     }
 
-    const patientPortion = roundCurrency(Math.max(0, subtotal - insurancePortion));
-    const balanceDue = roundCurrency(Math.max(0, subtotal - (Number(meta.paidAmount) || 0)));
+    const patientPortion = roundCurrency(Math.max(0, totalWithTax - insurancePortion));
+    const balanceDue = roundCurrency(Math.max(0, totalWithTax - (Number(meta.paidAmount) || 0)));
 
     const nextMeta: StatementMeta = {
       ...meta,
@@ -804,13 +816,23 @@ export class InvoiceService {
     await prisma.statement.update({
       where: { StatementNum: invoice.StatementNum },
       data: {
-        BalTotal: roundCurrency(balanceDue),
-        InsEst: roundCurrency(insurancePortion),
+        BalTotal: balanceDue,
+        InsEst: insurancePortion,
         NoteBold: buildJson(nextMeta),
       },
     });
 
-    return invoice;
+    // Return a clean object without BigInts
+    return {
+      invoiceId: invoice.StatementNum.toString(),
+      subtotal: roundCurrency(subtotal),
+      discount: roundCurrency(discountAmount),
+      tax: roundCurrency(taxAmount),
+      total: roundCurrency(totalWithTax),
+      insurancePortion: roundCurrency(insurancePortion),
+      patientPortion: roundCurrency(patientPortion),
+      balanceDue: roundCurrency(balanceDue),
+    };
   }
 
   async getInvoicesByPatient(patientId: string, page = 1, limit = 10) {
