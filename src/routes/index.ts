@@ -29,6 +29,10 @@ import claimRoutes from './claim.routes';
 import eraRoutes from './era.routes';
 import coverageTemplateRoutes from './coverage-template.routes';
 import portalRoutes from './portal.routes';
+import adjustmentRoutes from './adjustment.routes';
+import depositRoutes from './deposit.routes';
+import payPlanRoutes from './payplan.routes';
+import financeDashboardRoutes from './finance-dashboard.routes';
 
 const router = Router();
 
@@ -62,5 +66,9 @@ router.use('/authorizations', authorizationRoutes);
 router.use('/claims', claimRoutes);
 router.use('/era', eraRoutes);
 router.use('/portal', portalRoutes);
+router.use('/adjustments', adjustmentRoutes);
+router.use('/deposits', depositRoutes);
+router.use('/payment-plans', payPlanRoutes);
+router.use('/finance-dashboard', financeDashboardRoutes);
 
 export default router;
