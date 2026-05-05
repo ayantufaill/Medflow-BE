@@ -33,6 +33,7 @@ import adjustmentRoutes from './adjustment.routes';
 import depositRoutes from './deposit.routes';
 import payPlanRoutes from './payplan.routes';
 import financeDashboardRoutes from './finance-dashboard.routes';
+import clinicalExamRoutes from './clinical-exam.routes';
 
 const router = Router();
 
@@ -70,5 +71,6 @@ router.use('/adjustments', adjustmentRoutes);
 router.use('/deposits', depositRoutes);
 router.use('/payment-plans', payPlanRoutes);
 router.use('/finance-dashboard', financeDashboardRoutes);
+router.use('/clinical-exams', clinicalExamRoutes);
 
 export default router;

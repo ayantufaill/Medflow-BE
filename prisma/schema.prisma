@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client-js"
   engineType = "library"
 }
 
@@ -167,66 +167,74 @@ model apisubscription {
 }
 
 model appointment {
-  AptNum                                               BigInt           @id(map: "PK__appointm__656D61EFD3979904")
+  AptNum                                               BigInt              @id(map: "PK__appointm__656D61EFD3979904")
   PatNum                                               BigInt?
-  AptStatus                                            Int?             @db.TinyInt
-  Pattern                                              String?          @db.VarChar(255)
+  AptStatus                                            Int?                @db.TinyInt
+  Pattern                                              String?             @db.VarChar(255)
   Confirmed                                            BigInt?
-  TimeLocked                                           Int?             @db.TinyInt
+  TimeLocked                                           Int?                @db.TinyInt
   Op                                                   BigInt?
-  Note                                                 String?          @db.VarChar(Max)
+  Note                                                 String?             @db.VarChar(Max)
   ProvNum                                              BigInt?
   ProvHyg                                              BigInt?
-  AptDateTime                                          DateTime?        @db.DateTime
+  AptDateTime                                          DateTime?           @db.DateTime
   NextAptNum                                           BigInt?
   UnschedStatus                                        BigInt?
-  IsNewPatient                                         Int?             @db.TinyInt
-  ProcDescript                                         String?          @db.VarChar(Max)
+  IsNewPatient                                         Int?                @db.TinyInt
+  ProcDescript                                         String?             @db.VarChar(Max)
   Assistant                                            BigInt?
   ClinicNum                                            BigInt?
-  IsHygiene                                            Int?             @db.TinyInt
+  IsHygiene                                            Int?                @db.TinyInt
   DateTStamp                                           DateTime?
-  DateTimeArrived                                      DateTime?        @db.DateTime
-  DateTimeSeated                                       DateTime?        @db.DateTime
-  DateTimeDismissed                                    DateTime?        @db.DateTime
+  DateTimeArrived                                      DateTime?           @db.DateTime
+  DateTimeSeated                                       DateTime?           @db.DateTime
+  DateTimeDismissed                                    DateTime?           @db.DateTime
   InsPlan1                                             BigInt?
   InsPlan2                                             BigInt?
-  DateTimeAskedToArrive                                DateTime?        @db.DateTime
-  ProcsColored                                         String?          @db.VarChar(Max)
+  DateTimeAskedToArrive                                DateTime?           @db.DateTime
+  ProcsColored                                         String?             @db.VarChar(Max)
   ColorOverride                                        Int?
   AppointmentTypeNum                                   BigInt?
   SecUserNumEntry                                      BigInt?
-  SecDateTEntry                                        DateTime?        @db.DateTime
-  Priority                                             Int?             @db.TinyInt
-  ProvBarText                                          String?          @db.VarChar(60)
-  PatternSecondary                                     String?          @db.VarChar(255)
-  SecurityHash                                         String?          @db.VarChar(255)
+  SecDateTEntry                                        DateTime?           @db.DateTime
+  Priority                                             Int?                @db.TinyInt
+  ProvBarText                                          String?             @db.VarChar(60)
+  PatternSecondary                                     String?             @db.VarChar(255)
+  SecurityHash                                         String?             @db.VarChar(255)
   ItemOrderPlanned                                     Int?
-  IsMirrored                                           Int?             @db.TinyInt
-  patient                                              patient?         @relation(fields: [PatNum], references: [PatNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_1_PatNum")
-  insplan_appointment_InsPlan1Toinsplan                insplan?         @relation("appointment_InsPlan1Toinsplan", fields: [InsPlan1], references: [PlanNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_10_InsPlan1")
-  insplan_appointment_InsPlan2Toinsplan                insplan?         @relation("appointment_InsPlan2Toinsplan", fields: [InsPlan2], references: [PlanNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_11_InsPlan2")
-  appointmenttype                                      appointmenttype? @relation(fields: [AppointmentTypeNum], references: [AppointmentTypeNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_12_AppointmentTypeNum")
-  userod                                               userod?          @relation(fields: [SecUserNumEntry], references: [UserNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_13_SecUserNumEntry")
-  definition_appointment_ConfirmedTodefinition         definition?      @relation("appointment_ConfirmedTodefinition", fields: [Confirmed], references: [DefNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_2_Confirmed")
-  operatory                                            operatory?       @relation(fields: [Op], references: [OperatoryNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_3_Op")
-  provider_appointment_ProvNumToprovider               provider?        @relation("appointment_ProvNumToprovider", fields: [ProvNum], references: [ProvNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_4_ProvNum")
-  provider_appointment_ProvHygToprovider               provider?        @relation("appointment_ProvHygToprovider", fields: [ProvHyg], references: [ProvNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_5_ProvHyg")
-  appointment                                          appointment?     @relation("appointmentToappointment", fields: [NextAptNum], references: [AptNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_6_NextAptNum")
-  other_appointment                                    appointment[]    @relation("appointmentToappointment")
-  definition_appointment_UnschedStatusTodefinition     definition?      @relation("appointment_UnschedStatusTodefinition", fields: [UnschedStatus], references: [DefNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_7_UnschedStatus")
-  employee                                             employee?        @relation(fields: [Assistant], references: [EmployeeNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_8_Assistant")
-  clinic                                               clinic?          @relation(fields: [ClinicNum], references: [ClinicNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_9_ClinicNum")
+  IsMirrored                                           Int?                @db.TinyInt
+  patient                                              patient?            @relation(fields: [PatNum], references: [PatNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_1_PatNum")
+  insplan_appointment_InsPlan1Toinsplan                insplan?            @relation("appointment_InsPlan1Toinsplan", fields: [InsPlan1], references: [PlanNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_10_InsPlan1")
+  insplan_appointment_InsPlan2Toinsplan                insplan?            @relation("appointment_InsPlan2Toinsplan", fields: [InsPlan2], references: [PlanNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_11_InsPlan2")
+  appointmenttype                                      appointmenttype?    @relation(fields: [AppointmentTypeNum], references: [AppointmentTypeNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_12_AppointmentTypeNum")
+  userod                                               userod?             @relation(fields: [SecUserNumEntry], references: [UserNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_13_SecUserNumEntry")
+  definition_appointment_ConfirmedTodefinition         definition?         @relation("appointment_ConfirmedTodefinition", fields: [Confirmed], references: [DefNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_2_Confirmed")
+  operatory                                            operatory?          @relation(fields: [Op], references: [OperatoryNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_3_Op")
+  provider_appointment_ProvNumToprovider               provider?           @relation("appointment_ProvNumToprovider", fields: [ProvNum], references: [ProvNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_4_ProvNum")
+  provider_appointment_ProvHygToprovider               provider?           @relation("appointment_ProvHygToprovider", fields: [ProvHyg], references: [ProvNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_5_ProvHyg")
+  appointment                                          appointment?        @relation("appointmentToappointment", fields: [NextAptNum], references: [AptNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_6_NextAptNum")
+  other_appointment                                    appointment[]       @relation("appointmentToappointment")
+  definition_appointment_UnschedStatusTodefinition     definition?         @relation("appointment_UnschedStatusTodefinition", fields: [UnschedStatus], references: [DefNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_7_UnschedStatus")
+  employee                                             employee?           @relation(fields: [Assistant], references: [EmployeeNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_8_Assistant")
+  clinic                                               clinic?             @relation(fields: [ClinicNum], references: [ClinicNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_appointment_9_ClinicNum")
   apptfield                                            apptfield[]
   ehraptobs                                            ehraptobs[]
   emailmessage                                         emailmessage[]
   hl7msg                                               hl7msg[]
-  labcase_labcase_AptNumToappointment                  labcase[]        @relation("labcase_AptNumToappointment")
-  labcase_labcase_PlannedAptNumToappointment           labcase[]        @relation("labcase_PlannedAptNumToappointment")
-  msgtopaysent                                         msgtopaysent[]   @ignore
-  procedurelog_procedurelog_AptNumToappointment        procedurelog[]   @relation("procedurelog_AptNumToappointment")
-  procedurelog_procedurelog_PlannedAptNumToappointment procedurelog[]   @relation("procedurelog_PlannedAptNumToappointment")
+  labcase_labcase_AptNumToappointment                  labcase[]           @relation("labcase_AptNumToappointment")
+  labcase_labcase_PlannedAptNumToappointment           labcase[]           @relation("labcase_PlannedAptNumToappointment")
+  msgtopaysent                                         msgtopaysent[]      @ignore
+  procedurelog_procedurelog_AptNumToappointment        procedurelog[]      @relation("procedurelog_AptNumToappointment")
+  procedurelog_procedurelog_PlannedAptNumToappointment procedurelog[]      @relation("procedurelog_PlannedAptNumToappointment")
   schoolapproval                                       schoolapproval[]
+  examradiographic                                     examradiographic?
+  examtmj                                              examtmj?
+  examheadneck                                         examheadneck?
+  examtoothstructure                                   examtoothstructure?
+  exammorphological                                    exammorphological?
+  examperiodontal                                      examperiodontal?
+  examdentofacial                                      examdentofacial?
+  examairway                                           examairway?
 }
 
 model appointmentrule {
@@ -4582,6 +4590,14 @@ model patient {
   webschedrecall                                  webschedrecall[]         @ignore
   xchargetransaction                              xchargetransaction[]
   xwebresponse                                    xwebresponse[]
+  examradiographics                               examradiographic[]
+  examtmjs                                        examtmj[]
+  examheadnecks                                   examheadneck[]
+  examtoothstructures                             examtoothstructure[]
+  exammorphologicals                              exammorphological[]
+  examperiodontals                                examperiodontal[]
+  examdentofacials                                examdentofacial[]
+  examairways                                     examairway[]
 }
 
 model patientlink {
@@ -5497,6 +5513,14 @@ model provider {
   vaccinepat_vaccinepat_ProvNumOrderingToprovider       vaccinepat[]             @relation("vaccinepat_ProvNumOrderingToprovider")
   vaccinepat_vaccinepat_ProvNumAdministerToprovider     vaccinepat[]             @relation("vaccinepat_ProvNumAdministerToprovider")
   xwebresponse                                          xwebresponse[]
+  examradiographics                                     examradiographic[]
+  examtmjs                                              examtmj[]
+  examheadnecks                                         examheadneck[]
+  examtoothstructures                                   examtoothstructure[]
+  exammorphologicals                                    exammorphological[]
+  examperiodontals                                      examperiodontal[]
+  examdentofacials                                      examdentofacial[]
+  examairways                                           examairway[]
 }
 
 model providerclinic {
@@ -7388,3 +7412,146 @@ model zipcode {
   IsFrequent    Int?    @db.TinyInt
 }
 
+model examradiographic {
+  ExamId      BigInt      @id @default(autoincrement())
+  PatNum      BigInt
+  AptNum      BigInt      @unique
+  ProvNum     BigInt
+  IsSigned    Boolean     @default(false)
+  SignedBy    BigInt?
+  SignedAt    DateTime?
+  CreatedBy   BigInt?
+  UpdatedBy   BigInt?
+  CreatedAt   DateTime    @default(now())
+  UpdatedAt   DateTime    @updatedAt
+  ExamData    String?     @db.NVarChar(Max)
+  patient     patient     @relation(fields: [PatNum], references: [PatNum])
+  appointment appointment @relation(fields: [AptNum], references: [AptNum])
+  provider    provider    @relation(fields: [ProvNum], references: [ProvNum])
+}
+
+model examtmj {
+  ExamId      BigInt      @id @default(autoincrement())
+  PatNum      BigInt
+  AptNum      BigInt      @unique
+  ProvNum     BigInt
+  IsSigned    Boolean     @default(false)
+  SignedBy    BigInt?
+  SignedAt    DateTime?
+  CreatedBy   BigInt?
+  UpdatedBy   BigInt?
+  CreatedAt   DateTime    @default(now())
+  UpdatedAt   DateTime    @updatedAt
+  ExamData    String?     @db.NVarChar(Max)
+  patient     patient     @relation(fields: [PatNum], references: [PatNum])
+  appointment appointment @relation(fields: [AptNum], references: [AptNum])
+  provider    provider    @relation(fields: [ProvNum], references: [ProvNum])
+}
+
+model examheadneck {
+  ExamId      BigInt      @id @default(autoincrement())
+  PatNum      BigInt
+  AptNum      BigInt      @unique
+  ProvNum     BigInt
+  IsSigned    Boolean     @default(false)
+  SignedBy    BigInt?
+  SignedAt    DateTime?
+  CreatedBy   BigInt?
+  UpdatedBy   BigInt?
+  CreatedAt   DateTime    @default(now())
+  UpdatedAt   DateTime    @updatedAt
+  ExamData    String?     @db.NVarChar(Max)
+  patient     patient     @relation(fields: [PatNum], references: [PatNum])
+  appointment appointment @relation(fields: [AptNum], references: [AptNum])
+  provider    provider    @relation(fields: [ProvNum], references: [ProvNum])
+}
+
+model examtoothstructure {
+  ExamId      BigInt      @id @default(autoincrement())
+  PatNum      BigInt
+  AptNum      BigInt      @unique
+  ProvNum     BigInt
+  IsSigned    Boolean     @default(false)
+  SignedBy    BigInt?
+  SignedAt    DateTime?
+  CreatedBy   BigInt?
+  UpdatedBy   BigInt?
+  CreatedAt   DateTime    @default(now())
+  UpdatedAt   DateTime    @updatedAt
+  ExamData    String?     @db.NVarChar(Max)
+  patient     patient     @relation(fields: [PatNum], references: [PatNum])
+  appointment appointment @relation(fields: [AptNum], references: [AptNum])
+  provider    provider    @relation(fields: [ProvNum], references: [ProvNum])
+}
+
+model exammorphological {
+  ExamId      BigInt      @id @default(autoincrement())
+  PatNum      BigInt
+  AptNum      BigInt      @unique
+  ProvNum     BigInt
+  IsSigned    Boolean     @default(false)
+  SignedBy    BigInt?
+  SignedAt    DateTime?
+  CreatedBy   BigInt?
+  UpdatedBy   BigInt?
+  CreatedAt   DateTime    @default(now())
+  UpdatedAt   DateTime    @updatedAt
+  ExamData    String?     @db.NVarChar(Max)
+  patient     patient     @relation(fields: [PatNum], references: [PatNum])
+  appointment appointment @relation(fields: [AptNum], references: [AptNum])
+  provider    provider    @relation(fields: [ProvNum], references: [ProvNum])
+}
+
+model examperiodontal {
+  ExamId      BigInt      @id @default(autoincrement())
+  PatNum      BigInt
+  AptNum      BigInt      @unique
+  ProvNum     BigInt
+  IsSigned    Boolean     @default(false)
+  SignedBy    BigInt?
+  SignedAt    DateTime?
+  CreatedBy   BigInt?
+  UpdatedBy   BigInt?
+  CreatedAt   DateTime    @default(now())
+  UpdatedAt   DateTime    @updatedAt
+  ExamData    String?     @db.NVarChar(Max)
+  patient     patient     @relation(fields: [PatNum], references: [PatNum])
+  appointment appointment @relation(fields: [AptNum], references: [AptNum])
+  provider    provider    @relation(fields: [ProvNum], references: [ProvNum])
+}
+
+model examdentofacial {
+  ExamId      BigInt      @id @default(autoincrement())
+  PatNum      BigInt
+  AptNum      BigInt      @unique
+  ProvNum     BigInt
+  IsSigned    Boolean     @default(false)
+  SignedBy    BigInt?
+  SignedAt    DateTime?
+  CreatedBy   BigInt?
+  UpdatedBy   BigInt?
+  CreatedAt   DateTime    @default(now())
+  UpdatedAt   DateTime    @updatedAt
+  ExamData    String?     @db.NVarChar(Max)
+  patient     patient     @relation(fields: [PatNum], references: [PatNum])
+  appointment appointment @relation(fields: [AptNum], references: [AptNum])
+  provider    provider    @relation(fields: [ProvNum], references: [ProvNum])
+}
+
+model examairway {
+  ExamId      BigInt      @id @default(autoincrement())
+  PatNum      BigInt
+  AptNum      BigInt      @unique
+  ProvNum     BigInt
+  IsSigned    Boolean     @default(false)
+  SignedBy    BigInt?
+  SignedAt    DateTime?
+  CreatedBy   BigInt?
+  UpdatedBy   BigInt?
+  CreatedAt   DateTime    @default(now())
+  UpdatedAt   DateTime    @updatedAt
+  ExamData    String?     @db.NVarChar(Max)
+  patient     patient     @relation(fields: [PatNum], references: [PatNum])
+  appointment appointment @relation(fields: [AptNum], references: [AptNum])
+  provider    provider    @relation(fields: [ProvNum], references: [ProvNum])
+}
