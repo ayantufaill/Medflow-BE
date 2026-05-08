@@ -100,7 +100,16 @@ export class TreatmentPlanService {
       },
     });
 
-    return plan;
+    return {
+      _id: plan.TreatPlanNum.toString(),
+      patientId: plan.PatNum?.toString() ?? null,
+      title: plan.Heading ?? '',
+      notes: plan.Note ?? null,
+      status: payload.status ?? null,
+      totalAmount: payload.totalAmount ?? null,
+      items: payload.items ?? [],
+      createdAt: plan.DateTP ?? null,
+    };
   }
 
   async updateTreatmentPlan(planId: string, updates: Partial<{ title: string; notes: string; status: string; totalAmount: number; items: any[] }>) {
@@ -127,7 +136,16 @@ export class TreatmentPlanService {
       },
     });
 
-    return updated;
+    return {
+      _id: updated.TreatPlanNum.toString(),
+      patientId: updated.PatNum?.toString() ?? null,
+      title: updated.Heading ?? '',
+      notes: updated.Note ?? null,
+      status: nextMeta.status ?? null,
+      totalAmount: nextMeta.totalAmount ?? null,
+      items: nextMeta.items ?? [],
+      createdAt: updated.DateTP ?? null,
+    };
   }
 
   async deleteTreatmentPlan(planId: string) {
