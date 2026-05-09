@@ -35,6 +35,10 @@ import payPlanRoutes from './payplan.routes';
 import financeDashboardRoutes from './finance-dashboard.routes';
 import clinicalExamRoutes from './clinical-exam.routes';
 import treatmentPlanRoutes from './treatment-plan.routes';
+import labCaseRoutes from './lab-case.routes';
+import progressNoteRoutes from './progress-note.routes';
+import rxRoutes from './rx.routes';
+import patientReferralRoutes from './patient-referral.routes';
 
 const router = Router();
 
@@ -74,5 +78,9 @@ router.use('/payment-plans', payPlanRoutes);
 router.use('/finance-dashboard', financeDashboardRoutes);
 router.use('/clinical-exams', clinicalExamRoutes);
 router.use('/treatment-plans', treatmentPlanRoutes);
+router.use('/lab-cases', labCaseRoutes);
+router.use('/progress-notes', progressNoteRoutes);
+router.use('/rx', rxRoutes);
+router.use('/patient-referrals', patientReferralRoutes);
 
 export default router;
