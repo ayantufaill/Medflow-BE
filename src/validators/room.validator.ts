@@ -21,6 +21,10 @@ export const createRoomValidator: ValidationChain[] = [
     })
     .isLength({ min: 1, max: 100 })
     .withMessage('Name must be between 1 and 100 characters'),
+  body('itemOrder')
+    .optional()
+    .isInt()
+    .withMessage('itemOrder must be an integer'),
 ];
 
 export const updateRoomValidator: ValidationChain[] = [
@@ -39,6 +43,10 @@ export const updateRoomValidator: ValidationChain[] = [
     .optional()
     .isBoolean()
     .withMessage('isActive must be a boolean'),
+  body('itemOrder')
+    .optional()
+    .isInt()
+    .withMessage('itemOrder must be an integer'),
 ];
 
 export const roomQueryValidator: ValidationChain[] = [

@@ -10,7 +10,24 @@ Generated from `/src/services` and `src/config/api.js`.
 - Public auth endpoints bypass refresh logic: `/auth/login`, `/auth/register/*`, `/auth/forgot-password/*`, `/auth/setup-password`.
 - `429` responses are not retried.
 
-## API Endpoints (217)
+## API Endpoints (224)
+
+### reporting.service.js
+
+| Client Method | HTTP | Endpoint | What it does | Payload sent | Expects / returns | Query params | Source |
+|---|---|---|---|---|---|---|---|
+| `runReport(...)` | `POST` | `/reports/run` | Execute a dynamic report with filters | `{ kind, filters, columns, page, limit }` | `response.data.data` | `-` | `/src/services/reporting.service.ts` |
+| `getSavedReports(...)` | `GET` | `/reports/definitions` | Get all saved report definitions | `-` | `response.data.data` | `-` | `/src/services/reporting.service.ts` |
+| `saveReport(...)` | `POST` | `/reports/definitions` | Save a new report definition | `{ name, kind, filters, columns }` | `response.data.data` | `-` | `/src/services/reporting.service.ts` |
+| `deleteReport(...)` | `DELETE` | `/reports/definitions/${reportId}` | Delete a saved report | `-` | `response.data.data` | `-` | `/src/services/reporting.service.ts` |
+
+### audience.service.js
+
+| Client Method | HTTP | Endpoint | What it does | Payload sent | Expects / returns | Query params | Source |
+|---|---|---|---|---|---|---|---|
+| `getAllAudiences(...)` | `GET` | `/audiences` | Get all saved audience segments | `-` | `response.data.data` | `-` | `/src/services/audience.service.ts` |
+| `saveAudience(...)` | `POST` | `/audiences` | Save a new audience segment | `{ name, kind, filters }` | `response.data.data` | `-` | `/src/services/audience.service.ts` |
+| `deleteAudience(...)` | `DELETE` | `/audiences/${audienceId}` | Delete an audience segment | `-` | `response.data.data` | `-` | `/src/services/audience.service.ts` |
 
 ### allergy.service.js
 

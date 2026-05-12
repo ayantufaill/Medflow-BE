@@ -15,22 +15,100 @@ const router = Router();
 // All waitlist routes require authentication
 router.use(authenticate);
 
-// Get all waitlist entries
+/**
+ * @swagger
+ * /waitlist:
+ *   get:
+ *     summary: Get all waitlist entries
+ *     tags: [Waitlist]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: patientId
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: providerId
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [waiting, called, scheduled, cancelled] }
+ *     responses:
+ *       200:
+ *         description: List of waitlist entries
+ *       401:
+ *         description: Unauthorized
+ */
 router.get(
   '/',
   validate(waitlistQueryValidator),
   waitlistController.getAllWaitlistEntries.bind(waitlistController)
 );
 
-// Get waitlist entry by ID
+/**
+ * @swagger
+ * /waitlist/{waitlistEntryId}:
+ *   get:
+ *     summary: Get waitlist entry by ID
+ *     tags: [Waitlist]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: waitlistEntryId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Waitlist entry details
+ *       404:
+ *         description: Entry not found
+ */
 router.get(
   '/:waitlistEntryId',
   validate(waitlistEntryIdValidator),
   waitlistController.getWaitlistEntryById.bind(waitlistController)
 );
 
-// Create waitlist entry
-// Front Desk, Admin can create waitlist entries
+/**
+ * @swagger
+ * /waitlist:
+ *   post:
+ *     summary: Create waitlist entry
+ *     tags: [Waitlist]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - patientId
+ *               - providerId
+ *             properties:
+ *               patientId:
+ *                 type: integer
+ *               providerId:
+ *                 type: integer
+ *               preferredDate:
+ *                 type: string
+ *                 format: date
+ *               preferredTime:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Waitlist entry created
+ */
 router.post(
   '/',
   requireRoles('Front Desk', 'Admin'),
@@ -38,8 +116,39 @@ router.post(
   waitlistController.createWaitlistEntry.bind(waitlistController)
 );
 
-// Update waitlist entry
-// Front Desk, Admin can update waitlist entries
+/**
+ * @swagger
+ * /waitlist/{waitlistEntryId}:
+ *   put:
+ *     summary: Update waitlist entry
+ *     tags: [Waitlist]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: waitlistEntryId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               preferredDate:
+ *                 type: string
+ *                 format: date
+ *               preferredTime:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Waitlist entry updated
+ *       404:
+ *         description: Entry not found
+ */
 router.put(
   '/:waitlistEntryId',
   requireRoles('Front Desk', 'Admin'),
@@ -47,8 +156,23 @@ router.put(
   waitlistController.updateWaitlistEntry.bind(waitlistController)
 );
 
-// Mark waitlist entry as called
-// Front Desk, Admin can mark as called
+/**
+ * @swagger
+ * /waitlist/{waitlistEntryId}/called:
+ *   post:
+ *     summary: Mark waitlist entry as called
+ *     tags: [Waitlist]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: waitlistEntryId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Entry marked as called
+ */
 router.post(
   '/:waitlistEntryId/called',
   requireRoles('Front Desk', 'Admin'),
@@ -56,8 +180,23 @@ router.post(
   waitlistController.markAsCalled.bind(waitlistController)
 );
 
-// Mark waitlist entry as scheduled
-// Front Desk, Admin can mark as scheduled
+/**
+ * @swagger
+ * /waitlist/{waitlistEntryId}/scheduled:
+ *   post:
+ *     summary: Mark waitlist entry as scheduled
+ *     tags: [Waitlist]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: waitlistEntryId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Entry marked as scheduled
+ */
 router.post(
   '/:waitlistEntryId/scheduled',
   requireRoles('Front Desk', 'Admin'),
@@ -65,8 +204,39 @@ router.post(
   waitlistController.markAsScheduled.bind(waitlistController)
 );
 
-// Convert waitlist entry to appointment
-// Front Desk, Admin can convert waitlist to appointment
+/**
+ * @swagger
+ * /waitlist/{waitlistEntryId}/convert-to-appointment:
+ *   post:
+ *     summary: Convert waitlist entry to appointment
+ *     tags: [Waitlist]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: waitlistEntryId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - startTime
+ *             properties:
+ *               startTime:
+ *                 type: string
+ *                 format: date-time
+ *               appointmentTypeId:
+ *                 type: integer
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Appointment created from waitlist
+ */
 router.post(
   '/:waitlistEntryId/convert-to-appointment',
   requireRoles('Front Desk', 'Admin'),
@@ -74,8 +244,25 @@ router.post(
   waitlistController.convertToAppointment.bind(waitlistController)
 );
 
-// Delete waitlist entry
-// Front Desk, Admin can delete waitlist entries
+/**
+ * @swagger
+ * /waitlist/{waitlistEntryId}:
+ *   delete:
+ *     summary: Delete waitlist entry
+ *     tags: [Waitlist]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: waitlistEntryId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Waitlist entry deleted
+ *       404:
+ *         description: Entry not found
+ */
 router.delete(
   '/:waitlistEntryId',
   requireRoles('Front Desk', 'Admin'),

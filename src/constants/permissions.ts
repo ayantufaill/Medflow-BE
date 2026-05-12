@@ -126,6 +126,7 @@ export const PERMISSIONS = {
 
   // Reports
   REPORTS: {
+    READ: 'reports.read',
     FINANCIAL: 'reports.financial',
     CLINICAL: 'reports.clinical',
     ADMINISTRATIVE: 'reports.administrative',

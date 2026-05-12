@@ -12,6 +12,19 @@ const PREF_LOGO_PATH = `${PREF_PREFIX}logoPath`;
 const PREF_BUSINESS_HOURS = `${PREF_PREFIX}businessHours`;
 const PREF_APPT_BUFFER_MINUTES = `${PREF_PREFIX}appointmentBufferMinutes`;
 const PREF_BILLING_CONTACT_EMAIL = `${PREF_PREFIX}billingContactEmail`;
+const PREF_BILL_OUT_OF_NETWORK = `${PREF_PREFIX}billingOutOfNetwork`;
+const PREF_BILL_ASSIGNMENT_TYPE = `${PREF_PREFIX}billingAssignmentType`;
+const PREF_BILL_PROVIDER = `${PREF_PREFIX}billingProvider`;
+const PREF_KIOSK_PASSWORD = `${PREF_PREFIX}kioskPassword`;
+const PREF_KIOSK_ACCOUNTS = `${PREF_PREFIX}kioskAccounts`;
+const PREF_MYCHART_SETTINGS = `${PREF_PREFIX}myChartSettings`;
+const PREF_OFFICE_TIMINGS = `${PREF_PREFIX}officeTimings`;
+const PREF_ONLINE_SCHEDULE = `${PREF_PREFIX}onlineSchedule`;
+const PREF_PATIENT_FLAGS = `${PREF_PREFIX}patientFlags`;
+const PREF_DOCUMENT_CATEGORIES = `${PREF_PREFIX}documentCategories`;
+const PREF_SCHEDULE_CONFIG = `${PREF_PREFIX}scheduleConfig`;
+const PREF_PRACTICE_SETTINGS = `${PREF_PREFIX}practiceSettings`;
+const PREF_COUNTRY = `${PREF_PREFIX}country`;
 
 type PracticeInfoMeta = {
   taxId?: string | null;
@@ -22,6 +35,19 @@ type PracticeInfoMeta = {
   businessHours?: Record<string, unknown>;
   appointmentBufferMinutes?: number | null;
   billingContactEmail?: string | null;
+  billingOutOfNetwork?: string | null;
+  billingAssignmentType?: string | null;
+  billingProvider?: string | null;
+  kioskPassword?: string | null;
+  kioskAccounts?: any[] | null;
+  myChartSettings?: Record<string, unknown> | null;
+  officeTimings?: Record<string, unknown> | null;
+  onlineSchedule?: Record<string, unknown> | null;
+  patientFlags?: any[] | null;
+  documentCategories?: Record<string, unknown> | null;
+  scheduleConfig?: Record<string, unknown> | null;
+  practiceSettings?: Record<string, unknown> | null;
+  country?: string | null;
 };
 
 type PracticeInfoPayload = {
@@ -38,12 +64,25 @@ type PracticeInfoPayload = {
     city?: string;
     state?: string;
     postalCode?: string;
+    country?: string;
   };
   logoPath?: string;
   businessHours?: Map<string, unknown> | Record<string, unknown>;
   timezone?: string;
   appointmentBufferMinutes?: number;
   billingContactEmail?: string;
+  billingOutOfNetwork?: string;
+  billingAssignmentType?: string;
+  billingProvider?: string;
+  kioskPassword?: string;
+  kioskAccounts?: any[];
+  myChartSettings?: Record<string, unknown>;
+  officeTimings?: Record<string, unknown>;
+  onlineSchedule?: Record<string, unknown>;
+  patientFlags?: any[];
+  documentCategories?: Record<string, unknown>;
+  scheduleConfig?: Record<string, unknown>;
+  practiceSettings?: Record<string, unknown>;
 };
 
 const parseJsonObject = (value?: string | null): Record<string, unknown> => {
@@ -92,6 +131,45 @@ const setMetaFromPref = (
     case PREF_BILLING_CONTACT_EMAIL:
       meta.billingContactEmail = prefValue ?? null;
       break;
+    case PREF_BILL_OUT_OF_NETWORK:
+      meta.billingOutOfNetwork = prefValue ?? null;
+      break;
+    case PREF_BILL_ASSIGNMENT_TYPE:
+      meta.billingAssignmentType = prefValue ?? null;
+      break;
+    case PREF_BILL_PROVIDER:
+      meta.billingProvider = prefValue ?? null;
+      break;
+    case PREF_KIOSK_PASSWORD:
+      meta.kioskPassword = prefValue ?? null;
+      break;
+    case PREF_KIOSK_ACCOUNTS:
+      meta.kioskAccounts = prefValue ? JSON.parse(prefValue) : [];
+      break;
+    case PREF_MYCHART_SETTINGS:
+      meta.myChartSettings = parseJsonObject(prefValue);
+      break;
+    case PREF_OFFICE_TIMINGS:
+      meta.officeTimings = parseJsonObject(prefValue);
+      break;
+    case PREF_ONLINE_SCHEDULE:
+      meta.onlineSchedule = parseJsonObject(prefValue);
+      break;
+    case PREF_PATIENT_FLAGS:
+      meta.patientFlags = prefValue ? JSON.parse(prefValue) : [];
+      break;
+    case PREF_DOCUMENT_CATEGORIES:
+      meta.documentCategories = parseJsonObject(prefValue);
+      break;
+    case PREF_SCHEDULE_CONFIG:
+      meta.scheduleConfig = parseJsonObject(prefValue);
+      break;
+    case PREF_PRACTICE_SETTINGS:
+      meta.practiceSettings = parseJsonObject(prefValue);
+      break;
+    case PREF_COUNTRY:
+      meta.country = prefValue ?? null;
+      break;
     default:
       break;
   }
@@ -109,6 +187,19 @@ const normalizeMetaFromInput = (data: Partial<PracticeInfoPayload>): PracticeInf
       : {},
   appointmentBufferMinutes: data.appointmentBufferMinutes ?? 0,
   billingContactEmail: data.billingContactEmail ?? null,
+  billingOutOfNetwork: data.billingOutOfNetwork ?? null,
+  billingAssignmentType: data.billingAssignmentType ?? null,
+  billingProvider: data.billingProvider ?? null,
+  kioskPassword: data.kioskPassword ?? null,
+  kioskAccounts: data.kioskAccounts ?? [],
+  myChartSettings: data.myChartSettings ?? {},
+  officeTimings: data.officeTimings ?? {},
+  onlineSchedule: data.onlineSchedule ?? {},
+  patientFlags: data.patientFlags ?? [],
+  documentCategories: data.documentCategories ?? {},
+  scheduleConfig: data.scheduleConfig ?? {},
+  practiceSettings: data.practiceSettings ?? {},
+  country: data.address?.country ?? null,
 });
 
 export class PracticeInfoService {
@@ -150,12 +241,25 @@ export class PracticeInfoService {
         city: row.City ?? null,
         state: row.State ?? null,
         postalCode: row.Zip ?? null,
+        country: meta.country ?? 'United States',
       },
       logoPath: meta.logoPath ?? null,
       businessHours: meta.businessHours ?? {},
       timezone: row.TimeZone ?? 'UTC',
       appointmentBufferMinutes: meta.appointmentBufferMinutes ?? 0,
       billingContactEmail: meta.billingContactEmail ?? null,
+      billingOutOfNetwork: meta.billingOutOfNetwork ?? 'no',
+      billingAssignmentType: meta.billingAssignmentType ?? 'in-assignment',
+      billingProvider: meta.billingProvider ?? 'default',
+      kioskPassword: meta.kioskPassword ?? null,
+      kioskAccounts: meta.kioskAccounts ?? [],
+      myChartSettings: meta.myChartSettings ?? {},
+      officeTimings: meta.officeTimings ?? {},
+      onlineSchedule: meta.onlineSchedule ?? {},
+      patientFlags: meta.patientFlags ?? [],
+      documentCategories: meta.documentCategories ?? {},
+      scheduleConfig: meta.scheduleConfig ?? {},
+      practiceSettings: meta.practiceSettings ?? {},
     };
   }
 
@@ -233,6 +337,36 @@ export class PracticeInfoService {
         PREF_BILLING_CONTACT_EMAIL,
         data.billingContactEmail ?? null
       );
+    }
+    if ('kioskPassword' in data) {
+      await this.setClinicPref(clinicNum, PREF_KIOSK_PASSWORD, data.kioskPassword ?? null);
+    }
+    if ('kioskAccounts' in data) {
+      await this.setClinicPref(clinicNum, PREF_KIOSK_ACCOUNTS, JSON.stringify(data.kioskAccounts ?? []));
+    }
+    if ('myChartSettings' in data) {
+      await this.setClinicPref(clinicNum, PREF_MYCHART_SETTINGS, JSON.stringify(data.myChartSettings ?? {}));
+    }
+    if ('officeTimings' in data) {
+      await this.setClinicPref(clinicNum, PREF_OFFICE_TIMINGS, JSON.stringify(data.officeTimings ?? {}));
+    }
+    if ('onlineSchedule' in data) {
+      await this.setClinicPref(clinicNum, PREF_ONLINE_SCHEDULE, JSON.stringify(data.onlineSchedule ?? {}));
+    }
+    if ('patientFlags' in data) {
+      await this.setClinicPref(clinicNum, PREF_PATIENT_FLAGS, JSON.stringify(data.patientFlags ?? []));
+    }
+    if ('documentCategories' in data) {
+      await this.setClinicPref(clinicNum, PREF_DOCUMENT_CATEGORIES, JSON.stringify(data.documentCategories ?? {}));
+    }
+    if ('scheduleConfig' in data) {
+      await this.setClinicPref(clinicNum, PREF_SCHEDULE_CONFIG, JSON.stringify(data.scheduleConfig ?? {}));
+    }
+    if ('practiceSettings' in data) {
+      await this.setClinicPref(clinicNum, PREF_PRACTICE_SETTINGS, JSON.stringify(data.practiceSettings ?? {}));
+    }
+    if (data.address?.country) {
+      await this.setClinicPref(clinicNum, PREF_COUNTRY, data.address.country);
     }
   }
 

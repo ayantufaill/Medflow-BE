@@ -30,6 +30,16 @@ const parseFormDataFields = (body: any): any => {
     }
   }
 
+  // Parse practiceSettings if it's a string
+  if (typeof parsed.practiceSettings === 'string' && parsed.practiceSettings) {
+    try {
+      parsed.practiceSettings = JSON.parse(parsed.practiceSettings);
+    } catch (e) {
+      // If parsing fails, set to empty object
+      parsed.practiceSettings = {};
+    }
+  }
+
   // Parse appointmentBufferMinutes if it's a string
   if (typeof parsed.appointmentBufferMinutes === 'string' && parsed.appointmentBufferMinutes) {
     const parsedValue = parseInt(parsed.appointmentBufferMinutes, 10);

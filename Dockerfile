@@ -1,7 +1,7 @@
 FROM node:24-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm install --prefer-offline --no-audit || npm install --prefer-offline --no-audit || npm install --prefer-offline --no-audit
 
 FROM deps AS dev
 ENV NODE_ENV=development
@@ -20,7 +20,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 RUN groupadd -r app && useradd -r -g app -u 10001 app
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev --prefer-offline --no-audit || npm install --omit=dev --prefer-offline --no-audit || npm install --omit=dev --prefer-offline --no-audit
 COPY prisma ./prisma
 RUN npx prisma generate --schema prisma/schema.prisma
 COPY --from=build /app/dist ./dist

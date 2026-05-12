@@ -29,6 +29,18 @@ import claimRoutes from './claim.routes';
 import eraRoutes from './era.routes';
 import coverageTemplateRoutes from './coverage-template.routes';
 import portalRoutes from './portal.routes';
+import adjustmentRoutes from './adjustment.routes';
+import depositRoutes from './deposit.routes';
+import payPlanRoutes from './payplan.routes';
+import financeDashboardRoutes from './finance-dashboard.routes';
+import reportingRoutes from './reporting.routes';
+import audienceRoutes from './audience.routes';
+import clinicalExamRoutes from './clinical-exam.routes';
+import treatmentPlanRoutes from './treatment-plan.routes';
+import labCaseRoutes from './lab-case.routes';
+import progressNoteRoutes from './progress-note.routes';
+import rxRoutes from './rx.routes';
+import patientReferralRoutes from './patient-referral.routes';
 
 const router = Router();
 
@@ -62,5 +74,17 @@ router.use('/authorizations', authorizationRoutes);
 router.use('/claims', claimRoutes);
 router.use('/era', eraRoutes);
 router.use('/portal', portalRoutes);
+router.use('/adjustments', adjustmentRoutes);
+router.use('/deposits', depositRoutes);
+router.use('/payment-plans', payPlanRoutes);
+router.use('/finance-dashboard', financeDashboardRoutes);
+router.use('/reports', reportingRoutes);
+router.use('/audiences', audienceRoutes);
+router.use('/clinical-exams', clinicalExamRoutes);
+router.use('/treatment-plans', treatmentPlanRoutes);
+router.use('/lab-cases', labCaseRoutes);
+router.use('/progress-notes', progressNoteRoutes);
+router.use('/rx', rxRoutes);
+router.use('/patient-referrals', patientReferralRoutes);
 
 export default router;

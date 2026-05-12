@@ -1,0 +1,210 @@
+import { prisma } from '../config/db';
+import { NotFoundError, BadRequestError } from '../utils/error.util';
+import { logActivity } from '../utils/activity-logger.util';
+import { getNextId } from '../utils/opendental-ids.util';
+import { mapPatientToApi } from '../utils/opendental-mappers.util';
+
+export class PayPlanService {
+  private mapPayPlanToApi(row: any) {
+    return {
+      _id: row.PayPlanNum.toString(),
+      patientId: row.PatNum?.toString() ?? null,
+      guarantorId: row.Guarantor?.toString() ?? null,
+      startDate: row.PayPlanDate ?? null,
+      apr: Number(row.APR) || 0,
+      downPayment: Number(row.DownPayment) || 0,
+      monthlyPayment: Number(row.PayAmt) || 0,
+      numberOfPayments: Number(row.NumberOfPayments) || 0,
+      completedAmount: Number(row.CompletedAmt) || 0,
+      isClosed: Boolean(row.IsClosed),
+      notes: row.Note ?? null,
+      charges: row.payplancharge ? row.payplancharge.map((c: any) => ({
+        _id: c.PayPlanChargeNum.toString(),
+        chargeDate: c.ChargeDate,
+        principal: Number(c.Principal) || 0,
+        interest: Number(c.Interest) || 0,
+        notes: c.Note,
+      })) : [],
+    };
+  }
+
+  private async enrichPayPlan(plan: any) {
+    const patient = plan.patientId
+      ? await prisma.patient.findUnique({ where: { PatNum: BigInt(plan.patientId) } })
+      : null;
+    return {
+      ...plan,
+      patient: patient ? mapPatientToApi(patient) : null,
+    };
+  }
+
+  async getAllPayPlans(
+    page = 1,
+    limit = 10,
+    filters: {
+      patientId?: string;
+    } = {}
+  ) {
+    const skip = (page - 1) * limit;
+    const where: any = {};
+
+    if (filters.patientId) where.PatNum = BigInt(filters.patientId);
+
+    const [rows, total] = await Promise.all([
+      prisma.payplan.findMany({
+        where,
+        include: { payplancharge: true },
+        orderBy: { PayPlanDate: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.payplan.count({ where }),
+    ]);
+
+    const payplans = await Promise.all(
+      rows.map((row) => this.enrichPayPlan(this.mapPayPlanToApi(row)))
+    );
+
+    return {
+      payplans,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getPayPlanById(payPlanId: string) {
+    const plan = await prisma.payplan.findUnique({
+      where: { PayPlanNum: BigInt(payPlanId) },
+      include: { payplancharge: true },
+    });
+    if (!plan) {
+      throw new NotFoundError('Payment plan not found');
+    }
+
+    return this.enrichPayPlan(this.mapPayPlanToApi(plan));
+  }
+
+  async createPayPlan(
+    data: {
+      patientId: string;
+      totalAmount: number;
+      downPayment?: number;
+      monthlyPayment?: number;
+      numberOfPayments?: number;
+      apr?: number;
+      startDate?: Date;
+      notes?: string;
+    },
+    userId: string
+  ) {
+    const resolvedStartDate = data.startDate ?? new Date();
+    const payPlanNum = await getNextId('payplan', 'PayPlanNum');
+    
+    // Auto-calculate monthly payment if numberOfPayments is provided but not monthlyPayment
+    const amountToFinance = data.totalAmount - (data.downPayment ?? 0);
+    let numPayments = data.numberOfPayments ?? 0;
+    let monthPay = data.monthlyPayment ?? 0;
+
+    if (numPayments > 0 && monthPay === 0) {
+      monthPay = amountToFinance / numPayments;
+    } else if (monthPay > 0 && numPayments === 0) {
+      numPayments = Math.ceil(amountToFinance / monthPay);
+    }
+
+    // Create the plan
+    const plan = await prisma.payplan.create({
+      data: {
+        PayPlanNum: payPlanNum,
+        PatNum: BigInt(data.patientId),
+        Guarantor: BigInt(data.patientId),
+        PayPlanDate: resolvedStartDate,
+        APR: data.apr ?? 0,
+        Note: data.notes ?? null,
+        CompletedAmt: data.downPayment ?? 0,
+        PayAmt: monthPay,
+        DownPayment: data.downPayment ?? 0,
+        NumberOfPayments: numPayments,
+        IsClosed: 0,
+      },
+    });
+
+    // Generate charges
+    if (numPayments > 0 && monthPay > 0) {
+      const chargeData = [];
+      let currentPrincipal = amountToFinance;
+      
+      let baseChargeNum = await getNextId('payplancharge', 'PayPlanChargeNum');
+      
+      for (let i = 0; i < numPayments; i++) {
+        const chargeDate = new Date(resolvedStartDate);
+        chargeDate.setMonth(chargeDate.getMonth() + i + 1); // Payments typically start next month
+        
+        let principalForMonth = monthPay;
+        if (i === numPayments - 1) {
+          principalForMonth = currentPrincipal; // Last payment covers remaining principal
+        }
+        
+        chargeData.push({
+          PayPlanChargeNum: baseChargeNum + BigInt(i),
+          PayPlanNum: payPlanNum,
+          Guarantor: BigInt(data.patientId),
+          PatNum: BigInt(data.patientId),
+          ChargeDate: chargeDate,
+          Principal: principalForMonth,
+          Interest: 0, // Simplified: interest calculations can be complex
+          Note: `Installment ${i + 1} of ${numPayments}`,
+        });
+        
+        currentPrincipal -= principalForMonth;
+      }
+      
+      if (chargeData.length > 0) {
+        await prisma.payplancharge.createMany({
+          data: chargeData,
+        });
+      }
+    }
+
+    await logActivity(userId, 'created', 'payplan', plan.PayPlanNum.toString(), undefined, plan);
+
+    return this.getPayPlanById(plan.PayPlanNum.toString());
+  }
+
+  async updatePayPlan(
+    payPlanId: string,
+    updates: {
+      isClosed?: boolean;
+      notes?: string;
+    },
+    userId: string
+  ) {
+    const plan = await prisma.payplan.findUnique({
+      where: { PayPlanNum: BigInt(payPlanId) },
+    });
+    if (!plan) {
+      throw new NotFoundError('Payment plan not found');
+    }
+
+    const updated = await prisma.payplan.update({
+      where: { PayPlanNum: plan.PayPlanNum },
+      data: {
+        IsClosed: updates.isClosed !== undefined ? (updates.isClosed ? 1 : 0) : undefined,
+        Note: updates.notes ?? undefined,
+      },
+    });
+
+    await logActivity(userId, 'updated', 'payplan', payPlanId, plan, updated);
+
+    return this.getPayPlanById(payPlanId);
+  }
+
+  async getPayPlansByPatient(patientId: string, page = 1, limit = 10) {
+    return this.getAllPayPlans(page, limit, { patientId });
+  }
+}
+
+export const payPlanService = new PayPlanService();

@@ -7,316 +7,468 @@ import { allergyController } from '../controllers/allergy.controller';
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
-  patientIdValidator,
-  patientRequestIdValidator,
-  createPatientValidator,
-  updatePatientValidator,
-  patientSearchValidator,
-  patientWorkspaceMetaValidator,
-  createPatientUpdateRequestValidator,
-  applyPatientReconciliationValidator,
-  patientCommunicationValidator,
-  patientMedicalHistoryValidator,
-  patientDentalHistoryValidator,
+  patientIdValidator, patientRequestIdValidator, createPatientValidator,
+  updatePatientValidator, patientSearchValidator, patientWorkspaceMetaValidator,
+  createPatientUpdateRequestValidator, applyPatientReconciliationValidator,
+  patientCommunicationValidator, patientMedicalHistoryValidator, patientDentalHistoryValidator,
 } from '../validators/patient.validator';
-import {
-  createPatientInsuranceValidator,
-  updatePatientInsuranceValidator,
-  patientInsuranceIdValidator,
-} from '../validators/insurance.validator';
-import {
-  createPatientAllergyValidator,
-  updateAllergyValidator,
-  allergyIdParamValidator,
-} from '../validators/allergy.validator';
+import { createPatientInsuranceValidator, updatePatientInsuranceValidator, patientInsuranceIdValidator } from '../validators/insurance.validator';
+import { createPatientAllergyValidator, updateAllergyValidator, allergyIdParamValidator } from '../validators/allergy.validator';
 
 const router = Router();
-
-// All patient routes require authentication
 router.use(authenticate);
 
-// Patient routes
-// Get all patients (with search and pagination)
-router.get(
-  '/',
-  requireRoles('Receptionist', 'Admin'),
-  validate(patientSearchValidator),
-  patientController.getAllPatients.bind(patientController)
-);
+/**
+ * @swagger
+ * /patients:
+ *   get:
+ *     summary: Get all patients
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: List of patients }
+ *       403: { description: Forbidden }
+ *   post:
+ *     summary: Create a new patient
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [firstName, lastName, dateOfBirth]
+ *             properties:
+ *               firstName: { type: string }
+ *               lastName: { type: string }
+ *               dateOfBirth: { type: string, format: date }
+ *               email: { type: string, format: email }
+ *               phone: { type: string }
+ *     responses:
+ *       201: { description: Patient created }
+ *       403: { description: Forbidden }
+ */
+router.get('/', requireRoles('Receptionist', 'Admin'), validate(patientSearchValidator), patientController.getAllPatients.bind(patientController));
+router.post('/', requireRoles('Receptionist', 'Admin'), validate(createPatientValidator), patientController.createPatient.bind(patientController));
 
-// Search patients (alias for getAllPatients)
-router.get(
-  '/search',
-  requireRoles('Receptionist', 'Admin'),
-  validate(patientSearchValidator),
-  patientController.searchPatients.bind(patientController)
-);
+/**
+ * @swagger
+ * /patients/search:
+ *   get:
+ *     summary: Search patients
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Search results }
+ */
+router.get('/search', requireRoles('Receptionist', 'Admin'), validate(patientSearchValidator), patientController.searchPatients.bind(patientController));
 
-// Check for duplicate patients
-router.post(
-  '/check-duplicates',
-  requireRoles('Receptionist', 'Admin'),
-  validate([
-    body('firstName').notEmpty().withMessage('First name is required'),
-    body('lastName').notEmpty().withMessage('Last name is required'),
-    body('dateOfBirth').notEmpty().withMessage('Date of birth is required').isISO8601().withMessage('Date of birth must be a valid date'),
-  ]),
-  patientController.checkDuplicates.bind(patientController)
-);
+/**
+ * @swagger
+ * /patients/check-duplicates:
+ *   post:
+ *     summary: Check for duplicate patients
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [firstName, lastName, dateOfBirth]
+ *             properties:
+ *               firstName: { type: string }
+ *               lastName: { type: string }
+ *               dateOfBirth: { type: string, format: date }
+ *     responses:
+ *       200: { description: Duplicate check result }
+ */
+router.post('/check-duplicates', requireRoles('Receptionist', 'Admin'), validate([
+  body('firstName').notEmpty(),
+  body('lastName').notEmpty(),
+  body('dateOfBirth').notEmpty().isISO8601(),
+]), patientController.checkDuplicates.bind(patientController));
 
-// Create new patient
-router.post(
-  '/',
-  requireRoles('Receptionist', 'Admin'),
-  validate(createPatientValidator),
-  patientController.createPatient.bind(patientController)
-);
+/**
+ * @swagger
+ * /patients/{patientId}:
+ *   get:
+ *     summary: Get patient by ID
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Patient details }
+ *       404: { description: Not found }
+ *   put:
+ *     summary: Update patient
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Patient updated }
+ *   delete:
+ *     summary: Delete patient (Admin only)
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Patient deleted }
+ *       403: { description: Forbidden }
+ */
+router.get('/:patientId', requireRoles('Receptionist', 'Admin'), validate(patientIdValidator), patientController.getPatientById.bind(patientController));
+router.put('/:patientId', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...updatePatientValidator]), patientController.updatePatient.bind(patientController));
+router.delete('/:patientId', requireRoles('Admin'), validate(patientIdValidator), patientController.deletePatient.bind(patientController));
 
-// Get patient account balance
-router.get(
-  '/:patientId/balance',
-  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
-  validate(patientIdValidator),
-  patientController.getPatientBalance.bind(patientController)
-);
+/**
+ * @swagger
+ * /patients/{patientId}/balance:
+ *   get:
+ *     summary: Get patient account balance
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Account balance }
+ */
+router.get('/:patientId/balance', requireRoles('Receptionist', 'Admin', 'Billing Staff'), validate(patientIdValidator), patientController.getPatientBalance.bind(patientController));
 
-// Get patient by ID
-router.get(
-  '/:patientId',
-  requireRoles('Receptionist', 'Admin'),
-  validate(patientIdValidator),
-  patientController.getPatientById.bind(patientController)
-);
+/**
+ * @swagger
+ * /patients/{patientId}/workspace:
+ *   get:
+ *     summary: Get patient workspace
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Patient workspace }
+ *   patch:
+ *     summary: Update patient workspace metadata
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Workspace updated }
+ */
+router.get('/:patientId/workspace', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientWorkspace.bind(patientController));
+router.patch('/:patientId/workspace', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...patientWorkspaceMetaValidator]), patientController.updatePatientWorkspaceMeta.bind(patientController));
 
-router.get(
-  '/:patientId/workspace',
-  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
-  validate(patientIdValidator),
-  patientController.getPatientWorkspace.bind(patientController)
-);
+/**
+ * @swagger
+ * /patients/{patientId}/medical-history:
+ *   get:
+ *     summary: Get patient medical history
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Medical history }
+ *   patch:
+ *     summary: Update patient medical history
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Medical history updated }
+ */
+router.get('/:patientId/medical-history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getStructuredMedicalHistory.bind(patientController));
+router.patch('/:patientId/medical-history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate([...patientIdValidator, ...patientMedicalHistoryValidator]), patientController.updateStructuredMedicalHistory.bind(patientController));
 
-router.get(
-  '/:patientId/medical-history',
-  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
-  validate(patientIdValidator),
-  patientController.getStructuredMedicalHistory.bind(patientController)
-);
+/**
+ * @swagger
+ * /patients/{patientId}/dental-history:
+ *   get:
+ *     summary: Get patient dental history
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Dental history }
+ *   patch:
+ *     summary: Update patient dental history
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Dental history updated }
+ */
+router.get('/:patientId/dental-history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getDentalHistory.bind(patientController));
+router.patch('/:patientId/dental-history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate([...patientIdValidator, ...patientDentalHistoryValidator]), patientController.updateDentalHistory.bind(patientController));
 
-router.patch(
-  '/:patientId/medical-history',
-  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
-  validate([...patientIdValidator, ...patientMedicalHistoryValidator]),
-  patientController.updateStructuredMedicalHistory.bind(patientController)
-);
+/**
+ * @swagger
+ * /patients/{patientId}/allergies:
+ *   get:
+ *     summary: Get patient allergies
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: List of allergies }
+ *   post:
+ *     summary: Add allergy to patient
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       201: { description: Allergy added }
+ */
+router.get('/:patientId/allergies', validate(patientIdValidator), requireRoles('Receptionist', 'Doctor', 'Admin'), allergyController.getPatientAllergies.bind(allergyController));
+router.post('/:patientId/allergies', requireRoles('Receptionist', 'Doctor', 'Admin'), validate([...patientIdValidator, ...createPatientAllergyValidator]), allergyController.createPatientAllergy.bind(allergyController));
 
-router.get(
-  '/:patientId/dental-history',
-  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
-  validate(patientIdValidator),
-  patientController.getDentalHistory.bind(patientController)
-);
+/**
+ * @swagger
+ * /patients/{patientId}/allergies/{allergyId}:
+ *   get:
+ *     summary: Get allergy by ID
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: allergyId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Allergy details }
+ *   put:
+ *     summary: Update patient allergy
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: allergyId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Allergy updated }
+ *   delete:
+ *     summary: Delete patient allergy
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: allergyId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Allergy deleted }
+ */
+router.get('/:patientId/allergies/:allergyId', requireRoles('Receptionist', 'Doctor', 'Admin'), validate([...patientIdValidator, ...allergyIdParamValidator]), allergyController.getAllergyById.bind(allergyController));
+router.put('/:patientId/allergies/:allergyId', requireRoles('Receptionist', 'Doctor', 'Admin'), validate([...patientIdValidator, ...allergyIdParamValidator, ...updateAllergyValidator]), allergyController.updatePatientAllergy.bind(allergyController));
+router.delete('/:patientId/allergies/:allergyId', requireRoles('Receptionist', 'Doctor', 'Admin'), validate([...patientIdValidator, ...allergyIdParamValidator]), allergyController.deletePatientAllergy.bind(allergyController));
 
-router.patch(
-  '/:patientId/dental-history',
-  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
-  validate([...patientIdValidator, ...patientDentalHistoryValidator]),
-  patientController.updateDentalHistory.bind(patientController)
-);
+/**
+ * @swagger
+ * /patients/{patientId}/insurance:
+ *   get:
+ *     summary: Get patient insurances
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: List of insurances }
+ *   post:
+ *     summary: Add insurance to patient
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       201: { description: Insurance added }
+ */
+router.get('/:patientId/insurance', requireRoles('Receptionist', 'Admin'), validate(patientIdValidator), patientInsuranceController.getPatientInsurances.bind(patientInsuranceController));
+router.post('/:patientId/insurance', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...createPatientInsuranceValidator]), patientInsuranceController.createPatientInsurance.bind(patientInsuranceController));
 
-router.patch(
-  '/:patientId/workspace',
-  requireRoles('Receptionist', 'Admin'),
-  validate([...patientIdValidator, ...patientWorkspaceMetaValidator]),
-  patientController.updatePatientWorkspaceMeta.bind(patientController)
-);
+/**
+ * @swagger
+ * /patients/{patientId}/insurance/{patientInsuranceId}:
+ *   get:
+ *     summary: Get patient insurance by ID
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: patientInsuranceId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Insurance details }
+ *   put:
+ *     summary: Update patient insurance
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: patientInsuranceId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Insurance updated }
+ *   delete:
+ *     summary: Delete patient insurance
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: patientInsuranceId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Insurance deleted }
+ */
+router.get('/:patientId/insurance/:patientInsuranceId', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...patientInsuranceIdValidator]), patientInsuranceController.getPatientInsuranceById.bind(patientInsuranceController));
+router.put('/:patientId/insurance/:patientInsuranceId', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...patientInsuranceIdValidator, ...updatePatientInsuranceValidator]), patientInsuranceController.updatePatientInsurance.bind(patientInsuranceController));
+router.delete('/:patientId/insurance/:patientInsuranceId', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...patientInsuranceIdValidator]), patientInsuranceController.deletePatientInsurance.bind(patientInsuranceController));
 
-// Update patient
-router.put(
-  '/:patientId',
-  requireRoles('Receptionist', 'Admin'),
-  validate([...patientIdValidator, ...updatePatientValidator]),
-  patientController.updatePatient.bind(patientController)
-);
+/**
+ * @swagger
+ * /patients/{patientId}/communications:
+ *   get:
+ *     summary: Get patient communications
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: List of communications }
+ */
+router.get('/:patientId/communications', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientCommunications.bind(patientController));
+router.post('/:patientId/communications/send', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate([...patientIdValidator, ...patientCommunicationValidator]), patientController.createPatientCommunication.bind(patientController));
 
-// Delete patient (soft delete)
-router.delete(
-  '/:patientId',
-  requireRoles('Admin'),
-  validate(patientIdValidator),
-  patientController.deletePatient.bind(patientController)
-);
-
-router.get(
-  '/:patientId/update-requests',
-  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
-  validate(patientIdValidator),
-  patientController.getPatientUpdateRequests.bind(patientController)
-);
-
-router.post(
-  '/:patientId/update-requests',
-  requireRoles('Receptionist', 'Admin'),
-  validate([...patientIdValidator, ...createPatientUpdateRequestValidator]),
-  patientController.createPatientUpdateRequest.bind(patientController)
-);
-
-router.get(
-  '/:patientId/reconciliation/:requestId',
-  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
-  validate([...patientIdValidator, ...patientRequestIdValidator]),
-  patientController.getPatientReconciliation.bind(patientController)
-);
-
-router.post(
-  '/:patientId/reconciliation/:requestId/apply',
-  requireRoles('Receptionist', 'Admin'),
-  validate([...patientIdValidator, ...patientRequestIdValidator, ...applyPatientReconciliationValidator]),
-  patientController.applyPatientReconciliation.bind(patientController)
-);
-
-router.get(
-  '/:patientId/audit-history',
-  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
-  validate(patientIdValidator),
-  patientController.getPatientAuditHistory.bind(patientController)
-);
-
-router.get(
-  '/:patientId/communications',
-  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
-  validate(patientIdValidator),
-  patientController.getPatientCommunications.bind(patientController)
-);
-
-router.post(
-  '/:patientId/communications/send',
-  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
-  validate([...patientIdValidator, ...patientCommunicationValidator]),
-  patientController.createPatientCommunication.bind(patientController)
-);
-
-router.get(
-  '/:patientId/coverages',
-  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
-  validate(patientIdValidator),
-  insurancePlanController.getPatientCoverages.bind(insurancePlanController)
-);
-
-router.post(
-  '/:patientId/coverages',
-  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
-  validate([...patientIdValidator, ...createPatientInsuranceValidator]),
-  insurancePlanController.createPatientCoverage.bind(insurancePlanController)
-);
-
-router.get(
-  '/:patientId/reports/summary',
-  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
-  validate(patientIdValidator),
-  patientController.getPatientReportSummary.bind(patientController)
-);
-
-router.get(
-  '/:patientId/reports/showcase',
-  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
-  validate(patientIdValidator),
-  patientController.getPatientReportShowcase.bind(patientController)
-);
-
-router.get(
-  '/:patientId/reports/concerns',
-  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
-  validate(patientIdValidator),
-  patientController.getPatientReportConcerns.bind(patientController)
-);
-
-router.post(
-  '/:patientId/reports/refresh',
-  requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'),
-  validate(patientIdValidator),
-  patientController.refreshPatientReports.bind(patientController)
-);
-
-// Patient Insurance routes
-// Get all insurances for a patient
-router.get(
-  '/:patientId/insurance',
-  requireRoles('Receptionist', 'Admin'),
-  validate(patientIdValidator),
-  patientInsuranceController.getPatientInsurances.bind(patientInsuranceController)
-);
-
-// Create patient insurance
-router.post(
-  '/:patientId/insurance',
-  requireRoles('Receptionist', 'Admin'),
-  validate([...patientIdValidator, ...createPatientInsuranceValidator]),
-  patientInsuranceController.createPatientInsurance.bind(patientInsuranceController)
-);
-
-// Get patient insurance by ID
-router.get(
-  '/:patientId/insurance/:patientInsuranceId',
-  requireRoles('Receptionist', 'Admin'),
-  validate([...patientIdValidator, ...patientInsuranceIdValidator]),
-  patientInsuranceController.getPatientInsuranceById.bind(patientInsuranceController)
-);
-
-// Update patient insurance
-router.put(
-  '/:patientId/insurance/:patientInsuranceId',
-  requireRoles('Receptionist', 'Admin'),
-  validate([...patientIdValidator, ...patientInsuranceIdValidator, ...updatePatientInsuranceValidator]),
-  patientInsuranceController.updatePatientInsurance.bind(patientInsuranceController)
-);
-
-// Delete patient insurance
-router.delete(
-  '/:patientId/insurance/:patientInsuranceId',
-  requireRoles('Receptionist', 'Admin'),
-  validate([...patientIdValidator, ...patientInsuranceIdValidator]),
-  patientInsuranceController.deletePatientInsurance.bind(patientInsuranceController)
-);
-
-// Patient Allergy routes
-// Get all allergies for a patient
-router.get(
-  '/:patientId/allergies',
-  validate(patientIdValidator),
-  requireRoles('Receptionist', 'Doctor', 'Admin'),
-  allergyController.getPatientAllergies.bind(allergyController)
-);
-
-// Create patient allergy
-router.post(
-  '/:patientId/allergies',
-  requireRoles('Receptionist', 'Doctor', 'Admin'),
-  validate([...patientIdValidator, ...createPatientAllergyValidator]),
-  allergyController.createPatientAllergy.bind(allergyController)
-);
-
-// Get allergy by ID
-router.get(
-  '/:patientId/allergies/:allergyId',
-  requireRoles('Receptionist', 'Doctor', 'Admin'),
-  validate([...patientIdValidator, ...allergyIdParamValidator]),
-  allergyController.getAllergyById.bind(allergyController)
-);
-
-// Update patient allergy
-router.put(
-  '/:patientId/allergies/:allergyId',
-  requireRoles('Receptionist', 'Doctor', 'Admin'),
-  validate([...patientIdValidator, ...allergyIdParamValidator, ...updateAllergyValidator]),
-  allergyController.updatePatientAllergy.bind(allergyController)
-);
-
-// Delete patient allergy
-router.delete(
-  '/:patientId/allergies/:allergyId',
-  requireRoles('Receptionist', 'Doctor', 'Admin'),
-  validate([...patientIdValidator, ...allergyIdParamValidator]),
-  allergyController.deletePatientAllergy.bind(allergyController)
-);
+router.get('/:patientId/update-requests', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientUpdateRequests.bind(patientController));
+router.post('/:patientId/update-requests', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...createPatientUpdateRequestValidator]), patientController.createPatientUpdateRequest.bind(patientController));
+router.get('/:patientId/reconciliation/:requestId', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate([...patientIdValidator, ...patientRequestIdValidator]), patientController.getPatientReconciliation.bind(patientController));
+router.post('/:patientId/reconciliation/:requestId/apply', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...patientRequestIdValidator, ...applyPatientReconciliationValidator]), patientController.applyPatientReconciliation.bind(patientController));
+router.get('/:patientId/audit-history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientAuditHistory.bind(patientController));
+router.get('/:patientId/coverages', requireRoles('Receptionist', 'Admin', 'Billing Staff'), validate(patientIdValidator), insurancePlanController.getPatientCoverages.bind(insurancePlanController));
+router.post('/:patientId/coverages', requireRoles('Receptionist', 'Admin', 'Billing Staff'), validate([...patientIdValidator, ...createPatientInsuranceValidator]), insurancePlanController.createPatientCoverage.bind(insurancePlanController));
+router.get('/:patientId/reports/summary', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientReportSummary.bind(patientController));
+router.get('/:patientId/reports/showcase', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientReportShowcase.bind(patientController));
+router.get('/:patientId/reports/concerns', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientReportConcerns.bind(patientController));
+router.post('/:patientId/reports/refresh', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.refreshPatientReports.bind(patientController));
 
 export default router;

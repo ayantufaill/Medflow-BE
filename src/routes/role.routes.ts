@@ -10,7 +10,33 @@ const router = Router();
 // All role routes require authentication
 router.use(authenticate);
 
-// Get all roles (Admin only)
+/**
+ * @swagger
+ * /roles:
+ *   get:
+ *     summary: Get all roles (Admin only)
+ *     tags: [Roles]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *         description: Items per page
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *         description: Search by role name
+ *     responses:
+ *       200:
+ *         description: List of roles
+ *       403:
+ *         description: Admin only
+ */
 router.get(
   '/',
   requireRoles('Admin'),
@@ -22,7 +48,27 @@ router.get(
   roleController.getAllRoles.bind(roleController)
 );
 
-// Get role by ID (Admin only)
+/**
+ * @swagger
+ * /roles/{roleId}:
+ *   get:
+ *     summary: Get role by ID (Admin only)
+ *     tags: [Roles]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: roleId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Role details
+ *       403:
+ *         description: Admin only
+ *       404:
+ *         description: Role not found
+ */
 router.get(
   '/:roleId',
   requireRoles('Admin'),
@@ -32,7 +78,45 @@ router.get(
   roleController.getRoleById.bind(roleController)
 );
 
-// Create role (Admin only)
+/**
+ * @swagger
+ * /roles:
+ *   post:
+ *     summary: Create new role (Admin only)
+ *     tags: [Roles]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 minLength: 2
+ *                 maxLength: 50
+ *                 example: Billing Manager
+ *               description:
+ *                 type: string
+ *                 example: Manages billing operations
+ *               permissions:
+ *                 type: object
+ *                 description: Object with permission keys
+ *               isSystemRole:
+ *                 type: boolean
+ *                 default: false
+ *     responses:
+ *       201:
+ *         description: Role created
+ *       403:
+ *         description: Admin only
+ *       409:
+ *         description: Role name already exists
+ */
 router.post(
   '/',
   requireRoles('Admin'),
@@ -51,7 +135,46 @@ router.post(
   roleController.createRole.bind(roleController)
 );
 
-// Update role (Admin only)
+/**
+ * @swagger
+ * /roles/{roleId}:
+ *   put:
+ *     summary: Update role (Admin only)
+ *     tags: [Roles]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: roleId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 minLength: 2
+ *                 maxLength: 50
+ *               description:
+ *                 type: string
+ *               permissions:
+ *                 type: object
+ *               isActive:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Role updated
+ *       403:
+ *         description: Admin only
+ *       404:
+ *         description: Role not found
+ *       409:
+ *         description: Role name already exists
+ */
 router.put(
   '/:roleId',
   requireRoles('Admin'),
@@ -66,7 +189,29 @@ router.put(
   roleController.updateRole.bind(roleController)
 );
 
-// Delete role (Admin only)
+/**
+ * @swagger
+ * /roles/{roleId}:
+ *   delete:
+ *     summary: Delete role (Admin only)
+ *     tags: [Roles]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: roleId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Role deleted
+ *       403:
+ *         description: Admin only
+ *       404:
+ *         description: Role not found
+ *       400:
+ *         description: Cannot delete system role or role with users assigned
+ */
 router.delete(
   '/:roleId',
   requireRoles('Admin'),
@@ -77,7 +222,35 @@ router.delete(
   roleController.deleteRole.bind(roleController)
 );
 
-// Get users with a specific role (Admin only)
+/**
+ * @swagger
+ * /roles/{roleId}/users:
+ *   get:
+ *     summary: Get users with a specific role (Admin only)
+ *     tags: [Roles]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: roleId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *         description: Page number
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *         description: Items per page
+ *     responses:
+ *       200:
+ *         description: List of users with this role
+ *       403:
+ *         description: Admin only
+ *       404:
+ *         description: Role not found
+ */
 router.get(
   '/:roleId/users',
   requireRoles('Admin'),
@@ -90,4 +263,3 @@ router.get(
 );
 
 export default router;
-
