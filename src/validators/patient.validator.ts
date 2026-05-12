@@ -3,17 +3,23 @@ import { body, param, query, ValidationChain } from 'express-validator';
 const isNumericIdString = (value: unknown): boolean =>
   typeof value === 'string' && /^\d+$/.test(value.trim());
 
+const isUuidString = (value: unknown): boolean =>
+  typeof value === 'string' && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value.trim());
+
+const isValidPatientIdString = (value: unknown): boolean =>
+  isNumericIdString(value) || isUuidString(value);
+
 const optionalNumericIdValidator = (field: string, message: string) =>
   body(field)
     .optional({ values: 'falsy' })
-    .custom((value) => isNumericIdString(value))
+    .custom((value) => isValidPatientIdString(value))
     .withMessage(message);
 
 export const patientIdValidator: ValidationChain[] = [
   param('patientId')
     .notEmpty()
     .withMessage('Patient ID is required')
-    .custom((value) => isNumericIdString(value))
+    .custom((value) => isValidPatientIdString(value))
     .withMessage('Invalid patient ID format'),
 ];
 
