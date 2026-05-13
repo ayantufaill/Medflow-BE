@@ -43,14 +43,17 @@ const buildMedicalSections = (
     { id: 'supplements',        number: 50, group: 'medical',          question: 'taking any dietary supplements or vitamins' },
   ];
 
-  return base.map((s) => ({
-    ...s,
-    answer: 'no',
-    comment: '',
-    doctorNote: '',
-    additionalInfo: [],
-    ...(overrides[s.id] ?? {}),
-  }));
+  return base.map((s) => {
+    const ov = overrides[s.id] ?? {};
+    return {
+      ...s,
+      comment: '',
+      doctorNote: '',
+      additionalInfo: [],
+      ...ov,
+      answer: (ov as any).answer ?? 'no',
+    };
+  });
 };
 
 // ---------------------------------------------------------------------------
@@ -269,14 +272,17 @@ const buildDentalPersonalHistory = (
     { id: 'mouth-breathing',       number: 15, question: 'Do you breathe through your mouth?' },
   ];
 
-  return base.map((s) => ({
-    ...s,
-    answer: 'No',
-    scale: '',
-    note: '',
-    additionalInfo: '',
-    ...(overrides[s.id] ?? {}),
-  }));
+  return base.map((s) => {
+    const ov = overrides[s.id] ?? {};
+    return {
+      ...s,
+      scale: '',
+      note: '',
+      additionalInfo: '',
+      ...ov,
+      answer: (ov as any).answer ?? 'No',
+    };
+  });
 };
 
 // ---------------------------------------------------------------------------

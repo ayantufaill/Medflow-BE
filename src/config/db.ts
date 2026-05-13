@@ -1,5 +1,4 @@
 import { PrismaClient } from '@prisma/client';
-import { PrismaMssql } from '@prisma/adapter-mssql';
 import dotenv from 'dotenv';
 
 dotenv.config({ path: process.env.DOTENV_CONFIG_PATH });
@@ -11,13 +10,10 @@ if (!databaseUrl) {
   throw new Error('DATABASE_URL is not set');
 }
 
-const adapter = new PrismaMssql(databaseUrl);
-
 export const prisma =
   globalForPrisma.prisma ??
   new PrismaClient({
-    log: ['error', 'warn'],
-    adapter,
+    log: process.env.NODE_ENV === 'production' ? ['error'] : ['error', 'warn'],
   });
 
 if (process.env.NODE_ENV !== 'production') {
@@ -27,9 +23,9 @@ if (process.env.NODE_ENV !== 'production') {
 const connectDB = async () => {
   try {
     await prisma.$connect();
-    console.log('SQL Server Connected');
+    console.log('Database Connected');
   } catch (error) {
-    console.error(`Error: ${(error as Error).message}`);
+    console.error(`Database connection error: ${(error as Error).message}`);
     process.exit(1);
   }
 };
