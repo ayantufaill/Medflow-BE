@@ -9,7 +9,7 @@ ENV NODE_ENV=development
 FROM deps AS build
 ENV NODE_OPTIONS=--max-old-space-size=4096
 COPY prisma ./prisma
-COPY tsconfig.json prisma.config.ts ./
+COPY tsconfig.json ./
 COPY scripts ./scripts
 COPY src ./src
 RUN npx prisma generate
@@ -22,7 +22,7 @@ RUN groupadd -r app && useradd -r -g app -u 10001 app
 COPY package.json package-lock.json ./
 RUN npm install --omit=dev --prefer-offline --no-audit || npm install --omit=dev --prefer-offline --no-audit || npm install --omit=dev --prefer-offline --no-audit
 COPY prisma ./prisma
-COPY prisma.config.ts ./
+
 RUN npx prisma generate
 COPY --from=build /app/dist ./dist
 RUN chown -R app:app /app
