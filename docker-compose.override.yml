@@ -1,0 +1,29 @@
+services:
+  db-init:
+    volumes:
+      - .:/app
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        tr -d '\r' < /app/docker/db-init.sh > /tmp/db-init.sh
+        chmod +x /tmp/db-init.sh
+        /tmp/db-init.sh
+
+  seed:
+    command:
+      - /bin/sh
+      - -c
+      - |
+        sed 's/provider = "sqlserver"/provider = "sqlserver"\n  url = env("DATABASE_URL")/' prisma/schema.prisma > /tmp/schema.prisma
+        npx prisma generate --schema /tmp/schema.prisma
+        npm run seed:all
+
+  api:
+    command:
+      - /bin/sh
+      - -c
+      - |
+        sed 's/provider = "sqlserver"/provider = "sqlserver"\n  url = env("DATABASE_URL")/' prisma/schema.prisma > /tmp/schema.prisma
+        npx prisma generate --schema /tmp/schema.prisma
+        npm run dev

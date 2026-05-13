@@ -31,6 +31,19 @@ export class FinanceDashboardController {
       next(error);
     }
   }
+
+  async getGlobalOverview(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await financeDashboardService.getGlobalOverview();
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const financeDashboardController = new FinanceDashboardController();
