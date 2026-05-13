@@ -13,6 +13,7 @@ const APPOINTMENT_META_FKEYTYPE = 209;
 const VERIFICATION_FKEYTYPE = 203;
 const RESET_FKEYTYPE = 204;
 const REPORT_META_FKEYTYPE = 210;
+const AUDIENCE_META_FKEYTYPE = 211;
 
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;
@@ -224,6 +225,36 @@ export const getAllSavedReports = async () => {
 export const deleteReportMeta = async (reportId: bigint) => {
   await prisma.userodpref.deleteMany({
     where: { Fkey: reportId, FkeyType: REPORT_META_FKEYTYPE },
+  });
+};
+
+export const getAudienceMeta = async (audienceId: bigint) => {
+  const pref = await prisma.userodpref.findFirst({
+    where: { Fkey: audienceId, FkeyType: AUDIENCE_META_FKEYTYPE },
+  });
+  return parseJson<Record<string, any>>(pref?.ValueString);
+};
+
+export const setAudienceMeta = async (audienceId: bigint, meta: Record<string, any>) => {
+  return upsertUserOdPref(
+    { fkey: audienceId, fkeyType: AUDIENCE_META_FKEYTYPE },
+    buildJson(meta)
+  );
+};
+
+export const getAllSavedAudiences = async () => {
+  const audiences = await prisma.userodpref.findMany({
+    where: { FkeyType: AUDIENCE_META_FKEYTYPE },
+  });
+  return audiences.map(a => ({
+    _id: a.Fkey?.toString(),
+    ...parseJson<Record<string, any>>(a.ValueString)
+  }));
+};
+
+export const deleteAudienceMeta = async (audienceId: bigint) => {
+  await prisma.userodpref.deleteMany({
+    where: { Fkey: audienceId, FkeyType: AUDIENCE_META_FKEYTYPE },
   });
 };
 
