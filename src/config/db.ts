@@ -1,31 +1,47 @@
 import { PrismaClient } from '@prisma/client';
-import dotenv from 'dotenv';
 
-dotenv.config({ path: process.env.DOTENV_CONFIG_PATH });
+let _prisma: PrismaClient | null = null;
 
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+const getPrisma = (): PrismaClient => {
+  if (!_prisma) {
+    _prisma = new PrismaClient({
+      log: process.env.NODE_ENV === 'production' ? ['error'] : ['error', 'warn'],
+    });
+  }
+  return _prisma;
+};
 
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) {
-  throw new Error('DATABASE_URL is not set');
-}
+// Lazy proxy — avoids instantiating PrismaClient at module load time.
+// This prevents crashes when DATABASE_URL is not set before the module is imported.
+export const prisma = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    return (getPrisma() as any)[prop];
+  },
+});
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === 'production' ? ['error'] : ['error', 'warn'],
-  });
+const connectDB = async (): Promise<void> => {
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    console.error('');
+    console.error('┌─────────────────────────────────────────────────────────┐');
+    console.error('│  FATAL: DATABASE_URL environment variable is not set.   │');
+    console.error('│                                                          │');
+    console.error('│  Railway:  go to your project → Variables tab and add  │');
+    console.error('│            DATABASE_URL = sqlserver://host:1433;...     │');
+    console.error('│                                                          │');
+    console.error('│  Render:   Settings → Environment → Add Env Var         │');
+    console.error('│            DATABASE_URL = postgresql://user:pass@host/db │');
+    console.error('└─────────────────────────────────────────────────────────┘');
+    console.error('');
+    process.exit(1);
+  }
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma;
-}
-
-const connectDB = async () => {
   try {
-    await prisma.$connect();
-    console.log('Database Connected');
+    await getPrisma().$connect();
+    console.log('✅ Database connected successfully');
   } catch (error) {
-    console.error(`Database connection error: ${(error as Error).message}`);
+    console.error('❌ Database connection failed:', (error as Error).message);
+    console.error('   Check that DATABASE_URL points to a reachable database.');
     process.exit(1);
   }
 };
