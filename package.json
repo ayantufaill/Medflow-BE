@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "nodemon --exec tsx src/server.ts",
     "dev:debug": "nodemon --exec node --inspect-brk=9229 node_modules/.bin/tsx src/server.ts",
-    "build": "tsc && node scripts/fix-dist-imports.cjs",
+    "build": "npx prisma generate",
     "start": "tsx src/server.ts",
     "test": "vitest run",
     "test:integration": "DOTENV_CONFIG_PATH=.env.test NODE_ENV=test npm run seed:all && DOTENV_CONFIG_PATH=.env.test NODE_ENV=test vitest run",
