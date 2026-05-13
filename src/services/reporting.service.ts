@@ -1,4 +1,10 @@
 import { prisma } from '../config/db';
+import { 
+  getReportMeta, 
+  setReportMeta, 
+  getAllSavedReports, 
+  deleteReportMeta 
+} from '../utils/opendental-auth.util';
 
 export interface ReportFilter {
   field: string;
@@ -15,6 +21,20 @@ export interface ReportOptions {
 }
 
 export class ReportingService {
+  async getSavedReports() {
+    return getAllSavedReports();
+  }
+
+  async saveReport(data: { name: string, kind: string, filters: ReportFilter[], columns: string[] }) {
+    const reportId = BigInt(Date.now()); // Simple unique ID
+    await setReportMeta(reportId, data);
+    return { _id: reportId.toString(), ...data };
+  }
+
+  async deleteReport(reportId: string) {
+    await deleteReportMeta(BigInt(reportId));
+  }
+
   async runReport(options: ReportOptions) {
     const { kind, filters, columns, page = 1, limit = 50 } = options;
     const skip = (page - 1) * limit;

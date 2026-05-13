@@ -39,6 +39,27 @@ const router = Router();
  *       200:
  *         description: Report results
  */
+router.get(
+  '/definitions',
+  authenticate,
+  requirePermission('reports.read'),
+  reportingController.getSavedReports.bind(reportingController)
+);
+
+router.post(
+  '/definitions',
+  authenticate,
+  requirePermission('reports.financial'), // Higher permission for saving
+  reportingController.saveReport.bind(reportingController)
+);
+
+router.delete(
+  '/definitions/:reportId',
+  authenticate,
+  requirePermission('reports.financial'),
+  reportingController.deleteReport.bind(reportingController)
+);
+
 router.post(
   '/run',
   authenticate,

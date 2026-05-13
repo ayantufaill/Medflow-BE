@@ -12,6 +12,7 @@ const ALLERGY_META_FKEYTYPE = 208;
 const APPOINTMENT_META_FKEYTYPE = 209;
 const VERIFICATION_FKEYTYPE = 203;
 const RESET_FKEYTYPE = 204;
+const REPORT_META_FKEYTYPE = 210;
 
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;
@@ -194,6 +195,36 @@ export const setAppointmentMeta = async (aptNum: bigint, meta: Record<string, an
     { fkey: aptNum, fkeyType: APPOINTMENT_META_FKEYTYPE },
     buildJson(meta)
   );
+};
+
+export const getReportMeta = async (reportId: bigint) => {
+  const pref = await prisma.userodpref.findFirst({
+    where: { Fkey: reportId, FkeyType: REPORT_META_FKEYTYPE },
+  });
+  return parseJson<Record<string, any>>(pref?.ValueString);
+};
+
+export const setReportMeta = async (reportId: bigint, meta: Record<string, any>) => {
+  return upsertUserOdPref(
+    { fkey: reportId, fkeyType: REPORT_META_FKEYTYPE },
+    buildJson(meta)
+  );
+};
+
+export const getAllSavedReports = async () => {
+  const reports = await prisma.userodpref.findMany({
+    where: { FkeyType: REPORT_META_FKEYTYPE },
+  });
+  return reports.map(r => ({
+    _id: r.Fkey?.toString(),
+    ...parseJson<Record<string, any>>(r.ValueString)
+  }));
+};
+
+export const deleteReportMeta = async (reportId: bigint) => {
+  await prisma.userodpref.deleteMany({
+    where: { Fkey: reportId, FkeyType: REPORT_META_FKEYTYPE },
+  });
 };
 
 export const mapUser = async (row: any): Promise<AppUser> => {
