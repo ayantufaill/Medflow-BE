@@ -15,8 +15,7 @@ services:
       - /bin/sh
       - -c
       - |
-        sed 's/provider = "sqlserver"/provider = "sqlserver"\n  url = env("DATABASE_URL")/' prisma/schema.prisma > /tmp/schema.prisma
-        npx prisma generate --schema /tmp/schema.prisma
+        npx prisma generate --schema prisma/schema.prisma
         npm run seed:all
 
   api:
@@ -24,6 +23,5 @@ services:
       - /bin/sh
       - -c
       - |
-        sed 's/provider = "sqlserver"/provider = "sqlserver"\n  url = env("DATABASE_URL")/' prisma/schema.prisma > /tmp/schema.prisma
-        npx prisma generate --schema /tmp/schema.prisma
+        npx prisma generate --schema prisma/schema.prisma
         npm run dev
