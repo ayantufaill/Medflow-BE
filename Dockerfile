@@ -12,7 +12,7 @@ COPY prisma ./prisma
 COPY tsconfig.json prisma.config.ts ./
 COPY scripts ./scripts
 COPY src ./src
-RUN npx prisma generate --schema prisma/schema.prisma
+RUN npx prisma generate
 RUN npm run build
 
 FROM node:24-bookworm-slim AS runtime
@@ -22,7 +22,8 @@ RUN groupadd -r app && useradd -r -g app -u 10001 app
 COPY package.json package-lock.json ./
 RUN npm install --omit=dev --prefer-offline --no-audit || npm install --omit=dev --prefer-offline --no-audit || npm install --omit=dev --prefer-offline --no-audit
 COPY prisma ./prisma
-RUN npx prisma generate --schema prisma/schema.prisma
+COPY prisma.config.ts ./
+RUN npx prisma generate
 COPY --from=build /app/dist ./dist
 RUN chown -R app:app /app
 USER app
