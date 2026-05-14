@@ -60,4 +60,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
 # db push is idempotent — safe to run on every container start.
 # --skip-generate because we already generated the client in the build stage.
 # --accept-data-loss is safe here since we have no destructive changes on fresh DBs.
-CMD ["sh", "-c", "node_modules/.bin/prisma db push --schema prisma/schema.prisma --skip-generate --accept-data-loss && node dist/scripts/seedAll.js; node dist/server.js"]
+CMD ["sh", "-c", "node_modules/.bin/prisma db push --schema prisma/schema.prisma --skip-generate --accept-data-loss && node dist/server.js"]

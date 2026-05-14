@@ -5,8 +5,33 @@ import dotenv from 'dotenv';
 // dotenv is a no-op there, which is correct.
 dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || '.env' });
 
-import connectDB from './config/db.js';
+import connectDB, { prisma } from './config/db.js';
 import app from './app.js';
+import { hashPassword } from './utils/password.util.js';
+
+
+// ── Seed admin user if DB is empty ───────────────────────────────────────────
+const seedAdminIfEmpty = async (): Promise<void> => {
+  try {
+    const count = await prisma.userod.count();
+    if (count > 0) return;
+
+    console.log('🌱 Empty database detected — seeding admin user...');
+    const email = process.env.SEED_ADMIN_EMAIL || 'admin@medflow.com';
+    const password = process.env.SEED_ADMIN_PASSWORD || 'Admin123!';
+    const passwordHash = await hashPassword(password);
+
+    const maxRow = await prisma.$queryRaw<[{ max: bigint | null }]>`SELECT MAX("UserNum") as max FROM "userod"`;
+    const nextId = (maxRow[0]?.max ?? 0n) + 1n;
+
+    await prisma.userod.create({
+      data: { UserNum: nextId, UserName: email, Password: passwordHash, IsHidden: 0 },
+    });
+    console.log(`✅ Admin user created: ${email}`);
+  } catch (err) {
+    console.error('⚠️  Could not seed admin user:', (err as Error).message);
+  }
+};
 
 // ── Startup validation ────────────────────────────────────────────────────────
 const validateEnv = (): boolean => {
@@ -58,6 +83,7 @@ const startServer = async (): Promise<void> => {
   if (!validateEnv()) process.exit(1);
 
   await connectDB();
+  await seedAdminIfEmpty();
 
   const PORT = Number(process.env.PORT) || 5001;
   app.listen(PORT, () => {
