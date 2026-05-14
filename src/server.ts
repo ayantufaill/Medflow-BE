@@ -10,26 +10,58 @@ import app from './app.js';
 import { hashPassword } from './utils/password.util.js';
 
 
-// ── Seed admin user if DB is empty ───────────────────────────────────────────
-const seedAdminIfEmpty = async (): Promise<void> => {
+// ── Seed essential data if DB is empty ───────────────────────────────────────
+const seedIfEmpty = async (): Promise<void> => {
   try {
     const count = await prisma.userod.count();
     if (count > 0) return;
 
-    console.log('🌱 Empty database detected — seeding admin user...');
+    console.log('🌱 Empty database — seeding essential data...');
+
+    // Admin user
     const email = process.env.SEED_ADMIN_EMAIL || 'admin@medflow.com';
     const password = process.env.SEED_ADMIN_PASSWORD || 'Admin123!';
     const passwordHash = await hashPassword(password);
+    const maxUser = await prisma.$queryRaw<[{ max: bigint | null }]>`SELECT MAX("UserNum") as max FROM "userod"`;
+    const userNum = (maxUser[0]?.max ?? 0n) + 1n;
+    await prisma.userod.create({ data: { UserNum: userNum, UserName: email, Password: passwordHash, IsHidden: 0 } });
+    console.log(`✅ Admin user: ${email}`);
 
-    const maxRow = await prisma.$queryRaw<[{ max: bigint | null }]>`SELECT MAX("UserNum") as max FROM "userod"`;
-    const nextId = (maxRow[0]?.max ?? 0n) + 1n;
+    // Roles
+    const roles = ['Admin', 'Provider', 'Staff', 'Patient'];
+    for (let i = 0; i < roles.length; i++) {
+      const existing = await prisma.usergroup.findFirst({ where: { Description: roles[i] } });
+      if (!existing) {
+        const maxRole = await prisma.$queryRaw<[{ max: bigint | null }]>`SELECT MAX("UserGroupNum") as max FROM "usergroup"`;
+        const id = (maxRole[0]?.max ?? 0n) + 1n;
+        await prisma.usergroup.create({ data: { UserGroupNum: id, Description: roles[i] } });
+      }
+    }
+    console.log('✅ Roles seeded');
 
-    await prisma.userod.create({
-      data: { UserNum: nextId, UserName: email, Password: passwordHash, IsHidden: 0 },
-    });
-    console.log(`✅ Admin user created: ${email}`);
+    // Attach admin role to admin user
+    const adminRole = await prisma.usergroup.findFirst({ where: { Description: 'Admin' } });
+    if (adminRole) {
+      const maxAttach = await prisma.$queryRaw<[{ max: bigint | null }]>`SELECT MAX("UserGroupAttachNum") as max FROM "usergroupattach"`;
+      const attachId = (maxAttach[0]?.max ?? 0n) + 1n;
+      await prisma.usergroupattach.create({ data: { UserGroupAttachNum: attachId, UserNum: userNum, UserGroupNum: adminRole.UserGroupNum } });
+    }
+
+    // Specialties
+    const specialties = ['General Dentistry','Orthodontics','Periodontics','Oral Surgery','Endodontics','Pediatric Dentistry','Prosthodontics','Cosmetic Dentistry'];
+    for (const name of specialties) {
+      const existing = await prisma.definition.findFirst({ where: { ItemName: name, Category: 0 } });
+      if (!existing) {
+        const maxDef = await prisma.$queryRaw<[{ max: bigint | null }]>`SELECT MAX("DefNum") as max FROM "definition"`;
+        const id = (maxDef[0]?.max ?? 0n) + 1n;
+        await prisma.definition.create({ data: { DefNum: id, Category: 0, ItemName: name, ItemOrder: Number(id), IsHidden: 0 } });
+      }
+    }
+    console.log('✅ Specialties seeded');
+
+    console.log('🎉 Seed complete!');
   } catch (err) {
-    console.error('⚠️  Could not seed admin user:', (err as Error).message);
+    console.error('⚠️  Seed error:', (err as Error).message);
   }
 };
 
@@ -83,7 +115,7 @@ const startServer = async (): Promise<void> => {
   if (!validateEnv()) process.exit(1);
 
   await connectDB();
-  await seedAdminIfEmpty();
+  await seedIfEmpty();
 
   const PORT = Number(process.env.PORT) || 5001;
   app.listen(PORT, () => {
