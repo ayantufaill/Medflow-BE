@@ -41,14 +41,6 @@ COPY --from=build /app/node_modules/@prisma/client ./node_modules/@prisma/client
 COPY --from=build /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
 COPY --from=build /app/node_modules/prisma ./node_modules/prisma
 
-# Copy tsx + source scripts so we can run seed on first boot
-COPY --from=build /app/node_modules/.bin/tsx ./node_modules/.bin/tsx
-COPY --from=build /app/node_modules/tsx ./node_modules/tsx
-COPY --from=build /app/node_modules/esbuild ./node_modules/esbuild
-COPY src/scripts ./src/scripts
-COPY src/config ./src/config
-COPY src/utils ./src/utils
-
 # Copy compiled application
 COPY --from=build /app/dist ./dist
 
@@ -68,4 +60,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
 # db push is idempotent — safe to run on every container start.
 # --skip-generate because we already generated the client in the build stage.
 # --accept-data-loss is safe here since we have no destructive changes on fresh DBs.
-CMD ["sh", "-c", "node_modules/.bin/prisma db push --schema prisma/schema.prisma --skip-generate --accept-data-loss && node_modules/.bin/tsx src/scripts/seedAll.ts; node dist/server.js"]
+CMD ["sh", "-c", "node_modules/.bin/prisma db push --schema prisma/schema.prisma --skip-generate --accept-data-loss && node dist/scripts/seedAll.js; node dist/server.js"]
