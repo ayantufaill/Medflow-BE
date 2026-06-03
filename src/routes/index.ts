@@ -39,6 +39,9 @@ import labCaseRoutes from './lab-case.routes';
 import progressNoteRoutes from './progress-note.routes';
 import rxRoutes from './rx.routes';
 import patientReferralRoutes from './patient-referral.routes';
+import reportingRoutes from './reporting.routes';
+import audienceRoutes from './audience.routes';
+import kpiRoutes from './kpi.routes';
 
 const router = Router();
 
@@ -82,5 +85,8 @@ router.use('/lab-cases', labCaseRoutes);
 router.use('/progress-notes', progressNoteRoutes);
 router.use('/rx', rxRoutes);
 router.use('/patient-referrals', patientReferralRoutes);
+router.use('/reports', reportingRoutes);
+router.use('/audiences', audienceRoutes);
+router.use('/kpis', kpiRoutes);
 
 export default router;

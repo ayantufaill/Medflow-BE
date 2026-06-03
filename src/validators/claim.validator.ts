@@ -72,3 +72,42 @@ export const resubmitClaimValidator: ValidationChain[] = [
   body('appealReason').optional().isString().withMessage('appealReason must be a string'),
   body('correctedFields').optional().isObject().withMessage('correctedFields must be an object'),
 ];
+
+export const batchSubmitValidator: ValidationChain[] = [
+  body('claimIds').isArray({ min: 1 }).withMessage('claimIds must be a non-empty array of strings'),
+  body('claimIds.*').isString().notEmpty().withMessage('Each claimId must be a string'),
+  body('submissionType').optional().isString().withMessage('submissionType must be a string'),
+];
+
+export const recordBatchPaymentValidator: ValidationChain[] = [
+  body('paymentRef').isString().notEmpty().withMessage('paymentRef is required'),
+  body('carrierId').isString().notEmpty().withMessage('carrierId is required'),
+  body('paymentDate').isISO8601().withMessage('paymentDate must be a valid date'),
+  body('checkAmount').isFloat({ min: 0 }).withMessage('checkAmount must be >= 0'),
+  body('allocations').isArray({ min: 1 }).withMessage('allocations must be a non-empty array'),
+  body('allocations.*.claimId').isString().notEmpty().withMessage('allocations claimId is required'),
+  body('allocations.*.paidAmount').isFloat({ min: 0 }).withMessage('allocations paidAmount must be >= 0'),
+  body('allocations.*.writeOff').isFloat({ min: 0 }).withMessage('allocations writeOff must be >= 0'),
+];
+
+export const batchInvoicesValidator: ValidationChain[] = [
+  body('patientIds').isArray({ min: 1 }).withMessage('patientIds must be a non-empty array of strings'),
+  body('patientIds.*').isString().notEmpty().withMessage('Each patientId must be a string'),
+  body('deliveryPreference').optional().isString().withMessage('deliveryPreference must be a string'),
+];
+
+export const quickStatusUpdateValidator: ValidationChain[] = [
+  body('status').isIn(claimStatusValues).withMessage('Invalid status value'),
+  body('note').optional().isString().withMessage('note must be a string'),
+];
+
+export const paymentIdParamValidator: ValidationChain[] = [
+  param('paymentId').isString().notEmpty().withMessage('paymentId is required'),
+];
+
+export const uncompleteProceduresValidator: ValidationChain[] = [
+  body('procedureIds').isArray({ min: 1 }).withMessage('procedureIds must be a non-empty array of strings'),
+  body('procedureIds.*').isString().notEmpty().withMessage('Each procedureId must be a string'),
+];
+
+

@@ -250,6 +250,252 @@ export class ClaimController {
       next(error);
     }
   }
+
+  async getTabSummary(req: Request, res: Response, next: NextFunction) {
+    try {
+      const summary = await claimService.getTabSummary();
+      res.status(200).json({
+        success: true,
+        data: summary,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getOutstandingClaims(req: Request, res: Response, next: NextFunction) {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const result = await claimService.getOutstandingClaims(page, limit, {
+        dateRange: req.query.dateRange as string | undefined,
+        groupBy: req.query.groupBy as string | undefined,
+        search: req.query.search as string | undefined,
+      });
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getOutstandingClaimsForAllocation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await claimService.getOutstandingClaims(1, 100, {
+        search: req.query.search as string | undefined,
+      });
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPredeterminations(req: Request, res: Response, next: NextFunction) {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const result = await claimService.getPredeterminations(page, limit, {
+        patientId: req.query.patientId as string | undefined,
+        search: req.query.search as string | undefined,
+      });
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async batchSubmitClaims(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await claimService.batchSubmitClaims(
+        req.body.claimIds,
+        req.body.submissionType,
+        req.userId
+      );
+      res.status(200).json({
+        success: true,
+        data: result,
+        message: 'Claims processed in batch',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async recordBatchPayment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await claimService.recordBatchPayment(req.body, req.userId);
+      res.status(200).json({
+        success: true,
+        data: result,
+        message: 'Batch payment recorded successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getBatchPayments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const result = await claimService.getBatchPayments(page, limit, {
+        search: req.query.search as string | undefined,
+      });
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async uploadEOB(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const paymentId = req.params.paymentId as string;
+      const uploadedFile =
+        req.file ?? (Array.isArray(req.files) ? (req.files[0] as Express.Multer.File | undefined) : undefined);
+
+      if (!uploadedFile) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'No file uploaded' },
+        });
+      }
+
+      const result = await claimService.uploadEOB(
+        paymentId,
+        uploadedFile,
+        req.body.description,
+        req.userId
+      );
+
+      res.status(200).json({
+        success: true,
+        data: result,
+        message: 'EOB uploaded successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getDenticalReports(req: Request, res: Response, next: NextFunction) {
+    try {
+      const reports = await claimService.getDenticalReports();
+      res.status(200).json({
+        success: true,
+        data: reports,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getEraReports(req: Request, res: Response, next: NextFunction) {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const eraTab = (req.query.eraTab as string) || 'active';
+      const search = req.query.search as string | undefined;
+
+      const result = await claimService.getEraReports(eraTab, search, page, limit);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPendingProcedures(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await claimService.getPendingProcedures();
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async generateBatchInvoices(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await claimService.generateBatchInvoices(
+        req.body.patientIds,
+        req.body.deliveryPreference,
+        req.userId
+      );
+      res.status(200).json({
+        success: true,
+        data: result,
+        message: 'Invoices generated successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getClearinghouseStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      const claimId = req.params.claimId as string;
+      const result = await claimService.getClearinghouseStatus(claimId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async quickStatusUpdate(req: Request, res: Response, next: NextFunction) {
+    try {
+      const claimId = req.params.claimId as string;
+      const result = await claimService.quickStatusUpdate(
+        claimId,
+        req.body.status,
+        req.body.note,
+        req.userId
+      );
+      res.status(200).json({
+        success: true,
+        data: { claim: result },
+        message: 'Status updated successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async uncompleteProcedures(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await claimService.uncompleteProcedures(req.body.procedureIds);
+      res.status(200).json({
+        success: true,
+        data: result,
+        message: 'Procedures un-completed successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const claimController = new ClaimController();

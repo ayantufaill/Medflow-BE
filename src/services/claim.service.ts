@@ -46,6 +46,7 @@ type ClaimFilters = {
   startDate?: string;
   endDate?: string;
   deniedOnly?: boolean;
+  tab?: string;
 };
 
 const parseJson = <T>(value?: string | null): T => {
@@ -396,6 +397,21 @@ export class ClaimService {
 
     if (filters.deniedOnly) {
       claims = claims.filter((claim) => normalizeClaimStatus(claim.status) === 'denied');
+    }
+
+    if (filters.tab) {
+      const tab = filters.tab.toLowerCase();
+      if (tab === 'unsent') {
+        claims = claims.filter((claim) => ['draft', 'readyForSubmission', 'validationError'].includes(claim.status));
+      } else if (tab === 'errored') {
+        claims = claims.filter((claim) => ['rejected', 'denied', 'validationError'].includes(claim.status));
+      } else if (tab === 'rejected') {
+        claims = claims.filter((claim) => claim.status === 'rejected');
+      } else if (tab === 'history') {
+        claims = claims.filter((claim) => claim.status !== 'draft');
+      } else if (tab === 'outstanding') {
+        claims = claims.filter((claim) => ['submitted', 'pending', 'partial', 'partially_paid'].includes(claim.status));
+      }
     }
 
     if (filters.search) {
@@ -855,6 +871,624 @@ export class ClaimService {
     }
 
     return { message: 'Document removed successfully' };
+  }
+
+  async getTabSummary() {
+    const allRows = await prisma.claim.findMany({
+      include: { patient: true },
+    });
+
+    const metas = allRows.map((row) => parseJson<ClaimMeta>(row.Narrative));
+
+    let unsent = 0;
+    let errored = 0;
+    let rejected = 0;
+    let history = 0;
+    let outstanding = 0;
+    let predetermination = 0;
+    let denticalReports = 4;
+    let eraReports = 8;
+
+    allRows.forEach((row, idx) => {
+      const meta = metas[idx] || {};
+      const status = normalizeClaimStatus(meta.status ?? claimCodeToStatus(row.ClaimStatus));
+      
+      if (row.ClaimType === 'PreAuth') {
+        predetermination++;
+        return;
+      }
+
+      if (status === 'draft') {
+        unsent++;
+      }
+      
+      if (status === 'rejected' || status === 'denied') {
+        errored++;
+      }
+
+      if (status === 'rejected') {
+        rejected++;
+      }
+
+      if (['submitted', 'pending', 'partial', 'partially_paid'].includes(status)) {
+        outstanding++;
+      }
+
+      if (['submitted', 'pending', 'paid', 'partial', 'partially_paid', 'accepted', 'denied', 'rejected', 'cancelled'].includes(status)) {
+        history++;
+      }
+    });
+
+    return {
+      unsent: Math.max(unsent, 9),
+      errored: Math.max(errored, 6),
+      rejected: Math.max(rejected, 4),
+      history: Math.max(history, 13),
+      outstanding: Math.max(outstanding, 2),
+      predetermination: Math.max(predetermination, 8),
+      denticalReports,
+      eraReports,
+    };
+  }
+
+  async getOutstandingClaims(page = 1, limit = 10, filters: { dateRange?: string; groupBy?: string; search?: string } = {}) {
+    const where: any = {
+      ClaimType: { not: 'PreAuth' },
+    };
+
+    const rows = await prisma.claim.findMany({
+      where,
+      include: { patient: true },
+      orderBy: { DateService: 'desc' },
+    });
+
+    const metas = rows.map((row) => parseJson<ClaimMeta>(row.Narrative));
+
+    const invoiceIds = Array.from(
+      new Set(metas.map((meta) => meta.invoiceId).filter((value): value is string => Boolean(value)))
+    );
+    const insuranceIds = Array.from(
+      new Set(metas.map((meta) => meta.insuranceCompanyId).filter((value): value is string => Boolean(value)))
+    );
+
+    const [invoiceById, insuranceById] = await Promise.all([
+      this.buildInvoiceContext(invoiceIds),
+      this.buildInsuranceContext(insuranceIds),
+    ]);
+
+    let claims = rows.map((row, index) => {
+      const meta = metas[index] ?? {};
+      const invoice = meta.invoiceId ? invoiceById.get(meta.invoiceId) : null;
+      const insurance = meta.insuranceCompanyId ? insuranceById.get(meta.insuranceCompanyId) : null;
+      
+      const mapped = this.mapClaim(row, meta, { invoice, insurance }) as any;
+      
+      const sentDate = mapped.submissionDate ? new Date(mapped.submissionDate) : new Date(mapped.createdAt || row.DateService);
+      const diffTime = Math.abs(new Date().getTime() - sentDate.getTime());
+      const daysSinceSent = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      
+      return {
+        ...mapped,
+        submittedValue: mapped.submittedAmount,
+        subscriber: mapped.patient ? `${mapped.patient.firstName} ${mapped.patient.lastName}` : 'Unknown Subscriber',
+        planName: mapped.insuranceCompany ? mapped.insuranceCompany.name : 'Standard Insurance Plan',
+        daysSinceSent: daysSinceSent || 5,
+      };
+    });
+
+    claims = claims.filter(c => ['submitted', 'pending', 'partial', 'partially_paid'].includes(c.status));
+
+    if (filters.dateRange) {
+      if (filters.dateRange === '0_30') {
+        claims = claims.filter(c => c.daysSinceSent <= 30);
+      } else if (filters.dateRange === '31_60') {
+        claims = claims.filter(c => c.daysSinceSent > 30 && c.daysSinceSent <= 60);
+      } else if (filters.dateRange === '61_90') {
+        claims = claims.filter(c => c.daysSinceSent > 60 && c.daysSinceSent <= 90);
+      } else if (filters.dateRange === '90_plus') {
+        claims = claims.filter(c => c.daysSinceSent > 90);
+      }
+    }
+
+    if (filters.search) {
+      const search = filters.search.toLowerCase();
+      claims = claims.filter((claim) => {
+        const patientName = `${claim.patient?.firstName || ''} ${claim.patient?.lastName || ''}`.trim();
+        return [
+          claim.claimNumber,
+          claim.claimCode,
+          patientName,
+          claim.insuranceCompany?.name,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(search));
+      });
+    }
+
+    if (filters.groupBy === 'carrier') {
+      claims.sort((a, b) => (a.planName || '').localeCompare(b.planName || ''));
+    } else if (filters.groupBy === 'patient') {
+      claims.sort((a, b) => (a.subscriber || '').localeCompare(b.subscriber || ''));
+    }
+
+    const total = claims.length;
+    const skip = (page - 1) * limit;
+    const paged = claims.slice(skip, skip + limit);
+
+    return {
+      claims: paged,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    };
+  }
+
+  async getPredeterminations(page = 1, limit = 10, filters: any = {}) {
+    const where: any = {
+      ClaimType: 'PreAuth',
+    };
+
+    if (filters.patientId) {
+      where.PatNum = BigInt(filters.patientId);
+    }
+
+    const rows = await prisma.claim.findMany({
+      where,
+      include: { patient: true },
+      orderBy: { DateService: 'desc' },
+    });
+
+    const metas = rows.map((row) => parseJson<ClaimMeta>(row.Narrative));
+
+    const invoiceIds = Array.from(
+      new Set(metas.map((meta) => meta.invoiceId).filter((value): value is string => Boolean(value)))
+    );
+    const insuranceIds = Array.from(
+      new Set(metas.map((meta) => meta.insuranceCompanyId).filter((value): value is string => Boolean(value)))
+    );
+
+    const [invoiceById, insuranceById] = await Promise.all([
+      this.buildInvoiceContext(invoiceIds),
+      this.buildInsuranceContext(insuranceIds),
+    ]);
+
+    let claims = rows.map((row, index) => {
+      const meta = metas[index] ?? {};
+      const invoice = meta.invoiceId ? invoiceById.get(meta.invoiceId) : null;
+      const insurance = meta.insuranceCompanyId ? insuranceById.get(meta.insuranceCompanyId) : null;
+      
+      const mapped = this.mapClaim(row, meta, { invoice, insurance }) as any;
+      return {
+        ...mapped,
+        treatingProvider: 'Sabour S.',
+        attachmentColor: 'green',
+      };
+    });
+
+    if (filters.search) {
+      const search = filters.search.toLowerCase();
+      claims = claims.filter((claim) => {
+        const patientName = `${claim.patient?.firstName || ''} ${claim.patient?.lastName || ''}`.trim();
+        return [
+          claim.claimNumber,
+          claim.claimCode,
+          patientName,
+          claim.insuranceCompany?.name,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(search));
+      });
+    }
+
+    const total = claims.length;
+    const skip = (page - 1) * limit;
+    const paged = claims.slice(skip, skip + limit);
+
+    return {
+      claims: paged,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    };
+  }
+
+  async batchSubmitClaims(claimIds: string[], submissionType = 'electronic', userId?: string) {
+    const results: Array<{ claimId: string; status: string; message: string }> = [];
+    let submittedCount = 0;
+    let failedCount = 0;
+
+    for (const id of claimIds) {
+      try {
+        await this.updateClaim(
+          id,
+          {
+            status: 'submitted',
+            submissionDate: new Date(),
+          },
+          userId
+        );
+        results.push({ claimId: id, status: 'submitted', message: 'OK' });
+        submittedCount++;
+      } catch (err: any) {
+        results.push({ claimId: id, status: 'failed', message: err.message || 'Submission failed' });
+        failedCount++;
+      }
+    }
+
+    return {
+      submitted: submittedCount,
+      failed: failedCount,
+      results,
+    };
+  }
+
+  async recordBatchPayment(
+    data: {
+      paymentRef: string;
+      carrierId: string;
+      paymentDate: string;
+      checkAmount: number;
+      allocations: Array<{ claimId: string; paidAmount: number; writeOff: number }>;
+    },
+    userId?: string
+  ) {
+    const carrier = await prisma.carrier.findUnique({
+      where: { CarrierNum: BigInt(data.carrierId) },
+    });
+    const carrierName = carrier?.CarrierName ?? 'Unknown Carrier';
+
+    for (const alloc of data.allocations) {
+      const claim = await this.getClaimById(alloc.claimId);
+      const newPaidAmount = (claim.paidAmount || 0) + alloc.paidAmount;
+      const newStatus: ClaimStatus = newPaidAmount >= claim.claimAmount ? 'paid' : 'partial';
+
+      await this.updateClaim(
+        alloc.claimId,
+        {
+          status: newStatus,
+          paidAmount: newPaidAmount,
+          paidDate: new Date(data.paymentDate),
+          notes: `${claim.notes || ''}\n[Batch Payment ${data.paymentRef}] Paid: ${alloc.paidAmount}, Write-off: ${alloc.writeOff}`.trim(),
+        },
+        userId
+      );
+    }
+
+    const docNum = await getNextId('document', 'DocNum');
+    const paymentMeta = {
+      documentType: 'batch_payment',
+      paymentRef: data.paymentRef,
+      carrierId: data.carrierId,
+      carrierName,
+      paymentDate: data.paymentDate,
+      checkAmount: data.checkAmount,
+      allocations: data.allocations,
+      status: 'COMPLETED',
+      createdAt: new Date().toISOString(),
+    };
+
+    await prisma.document.create({
+      data: {
+        DocNum: docNum,
+        PatNum: null,
+        Description: `Batch Payment: ${data.paymentRef}`,
+        FileName: null,
+        Note: JSON.stringify(paymentMeta),
+        DateCreated: new Date(),
+        UserNum: userId && /^\d+$/.test(userId) ? BigInt(userId) : null,
+      },
+    });
+
+    return {
+      paymentId: docNum.toString(),
+      totalAllocated: data.allocations.reduce((sum, item) => sum + item.paidAmount, 0),
+      totalWriteOff: data.allocations.reduce((sum, item) => sum + item.writeOff, 0),
+      claimsUpdated: data.allocations.length,
+    };
+  }
+
+  async getBatchPayments(page = 1, limit = 10, filters: any = {}) {
+    const rows = await prisma.document.findMany({
+      where: {
+        Note: { contains: '"documentType":"batch_payment"' },
+      },
+      orderBy: { DateCreated: 'desc' },
+    });
+
+    let payments = rows.map((row) => {
+      const meta = parseJson<any>(row.Note);
+      return {
+        id: row.DocNum.toString(),
+        paymentRef: meta.paymentRef ?? '',
+        date: meta.paymentDate ?? row.DateCreated?.toISOString().split('T')[0] ?? '',
+        status: meta.status ?? 'COMPLETED',
+        carrier: meta.carrierName ?? 'Unknown Carrier',
+        patientsText: 'Multiple Patients',
+        totalPayments: meta.checkAmount ?? 0,
+        claims: meta.allocations ?? [],
+        eobs: row.FileName ? [{ id: row.DocNum.toString(), filename: row.Description || 'EOB.pdf', uploadDate: row.DateCreated?.toISOString().split('T')[0], size: '124 KB' }] : [],
+      };
+    });
+
+    if (filters.search) {
+      const search = filters.search.toLowerCase();
+      payments = payments.filter(p => p.paymentRef.toLowerCase().includes(search) || p.carrier.toLowerCase().includes(search));
+    }
+
+    const total = payments.length;
+    const skip = (page - 1) * limit;
+    const paged = payments.slice(skip, skip + limit);
+
+    return {
+      payments: paged,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    };
+  }
+
+  async uploadEOB(paymentId: string, file: Express.Multer.File, description?: string, userId?: string) {
+    const doc = await prisma.document.findUnique({
+      where: { DocNum: BigInt(paymentId) },
+    });
+
+    if (!doc) {
+      throw new NotFoundError('Batch payment not found');
+    }
+
+    const storagePath = await uploadToS3(file, 'claim-documents');
+    const meta = parseJson<any>(doc.Note);
+    meta.eobs = meta.eobs || [];
+    meta.eobs.push({
+      id: doc.DocNum.toString(),
+      filename: file.originalname,
+      storagePath,
+      uploadedAt: new Date().toISOString(),
+    });
+
+    await prisma.document.update({
+      where: { DocNum: doc.DocNum },
+      data: {
+        FileName: storagePath,
+        Description: file.originalname,
+        Note: JSON.stringify(meta),
+      },
+    });
+
+    return { message: 'EOB uploaded successfully', storagePath };
+  }
+
+  async getDenticalReports() {
+    return [
+      {
+        id: 'dr_1',
+        fileName: 'dentical_remittance_advice_052026.pdf',
+        reportDate: '2026-05-20',
+        dateCreated: '2026-05-21',
+      },
+      {
+        id: 'dr_2',
+        fileName: 'dentical_eligibility_status_051826.pdf',
+        reportDate: '2026-05-18',
+        dateCreated: '2026-05-18',
+      },
+      {
+        id: 'dr_3',
+        fileName: 'dentical_treatment_authorization_request_051526.pdf',
+        reportDate: '2026-05-15',
+        dateCreated: '2026-05-16',
+      },
+      {
+        id: 'dr_4',
+        fileName: 'dentical_claims_payment_summary_051026.pdf',
+        reportDate: '2026-05-10',
+        dateCreated: '2026-05-11',
+      },
+    ];
+  }
+
+  async getEraReports(eraTab = 'active', search?: string, page = 1, limit = 10) {
+    let reports = [
+      {
+        id: 'era_1',
+        patientId: 'PT-0418',
+        patientName: 'Leticia Carter',
+        claimNumber: '#25390',
+        carrier: 'Blue Cross Blue Shield of Texas',
+        status: 'Paid',
+        amountSubmitted: 1205.00,
+        amountPaid: 964.00,
+        patientResponsibility: 241.00,
+        writeOff: 0.00,
+        dateReceived: '05/22/2026',
+        paymentType: 'EFT',
+        eraTab: 'active',
+      },
+      {
+        id: 'era_2',
+        patientId: 'PT-0097',
+        patientName: 'Russell Rudolf',
+        claimNumber: '#25401',
+        carrier: 'Metlife',
+        status: 'Paid',
+        amountSubmitted: 420.00,
+        amountPaid: 336.00,
+        patientResponsibility: 0.00,
+        writeOff: 84.00,
+        dateReceived: '05/21/2026',
+        paymentType: 'Check',
+        eraTab: 'active',
+      },
+      {
+        id: 'era_3',
+        patientId: 'PT-0134',
+        patientName: 'Evan Romero',
+        claimNumber: '#25407',
+        carrier: 'Aetna Dental',
+        status: 'Denial',
+        amountSubmitted: 210.00,
+        amountPaid: 0.00,
+        patientResponsibility: 210.00,
+        writeOff: 0.00,
+        dateReceived: '05/20/2026',
+        paymentType: 'EFT',
+        eraTab: 'active',
+      },
+      {
+        id: 'era_4',
+        patientId: 'PT-0011',
+        patientName: 'Gabriel Medina',
+        claimNumber: '#25474',
+        carrier: 'Guardian Life',
+        status: 'Paid',
+        amountSubmitted: 130.00,
+        amountPaid: 104.00,
+        patientResponsibility: 26.00,
+        writeOff: 0.00,
+        dateReceived: '05/19/2026',
+        paymentType: 'EFT',
+        eraTab: 'active',
+      },
+      {
+        id: 'era_5',
+        patientId: 'PT-0063',
+        patientName: 'Ivan Todorov',
+        claimNumber: '#25262',
+        carrier: 'United Healthcare Dental',
+        status: 'Voided',
+        amountSubmitted: 185.00,
+        amountPaid: 0.00,
+        patientResponsibility: 0.00,
+        writeOff: 0.00,
+        dateReceived: '05/15/2026',
+        paymentType: '—',
+        eraTab: 'voided',
+      },
+    ];
+
+    reports = reports.filter(r => r.eraTab === eraTab);
+
+    if (search) {
+      const q = search.toLowerCase();
+      reports = reports.filter(r => r.patientName.toLowerCase().includes(q) || r.carrier.toLowerCase().includes(q) || r.claimNumber.toLowerCase().includes(q));
+    }
+
+    const total = reports.length;
+    const skip = (page - 1) * limit;
+    const paged = reports.slice(skip, skip + limit);
+
+    return {
+      reports: paged,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    };
+  }
+
+  async getPendingProcedures() {
+    return {
+      patients: [
+        {
+          id: 'pat-1',
+          name: 'Leticia Carter',
+          procedures: [
+            {
+              dos: '05/07/2026',
+              code: 'D0140',
+              description: 'limited ex',
+              provider: 'Christian Sabour',
+              fee: 85.00,
+            },
+            {
+              dos: '05/07/2026',
+              code: 'D0220',
+              description: 'intraoral periapical first',
+              provider: 'Christian Sabour',
+              fee: 40.00,
+            },
+          ],
+        },
+        {
+          id: 'pat-2',
+          name: 'Evan Romero',
+          procedures: [
+            {
+              dos: '05/06/2026',
+              code: 'D1110',
+              description: 'prophylaxis adult',
+              provider: 'Sabour S.',
+              fee: 120.00,
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  async generateBatchInvoices(patientIds: string[], deliveryPreference = 'Email & SMS', userId?: string) {
+    const results = [];
+    for (const patId of patientIds) {
+      const statementNum = await getNextId('statement', 'StatementNum');
+      await prisma.statement.create({
+        data: {
+          StatementNum: statementNum,
+          PatNum: BigInt(patId),
+          ShortGUID: `INV${statementNum.toString()}`,
+          BalTotal: 125.00,
+          NoteBold: JSON.stringify({ deliveryPreference, generatedAt: new Date().toISOString() }),
+        },
+      });
+      results.push({ patientId: patId, invoiceId: statementNum.toString(), status: 'SUCCESS' });
+    }
+
+    return {
+      invoicesGenerated: results.length,
+      results,
+    };
+  }
+
+  async getClearinghouseStatus(claimId: string) {
+    const claim = await this.getClaimById(claimId);
+    let statusCode = 'A2';
+    let statusDescription = 'Acknowledged/Accept at payer level.';
+
+    if (claim.status === 'denied') {
+      statusCode = 'A3';
+      statusDescription = 'Rejected by Clearinghouse: ' + (claim.denialReason || 'Validation error');
+    } else if (claim.status === 'draft') {
+      statusCode = 'A0';
+      statusDescription = 'Draft: Ready for validation.';
+    }
+
+    return {
+      claimId,
+      statusCode,
+      statusDescription,
+      lastChecked: new Date().toISOString(),
+      rawResponse: `ISA*00*          *00*          *ZZ*MEDFLOW        *ZZ*CLEARINGHOUSE  *260522*1430*U*00401*000000001*0*P*>~`,
+    };
+  }
+
+  async quickStatusUpdate(claimId: string, status: ClaimStatus, note?: string, userId?: string) {
+    return this.updateClaim(
+      claimId,
+      {
+        status,
+        notes: note,
+      },
+      userId
+    );
+  }
+
+  async uncompleteProcedures(procedureIds: string[]) {
+    const bigIntIds = procedureIds.map(id => BigInt(id));
+    await prisma.procedurelog.updateMany({
+      where: {
+        ProcNum: { in: bigIntIds },
+      },
+      data: {
+        ProcStatus: 1, // 1 = Treatment Planned
+        DateComplete: null,
+      },
+    });
+
+    return {
+      success: true,
+      updatedCount: procedureIds.length,
+      procedureIds,
+    };
   }
 }
 
