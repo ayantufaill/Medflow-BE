@@ -268,10 +268,10 @@ export class ClaimService {
 
     const invoices = invoicePkIds.length
       ? await prisma.statement.findMany({
-          where: {
-            StatementNum: { in: invoicePkIds },
-          },
-        })
+        where: {
+          StatementNum: { in: invoicePkIds },
+        },
+      })
       : [];
 
     const patientIds = Array.from(
@@ -284,12 +284,12 @@ export class ClaimService {
 
     const patients = patientIds.length
       ? await prisma.patient.findMany({
-          where: {
-            PatNum: {
-              in: patientIds.map((id) => BigInt(id)),
-            },
+        where: {
+          PatNum: {
+            in: patientIds.map((id) => BigInt(id)),
           },
-        })
+        },
+      })
       : [];
 
     const patientById = new Map(patients.map((patient) => [patient.PatNum.toString(), mapPatientToApi(patient)]));
@@ -727,10 +727,10 @@ export class ClaimService {
         timestamp: entry.DateTimeEntry ?? null,
         changedBy: entry.userod
           ? {
-              _id: entry.userod.UserNum.toString(),
-              firstName: entry.userod.UserName ?? '',
-              lastName: '',
-            }
+            _id: entry.userod.UserNum.toString(),
+            firstName: entry.userod.UserName ?? '',
+            lastName: '',
+          }
           : null,
       };
     });
@@ -890,7 +890,7 @@ export class ClaimService {
     allRows.forEach((row, idx) => {
       const meta = metas[idx] || {};
       const status = normalizeClaimStatus(meta.status ?? claimCodeToStatus(row.ClaimStatus));
-      
+
       if (row.ClaimType === 'PreAuth') {
         predetermination++;
         return;
@@ -899,7 +899,7 @@ export class ClaimService {
       if (status === 'draft') {
         unsent++;
       }
-      
+
       if (status === 'rejected' || status === 'denied') {
         errored++;
       }
@@ -964,13 +964,13 @@ export class ClaimService {
       const meta = metas[index] ?? {};
       const invoice = meta.invoiceId ? invoiceById.get(meta.invoiceId) : null;
       const insurance = meta.insuranceCompanyId ? insuranceById.get(meta.insuranceCompanyId) : null;
-      
+
       const mapped = this.mapClaim(row, meta, { invoice, insurance }) as any;
-      
+
       const sentDate = mapped.submissionDate ? new Date(mapped.submissionDate) : new Date(mapped.createdAt || row.DateService);
       const diffTime = Math.abs(new Date().getTime() - sentDate.getTime());
       const daysSinceSent = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-      
+
       return {
         ...mapped,
         submittedValue: mapped.submittedAmount,
@@ -1060,8 +1060,8 @@ export class ClaimService {
     );
     const providers = providerIds.length
       ? await prisma.provider.findMany({
-          where: { ProvNum: { in: providerIds.map((id) => BigInt(id)) } },
-        })
+        where: { ProvNum: { in: providerIds.map((id) => BigInt(id)) } },
+      })
       : [];
     const providerById = new Map(providers.map((p) => [p.ProvNum.toString(), p]));
 
@@ -1069,7 +1069,7 @@ export class ClaimService {
       const meta = metas[index] ?? {};
       const invoice = meta.invoiceId ? invoiceById.get(meta.invoiceId) : null;
       const insurance = meta.insuranceCompanyId ? insuranceById.get(meta.insuranceCompanyId) : null;
-      
+
       const mapped = this.mapClaim(row, meta, { invoice, insurance }) as any;
 
       const prov = row.ProvBill ? providerById.get(row.ProvBill.toString()) : null;
@@ -1392,6 +1392,7 @@ export class ClaimService {
       }
 
       patientMap.get(patId)!.procedures.push({
+        id: proc.ProcNum.toString(),
         dos: proc.ProcDate?.toLocaleDateString() ?? '',
         code: proc.OldCode ?? 'D0000',
         description: proc.Surf ?? '',
