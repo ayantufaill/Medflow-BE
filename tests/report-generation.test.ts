@@ -41,6 +41,22 @@ describe('Reports Section APIs', () => {
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);
     });
+
+    it('gets provider collection per payment type report', async () => {
+      const res = await request(app)
+        .get('/api/reports/financial/provider-collection-payment-type')
+        .set(authHeader);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.data)).toBe(true);
+      if (res.body.data.length > 0) {
+        expect(res.body.data[0].patient).toBeDefined();
+        expect(res.body.data[0].code).toBeDefined();
+        expect(res.body.data[0].paymentType).toBeDefined();
+        expect(res.body.data[0].ins).toBeDefined();
+        expect(res.body.data[0].pt).toBeDefined();
+      }
+    });
   });
 
   describe('Clinical Reports', () => {

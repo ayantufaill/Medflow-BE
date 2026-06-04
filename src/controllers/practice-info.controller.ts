@@ -477,6 +477,79 @@ export class PracticeInfoController {
       next(error);
     }
   }
+
+  /**
+   * Schedule installation support appointment
+   */
+  async scheduleSupportAppointment(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { name, email, date, timeSlot, note, practiceInfoId } = req.body;
+      const result = await practiceInfoService.addSupportAppointment({
+        practiceInfoId,
+        name,
+        email,
+        date,
+        timeSlot,
+        note,
+      });
+      res.status(201).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Get scheduled support appointments
+   */
+  async getSupportAppointments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const practiceInfoId = req.query.practiceInfoId as string | undefined;
+      const result = await practiceInfoService.getSupportAppointments(practiceInfoId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Move patient data migration (Simulation)
+   */
+  async movePatientData(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { fromPatient, toPatient, checklist } = req.body;
+      const result = await practiceInfoService.movePatientData(fromPatient, toPatient, checklist);
+      res.status(200).json({
+        success: true,
+        message: 'Patient data migration simulation completed successfully',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Move provider future data migration (Simulation)
+   */
+  async moveProviderData(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { fromProvider, toProvider } = req.body;
+      const result = await practiceInfoService.moveProviderData(fromProvider, toProvider);
+      res.status(200).json({
+        success: true,
+        message: 'Provider data migration simulation completed successfully',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const practiceInfoController = new PracticeInfoController();

@@ -9,6 +9,9 @@ import {
   updatePracticeInfoValidator,
   practiceInfoIdValidator,
   queryValidator,
+  scheduleSupportValidator,
+  movePatientValidator,
+  moveProviderValidator,
 } from '../validators/practice-info.validator';
 
 const router = Router();
@@ -63,6 +66,199 @@ router.get(
   requireRoles('Admin'),
   practiceInfoController.getPracticeInfo.bind(practiceInfoController)
 );
+
+/**
+ * @swagger
+ * /practice-info/support-appointments:
+ *   post:
+ *     summary: Schedule installation support appointment (Admin only)
+ *     tags: [Practice Info]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - email
+ *               - date
+ *               - timeSlot
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: John Doe
+ *               email:
+ *                 type: string
+ *                 example: john.doe@example.com
+ *               date:
+ *                 type: string
+ *                 format: date
+ *                 example: 2026-05-25
+ *               timeSlot:
+ *                 type: string
+ *                 example: 10:00 AM - 11:00 AM
+ *               note:
+ *                 type: string
+ *                 example: Setting up client for Apex sensor
+ *               practiceInfoId:
+ *                 type: string
+ *                 description: Optional practice info/clinic ID
+ *     responses:
+ *       201:
+ *         description: Support appointment scheduled successfully
+ *       400:
+ *         description: Invalid request body
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (Admin only)
+ */
+router.post(
+  '/support-appointments',
+  requireRoles('Admin'),
+  validate(scheduleSupportValidator),
+  practiceInfoController.scheduleSupportAppointment.bind(practiceInfoController)
+);
+
+/**
+ * @swagger
+ * /practice-info/support-appointments:
+ *   get:
+ *     summary: Get scheduled support appointments (Admin only)
+ *     tags: [Practice Info]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: practiceInfoId
+ *         schema:
+ *           type: string
+ *         description: Optional practice info/clinic ID to filter
+ *     responses:
+ *       200:
+ *         description: List of scheduled appointments
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (Admin only)
+ */
+router.get(
+  '/support-appointments',
+  requireRoles('Admin'),
+  practiceInfoController.getSupportAppointments.bind(practiceInfoController)
+);
+
+/**
+ * @swagger
+ * /practice-info/move-patient:
+ *   post:
+ *     summary: Migrate patient data from one record to another (Admin only)
+ *     tags: [Practice Info]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - fromPatient
+ *               - toPatient
+ *               - checklist
+ *             properties:
+ *               fromPatient:
+ *                 type: string
+ *                 description: ID or Name of the source patient
+ *                 example: "12"
+ *               toPatient:
+ *                 type: string
+ *                 description: ID or Name of the target patient
+ *                 example: "15"
+ *               checklist:
+ *                 type: object
+ *                 properties:
+ *                   medicalHistory:
+ *                     type: boolean
+ *                     example: true
+ *                   notes:
+ *                     type: boolean
+ *                     example: true
+ *                   insurance:
+ *                     type: boolean
+ *                     example: false
+ *                   billing:
+ *                     type: boolean
+ *                     example: false
+ *                   treatmentPlan:
+ *                     type: boolean
+ *                     example: false
+ *                   exam:
+ *                     type: boolean
+ *                     example: false
+ *     responses:
+ *       200:
+ *         description: Migration simulation completed successfully
+ *       400:
+ *         description: Invalid request body
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (Admin only)
+ */
+router.post(
+  '/move-patient',
+  requireRoles('Admin'),
+  validate(movePatientValidator),
+  practiceInfoController.movePatientData.bind(practiceInfoController)
+);
+
+/**
+ * @swagger
+ * /practice-info/move-provider:
+ *   post:
+ *     summary: Migrate provider future data to another provider (Admin only)
+ *     tags: [Practice Info]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - fromProvider
+ *               - toProvider
+ *             properties:
+ *               fromProvider:
+ *                 type: string
+ *                 description: ID or Name of the source provider
+ *                 example: "Dr. John Doe"
+ *               toProvider:
+ *                 type: string
+ *                 description: ID or Name of the target provider
+ *                 example: "Dr. Jane Smith"
+ *     responses:
+ *       200:
+ *         description: Migration simulation completed successfully
+ *       400:
+ *         description: Invalid request body
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden (Admin only)
+ */
+router.post(
+  '/move-provider',
+  requireRoles('Admin'),
+  validate(moveProviderValidator),
+  practiceInfoController.moveProviderData.bind(practiceInfoController)
+);
+
 
 /**
  * @swagger

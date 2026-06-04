@@ -886,8 +886,6 @@ export class ClaimService {
     let history = 0;
     let outstanding = 0;
     let predetermination = 0;
-    let denticalReports = 4;
-    let eraReports = 8;
 
     allRows.forEach((row, idx) => {
       const meta = metas[idx] || {};
@@ -919,13 +917,19 @@ export class ClaimService {
       }
     });
 
+    // Count real EOB/Dentical report attachments
+    const denticalReports = await prisma.eobattach.count();
+
+    // Count real ERA payments (claimpayments)
+    const eraReports = await prisma.claimpayment.count();
+
     return {
-      unsent: Math.max(unsent, 9),
-      errored: Math.max(errored, 6),
-      rejected: Math.max(rejected, 4),
-      history: Math.max(history, 13),
-      outstanding: Math.max(outstanding, 2),
-      predetermination: Math.max(predetermination, 8),
+      unsent,
+      errored,
+      rejected,
+      history,
+      outstanding,
+      predetermination,
       denticalReports,
       eraReports,
     };
@@ -1050,16 +1054,34 @@ export class ClaimService {
       this.buildInsuranceContext(insuranceIds),
     ]);
 
+    // Fetch providers for rows that have a ProvNum set
+    const providerIds = Array.from(
+      new Set(rows.map((r) => r.ProvBill?.toString()).filter((v): v is string => Boolean(v)))
+    );
+    const providers = providerIds.length
+      ? await prisma.provider.findMany({
+          where: { ProvNum: { in: providerIds.map((id) => BigInt(id)) } },
+        })
+      : [];
+    const providerById = new Map(providers.map((p) => [p.ProvNum.toString(), p]));
+
     let claims = rows.map((row, index) => {
       const meta = metas[index] ?? {};
       const invoice = meta.invoiceId ? invoiceById.get(meta.invoiceId) : null;
       const insurance = meta.insuranceCompanyId ? insuranceById.get(meta.insuranceCompanyId) : null;
       
       const mapped = this.mapClaim(row, meta, { invoice, insurance }) as any;
+
+      const prov = row.ProvBill ? providerById.get(row.ProvBill.toString()) : null;
+      const treatingProvider = prov
+        ? `${prov.LName ?? ''} ${prov.FName ? prov.FName[0] + '.' : ''}`.trim()
+        : (mapped.patient ? `${mapped.patient.lastName ?? ''} ${mapped.patient.firstName ? mapped.patient.firstName[0] + '.' : ''}`.trim() : null);
+
       return {
         ...mapped,
-        treatingProvider: 'Sabour S.',
-        attachmentColor: 'green',
+        treatingProvider: treatingProvider || null,
+        attachmentColor: mapped.status === 'paid' || mapped.status === 'accepted' ? 'green'
+          : mapped.status === 'denied' || mapped.status === 'rejected' ? 'red' : 'yellow',
       };
     });
 
@@ -1253,118 +1275,82 @@ export class ClaimService {
   }
 
   async getDenticalReports() {
-    return [
-      {
-        id: 'dr_1',
-        fileName: 'dentical_remittance_advice_052026.pdf',
-        reportDate: '2026-05-20',
-        dateCreated: '2026-05-21',
-      },
-      {
-        id: 'dr_2',
-        fileName: 'dentical_eligibility_status_051826.pdf',
-        reportDate: '2026-05-18',
-        dateCreated: '2026-05-18',
-      },
-      {
-        id: 'dr_3',
-        fileName: 'dentical_treatment_authorization_request_051526.pdf',
-        reportDate: '2026-05-15',
-        dateCreated: '2026-05-16',
-      },
-      {
-        id: 'dr_4',
-        fileName: 'dentical_claims_payment_summary_051026.pdf',
-        reportDate: '2026-05-10',
-        dateCreated: '2026-05-11',
-      },
-    ];
+    const rows = await prisma.eobattach.findMany({
+      orderBy: { DateTCreated: 'desc' },
+      take: 50,
+    });
+
+    return rows.map((row) => ({
+      id: row.EobAttachNum.toString(),
+      fileName: row.FileName ?? `eob_report_${row.EobAttachNum}.pdf`,
+      reportDate: row.DateTCreated?.toLocaleDateString() ?? '',
+      dateCreated: row.DateTCreated?.toLocaleDateString() ?? '',
+    }));
   }
 
   async getEraReports(eraTab = 'active', search?: string, page = 1, limit = 10) {
-    let reports = [
-      {
-        id: 'era_1',
-        patientId: 'PT-0418',
-        patientName: 'Leticia Carter',
-        claimNumber: '#25390',
-        carrier: 'Blue Cross Blue Shield of Texas',
-        status: 'Paid',
-        amountSubmitted: 1205.00,
-        amountPaid: 964.00,
-        patientResponsibility: 241.00,
-        writeOff: 0.00,
-        dateReceived: '05/22/2026',
-        paymentType: 'EFT',
-        eraTab: 'active',
+    // ERA reports map to claimpayment (insurance checks/EFTs) joined to claimproc for per-claim detail
+    const claimpayments = await prisma.claimpayment.findMany({
+      include: {
+        claimproc: {
+          include: {
+            patient: true,
+            claim: true,
+          },
+          take: 1,
+        },
+        definition_claimpayment_PayTypeTodefinition: true,
       },
-      {
-        id: 'era_2',
-        patientId: 'PT-0097',
-        patientName: 'Russell Rudolf',
-        claimNumber: '#25401',
-        carrier: 'Metlife',
-        status: 'Paid',
-        amountSubmitted: 420.00,
-        amountPaid: 336.00,
-        patientResponsibility: 0.00,
-        writeOff: 84.00,
-        dateReceived: '05/21/2026',
-        paymentType: 'Check',
-        eraTab: 'active',
-      },
-      {
-        id: 'era_3',
-        patientId: 'PT-0134',
-        patientName: 'Evan Romero',
-        claimNumber: '#25407',
-        carrier: 'Aetna Dental',
-        status: 'Denial',
-        amountSubmitted: 210.00,
-        amountPaid: 0.00,
-        patientResponsibility: 210.00,
-        writeOff: 0.00,
-        dateReceived: '05/20/2026',
-        paymentType: 'EFT',
-        eraTab: 'active',
-      },
-      {
-        id: 'era_4',
-        patientId: 'PT-0011',
-        patientName: 'Gabriel Medina',
-        claimNumber: '#25474',
-        carrier: 'Guardian Life',
-        status: 'Paid',
-        amountSubmitted: 130.00,
-        amountPaid: 104.00,
-        patientResponsibility: 26.00,
-        writeOff: 0.00,
-        dateReceived: '05/19/2026',
-        paymentType: 'EFT',
-        eraTab: 'active',
-      },
-      {
-        id: 'era_5',
-        patientId: 'PT-0063',
-        patientName: 'Ivan Todorov',
-        claimNumber: '#25262',
-        carrier: 'United Healthcare Dental',
-        status: 'Voided',
-        amountSubmitted: 185.00,
-        amountPaid: 0.00,
-        patientResponsibility: 0.00,
-        writeOff: 0.00,
-        dateReceived: '05/15/2026',
-        paymentType: '—',
-        eraTab: 'voided',
-      },
-    ];
+      orderBy: { CheckDate: 'desc' },
+      take: 200,
+    });
 
-    reports = reports.filter(r => r.eraTab === eraTab);
+    let reports = claimpayments.map((cp) => {
+      const firstProc = cp.claimproc[0];
+      const patient = firstProc?.patient;
+      const claim = firstProc?.claim;
+
+      const insPayAmt = cp.CheckAmt ?? 0;
+      const feeBilled = firstProc?.FeeBilled ?? insPayAmt;
+      const writeOff = firstProc?.WriteOff ?? 0;
+      const patientResponsibility = feeBilled - insPayAmt - writeOff;
+      const payTypeName = cp.definition_claimpayment_PayTypeTodefinition?.ItemName ?? null;
+
+      // Map isPartial: 0=full, 1=partial/voided
+      const isVoided = (cp.IsPartial ?? 0) === 2; // treat 2 as voided if set
+      const isPaid = insPayAmt > 0;
+      const status = isVoided ? 'Voided' : firstProc?.Status === 7 ? 'Denial' : isPaid ? 'Paid' : 'Pending';
+      const resolvedEraTab = isVoided ? 'voided' : 'active';
+
+      return {
+        id: cp.ClaimPaymentNum.toString(),
+        patientId: patient ? `PT-${String(patient.PatNum).padStart(4, '0')}` : null,
+        patientName: patient ? `${patient.FName ?? ''} ${patient.LName ?? ''}`.trim() : 'Unknown',
+        claimNumber: claim
+          ? `#${claim.PreAuthString ?? claim.ClaimIdentifier ?? claim.ClaimNum.toString()}`
+          : `#${cp.ClaimPaymentNum}`,
+        carrier: cp.CarrierName ?? 'Unknown Carrier',
+        status,
+        amountSubmitted: feeBilled,
+        amountPaid: insPayAmt,
+        patientResponsibility: Math.max(0, patientResponsibility),
+        writeOff,
+        dateReceived: cp.CheckDate?.toLocaleDateString() ?? '',
+        paymentType: payTypeName ?? (cp.CheckNum ? 'Check' : 'EFT'),
+        eraTab: resolvedEraTab,
+      };
+    });
+
+    reports = reports.filter((r) => r.eraTab === eraTab);
 
     if (search) {
       const q = search.toLowerCase();
-      reports = reports.filter(r => r.patientName.toLowerCase().includes(q) || r.carrier.toLowerCase().includes(q) || r.claimNumber.toLowerCase().includes(q));
+      reports = reports.filter(
+        (r) =>
+          r.patientName.toLowerCase().includes(q) ||
+          r.carrier.toLowerCase().includes(q) ||
+          r.claimNumber.toLowerCase().includes(q)
+      );
     }
 
     const total = reports.length;
@@ -1378,42 +1364,44 @@ export class ClaimService {
   }
 
   async getPendingProcedures() {
+    // ProcStatus 1 = Treatment Planned (pending/not yet completed)
+    const procs = await prisma.procedurelog.findMany({
+      where: { ProcStatus: 1 },
+      include: {
+        patient: true,
+        provider_procedurelog_ProvNumToprovider: true,
+      },
+      orderBy: { ProcDate: 'desc' },
+      take: 100,
+    });
+
+    // Group by patient
+    const patientMap = new Map<string, { id: string; name: string; procedures: any[] }>();
+
+    for (const proc of procs) {
+      const patId = proc.PatNum?.toString() ?? 'unknown';
+      const patName = proc.patient
+        ? `${proc.patient.FName ?? ''} ${proc.patient.LName ?? ''}`.trim()
+        : 'Unknown Patient';
+      const provName = proc.provider_procedurelog_ProvNumToprovider
+        ? `${proc.provider_procedurelog_ProvNumToprovider.FName ?? ''} ${proc.provider_procedurelog_ProvNumToprovider.LName ?? ''}`.trim()
+        : null;
+
+      if (!patientMap.has(patId)) {
+        patientMap.set(patId, { id: patId, name: patName, procedures: [] });
+      }
+
+      patientMap.get(patId)!.procedures.push({
+        dos: proc.ProcDate?.toLocaleDateString() ?? '',
+        code: proc.OldCode ?? 'D0000',
+        description: proc.Surf ?? '',
+        provider: provName,
+        fee: proc.ProcFee ?? 0,
+      });
+    }
+
     return {
-      patients: [
-        {
-          id: 'pat-1',
-          name: 'Leticia Carter',
-          procedures: [
-            {
-              dos: '05/07/2026',
-              code: 'D0140',
-              description: 'limited ex',
-              provider: 'Christian Sabour',
-              fee: 85.00,
-            },
-            {
-              dos: '05/07/2026',
-              code: 'D0220',
-              description: 'intraoral periapical first',
-              provider: 'Christian Sabour',
-              fee: 40.00,
-            },
-          ],
-        },
-        {
-          id: 'pat-2',
-          name: 'Evan Romero',
-          procedures: [
-            {
-              dos: '05/06/2026',
-              code: 'D1110',
-              description: 'prophylaxis adult',
-              provider: 'Sabour S.',
-              fee: 120.00,
-            },
-          ],
-        },
-      ],
+      patients: Array.from(patientMap.values()),
     };
   }
 

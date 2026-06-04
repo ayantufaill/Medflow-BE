@@ -42,6 +42,7 @@ import patientReferralRoutes from './patient-referral.routes';
 import reportingRoutes from './reporting.routes';
 import audienceRoutes from './audience.routes';
 import kpiRoutes from './kpi.routes';
+import communicationRoutes from './communication.routes';
 
 const router = Router();
 
@@ -88,5 +89,6 @@ router.use('/patient-referrals', patientReferralRoutes);
 router.use('/reports', reportingRoutes);
 router.use('/audiences', audienceRoutes);
 router.use('/kpis', kpiRoutes);
+router.use('/communication', communicationRoutes);
 
 export default router;
