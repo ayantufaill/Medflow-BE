@@ -154,9 +154,13 @@ export class PatientService {
     );
 
     return {
-      patients: patients.map((patient) =>
-        mapPatientToApi(patient, buildPatientMapperOptions(patientMetaMap.get(patient.PatNum.toString()) ?? {}))
-      ),
+      patients: patients.map((patient) => {
+        const mapped = mapPatientToApi(patient, buildPatientMapperOptions(patientMetaMap.get(patient.PatNum.toString()) ?? {}));
+        return {
+          ...mapped,
+          ssn: null, // Exclude plain-text SSN from the list response for security
+        };
+      }),
       pagination: {
         page,
         limit,
