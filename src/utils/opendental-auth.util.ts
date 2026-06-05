@@ -147,6 +147,23 @@ export const getPatientMeta = async (patNum: bigint) => {
   return parseJson<Record<string, any>>(pref?.ValueString);
 };
 
+export const getPatientsMetaBatch = async (patNums: bigint[]) => {
+  const prefs = await prisma.userodpref.findMany({
+    where: {
+      Fkey: { in: patNums },
+      FkeyType: PATIENT_META_FKEYTYPE,
+    },
+  });
+
+  const map = new Map<string, Record<string, any>>();
+  prefs.forEach((p) => {
+    if (p.Fkey !== null && p.Fkey !== undefined) {
+      map.set(p.Fkey.toString(), parseJson<Record<string, any>>(p.ValueString));
+    }
+  });
+  return map;
+};
+
 export const setPatientMeta = async (patNum: bigint, meta: Record<string, any>) => {
   return upsertUserOdPref(
     { fkey: patNum, fkeyType: PATIENT_META_FKEYTYPE },
@@ -226,48 +243,83 @@ export const mapRole = async (row: any): Promise<AppRole> => {
   } as AppRole;
 };
 
+const getNextUserTokenId = async () => {
+  const nextId = await prisma.$queryRawUnsafe<[{ nextId: bigint }]>(
+    'SELECT COALESCE(MAX(UserTokenNum), 0) + 1 as nextId FROM usertoken'
+  );
+  return nextId[0]?.nextId ?? BigInt(1);
+};
+
 export const findVerificationByToken = async (token: string) => {
-  const record = await prisma.userodpref.findFirst({
-    where: {
-      FkeyType: VERIFICATION_FKEYTYPE,
-      ValueString: { contains: `"token":"${token}"` },
-    },
+  const record = await prisma.usertoken.findUnique({
+    where: { Token: token },
   });
-  return record;
+  if (!record || record.TokenType !== 'verification') return null;
+  return {
+    UserOdPrefNum: record.UserTokenNum,
+    UserNum: record.UserNum,
+    ValueString: record.ValueString,
+  };
 };
 
 export const setVerification = async (userNum: bigint, token: string, expiresAt: Date) => {
-  const payload = buildJson({ token, expiresAt: expiresAt.toISOString() });
-  return upsertUserOdPref(
-    { userNum, fkeyType: VERIFICATION_FKEYTYPE },
-    payload
-  );
+  const valueString = buildJson({ token, expiresAt: expiresAt.toISOString() });
+  
+  await prisma.usertoken.deleteMany({
+    where: { UserNum: userNum, TokenType: 'verification' },
+  });
+
+  const nextId = await getNextUserTokenId();
+  await prisma.usertoken.create({
+    data: {
+      UserTokenNum: nextId,
+      UserNum: userNum,
+      Token: token,
+      TokenType: 'verification',
+      ValueString: valueString,
+    },
+  });
+  return nextId;
 };
 
 export const clearVerification = async (prefNum: bigint) => {
-  await prisma.userodpref.delete({ where: { UserOdPrefNum: prefNum } });
+  await prisma.usertoken.deleteMany({ where: { UserTokenNum: prefNum } });
 };
 
 export const findResetByToken = async (token: string) => {
-  const record = await prisma.userodpref.findFirst({
-    where: {
-      FkeyType: RESET_FKEYTYPE,
-      ValueString: { contains: `"token":"${token}"` },
-    },
+  const record = await prisma.usertoken.findUnique({
+    where: { Token: token },
   });
-  return record;
+  if (!record || record.TokenType !== 'reset') return null;
+  return {
+    UserOdPrefNum: record.UserTokenNum,
+    UserNum: record.UserNum,
+    ValueString: record.ValueString,
+  };
 };
 
 export const setReset = async (userNum: bigint, token: string, expiresAt: Date) => {
-  const payload = buildJson({ token, expiresAt: expiresAt.toISOString() });
-  return upsertUserOdPref(
-    { userNum, fkeyType: RESET_FKEYTYPE },
-    payload
-  );
+  const valueString = buildJson({ token, expiresAt: expiresAt.toISOString() });
+
+  await prisma.usertoken.deleteMany({
+    where: { UserNum: userNum, TokenType: 'reset' },
+  });
+
+  const nextId = await getNextUserTokenId();
+  await prisma.usertoken.create({
+    data: {
+      UserTokenNum: nextId,
+      UserNum: userNum,
+      Token: token,
+      TokenType: 'reset',
+      ValueString: valueString,
+    },
+  });
+  return nextId;
 };
 
 export const clearReset = async (prefNum: bigint) => {
-  await prisma.userodpref.delete({ where: { UserOdPrefNum: prefNum } });
+  await prisma.usertoken.deleteMany({ where: { UserTokenNum: prefNum } });
 };
 
 export const parsePrefJson = <T>(value?: string | null): T => parseJson<T>(value);

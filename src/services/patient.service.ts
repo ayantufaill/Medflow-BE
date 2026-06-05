@@ -7,7 +7,7 @@ import {
   mapGenderToDb,
   mapPatientToApi,
 } from '../utils/opendental-mappers.util';
-import { getPatientMeta, setPatientMeta } from '../utils/opendental-auth.util';
+import { getPatientMeta, setPatientMeta, getPatientsMetaBatch } from '../utils/opendental-auth.util';
 import {
   mapProcedureStatusToText,
   normalizeMedicalHistoryRows,
@@ -147,10 +147,8 @@ export class PatientService {
       prisma.patient.count({ where }),
     ]);
 
-    const patientMetaMap = new Map(
-      await Promise.all(
-        patients.map(async (patient) => [patient.PatNum.toString(), await getPatientMeta(patient.PatNum)] as const)
-      )
+    const patientMetaMap = await getPatientsMetaBatch(
+      patients.map((patient) => patient.PatNum)
     );
 
     return {
