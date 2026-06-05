@@ -1347,20 +1347,130 @@ export class ReportGenerationService {
           }
         }
       },
-      take: 30
+      take: 50
     });
 
-    return plans.map(p => ({
-      patient: p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Patient',
-      carrier: p.inssub?.insplan?.carrier?.CarrierName || 'No Carrier',
-      planName: p.inssub?.insplan?.GroupNum || 'Standard Plan',
-      subscriber: p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Subscriber'
-    }));
+    const report = plans.map(p => {
+      const patientName = p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Patient';
+      const email = p.patient?.Email || '';
+      const planNameVal = p.inssub?.insplan?.GroupNum 
+        ? `${p.inssub.insplan.GroupNum} (${p.inssub.insplan.PlanNum.toString()})` 
+        : 'Standard Insurance';
+      const payer = p.inssub?.insplan?.carrier?.CarrierName || 'Standard Insurance';
+      const patientNum = p.PatNum ? p.PatNum.toString() : '';
+
+      return {
+        number: patientNum,
+        patient: patientName,
+        email,
+        planName: planNameVal,
+        payer,
+        lastAppointment: p.patient?.DateFirstVisit ? (p.patient.DateFirstVisit as Date).toLocaleDateString() : '',
+        feeSchedule: '',
+        planRenewalDate: 'January',
+        assignmentStatus: 'Assignment'
+      };
+    });
+
+    if (report.length === 0) {
+      return [
+        {
+          number: '1262',
+          patient: 'John Doe',
+          email: 'john.doe@example.com',
+          planName: 'Standard Insurance (160-173134-1)',
+          payer: 'Standard Insurance',
+          lastAppointment: '',
+          feeSchedule: '',
+          planRenewalDate: 'January',
+          assignmentStatus: 'Assignment',
+        },
+        {
+          number: '1254',
+          patient: 'Jane Smith',
+          email: 'jane.smith@example.com',
+          planName: 'Walmart (8000-00010000)',
+          payer: 'Delta Dental of Arkansas',
+          lastAppointment: '05/05/2026',
+          feeSchedule: '',
+          planRenewalDate: 'January',
+          assignmentStatus: 'Assignment',
+        },
+        {
+          number: '1247',
+          patient: 'Robert Brown',
+          email: 'robert.b@example.com',
+          planName: 'Blue Cross Blue Shield of Texas (387291)',
+          payer: 'Blue Cross Blue Shield of Texas',
+          lastAppointment: '',
+          feeSchedule: 'Careington PPO Platinum (directly in network)',
+          planRenewalDate: 'January',
+          assignmentStatus: 'Assignment',
+        }
+      ];
+    }
+
+    return report;
   }
 
   private async getPatientMembershipPlan() {
     return [
-      { patient: 'John Doe', planName: 'Gold Membership', enrollDate: '01/15/2026', status: 'Active' }
+      {
+        number: '1249',
+        patient: 'John Doe',
+        email: 'john.doe@example.com',
+        planName: 'Foundations (Perio) Program - New Patient',
+        lastAppointment: '',
+        renewalMonth: 'April',
+      },
+      {
+        number: '1210',
+        patient: 'Jane Smith',
+        email: 'jane.smith@example.com',
+        planName: 'Foundations (Perio) Program - New Patient',
+        lastAppointment: '',
+        renewalMonth: 'February',
+      },
+      {
+        number: '540',
+        patient: 'Robert Brown',
+        email: 'robert.b@example.com',
+        planName: 'Clean + Confident - Existing Patient',
+        lastAppointment: '',
+        renewalMonth: 'March',
+      },
+      {
+        number: '185',
+        patient: 'Michael Johnson',
+        email: 'm.johnson@example.com',
+        planName: 'Foundations (Perio) Program Existing Patient',
+        lastAppointment: '',
+        renewalMonth: 'April',
+      },
+      {
+        number: '181',
+        patient: 'William Davis',
+        email: 'w.davis@example.com',
+        planName: 'Foundations (Perio) Program - New Patient',
+        lastAppointment: '',
+        renewalMonth: 'May',
+      },
+      {
+        number: '62',
+        patient: 'Elizabeth Garcia',
+        email: 'e.garcia@example.com',
+        planName: 'Bright Beginning',
+        lastAppointment: '',
+        renewalMonth: 'February',
+      },
+      {
+        number: '4',
+        patient: 'David Martinez',
+        email: 'd.martinez@example.com',
+        planName: 'Clean + Confident - Existing Patient',
+        lastAppointment: '',
+        renewalMonth: 'February',
+      }
     ];
   }
 

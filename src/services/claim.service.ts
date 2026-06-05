@@ -1392,7 +1392,7 @@ export class ClaimService {
       }
 
       patientMap.get(patId)!.procedures.push({
-        id: proc.ProcNum.toString(),
+        id: proc.ProcNum.toString(),  
         dos: proc.ProcDate?.toLocaleDateString() ?? '',
         code: proc.OldCode ?? 'D0000',
         description: proc.Surf ?? '',
