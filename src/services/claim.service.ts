@@ -364,6 +364,70 @@ export class ClaimService {
     return proceduresByClaimId;
   }
 
+  private async attachProceduresToPagedClaims(paged: any[]) {
+    if (!paged.length) return;
+
+    const pagedClaimIds = paged.map((c) => c.id);
+    const proceduresByClaimId = await this.getProceduresForClaims(pagedClaimIds);
+
+    // Fallback: If claim has no procedures via claimproc, fetch procedures of the associated invoice (Statement)
+    const claimsWithoutProcs = paged.filter(
+      (c) => (!proceduresByClaimId.has(c.id) || proceduresByClaimId.get(c.id)!.length === 0) && c.invoiceRefId
+    );
+
+    if (claimsWithoutProcs.length > 0) {
+      const invoiceIds = claimsWithoutProcs
+        .map((c) => toBigInt(c.invoiceRefId))
+        .filter((id): id is bigint => id !== null);
+
+      if (invoiceIds.length > 0) {
+        const invoiceProcs = await prisma.procedurelog.findMany({
+          where: {
+            StatementNum: { in: invoiceIds },
+          },
+          include: {
+            procedurecode_procedurelog_CodeNumToprocedurecode: true,
+          },
+        });
+
+        const procsByInvoiceId = new Map<string, any[]>();
+        for (const proc of invoiceProcs) {
+          if (!proc.StatementNum) continue;
+          const invId = proc.StatementNum.toString();
+          if (!procsByInvoiceId.has(invId)) {
+            procsByInvoiceId.set(invId, []);
+          }
+          procsByInvoiceId.get(invId)!.push({
+            id: proc.ProcNum.toString(),
+            _id: proc.ProcNum.toString(),
+            appointmentId: proc.AptNum?.toString() ?? null,
+            patientId: proc.PatNum?.toString() ?? null,
+            codeNum: proc.CodeNum?.toString() ?? null,
+            code: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? proc.OldCode ?? null,
+            name: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
+            description: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
+            tooth: proc.ToothNum ?? null,
+            surface: proc.Surf ?? null,
+            status: proc.ProcStatus ?? null,
+            quantity: proc.UnitQty ?? 1,
+            fee: proc.ProcFee ?? 0,
+            providerId: proc.ProvNum?.toString() ?? null,
+            createdAt: proc.SecDateEntry ?? null,
+          });
+        }
+
+        for (const claim of claimsWithoutProcs) {
+          const procs = procsByInvoiceId.get(claim.invoiceRefId) ?? [];
+          proceduresByClaimId.set(claim.id, procs);
+        }
+      }
+    }
+
+    for (const claim of paged) {
+      claim.procedures = proceduresByClaimId.get(claim.id) ?? [];
+    }
+  }
+
   private async getClaimRecord(claimId: string) {
     const claim = await prisma.claim.findUnique({
       where: { ClaimNum: BigInt(claimId) },
@@ -491,65 +555,7 @@ export class ClaimService {
     const skip = (page - 1) * limit;
     const paged = claims.slice(skip, skip + limit);
 
-    const pagedClaimIds = paged.map((c) => c.id);
-    const proceduresByClaimId = await this.getProceduresForClaims(pagedClaimIds);
-
-    // Fallback: If claim has no procedures via claimproc, fetch procedures of the associated invoice (Statement)
-    const claimsWithoutProcs = paged.filter(
-      (c) => (!proceduresByClaimId.has(c.id) || proceduresByClaimId.get(c.id)!.length === 0) && c.invoiceRefId
-    );
-
-    if (claimsWithoutProcs.length > 0) {
-      const invoiceIds = claimsWithoutProcs
-        .map((c) => toBigInt(c.invoiceRefId))
-        .filter((id): id is bigint => id !== null);
-
-      if (invoiceIds.length > 0) {
-        const invoiceProcs = await prisma.procedurelog.findMany({
-          where: {
-            StatementNum: { in: invoiceIds },
-          },
-          include: {
-            procedurecode_procedurelog_CodeNumToprocedurecode: true,
-          },
-        });
-
-        const procsByInvoiceId = new Map<string, any[]>();
-        for (const proc of invoiceProcs) {
-          if (!proc.StatementNum) continue;
-          const invId = proc.StatementNum.toString();
-          if (!procsByInvoiceId.has(invId)) {
-            procsByInvoiceId.set(invId, []);
-          }
-          procsByInvoiceId.get(invId)!.push({
-            id: proc.ProcNum.toString(),
-            _id: proc.ProcNum.toString(),
-            appointmentId: proc.AptNum?.toString() ?? null,
-            patientId: proc.PatNum?.toString() ?? null,
-            codeNum: proc.CodeNum?.toString() ?? null,
-            code: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? proc.OldCode ?? null,
-            name: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
-            description: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
-            tooth: proc.ToothNum ?? null,
-            surface: proc.Surf ?? null,
-            status: proc.ProcStatus ?? null,
-            quantity: proc.UnitQty ?? 1,
-            fee: proc.ProcFee ?? 0,
-            providerId: proc.ProvNum?.toString() ?? null,
-            createdAt: proc.SecDateEntry ?? null,
-          });
-        }
-
-        for (const claim of claimsWithoutProcs) {
-          const procs = procsByInvoiceId.get(claim.invoiceRefId) ?? [];
-          proceduresByClaimId.set(claim.id, procs);
-        }
-      }
-    }
-
-    for (const claim of paged) {
-      claim.procedures = proceduresByClaimId.get(claim.id) ?? [];
-    }
+    await this.attachProceduresToPagedClaims(paged);
 
     return {
       claims: paged,
@@ -1221,6 +1227,8 @@ export class ClaimService {
     const skip = (page - 1) * limit;
     const paged = claims.slice(skip, skip + limit);
 
+    await this.attachProceduresToPagedClaims(paged);
+
     return {
       claims: paged,
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
@@ -1305,6 +1313,8 @@ export class ClaimService {
     const total = claims.length;
     const skip = (page - 1) * limit;
     const paged = claims.slice(skip, skip + limit);
+
+    await this.attachProceduresToPagedClaims(paged);
 
     return {
       claims: paged,
