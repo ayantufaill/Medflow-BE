@@ -222,7 +222,7 @@ export class ClaimService {
     });
   }
 
-  private mapClaim(row: any, meta: ClaimMeta, context: { invoice?: any; insurance?: any }) {
+  private mapClaim(row: any, meta: ClaimMeta, context: { invoice?: any; insurance?: any; procedures?: any[] }) {
     const status = normalizeClaimStatus(meta.status ?? claimCodeToStatus(row.ClaimStatus));
     const patient = row.patient ? mapPatientToApi(row.patient) : null;
 
@@ -258,6 +258,7 @@ export class ClaimService {
       notes: meta.notes ?? row.ClaimNote ?? null,
       createdAt: row.SecDateEntry ?? row.DateService ?? null,
       updatedAt: row.SecDateTEdit ?? row.DateService ?? null,
+      procedures: context.procedures ?? [],
     };
   }
 
@@ -307,6 +308,60 @@ export class ClaimService {
       : [];
 
     return new Map(companies.map((item) => [item.CarrierNum.toString(), buildInsuranceView(item)]));
+  }
+
+  private async getProceduresForClaims(claimIds: string[]) {
+    if (!claimIds.length) return new Map<string, any[]>();
+
+    const claimBigInts = claimIds
+      .map((id) => toBigInt(id))
+      .filter((id): id is bigint => id !== null);
+
+    const claimProcs = await prisma.claimproc.findMany({
+      where: {
+        ClaimNum: { in: claimBigInts },
+      },
+      include: {
+        procedurelog: {
+          include: {
+            procedurecode_procedurelog_CodeNumToprocedurecode: true,
+          },
+        },
+      },
+    });
+
+    const proceduresByClaimId = new Map<string, any[]>();
+
+    for (const cp of claimProcs) {
+      if (!cp.ClaimNum) continue;
+      const claimId = cp.ClaimNum.toString();
+      if (!proceduresByClaimId.has(claimId)) {
+        proceduresByClaimId.set(claimId, []);
+      }
+
+      const procLog = cp.procedurelog;
+      if (procLog) {
+        proceduresByClaimId.get(claimId)!.push({
+          id: procLog.ProcNum.toString(),
+          _id: procLog.ProcNum.toString(),
+          appointmentId: procLog.AptNum?.toString() ?? null,
+          patientId: procLog.PatNum?.toString() ?? null,
+          codeNum: procLog.CodeNum?.toString() ?? null,
+          code: procLog.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? procLog.OldCode ?? null,
+          name: procLog.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? procLog.BillingNote ?? 'Procedure',
+          description: procLog.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? procLog.BillingNote ?? 'Procedure',
+          tooth: procLog.ToothNum ?? null,
+          surface: procLog.Surf ?? null,
+          status: procLog.ProcStatus ?? null,
+          quantity: procLog.UnitQty ?? 1,
+          fee: cp.FeeBilled ?? procLog.ProcFee ?? 0,
+          providerId: procLog.ProvNum?.toString() ?? null,
+          createdAt: procLog.SecDateEntry ?? null,
+        });
+      }
+    }
+
+    return proceduresByClaimId;
   }
 
   private async getClaimRecord(claimId: string) {
@@ -436,6 +491,66 @@ export class ClaimService {
     const skip = (page - 1) * limit;
     const paged = claims.slice(skip, skip + limit);
 
+    const pagedClaimIds = paged.map((c) => c.id);
+    const proceduresByClaimId = await this.getProceduresForClaims(pagedClaimIds);
+
+    // Fallback: If claim has no procedures via claimproc, fetch procedures of the associated invoice (Statement)
+    const claimsWithoutProcs = paged.filter(
+      (c) => (!proceduresByClaimId.has(c.id) || proceduresByClaimId.get(c.id)!.length === 0) && c.invoiceRefId
+    );
+
+    if (claimsWithoutProcs.length > 0) {
+      const invoiceIds = claimsWithoutProcs
+        .map((c) => toBigInt(c.invoiceRefId))
+        .filter((id): id is bigint => id !== null);
+
+      if (invoiceIds.length > 0) {
+        const invoiceProcs = await prisma.procedurelog.findMany({
+          where: {
+            StatementNum: { in: invoiceIds },
+          },
+          include: {
+            procedurecode_procedurelog_CodeNumToprocedurecode: true,
+          },
+        });
+
+        const procsByInvoiceId = new Map<string, any[]>();
+        for (const proc of invoiceProcs) {
+          if (!proc.StatementNum) continue;
+          const invId = proc.StatementNum.toString();
+          if (!procsByInvoiceId.has(invId)) {
+            procsByInvoiceId.set(invId, []);
+          }
+          procsByInvoiceId.get(invId)!.push({
+            id: proc.ProcNum.toString(),
+            _id: proc.ProcNum.toString(),
+            appointmentId: proc.AptNum?.toString() ?? null,
+            patientId: proc.PatNum?.toString() ?? null,
+            codeNum: proc.CodeNum?.toString() ?? null,
+            code: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? proc.OldCode ?? null,
+            name: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
+            description: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
+            tooth: proc.ToothNum ?? null,
+            surface: proc.Surf ?? null,
+            status: proc.ProcStatus ?? null,
+            quantity: proc.UnitQty ?? 1,
+            fee: proc.ProcFee ?? 0,
+            providerId: proc.ProvNum?.toString() ?? null,
+            createdAt: proc.SecDateEntry ?? null,
+          });
+        }
+
+        for (const claim of claimsWithoutProcs) {
+          const procs = procsByInvoiceId.get(claim.invoiceRefId) ?? [];
+          proceduresByClaimId.set(claim.id, procs);
+        }
+      }
+    }
+
+    for (const claim of paged) {
+      claim.procedures = proceduresByClaimId.get(claim.id) ?? [];
+    }
+
     return {
       claims: paged,
       pagination: {
@@ -451,14 +566,44 @@ export class ClaimService {
     const row = await this.getClaimRecord(claimId);
     const meta = parseJson<ClaimMeta>(row.Narrative);
 
-    const [invoiceById, insuranceById] = await Promise.all([
+    const [invoiceById, insuranceById, proceduresByClaimId] = await Promise.all([
       this.buildInvoiceContext(meta.invoiceId ? [meta.invoiceId] : []),
       this.buildInsuranceContext(meta.insuranceCompanyId ? [meta.insuranceCompanyId] : []),
+      this.getProceduresForClaims([claimId]),
     ]);
+
+    let procedures = proceduresByClaimId.get(claimId) ?? [];
+    if (procedures.length === 0 && meta.invoiceId) {
+      const invoiceIdBigInt = toBigInt(meta.invoiceId);
+      if (invoiceIdBigInt) {
+        const invoiceProcs = await prisma.procedurelog.findMany({
+          where: { StatementNum: invoiceIdBigInt },
+          include: { procedurecode_procedurelog_CodeNumToprocedurecode: true },
+        });
+        procedures = invoiceProcs.map((proc) => ({
+          id: proc.ProcNum.toString(),
+          _id: proc.ProcNum.toString(),
+          appointmentId: proc.AptNum?.toString() ?? null,
+          patientId: proc.PatNum?.toString() ?? null,
+          codeNum: proc.CodeNum?.toString() ?? null,
+          code: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? proc.OldCode ?? null,
+          name: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
+          description: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
+          tooth: proc.ToothNum ?? null,
+          surface: proc.Surf ?? null,
+          status: proc.ProcStatus ?? null,
+          quantity: proc.UnitQty ?? 1,
+          fee: proc.ProcFee ?? 0,
+          providerId: proc.ProvNum?.toString() ?? null,
+          createdAt: proc.SecDateEntry ?? null,
+        }));
+      }
+    }
 
     const claim = this.mapClaim(row, meta, {
       invoice: meta.invoiceId ? invoiceById.get(meta.invoiceId) : null,
       insurance: meta.insuranceCompanyId ? insuranceById.get(meta.insuranceCompanyId) : null,
+      procedures,
     });
 
     return claim;
@@ -542,9 +687,36 @@ export class ClaimService {
       this.buildInsuranceContext(claimMeta.insuranceCompanyId ? [claimMeta.insuranceCompanyId] : []),
     ]);
 
+    const invoiceIdBigInt = toBigInt(invoiceId);
+    let procedures: any[] = [];
+    if (invoiceIdBigInt) {
+      const invoiceProcs = await prisma.procedurelog.findMany({
+        where: { StatementNum: invoiceIdBigInt },
+        include: { procedurecode_procedurelog_CodeNumToprocedurecode: true },
+      });
+      procedures = invoiceProcs.map((proc) => ({
+        id: proc.ProcNum.toString(),
+        _id: proc.ProcNum.toString(),
+        appointmentId: proc.AptNum?.toString() ?? null,
+        patientId: proc.PatNum?.toString() ?? null,
+        codeNum: proc.CodeNum?.toString() ?? null,
+        code: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? proc.OldCode ?? null,
+        name: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
+        description: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
+        tooth: proc.ToothNum ?? null,
+        surface: proc.Surf ?? null,
+        status: proc.ProcStatus ?? null,
+        quantity: proc.UnitQty ?? 1,
+        fee: proc.ProcFee ?? 0,
+        providerId: proc.ProvNum?.toString() ?? null,
+        createdAt: proc.SecDateEntry ?? null,
+      }));
+    }
+
     return this.mapClaim(created, claimMeta, {
       invoice: invoiceById.get(invoiceId),
       insurance: claimMeta.insuranceCompanyId ? insuranceById.get(claimMeta.insuranceCompanyId) : null,
+      procedures,
     });
   }
 
@@ -646,14 +818,44 @@ export class ClaimService {
       );
     }
 
-    const [invoiceById, insuranceById] = await Promise.all([
+    const [invoiceById, insuranceById, proceduresByClaimId] = await Promise.all([
       this.buildInvoiceContext(nextMeta.invoiceId ? [nextMeta.invoiceId] : []),
       this.buildInsuranceContext(nextMeta.insuranceCompanyId ? [nextMeta.insuranceCompanyId] : []),
+      this.getProceduresForClaims([claimId]),
     ]);
+
+    let procedures = proceduresByClaimId.get(claimId) ?? [];
+    if (procedures.length === 0 && nextMeta.invoiceId) {
+      const invoiceIdBigInt = toBigInt(nextMeta.invoiceId);
+      if (invoiceIdBigInt) {
+        const invoiceProcs = await prisma.procedurelog.findMany({
+          where: { StatementNum: invoiceIdBigInt },
+          include: { procedurecode_procedurelog_CodeNumToprocedurecode: true },
+        });
+        procedures = invoiceProcs.map((proc) => ({
+          id: proc.ProcNum.toString(),
+          _id: proc.ProcNum.toString(),
+          appointmentId: proc.AptNum?.toString() ?? null,
+          patientId: proc.PatNum?.toString() ?? null,
+          codeNum: proc.CodeNum?.toString() ?? null,
+          code: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? proc.OldCode ?? null,
+          name: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
+          description: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
+          tooth: proc.ToothNum ?? null,
+          surface: proc.Surf ?? null,
+          status: proc.ProcStatus ?? null,
+          quantity: proc.UnitQty ?? 1,
+          fee: proc.ProcFee ?? 0,
+          providerId: proc.ProvNum?.toString() ?? null,
+          createdAt: proc.SecDateEntry ?? null,
+        }));
+      }
+    }
 
     return this.mapClaim(updated, nextMeta, {
       invoice: nextMeta.invoiceId ? invoiceById.get(nextMeta.invoiceId) : null,
       insurance: nextMeta.insuranceCompanyId ? insuranceById.get(nextMeta.insuranceCompanyId) : null,
+      procedures,
     });
   }
 
