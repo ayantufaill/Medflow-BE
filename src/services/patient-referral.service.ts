@@ -64,8 +64,6 @@ export class PatientReferralService {
 
     let referral = await prisma.referral.findFirst({
       where: {
-        FName: { equals: firstName, mode: 'insensitive' },
-        LName: { equals: lastName, mode: 'insensitive' }
       }
     });
 

@@ -1,0 +1,27 @@
+services:
+  db-init:
+    volumes:
+      - .:/app
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        tr -d '\r' < /app/docker/db-init.sh > /tmp/db-init.sh
+        chmod +x /tmp/db-init.sh
+        /tmp/db-init.sh
+
+  seed:
+    command:
+      - /bin/sh
+      - -c
+      - |
+        npx prisma generate --schema prisma/schema.prisma
+        npm run seed:all
+
+  api:
+    command:
+      - /bin/sh
+      - -c
+      - |
+        npx prisma generate --schema prisma/schema.prisma
+        npm run dev

@@ -12,6 +12,7 @@ import swaggerOptions from './config/swagger';
 
 // Initialize Express app
 const app = express();
+app.set('trust proxy', 1);
 
 // Security Middleware
 app.use(helmet(helmetOptions));

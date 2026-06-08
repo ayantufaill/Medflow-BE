@@ -26,7 +26,7 @@ export class ClinicalExamController {
     try {
       const examType = req.params.examType as ExamType;
       const appointmentId = req.params.appointmentId;
-      const userId = req.user?.id || '0';
+      const userId = req.user?.userId || '0';
       
       const { patientId, providerId, examData } = req.body;
       
@@ -52,7 +52,7 @@ export class ClinicalExamController {
     try {
       const examType = req.params.examType as ExamType;
       const appointmentId = req.params.appointmentId;
-      const userId = req.user?.id || '0';
+      const userId = req.user?.userId || '0';
       
       const exam = await clinicalExamService.signExam(examType, appointmentId, userId);
       

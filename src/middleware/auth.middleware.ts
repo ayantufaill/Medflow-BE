@@ -28,7 +28,7 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
         throw new AuthenticationError('Account is deactivated');
       }
 
-      if (meta.tokenVersion !== decoded.tokenVersion) {
+      if (Number(meta.tokenVersion ?? 0) !== Number(decoded.tokenVersion ?? 0)) {
         throw new AuthenticationError('Token has been invalidated. Please login again.');
       }
     }

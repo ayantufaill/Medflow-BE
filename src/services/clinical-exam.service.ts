@@ -82,9 +82,10 @@ export class ClinicalExamService {
 
       // Log activity
       await logActivity(
-        userNum,
-        `clinical-exam.${examType}.update`,
-        `Updated ${examType} exam for appointment ${appointmentId}`,
+        userId,
+        'updated',
+        `exam_${examType}`,
+        aptNum.toString(),
         existingRecord,
         updatedRecord
       );
@@ -105,9 +106,10 @@ export class ClinicalExamService {
 
       // Log activity
       await logActivity(
-        userNum,
-        `clinical-exam.${examType}.create`,
-        `Created ${examType} exam for appointment ${appointmentId}`,
+        userId,
+        'created',
+        `exam_${examType}`,
+        aptNum.toString(),
         null,
         newRecord
       );
@@ -148,9 +150,10 @@ export class ClinicalExamService {
 
     // Log activity
     await logActivity(
-      userNum,
-      `clinical-exam.${examType}.sign`,
-      `Signed and locked ${examType} exam for appointment ${appointmentId}`,
+      userId,
+      'updated',
+      `exam_${examType}`,
+      aptNum.toString(),
       existingRecord,
       updatedRecord
     );

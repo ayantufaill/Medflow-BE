@@ -61,4 +61,23 @@ router.get(
   financeDashboardController.getAging.bind(financeDashboardController)
 );
 
+/**
+ * @swagger
+ * /finance-dashboard/overview:
+ *   get:
+ *     summary: Get practice-wide finance overview
+ *     tags: [Finance Dashboard]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Practice-wide financial summary
+ */
+router.get(
+  '/overview',
+  authenticate,
+  requirePermission('invoices.read'),
+  financeDashboardController.getGlobalOverview.bind(financeDashboardController)
+);
+
 export default router;
