@@ -5,6 +5,7 @@ import { validate } from '../middleware/validation.middleware';
 import {
   providerIdValidator, createProviderValidator,
   updateProviderValidator, providerQueryValidator,
+  providerAvailabilityQueryValidator,
 } from '../validators/provider.validator';
 
 const router = Router();
@@ -147,5 +148,35 @@ router.patch('/:providerId/activate', requireRoles('Admin'), validate(providerId
  *       403: { description: Forbidden }
  */
 router.patch('/:providerId/deactivate', requireRoles('Admin'), validate(providerIdValidator), providerController.deactivateProvider.bind(providerController));
+
+/**
+ * @swagger
+ * /providers/{providerId}/availability:
+ *   get:
+ *     summary: Get provider availability slots
+ *     tags: [Providers]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: providerId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: date
+ *         required: true
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: durationMinutes
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: List of available time slots }
+ *       404: { description: Provider not found }
+ */
+router.get(
+  '/:providerId/availability',
+  validate([...providerIdValidator, ...providerAvailabilityQueryValidator]),
+  providerController.getProviderAvailability.bind(providerController)
+);
 
 export default router;

@@ -45,6 +45,45 @@ describe('Services', () => {
     expect(deleteRes.status).toBe(200);
   });
 
+  it('toggles the service active status', async () => {
+    const token = uniqueToken('service');
+    const created = await createProcedureCodeRecord(token);
+    const serviceId = created.ProcCode;
+
+    // Check initial status
+    const getRes1 = await request(app)
+      .get(`/api/services/${serviceId}`)
+      .set(authHeader);
+    expect(getRes1.status).toBe(200);
+    expect(getRes1.body?.data?.service?.isActive).toBe(true);
+
+    // First toggle: true -> false
+    const toggleRes1 = await request(app)
+      .patch(`/api/services/${serviceId}/toggle`)
+      .set(authHeader);
+    expect(toggleRes1.status).toBe(200);
+    expect(toggleRes1.body?.data?.service?.isActive).toBe(false);
+
+    // Verify status persists on GET
+    const getRes2 = await request(app)
+      .get(`/api/services/${serviceId}`)
+      .set(authHeader);
+    expect(getRes2.status).toBe(200);
+    expect(getRes2.body?.data?.service?.isActive).toBe(false);
+
+    // Second toggle: false -> true
+    const toggleRes2 = await request(app)
+      .patch(`/api/services/${serviceId}/toggle`)
+      .set(authHeader);
+    expect(toggleRes2.status).toBe(200);
+    expect(toggleRes2.body?.data?.service?.isActive).toBe(true);
+
+    // Cleanup
+    await request(app)
+      .delete(`/api/services/${serviceId}`)
+      .set(authHeader);
+  });
+
   it('validates service id', async () => {
     const res = await request(app)
       .get('/api/services/1')

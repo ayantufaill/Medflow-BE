@@ -60,37 +60,39 @@ export class ClinicalManagementService {
       throw new NotFoundError('Product category not found');
     }
 
-    if (data.isDefault) {
-      // Clear default status for other choices under this category
-      await prisma.clinicalproductchoice.updateMany({
-        where: { CategoryId: catId },
-        data: { IsDefault: false },
-      });
-    }
-
     const priceVal = data.price !== undefined ? parseFloat(data.price.toString()) : 0.0;
 
-    const choice = await prisma.clinicalproductchoice.create({
-      data: {
-        CategoryId: catId,
-        Name: data.name,
-        IsDefault: data.isDefault ?? false,
-        QuickList: data.quickList ?? false,
-        IsRecommended: data.isRecommended ?? false,
-        Price: priceVal,
-        Code: data.code ?? '',
-      },
-    });
+    return await prisma.$transaction(async (tx) => {
+      if (data.isDefault) {
+        // Clear default status for other choices under this category
+        await tx.clinicalproductchoice.updateMany({
+          where: { CategoryId: catId },
+          data: { IsDefault: false },
+        });
+      }
 
-    return {
-      id: choice.ChoiceId.toString(),
-      name: choice.Name,
-      isDefault: choice.IsDefault,
-      quickList: choice.QuickList,
-      isRecommended: choice.IsRecommended,
-      price: choice.Price.toString(),
-      code: choice.Code,
-    };
+      const choice = await tx.clinicalproductchoice.create({
+        data: {
+          CategoryId: catId,
+          Name: data.name,
+          IsDefault: data.isDefault ?? false,
+          QuickList: data.quickList ?? false,
+          IsRecommended: data.isRecommended ?? false,
+          Price: priceVal,
+          Code: data.code ?? '',
+        },
+      });
+
+      return {
+        id: choice.ChoiceId.toString(),
+        name: choice.Name,
+        isDefault: choice.IsDefault,
+        quickList: choice.QuickList,
+        isRecommended: choice.IsRecommended,
+        price: choice.Price.toString(),
+        code: choice.Code,
+      };
+    });
   }
 
   async updateProductChoice(
@@ -112,38 +114,40 @@ export class ClinicalManagementService {
       throw new NotFoundError('Product choice not found');
     }
 
-    if (updates.isDefault) {
-      // Clear other defaults in this category
-      await prisma.clinicalproductchoice.updateMany({
-        where: { CategoryId: existing.CategoryId },
-        data: { IsDefault: false },
-      });
-    }
-
     const priceVal =
       updates.price !== undefined ? parseFloat(updates.price.toString()) : undefined;
 
-    const choice = await prisma.clinicalproductchoice.update({
-      where: { ChoiceId: choiceBigInt },
-      data: {
-        Name: updates.name ?? undefined,
-        IsDefault: updates.isDefault ?? undefined,
-        QuickList: updates.quickList ?? undefined,
-        IsRecommended: updates.isRecommended ?? undefined,
-        Price: priceVal ?? undefined,
-        Code: updates.code ?? undefined,
-      },
-    });
+    return await prisma.$transaction(async (tx) => {
+      if (updates.isDefault) {
+        // Clear other defaults in this category
+        await tx.clinicalproductchoice.updateMany({
+          where: { CategoryId: existing.CategoryId },
+          data: { IsDefault: false },
+        });
+      }
 
-    return {
-      id: choice.ChoiceId.toString(),
-      name: choice.Name,
-      isDefault: choice.IsDefault,
-      quickList: choice.QuickList,
-      isRecommended: choice.IsRecommended,
-      price: choice.Price.toString(),
-      code: choice.Code,
-    };
+      const choice = await tx.clinicalproductchoice.update({
+        where: { ChoiceId: choiceBigInt },
+        data: {
+          Name: updates.name ?? undefined,
+          IsDefault: updates.isDefault ?? undefined,
+          QuickList: updates.quickList ?? undefined,
+          IsRecommended: updates.isRecommended ?? undefined,
+          Price: priceVal ?? undefined,
+          Code: updates.code ?? undefined,
+        },
+      });
+
+      return {
+        id: choice.ChoiceId.toString(),
+        name: choice.Name,
+        isDefault: choice.IsDefault,
+        quickList: choice.QuickList,
+        isRecommended: choice.IsRecommended,
+        price: choice.Price.toString(),
+        code: choice.Code,
+      };
+    });
   }
 
   async deactivateProductCategory(categoryId: string) {
@@ -215,36 +219,38 @@ export class ClinicalManagementService {
       iconId?: string;
     }
   ) {
-    let category = await prisma.clinicalchecklistcategory.findFirst({
-      where: { Name: categoryName, IsActive: true },
-    });
-
-    if (!category) {
-      category = await prisma.clinicalchecklistcategory.create({
-        data: { Name: categoryName },
+    return await prisma.$transaction(async (tx) => {
+      let category = await tx.clinicalchecklistcategory.findFirst({
+        where: { Name: categoryName, IsActive: true },
       });
-    }
 
-    const checklist = await prisma.clinicalchecklist.create({
-      data: {
-        CategoryId: category.CategoryId,
-        Name: data.name,
-        ShortName: data.shortName,
-        IsTreatment: data.isTreatment ?? true,
-        IsHygiene: data.isHygiene ?? false,
-        IconId: data.iconId ?? 'tooth-prep',
-      },
+      if (!category) {
+        category = await tx.clinicalchecklistcategory.create({
+          data: { Name: categoryName },
+        });
+      }
+
+      const checklist = await tx.clinicalchecklist.create({
+        data: {
+          CategoryId: category.CategoryId,
+          Name: data.name,
+          ShortName: data.shortName,
+          IsTreatment: data.isTreatment ?? true,
+          IsHygiene: data.isHygiene ?? false,
+          IconId: data.iconId ?? 'tooth-prep',
+        },
+      });
+
+      return {
+        id: checklist.ChecklistId.toString(),
+        name: checklist.Name,
+        shortName: checklist.ShortName,
+        isTreatment: checklist.IsTreatment,
+        isHygiene: checklist.IsHygiene,
+        iconId: checklist.IconId,
+        items: [],
+      };
     });
-
-    return {
-      id: checklist.ChecklistId.toString(),
-      name: checklist.Name,
-      shortName: checklist.ShortName,
-      isTreatment: checklist.IsTreatment,
-      isHygiene: checklist.IsHygiene,
-      iconId: checklist.IconId,
-      items: [],
-    };
   }
 
   async createChecklistItem(

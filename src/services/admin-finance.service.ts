@@ -2,6 +2,8 @@ import { prisma } from '../config/db';
 import { NotFoundError } from '../utils/error.util';
 
 export class AdminFinanceService {
+  private static writeLock: Promise<any> = Promise.resolve();
+
   // --- DEFINITIONS (ADJUSTMENT & PAYMENT TYPES) ---
   
   async getNextDefNum(): Promise<bigint> {
@@ -34,26 +36,33 @@ export class AdminFinanceService {
   async createDefinition(
     category: number,
     data: { name: string; value?: string; itemOrder?: number }
-  ) {
-    const defNum = await this.getNextDefNum();
-    const item = await prisma.definition.create({
-      data: {
-        DefNum: defNum,
-        Category: category,
-        ItemName: data.name,
-        ItemValue: data.value ?? '',
-        ItemOrder: data.itemOrder ?? 0,
-        IsHidden: 0,
-      },
+  ): Promise<{ id: string; type: string; note: string; isHidden: boolean; itemOrder: number }> {
+    return new Promise((resolve, reject) => {
+      AdminFinanceService.writeLock = AdminFinanceService.writeLock.then(async () => {
+        try {
+          const defNum = await this.getNextDefNum();
+          const item = await prisma.definition.create({
+            data: {
+              DefNum: defNum,
+              Category: category,
+              ItemName: data.name,
+              ItemValue: data.value ?? '',
+              ItemOrder: data.itemOrder ?? 0,
+              IsHidden: 0,
+            },
+          });
+          resolve({
+            id: item.DefNum.toString(),
+            type: item.ItemName || '',
+            note: item.ItemValue || '',
+            isHidden: item.IsHidden === 1,
+            itemOrder: item.ItemOrder ?? 0,
+          });
+        } catch (error) {
+          reject(error);
+        }
+      });
     });
-
-    return {
-      id: item.DefNum.toString(),
-      type: item.ItemName || '',
-      note: item.ItemValue || '',
-      isHidden: item.IsHidden === 1,
-      itemOrder: item.ItemOrder ?? 0,
-    };
   }
 
   async updateDefinition(

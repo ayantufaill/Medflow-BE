@@ -190,3 +190,24 @@ export const providerQueryValidator: ValidationChain[] = [
     .isIn(['true', 'false'])
     .withMessage('isActive must be either true or false'),
 ];
+
+export const providerAvailabilityQueryValidator: ValidationChain[] = [
+  query('date')
+    .optional()
+    .isISO8601()
+    .withMessage('date must be a valid ISO 8601 date'),
+  query('weekOf')
+    .optional()
+    .isISO8601()
+    .withMessage('weekOf must be a valid ISO 8601 date'),
+  query('durationMinutes')
+    .optional()
+    .isInt({ min: 5 })
+    .withMessage('Duration must be at least 5 minutes'),
+  query().custom((value, { req }) => {
+    if (!req.query?.date && !req.query?.weekOf) {
+      throw new Error('At least one of date or weekOf is required');
+    }
+    return true;
+  }),
+];
