@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import patientInsuranceRoutes from './patient-insurance.routes';
 import authRoutes from './auth.routes';
 import userRoutes from './user.routes';
 import roleRoutes from './role.routes';
@@ -56,6 +57,7 @@ router.use('/roles', roleRoutes);
 router.use('/permissions', permissionRoutes);
 router.use('/practice-info', practiceInfoRoutes);
 router.use('/patients', patientRoutes);
+router.use('/patients', patientInsuranceRoutes);
 router.use('/insurance-companies', insuranceCompanyRoutes);
 router.use('/insurance-plans', insurancePlanRoutes);
 router.use('/coverage-templates', coverageTemplateRoutes);

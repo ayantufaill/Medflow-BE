@@ -27,7 +27,15 @@ router.use(authenticate);
  *         name: active
  *         schema: { type: boolean }
  *     responses:
- *       200: { description: List of providers }
+ *       200: 
+ *         description: List of providers
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: array }
  *   post:
  *     summary: Create a provider (Admin only)
  *     tags: [Providers]
@@ -39,14 +47,42 @@ router.use(authenticate);
  *         application/json:
  *           schema:
  *             type: object
- *             required: [firstName, lastName, specialty]
+ *             required: [firstName, lastName, specialty, userId, npiNumber]
  *             properties:
- *               firstName: { type: string }
- *               lastName: { type: string }
- *               specialty: { type: string }
+ *               firstName:
+ *                 type: string
+ *                 description: Provider's first name
+ *                 example: "John"
+ *               lastName:
+ *                 type: string
+ *                 description: Provider's last name
+ *                 example: "Doe"
+ *               specialty:
+ *                 type: string
+ *                 description: Medical specialty
+ *                 example: "Cardiology"
+ *               userId:
+ *                 type: string
+ *                 description: User ID associated with the provider
+ *                 example: "user123"
+ *               npiNumber:
+ *                 type: string
+ *                 description: NPI (National Provider Identifier) number
+ *                 example: "1234567890"
  *     responses:
- *       201: { description: Provider created }
- *       403: { description: Forbidden }
+ *       201:
+ *         description: Provider created
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       400:
+ *         description: Bad request - Missing required fields
+ *       403:
+ *         description: Forbidden - Admin access required
  */
 router.get('/', validate(providerQueryValidator), providerController.getAllProviders.bind(providerController));
 router.post('/', requireRoles('Admin'), validate(createProviderValidator), providerController.createProvider.bind(providerController));
@@ -60,7 +96,15 @@ router.post('/', requireRoles('Admin'), validate(createProviderValidator), provi
  *     security:
  *       - bearerAuth: []
  *     responses:
- *       200: { description: List of specialties }
+ *       200: 
+ *         description: List of specialties
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: array }
  */
 router.get('/specialties', providerController.getSpecialties.bind(providerController));
 
@@ -77,9 +121,19 @@ router.get('/specialties', providerController.getSpecialties.bind(providerContro
  *         name: providerId
  *         required: true
  *         schema: { type: integer }
+ *         description: Provider ID
  *     responses:
- *       200: { description: Provider details }
- *       404: { description: Not found }
+ *       200: 
+ *         description: Provider details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       404: 
+ *         description: Not found
  *   put:
  *     summary: Update provider (Admin only)
  *     tags: [Providers]
@@ -90,9 +144,58 @@ router.get('/specialties', providerController.getSpecialties.bind(providerContro
  *         name: providerId
  *         required: true
  *         schema: { type: integer }
+ *         description: Provider ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               firstName:
+ *                 type: string
+ *                 description: Provider's first name
+ *                 example: "Jane"
+ *               lastName:
+ *                 type: string
+ *                 description: Provider's last name
+ *                 example: "Smith"
+ *               specialty:
+ *                 type: string
+ *                 description: Medical specialty
+ *                 example: "Neurology"
+ *               userId:
+ *                 type: string
+ *                 description: User ID associated with the provider
+ *                 example: "user456"
+ *               npiNumber:
+ *                 type: string
+ *                 description: NPI (National Provider Identifier) number
+ *                 example: "9876543210"
+ *             example:
+ *               firstName: "Jane"
+ *               lastName: "Smith"
+ *               specialty: "Neurology"
+ *               userId: "user456"
+ *               npiNumber: "9876543210"
  *     responses:
- *       200: { description: Provider updated }
- *       403: { description: Forbidden }
+ *       200: 
+ *         description: Provider updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       400: 
+ *         description: Bad request - Invalid data or missing body
+ *       403: 
+ *         description: Forbidden - Admin access required
+ *       404: 
+ *         description: Provider not found
+ *       500:
+ *         description: Internal server error
  *   delete:
  *     summary: Delete provider (Admin only)
  *     tags: [Providers]
@@ -103,9 +206,42 @@ router.get('/specialties', providerController.getSpecialties.bind(providerContro
  *         name: providerId
  *         required: true
  *         schema: { type: integer }
+ *         description: Provider ID
  *     responses:
- *       200: { description: Provider deleted }
- *       403: { description: Forbidden }
+ *       200: 
+ *         description: Provider deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 message: { type: string }
+ *               example:
+ *                 success: true
+ *                 message: "Provider deleted successfully"
+ *       403: 
+ *         description: Forbidden - Admin access required
+ *       404: 
+ *         description: Provider not found
+ *       409:
+ *         description: Conflict - Cannot delete provider with existing appointments
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     message: { type: string }
+ *               example:
+ *                 success: false
+ *                 error:
+ *                   message: "Cannot delete provider with existing appointments. Please reassign or cancel all appointments first."
+ *       500:
+ *         description: Internal server error
  */
 router.get('/:providerId', validate(providerIdValidator), providerController.getProviderById.bind(providerController));
 router.put('/:providerId', requireRoles('Admin'), validate([...providerIdValidator, ...updateProviderValidator]), providerController.updateProvider.bind(providerController));
@@ -124,9 +260,21 @@ router.delete('/:providerId', requireRoles('Admin'), validate(providerIdValidato
  *         name: providerId
  *         required: true
  *         schema: { type: integer }
+ *         description: Provider ID
  *     responses:
- *       200: { description: Provider activated }
- *       403: { description: Forbidden }
+ *       200: 
+ *         description: Provider activated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       403: 
+ *         description: Forbidden - Admin access required
+ *       404: 
+ *         description: Provider not found
  */
 router.patch('/:providerId/activate', requireRoles('Admin'), validate(providerIdValidator), providerController.activateProvider.bind(providerController));
 
@@ -143,9 +291,21 @@ router.patch('/:providerId/activate', requireRoles('Admin'), validate(providerId
  *         name: providerId
  *         required: true
  *         schema: { type: integer }
+ *         description: Provider ID
  *     responses:
- *       200: { description: Provider deactivated }
- *       403: { description: Forbidden }
+ *       200: 
+ *         description: Provider deactivated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       403: 
+ *         description: Forbidden - Admin access required
+ *       404: 
+ *         description: Provider not found
  */
 router.patch('/:providerId/deactivate', requireRoles('Admin'), validate(providerIdValidator), providerController.deactivateProvider.bind(providerController));
 
