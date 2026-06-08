@@ -43,8 +43,12 @@ import reportingRoutes from './reporting.routes';
 import audienceRoutes from './audience.routes';
 import kpiRoutes from './kpi.routes';
 import communicationRoutes from './communication.routes';
+import clinicalManagementRoutes from './clinical-management.routes';
+import feeManagementRoutes from './fee-management.routes';
+import adminFinanceRoutes from './admin-finance.routes';
 
 const router = Router();
+
 
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
@@ -90,5 +94,8 @@ router.use('/reports', reportingRoutes);
 router.use('/audiences', audienceRoutes);
 router.use('/kpis', kpiRoutes);
 router.use('/communication', communicationRoutes);
+router.use('/clinical-management', clinicalManagementRoutes);
+router.use('/fee-management', feeManagementRoutes);
+router.use('/admin-finance', adminFinanceRoutes);
 
 export default router;

@@ -695,15 +695,15 @@ export class PatientService {
       },
       sections: Array.isArray(payload.sections)
         ? payload.sections.map((section: any, index: number) => ({
-            id: section?.id ?? `section-${index + 1}`,
-            number: section?.number ?? index + 1,
-            group: section?.group ?? 'medical',
-            question: section?.question ?? '',
-            answer: section?.answer ?? '',
-            comment: section?.comment ?? '',
-            doctorNote: section?.doctorNote ?? '',
-            additionalInfo: Array.isArray(section?.additionalInfo) ? section.additionalInfo : [],
-          }))
+          id: section?.id ?? `section-${index + 1}`,
+          number: section?.number ?? index + 1,
+          group: section?.group ?? 'medical',
+          question: section?.question ?? '',
+          answer: section?.answer ?? '',
+          comment: section?.comment ?? '',
+          doctorNote: section?.doctorNote ?? '',
+          additionalInfo: Array.isArray(section?.additionalInfo) ? section.additionalInfo : [],
+        }))
         : currentMedicalHistory.sections,
       medications: Array.isArray(payload.medications)
         ? normalizeMedicalHistoryRows(payload.medications)
@@ -787,9 +787,9 @@ export class PatientService {
           status: mapProcedureStatusToText(proc.ProcStatus),
           provider: proc.ProvNum
             ? {
-                _id: proc.ProvNum.toString(),
-                name: providerMap.get(proc.ProvNum.toString()) ?? 'Provider',
-              }
+              _id: proc.ProvNum.toString(),
+              name: providerMap.get(proc.ProvNum.toString()) ?? 'Provider',
+            }
             : null,
           isPlaceholder: !procedureCode && !description,
         };
