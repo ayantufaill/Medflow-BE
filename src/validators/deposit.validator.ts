@@ -49,3 +49,35 @@ export const createDepositValidator: ValidationChain[] = [
     .withMessage('Date must be a valid date'),
   body('notes').optional().isString().withMessage('Notes must be a string'),
 ];
+
+export const createDepositSlipValidator: ValidationChain[] = [
+  body('bankAccountInfo')
+    .optional()
+    .trim()
+    .isString()
+    .withMessage('Bank account info must be a string'),
+  body('memo')
+    .optional()
+    .trim()
+    .isString()
+    .withMessage('Memo must be a string'),
+  body('date')
+    .optional()
+    .isISO8601()
+    .withMessage('Date must be a valid date'),
+  body('patientPaymentIds')
+    .optional()
+    .isArray()
+    .withMessage('Patient payment IDs must be an array'),
+  body('patientPaymentIds.*')
+    .isInt({ min: 1 })
+    .withMessage('Invalid patient payment ID format'),
+  body('insurancePaymentIds')
+    .optional()
+    .isArray()
+    .withMessage('Insurance payment IDs must be an array'),
+  body('insurancePaymentIds.*')
+    .isInt({ min: 1 })
+    .withMessage('Invalid insurance payment ID format'),
+];
+

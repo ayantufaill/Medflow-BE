@@ -256,4 +256,29 @@ router.patch(
   serviceController.deactivateService.bind(serviceController)
 );
 
+/**
+ * @swagger
+ * /services/{serviceId}/toggle:
+ *   patch:
+ *     summary: Toggle service active status
+ *     tags: [Services]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: serviceId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Service status toggled successfully
+ */
+router.patch(
+  '/:serviceId/toggle',
+  authenticate,
+  requirePermission('services.update'),
+  validate(serviceIdValidator),
+  serviceController.toggleServiceStatus.bind(serviceController)
+);
+
 export default router;

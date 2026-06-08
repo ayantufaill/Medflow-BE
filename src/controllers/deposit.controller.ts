@@ -90,6 +90,63 @@ export class DepositController {
       next(error);
     }
   }
+
+  async getAllDepositSlips(req: Request, res: Response, next: NextFunction) {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const result = await depositService.getAllDepositSlips(page, limit);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getUnDepositedPayments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await depositService.getUnDepositedPayments();
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createDepositSlip(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const result = await depositService.createDepositSlip(
+        {
+          bankAccountInfo: req.body.bankAccountInfo,
+          memo: req.body.memo,
+          date: req.body.date ? new Date(req.body.date) : undefined,
+          patientPaymentIds: req.body.patientPaymentIds,
+          insurancePaymentIds: req.body.insurancePaymentIds,
+        },
+        req.userId
+      );
+
+      res.status(201).json({
+        success: true,
+        data: result,
+        message: 'Deposit slip created successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const depositController = new DepositController();
+

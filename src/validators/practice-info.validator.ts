@@ -314,3 +314,69 @@ export const queryValidator: ValidationChain[] = [
     .withMessage('Search query must be between 1 and 100 characters'),
 ];
 
+export const scheduleSupportValidator: ValidationChain[] = [
+  body('name')
+    .trim()
+    .notEmpty()
+    .withMessage('Name is required')
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Name must be between 2 and 100 characters'),
+  body('email')
+    .trim()
+    .notEmpty()
+    .withMessage('Email is required')
+    .isEmail()
+    .withMessage('Please provide a valid email address')
+    .normalizeEmail()
+    .toLowerCase(),
+  body('date')
+    .trim()
+    .notEmpty()
+    .withMessage('Date is required')
+    .matches(/^\d{4}-\d{2}-\d{2}$/)
+    .withMessage('Date must be in YYYY-MM-DD format'),
+  body('timeSlot')
+    .trim()
+    .notEmpty()
+    .withMessage('Time slot is required')
+    .isString(),
+  body('note')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Note must be at most 500 characters'),
+  body('practiceInfoId')
+    .optional()
+    .trim()
+    .isInt({ min: 1 })
+    .withMessage('Invalid practice info ID format'),
+];
+
+export const movePatientValidator: ValidationChain[] = [
+  body('fromPatient')
+    .trim()
+    .notEmpty()
+    .withMessage('Source patient is required'),
+  body('toPatient')
+    .trim()
+    .notEmpty()
+    .withMessage('Destination patient is required'),
+  body('checklist')
+    .notEmpty()
+    .withMessage('Checklist is required')
+    .isObject()
+    .withMessage('Checklist must be an object'),
+];
+
+export const moveProviderValidator: ValidationChain[] = [
+  body('fromProvider')
+    .trim()
+    .notEmpty()
+    .withMessage('Source provider is required'),
+  body('toProvider')
+    .trim()
+    .notEmpty()
+    .withMessage('Destination provider is required'),
+];
+
+

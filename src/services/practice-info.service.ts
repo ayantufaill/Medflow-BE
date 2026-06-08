@@ -338,6 +338,27 @@ export class PracticeInfoService {
         data.billingContactEmail ?? null
       );
     }
+    if ('billingOutOfNetwork' in data) {
+      await this.setClinicPref(
+        clinicNum,
+        PREF_BILL_OUT_OF_NETWORK,
+        data.billingOutOfNetwork ?? null
+      );
+    }
+    if ('billingAssignmentType' in data) {
+      await this.setClinicPref(
+        clinicNum,
+        PREF_BILL_ASSIGNMENT_TYPE,
+        data.billingAssignmentType ?? null
+      );
+    }
+    if ('billingProvider' in data) {
+      await this.setClinicPref(
+        clinicNum,
+        PREF_BILL_PROVIDER,
+        data.billingProvider ?? null
+      );
+    }
     if ('kioskPassword' in data) {
       await this.setClinicPref(clinicNum, PREF_KIOSK_PASSWORD, data.kioskPassword ?? null);
     }
@@ -502,6 +523,207 @@ export class PracticeInfoService {
     });
 
     await prisma.clinic.delete({ where: { ClinicNum: clinic.ClinicNum } });
+  }
+
+  async addSupportAppointment(data: {
+    practiceInfoId?: string;
+    name: string;
+    email: string;
+    date: string;
+    timeSlot: string;
+    note?: string;
+  }) {
+    let clinicNum: bigint;
+    if (data.practiceInfoId) {
+      clinicNum = BigInt(data.practiceInfoId);
+    } else {
+      const currentPractice = await this.getPracticeInfo();
+      if (!currentPractice) {
+        throw new Error('No practice found to schedule appointment');
+      }
+      clinicNum = BigInt(currentPractice._id);
+    }
+
+    const clinic = await prisma.clinic.findUnique({
+      where: { ClinicNum: clinicNum },
+    });
+    if (!clinic) {
+      throw new NotFoundError('Practice info not found');
+    }
+
+    const prefName = `${PREF_PREFIX}installationAppointments`;
+    const existingPref = await prisma.clinicpref.findFirst({
+      where: { ClinicNum: clinicNum, PrefName: prefName },
+      orderBy: { ClinicPrefNum: 'desc' },
+    });
+
+    let appointments: any[] = [];
+    if (existingPref?.ValueString) {
+      try {
+        appointments = JSON.parse(existingPref.ValueString);
+        if (!Array.isArray(appointments)) {
+          appointments = [];
+        }
+      } catch {
+        appointments = [];
+      }
+    }
+
+    const newAppt = {
+      id: Date.now().toString(),
+      name: data.name,
+      email: data.email,
+      date: data.date,
+      timeSlot: data.timeSlot,
+      note: data.note || '',
+      createdAt: new Date().toISOString(),
+    };
+    appointments.push(newAppt);
+
+    await this.setClinicPref(clinicNum, prefName, JSON.stringify(appointments));
+    return newAppt;
+  }
+
+  async getSupportAppointments(practiceInfoId?: string) {
+    let clinicNum: bigint;
+    if (practiceInfoId) {
+      clinicNum = BigInt(practiceInfoId);
+    } else {
+      const currentPractice = await this.getPracticeInfo();
+      if (!currentPractice) {
+        return [];
+      }
+      clinicNum = BigInt(currentPractice._id);
+    }
+
+    const prefName = `${PREF_PREFIX}installationAppointments`;
+    const existingPref = await prisma.clinicpref.findFirst({
+      where: { ClinicNum: clinicNum, PrefName: prefName },
+      orderBy: { ClinicPrefNum: 'desc' },
+    });
+
+    if (!existingPref?.ValueString) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(existingPref.ValueString);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  async findPatient(identifier: string) {
+    const trimmed = identifier.trim();
+    const isNumeric = /^\d+$/.test(trimmed);
+    if (isNumeric) {
+      const pat = await prisma.patient.findFirst({
+        where: { PatNum: BigInt(trimmed) },
+      });
+      if (pat) return pat;
+    }
+
+    const nameParts = trimmed.split(/\s+/);
+    if (nameParts.length >= 2) {
+      const firstName = nameParts[0];
+      const lastName = nameParts[nameParts.length - 1];
+      const pat = await prisma.patient.findFirst({
+        where: {
+          OR: [
+            { FName: { contains: firstName }, LName: { contains: lastName } },
+            { FName: { contains: lastName }, LName: { contains: firstName } },
+          ],
+        },
+      });
+      if (pat) return pat;
+    }
+
+    return prisma.patient.findFirst({
+      where: {
+        OR: [
+          { FName: { contains: trimmed } },
+          { LName: { contains: trimmed } },
+        ],
+      },
+    });
+  }
+
+  async movePatientData(fromPatient: string, toPatient: string, checklist: Record<string, boolean>) {
+    const fromPatRecord = await this.findPatient(fromPatient);
+    const toPatRecord = await this.findPatient(toPatient);
+
+    const movedItems = Object.keys(checklist).filter(key => checklist[key]);
+
+    return {
+      fromPatient: {
+        id: fromPatRecord ? fromPatRecord.PatNum.toString() : 'mock-from-id',
+        name: fromPatRecord ? `${fromPatRecord.FName} ${fromPatRecord.LName}`.trim() : fromPatient,
+        exists: !!fromPatRecord,
+      },
+      toPatient: {
+        id: toPatRecord ? toPatRecord.PatNum.toString() : 'mock-to-id',
+        name: toPatRecord ? `${toPatRecord.FName} ${toPatRecord.LName}`.trim() : toPatient,
+        exists: !!toPatRecord,
+      },
+      movedItems,
+      migratedAt: new Date().toISOString(),
+    };
+  }
+
+  async findProvider(identifier: string) {
+    const trimmed = identifier.trim();
+    const isNumeric = /^\d+$/.test(trimmed);
+    if (isNumeric) {
+      const prov = await prisma.provider.findFirst({
+        where: { ProvNum: BigInt(trimmed) },
+      });
+      if (prov) return prov;
+    }
+
+    const cleanIdentifier = trimmed.replace(/^(Dr\.|Dr)\s+/i, '').trim();
+    const nameParts = cleanIdentifier.split(/\s+/);
+    if (nameParts.length >= 2) {
+      const firstName = nameParts[0];
+      const lastName = nameParts[nameParts.length - 1];
+      const prov = await prisma.provider.findFirst({
+        where: {
+          OR: [
+            { FName: { contains: firstName }, LName: { contains: lastName } },
+            { FName: { contains: lastName }, LName: { contains: firstName } },
+          ],
+        },
+      });
+      if (prov) return prov;
+    }
+
+    return prisma.provider.findFirst({
+      where: {
+        OR: [
+          { FName: { contains: cleanIdentifier } },
+          { LName: { contains: cleanIdentifier } },
+        ],
+      },
+    });
+  }
+
+  async moveProviderData(fromProvider: string, toProvider: string) {
+    const fromProvRecord = await this.findProvider(fromProvider);
+    const toProvRecord = await this.findProvider(toProvider);
+
+    return {
+      fromProvider: {
+        id: fromProvRecord ? fromProvRecord.ProvNum.toString() : 'mock-from-id',
+        name: fromProvRecord ? `Dr. ${fromProvRecord.FName} ${fromProvRecord.LName}`.trim() : fromProvider,
+        exists: !!fromProvRecord,
+      },
+      toProvider: {
+        id: toProvRecord ? toProvRecord.ProvNum.toString() : 'mock-to-id',
+        name: toProvRecord ? `Dr. ${toProvRecord.FName} ${toProvRecord.LName}`.trim() : toProvider,
+        exists: !!toProvRecord,
+      },
+      migratedAt: new Date().toISOString(),
+    };
   }
 }
 

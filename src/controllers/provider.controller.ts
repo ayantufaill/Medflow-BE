@@ -203,6 +203,35 @@ export class ProviderController {
     }
   }
 
+  async getProviderAvailability(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { providerId } = req.params;
+      const { date, weekOf, durationMinutes } = req.query;
+
+      if (!providerId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Provider ID is required' },
+        });
+      }
+
+      const duration = durationMinutes ? parseInt(durationMinutes as string, 10) : 30;
+
+      const availability = await providerService.getProviderAvailability(providerId, {
+        date: date as string,
+        weekOf: weekOf as string,
+        durationMinutes: duration,
+      });
+
+      res.status(200).json({
+        success: true,
+        data: availability,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async deleteProvider(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.userId) {

@@ -8,6 +8,7 @@ import {
   patientIdParamValidator,
   depositSearchValidator,
   createDepositValidator,
+  createDepositSlipValidator,
 } from '../validators/deposit.validator';
 
 const router = Router();
@@ -42,6 +43,102 @@ router.get(
   requirePermission('deposits.read'),
   validate(depositSearchValidator),
   depositController.getAllDeposits.bind(depositController)
+);
+
+/**
+ * @swagger
+ * /deposits/slips:
+ *   get:
+ *     summary: Get all deposit slips
+ *     tags: [Deposits]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: List of deposit slips
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  '/slips',
+  authenticate,
+  requirePermission('deposits.read'),
+  validate(depositSearchValidator),
+  depositController.getAllDepositSlips.bind(depositController)
+);
+
+/**
+ * @swagger
+ * /deposits/slips/un-deposited:
+ *   get:
+ *     summary: Get all un-deposited patient and insurance payments
+ *     tags: [Deposits]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of un-deposited patient and insurance payments
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  '/slips/un-deposited',
+  authenticate,
+  requirePermission('deposits.read'),
+  depositController.getUnDepositedPayments.bind(depositController)
+);
+
+/**
+ * @swagger
+ * /deposits/slips:
+ *   post:
+ *     summary: Create a new deposit slip
+ *     tags: [Deposits]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               bankAccountInfo:
+ *                 type: string
+ *               memo:
+ *                 type: string
+ *               date:
+ *                 type: string
+ *                 format: date-time
+ *               patientPaymentIds:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *               insurancePaymentIds:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *     responses:
+ *       201:
+ *         description: Deposit slip created
+ *       400:
+ *         description: Invalid input
+ *       401:
+ *         description: Unauthorized
+ */
+router.post(
+  '/slips',
+  authenticate,
+  requirePermission('deposits.create'),
+  validate(createDepositSlipValidator),
+  depositController.createDepositSlip.bind(depositController)
 );
 
 /**

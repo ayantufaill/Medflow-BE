@@ -33,17 +33,22 @@ import adjustmentRoutes from './adjustment.routes';
 import depositRoutes from './deposit.routes';
 import payPlanRoutes from './payplan.routes';
 import financeDashboardRoutes from './finance-dashboard.routes';
-import reportingRoutes from './reporting.routes';
-import audienceRoutes from './audience.routes';
 import clinicalExamRoutes from './clinical-exam.routes';
 import treatmentPlanRoutes from './treatment-plan.routes';
 import labCaseRoutes from './lab-case.routes';
 import progressNoteRoutes from './progress-note.routes';
 import rxRoutes from './rx.routes';
 import patientReferralRoutes from './patient-referral.routes';
-import seedRoutes from './seed.routes';
+import reportingRoutes from './reporting.routes';
+import audienceRoutes from './audience.routes';
+import kpiRoutes from './kpi.routes';
+import communicationRoutes from './communication.routes';
+import clinicalManagementRoutes from './clinical-management.routes';
+import feeManagementRoutes from './fee-management.routes';
+import adminFinanceRoutes from './admin-finance.routes';
 
 const router = Router();
+
 
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
@@ -79,14 +84,18 @@ router.use('/adjustments', adjustmentRoutes);
 router.use('/deposits', depositRoutes);
 router.use('/payment-plans', payPlanRoutes);
 router.use('/finance-dashboard', financeDashboardRoutes);
-router.use('/reports', reportingRoutes);
-router.use('/audiences', audienceRoutes);
 router.use('/clinical-exams', clinicalExamRoutes);
 router.use('/treatment-plans', treatmentPlanRoutes);
 router.use('/lab-cases', labCaseRoutes);
 router.use('/progress-notes', progressNoteRoutes);
 router.use('/rx', rxRoutes);
 router.use('/patient-referrals', patientReferralRoutes);
-router.use('/seed', seedRoutes);
+router.use('/reports', reportingRoutes);
+router.use('/audiences', audienceRoutes);
+router.use('/kpis', kpiRoutes);
+router.use('/communication', communicationRoutes);
+router.use('/clinical-management', clinicalManagementRoutes);
+router.use('/fee-management', feeManagementRoutes);
+router.use('/admin-finance', adminFinanceRoutes);
 
 export default router;

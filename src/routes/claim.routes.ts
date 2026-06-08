@@ -12,6 +12,12 @@ import {
   createClaimFromInvoiceValidator,
   updateClaimValidator,
   resubmitClaimValidator,
+  batchSubmitValidator,
+  recordBatchPaymentValidator,
+  batchInvoicesValidator,
+  quickStatusUpdateValidator,
+  paymentIdParamValidator,
+  uncompleteProceduresValidator,
 } from '../validators/claim.validator';
 
 const router = Router();
@@ -49,6 +55,418 @@ router.get(
   requirePermission('claims.read'),
   validate(claimSearchValidator),
   claimController.getAllClaims.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/tab-summary:
+ *   get:
+ *     summary: Get claims statistics and counts for tabs
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Tab summary counts
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  '/tab-summary',
+  authenticate,
+  requirePermission('claims.read'),
+  claimController.getTabSummary.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/outstanding:
+ *   get:
+ *     summary: Get outstanding claims (aging report)
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: dateRange
+ *         schema: { type: string, enum: [none, 0_30, 31_60, 61_90, 90_plus] }
+ *       - in: query
+ *         name: groupBy
+ *         schema: { type: string, enum: [none, carrier, patient, provider] }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: List of outstanding claims
+ */
+router.get(
+  '/outstanding',
+  authenticate,
+  requirePermission('claims.read'),
+  claimController.getOutstandingClaims.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/outstanding-for-allocation:
+ *   get:
+ *     summary: Get outstanding claims list specifically formatted for payment check allocation dropdowns
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: List of outstanding claims for check allocation
+ */
+router.get(
+  '/outstanding-for-allocation',
+  authenticate,
+  requirePermission('claims.read'),
+  claimController.getOutstandingClaimsForAllocation.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/predeterminations:
+ *   get:
+ *     summary: Get predetermination claims (PreAuth)
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: patientId
+ *         schema: { type: string }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: List of predeterminations
+ */
+router.get(
+  '/predeterminations',
+  authenticate,
+  requirePermission('claims.read'),
+  claimController.getPredeterminations.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/dentical-reports:
+ *   get:
+ *     summary: Get Dentical remittance and eligibility reports
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of Dentical reports
+ */
+router.get(
+  '/dentical-reports',
+  authenticate,
+  requirePermission('claims.read'),
+  claimController.getDenticalReports.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/era-reports:
+ *   get:
+ *     summary: Get ERA reports
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: eraTab
+ *         schema: { type: string, enum: [active, voided] }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: List of ERA reports
+ */
+router.get(
+  '/era-reports',
+  authenticate,
+  requirePermission('claims.read'),
+  claimController.getEraReports.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/pending-procedures:
+ *   get:
+ *     summary: Get procedures pending claim creation grouped by patient
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of pending procedures
+ */
+router.get(
+  '/pending-procedures',
+  authenticate,
+  requirePermission('claims.read'),
+  claimController.getPendingProcedures.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/batch-payments:
+ *   get:
+ *     summary: Get batch payments recorded
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: List of batch payments
+ */
+router.get(
+  '/batch-payments',
+  authenticate,
+  requirePermission('claims.read'),
+  claimController.getBatchPayments.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/batch-submit:
+ *   post:
+ *     summary: Submit multiple claims in a batch
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - claimIds
+ *             properties:
+ *               claimIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               submissionType:
+ *                 type: string
+ *                 enum: [electronic, paper]
+ *     responses:
+ *       200:
+ *         description: Batch submission results
+ */
+router.post(
+  '/batch-submit',
+  authenticate,
+  requirePermission('claims.process'),
+  validate(batchSubmitValidator),
+  claimController.batchSubmitClaims.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/batch-payment:
+ *   post:
+ *     summary: Record a batch payment check or EFT from insurance carrier
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - paymentRef
+ *               - carrierId
+ *               - paymentDate
+ *               - checkAmount
+ *               - allocations
+ *             properties:
+ *               paymentRef:
+ *                 type: string
+ *               carrierId:
+ *                 type: string
+ *               paymentDate:
+ *                 type: string
+ *                 format: date
+ *               checkAmount:
+ *                 type: number
+ *               allocations:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - claimId
+ *                     - paidAmount
+ *                     - writeOff
+ *                   properties:
+ *                     claimId:
+ *                       type: string
+ *                     paidAmount:
+ *                       type: number
+ *                     writeOff:
+ *                       type: number
+ *     responses:
+ *       200:
+ *         description: Batch payment recorded successfully
+ */
+router.post(
+  '/batch-payment',
+  authenticate,
+  requirePermission('claims.process'),
+  validate(recordBatchPaymentValidator),
+  claimController.recordBatchPayment.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/batch-payment/{paymentId}/eob:
+ *   post:
+ *     summary: Upload EOB (Explanation of Benefits) document for a batch payment
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: paymentId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - file
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *               description:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: EOB document uploaded successfully
+ */
+router.post(
+  '/batch-payment/:paymentId/eob',
+  authenticate,
+  requirePermission('claims.update'),
+  validate(paymentIdParamValidator),
+  uploadDocumentMiddleware.any(),
+  claimController.uploadEOB.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/batch-invoices:
+ *   post:
+ *     summary: Generate batch statements/invoices for patients
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - patientIds
+ *             properties:
+ *               patientIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               deliveryPreference:
+ *                 type: string
+ *                 enum: [Email & SMS, Email, SMS, Mail]
+ *     responses:
+ *       200:
+ *         description: Batch invoices generated
+ */
+router.post(
+  '/batch-invoices',
+  authenticate,
+  requirePermission('claims.create'),
+  validate(batchInvoicesValidator),
+  claimController.generateBatchInvoices.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/procedures/uncomplete:
+ *   post:
+ *     summary: Revert multiple completed procedures back to treatment-planned status
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - procedureIds
+ *             properties:
+ *               procedureIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *     responses:
+ *       200:
+ *         description: Procedures uncompleted successfully
+ */
+router.post(
+  '/procedures/uncomplete',
+  authenticate,
+  requirePermission('claims.update'),
+  validate(uncompleteProceduresValidator),
+  claimController.uncompleteProcedures.bind(claimController)
 );
 
 /**
@@ -357,6 +775,69 @@ router.delete(
   requirePermission('claims.update'),
   validate([...claimIdValidator, ...claimDocumentIdValidator]),
   claimController.removeClaimDocument.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/{claimId}/clearinghouse:
+ *   get:
+ *     summary: Get clearinghouse transmission status for a claim
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: claimId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Clearinghouse transmission details
+ */
+router.get(
+  '/:claimId/clearinghouse',
+  authenticate,
+  requirePermission('claims.read'),
+  validate(claimIdValidator),
+  claimController.getClearinghouseStatus.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/{claimId}/quick-status:
+ *   post:
+ *     summary: Quick status update for a claim with a tracking note
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: claimId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - status
+ *             properties:
+ *               status:
+ *                 type: string
+ *               note:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Claim status updated successfully
+ */
+router.post(
+  '/:claimId/quick-status',
+  authenticate,
+  requirePermission('claims.update'),
+  validate([...claimIdValidator, ...quickStatusUpdateValidator]),
+  claimController.quickStatusUpdate.bind(claimController)
 );
 
 export default router;

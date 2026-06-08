@@ -547,6 +547,148 @@ export class ProviderService {
     return { message: 'Provider permanently deleted' };
   }
 
+  async getProviderAvailability(
+    providerId: string,
+    options: { date?: string; weekOf?: string; durationMinutes?: number }
+  ) {
+    const provider = await prisma.provider.findUnique({
+      where: { ProvNum: BigInt(providerId) },
+    });
+    if (!provider) {
+      throw new NotFoundError('Provider not found');
+    }
+
+    const durationMinutes = options.durationMinutes ?? 30;
+    const datesToQuery: Date[] = [];
+
+    if (options.weekOf) {
+      const startOfWeek = new Date(options.weekOf);
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(startOfWeek);
+        d.setDate(startOfWeek.getDate() + i);
+        datesToQuery.push(d);
+      }
+    } else if (options.date) {
+      datesToQuery.push(new Date(options.date));
+    } else {
+      throw new Error('At least one of date or weekOf is required');
+    }
+
+    const startRange = new Date(datesToQuery[0]!);
+    startRange.setHours(0, 0, 0, 0);
+    const endRange = new Date(datesToQuery[datesToQuery.length - 1]!);
+    endRange.setHours(23, 59, 59, 999);
+
+    const existingAppointments = await prisma.appointment.findMany({
+      where: {
+        ProvNum: provider.ProvNum,
+        AptDateTime: { gte: startRange, lte: endRange },
+        AptStatus: { notIn: [3, 4] },
+      },
+      select: { AptDateTime: true, Pattern: true },
+    });
+
+    const parseTime = (timeStr: string): number => {
+      const parts = timeStr.split(':').map(Number);
+      const hours = parts[0] ?? 0;
+      const minutes = parts[1] ?? 0;
+      return hours * 60 + minutes;
+    };
+
+    const formatTime = (minutes: number): string => {
+      const hours = Math.floor(minutes / 60);
+      const mins = minutes % 60;
+      return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+    };
+
+    const getDurationMinutesFromPattern = (pattern: string | null): number => {
+      if (!pattern) return 30;
+      if (/^\d+$/.test(pattern)) {
+        return parseInt(pattern, 10);
+      }
+      return pattern.length * 5;
+    };
+
+    const providerMeta = await getProviderMeta(provider.ProvNum);
+    const workingHoursList = providerMeta?.workingHours || [];
+
+    const allSlots: Array<{ start: string; end: string; isBooked: boolean }> = [];
+
+    for (const targetDate of datesToQuery) {
+      const dayOfWeek = targetDate.getDay();
+      const daySchedule = workingHoursList.find((wh: any) => wh.dayOfWeek === dayOfWeek);
+
+      let startTime = '09:00';
+      let endTime = '17:00';
+      let isAvailable = true;
+
+      if (workingHoursList.length > 0) {
+        if (daySchedule) {
+          startTime = daySchedule.startTime;
+          endTime = daySchedule.endTime;
+          isAvailable = daySchedule.isAvailable !== false;
+        } else {
+          isAvailable = false;
+        }
+      }
+
+      if (!isAvailable) {
+        continue;
+      }
+
+      const year = targetDate.getFullYear();
+      const month = String(targetDate.getMonth() + 1).padStart(2, '0');
+      const day = String(targetDate.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
+
+      const dayAppointments = existingAppointments.filter((apt) => {
+        if (!apt.AptDateTime) return false;
+        const aptDate = new Date(apt.AptDateTime);
+        return (
+          aptDate.getFullYear() === targetDate.getFullYear() &&
+          aptDate.getMonth() === targetDate.getMonth() &&
+          aptDate.getDate() === targetDate.getDate()
+        );
+      });
+
+      const bookedSlots = dayAppointments.map((apt) => {
+        const aptStartTime = apt.AptDateTime ? formatTime(
+          apt.AptDateTime.getHours() * 60 + apt.AptDateTime.getMinutes()
+        ) : '00:00';
+        const duration = getDurationMinutesFromPattern(apt.Pattern);
+        const aptEndTime = formatTime(parseTime(aptStartTime) + duration);
+        return {
+          start: parseTime(aptStartTime),
+          end: parseTime(aptEndTime),
+        };
+      });
+
+      const startMinutes = parseTime(startTime);
+      const endMinutes = parseTime(endTime);
+      const slotDuration = durationMinutes;
+      let currentTime = startMinutes;
+
+      while (currentTime + slotDuration <= endMinutes) {
+        const slotStart = currentTime;
+        const slotEnd = slotStart + slotDuration;
+
+        const hasConflict = bookedSlots.some(
+          (booked) => !(slotEnd <= booked.start || slotStart >= booked.end)
+        );
+
+        allSlots.push({
+          start: `${dateStr}T${formatTime(slotStart)}:00`,
+          end: `${dateStr}T${formatTime(slotEnd)}:00`,
+          isBooked: hasConflict,
+        });
+
+        currentTime += slotDuration;
+      }
+    }
+
+    return allSlots;
+  }
+
   async getSpecialties() {
     const definitions = await prisma.definition.findMany({
       where: {

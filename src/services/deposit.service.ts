@@ -157,6 +157,174 @@ export class DepositService {
   async getDepositsByPatient(patientId: string, page = 1, limit = 10) {
     return this.getAllDeposits(page, limit, { patientId });
   }
+
+  async getAllDepositSlips(page = 1, limit = 10) {
+    const skip = (page - 1) * limit;
+
+    const [rows, total] = await Promise.all([
+      prisma.deposit.findMany({
+        orderBy: { DateDeposit: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.deposit.count(),
+    ]);
+
+    const slips = rows.map((row) => ({
+      _id: row.DepositNum.toString(),
+      date: row.DateDeposit ?? null,
+      bankAccountInfo: row.BankAccountInfo ?? null,
+      amount: row.Amount ?? 0,
+      memo: row.Memo ?? null,
+      batch: row.Batch ?? null,
+    }));
+
+    return {
+      slips,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getUnDepositedPayments() {
+    const [patientPayments, insurancePayments] = await Promise.all([
+      prisma.payment.findMany({
+        where: {
+          OR: [
+            { DepositNum: null },
+            { DepositNum: 0 },
+          ],
+        },
+        include: {
+          patient: true,
+          definition: true,
+        },
+      }),
+      prisma.claimpayment.findMany({
+        where: {
+          OR: [
+            { DepositNum: null },
+            { DepositNum: 0 },
+          ],
+        },
+        include: {
+          definition_claimpayment_PayTypeTodefinition: true,
+        },
+      }),
+    ]);
+
+    const mappedPatientPayments = patientPayments.map((p) => ({
+      id: p.PayNum.toString(),
+      type: 'patient',
+      date: p.PayDate ?? null,
+      amount: p.PayAmt ?? 0,
+      method: p.definition?.ItemName ?? 'Check',
+      checkNum: p.CheckNum ?? '',
+      patientName: p.patient ? `${p.patient.FName ?? ''} ${p.patient.LName ?? ''}`.trim() : 'Unknown Patient',
+    }));
+
+    const mappedInsurancePayments = insurancePayments.map((cp) => ({
+      id: cp.ClaimPaymentNum.toString(),
+      type: 'insurance',
+      date: cp.CheckDate ?? null,
+      amount: cp.CheckAmt ?? 0,
+      method: cp.definition_claimpayment_PayTypeTodefinition?.ItemName ?? 'Check',
+      checkNum: cp.CheckNum ?? '',
+      carrierName: cp.CarrierName ?? 'Unknown Carrier',
+    }));
+
+    return {
+      patientPayments: mappedPatientPayments,
+      insurancePayments: mappedInsurancePayments,
+    };
+  }
+
+  async createDepositSlip(
+    data: {
+      bankAccountInfo?: string;
+      memo?: string;
+      date?: Date;
+      patientPaymentIds?: string[];
+      insurancePaymentIds?: string[];
+    },
+    userId: string
+  ) {
+    const resolvedDate = data.date ?? new Date();
+    const memoText = data.memo || '';
+    const bankInfo = data.bankAccountInfo || '';
+
+    const patientIds = (data.patientPaymentIds || []).map(BigInt);
+    const insuranceIds = (data.insurancePaymentIds || []).map(BigInt);
+
+    // Fetch payments to calculate amount
+    const [pPayments, cpPayments] = await Promise.all([
+      prisma.payment.findMany({
+        where: { PayNum: { in: patientIds } },
+      }),
+      prisma.claimpayment.findMany({
+        where: { ClaimPaymentNum: { in: insuranceIds } },
+      }),
+    ]);
+
+    const totalAmt =
+      pPayments.reduce((sum, p) => sum + (p.PayAmt || 0), 0) +
+      cpPayments.reduce((sum, cp) => sum + (cp.CheckAmt || 0), 0);
+
+    const depositNum = await getNextId('deposit', 'DepositNum');
+
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Create deposit slip
+      const slip = await tx.deposit.create({
+        data: {
+          DepositNum: depositNum,
+          DateDeposit: resolvedDate,
+          BankAccountInfo: bankInfo,
+          Amount: totalAmt,
+          Memo: memoText,
+        },
+      });
+
+      // 2. Update patient payments
+      if (patientIds.length > 0) {
+        await tx.payment.updateMany({
+          where: { PayNum: { in: patientIds } },
+          data: { DepositNum: depositNum },
+        });
+      }
+
+      // 3. Update claimpayments
+      if (insuranceIds.length > 0) {
+        await tx.claimpayment.updateMany({
+          where: { ClaimPaymentNum: { in: insuranceIds } },
+          data: { DepositNum: depositNum },
+        });
+      }
+
+      return slip;
+    });
+
+    await logActivity(userId, 'created', 'deposits', depositNum.toString(), undefined, {
+      depositNum: depositNum.toString(),
+      totalAmount: totalAmt,
+      patientPaymentCount: patientIds.length,
+      insurancePaymentCount: insuranceIds.length,
+    });
+
+    return {
+      _id: result.DepositNum.toString(),
+      date: result.DateDeposit ?? null,
+      bankAccountInfo: result.BankAccountInfo ?? null,
+      amount: result.Amount ?? 0,
+      memo: result.Memo ?? null,
+      patientPaymentCount: patientIds.length,
+      insurancePaymentCount: insuranceIds.length,
+    };
+  }
 }
 
 export const depositService = new DepositService();
+
