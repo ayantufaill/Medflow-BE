@@ -320,9 +320,20 @@ router.patch('/:appointmentId/workspace', requireRoles('Front Desk', 'Admin'), v
  *         required: true
  *         schema: { type: integer }
  *     responses:
- *       200: { description: List of procedures }
+ *       200: 
+ *         description: List of procedures
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *       401: { description: Unauthorized }
+ *       404: { description: Appointment not found }
+ * 
  *   post:
  *     summary: Add procedure to appointment
+ *     description: Add a dental procedure to an existing appointment
  *     tags: [Appointments]
  *     security:
  *       - bearerAuth: []
@@ -330,10 +341,112 @@ router.patch('/:appointmentId/workspace', requireRoles('Front Desk', 'Admin'), v
  *       - in: path
  *         name: appointmentId
  *         required: true
- *         schema: { type: integer }
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *         description: The ID of the appointment
+ *         example: 1
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - description
+ *               - code
+ *               - fee
+ *               - status
+ *             properties:
+ *               description:
+ *                 type: string
+ *                 description: Procedure description
+ *                 example: "Full Mouth X-Ray"
+ *                 minLength: 1
+ *                 maxLength: 255
+ *               code:
+ *                 type: string
+ *                 description: Dental procedure code (CDT code)
+ *                 example: "D0210"
+ *                 pattern: '^D[0-9]{4}$'
+ *               fee:
+ *                 type: number
+ *                 format: float
+ *                 description: Procedure fee/charge
+ *                 example: 250.00
+ *                 minimum: 0
+ *               quantity:
+ *                 type: integer
+ *                 description: Number of units
+ *                 example: 1
+ *                 default: 1
+ *                 minimum: 1
+ *               status:
+ *                 type: string
+ *                 description: Procedure status (1=Planned, 2=Completed, 3=Cancelled)
+ *                 enum: ["1", "2", "3"]
+ *                 example: "2"
+ *           example:
+ *             description: "Full Mouth X-Ray"
+ *             code: "D0210"
+ *             fee: 250.00
+ *             quantity: 1
+ *             status: "2"
  *     responses:
- *       201: { description: Procedure added }
- *       403: { description: Forbidden }
+ *       201:
+ *         description: Procedure added successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Procedure added successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     appointmentId:
+ *                       type: integer
+ *                     description:
+ *                       type: string
+ *                     code:
+ *                       type: string
+ *                     fee:
+ *                       type: number
+ *                     quantity:
+ *                       type: integer
+ *                     status:
+ *                       type: string
+ *       400:
+ *         description: Bad request - missing required fields or invalid data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     message:
+ *                       type: string
+ *                       example: "Description is required"
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *       403:
+ *         description: Forbidden - Insufficient permissions
+ *       404:
+ *         description: Appointment not found
+ *       500:
+ *         description: Internal server error
  */
 router.get('/:appointmentId/procedures', validate(appointmentIdValidator), appointmentController.getAppointmentProcedures.bind(appointmentController));
 router.post('/:appointmentId/procedures', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...appointmentProcedureValidator]), appointmentController.addAppointmentProcedure.bind(appointmentController));
