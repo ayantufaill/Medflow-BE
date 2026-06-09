@@ -37,11 +37,7 @@ describe('Vital Signs', () => {
 
   it('validates patient vital signs params', async () => {
     const res = await request(app)
-<<<<<<< HEAD
-      .get('/api/vital-signs/patient/1')
-=======
       .get('/api/vital-signs/patient/abc')
->>>>>>> 36ff5e2 (.)
       .set(authHeader);
     expect(res.status).toBe(400);
   });
@@ -62,11 +58,7 @@ describe('Vital Signs', () => {
 
   it('validates vital sign id', async () => {
     const res = await request(app)
-<<<<<<< HEAD
-      .get('/api/vital-signs/1')
-=======
       .get('/api/vital-signs/abc')
->>>>>>> 36ff5e2 (.)
       .set(authHeader);
     expect(res.status).toBe(400);
   });
