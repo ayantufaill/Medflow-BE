@@ -11,6 +11,7 @@ import {
   updateVitalSignValidator,
   vitalSignQueryValidator,
   paginationQueryValidator,
+  vitalSignNormalRangesValidator,
 } from '../validators/vital-sign.validator';
 
 const router = Router();
@@ -162,6 +163,59 @@ router.get(
   vitalSignController.getVitalSignByAppointment
 );
 
+
+/**
+ * @swagger
+ * /vital-signs/normal-ranges:
+ *   get:
+ *     summary: Get normal range thresholds for vital signs by age and gender
+ *     tags: [Vital Signs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: age
+ *         schema: { type: integer }
+ *         description: Patient's age in years
+ *       - in: query
+ *         name: gender
+ *         schema: { type: string, enum: [male, female, other] }
+ *         description: Patient's gender
+ *     responses:
+ *       200:
+ *         description: Normal range thresholds for vital sign metrics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     normalRanges:
+ *                       type: object
+ *                       properties:
+ *                         bloodPressureSystolic: { type: object }
+ *                         bloodPressureDiastolic: { type: object }
+ *                         temperature: { type: object }
+ *                         weight: { type: object }
+ *                         height: { type: object }
+ *                         heartRate: { type: object }
+ *                         respiratoryRate: { type: object }
+ *                         oxygenSaturation: { type: object }
+ *                         bmi: { type: object }
+ *       400:
+ *         description: Invalid input query parameters
+ */
+router.get(
+  '/normal-ranges',
+  authenticate,
+  requirePermission('vital-signs.read'),
+  validate(vitalSignNormalRangesValidator),
+  vitalSignController.getNormalRanges.bind(vitalSignController)
+);
+
 /**
  * @swagger
  * /vital-signs/{vitalSignId}:
@@ -186,7 +240,7 @@ router.get(
   authenticate,
   requirePermission('vital-signs.read'),
   validate(vitalSignIdValidator),
-  vitalSignController.getVitalSignById
+  vitalSignController.getVitalSignById.bind(vitalSignController)
 );
 
 /**

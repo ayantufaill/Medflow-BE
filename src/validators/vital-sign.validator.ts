@@ -161,3 +161,17 @@ export const paginationQueryValidator: ValidationChain[] = [
     .isInt({ min: 1, max: 100 })
     .withMessage('Limit must be between 1 and 100'),
 ];
+
+export const vitalSignNormalRangesValidator: ValidationChain[] = [
+  query('age')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Age must be a positive integer'),
+  query('gender')
+    .optional()
+    .isString()
+    .toLowerCase()
+    .isIn(['male', 'female', 'other'])
+    .withMessage('Gender must be one of: male, female, other'),
+];
+
