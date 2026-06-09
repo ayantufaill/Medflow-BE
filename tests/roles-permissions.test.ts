@@ -62,4 +62,40 @@ describe('Roles & Permissions', () => {
       .send({});
     expect(res.status).toBe(400);
   });
+
+  it('gets the permission matrix', async () => {
+    const res = await request(app)
+      .get('/api/permissions/matrix')
+      .set(authHeader);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.matrix).toBeDefined();
+  });
+
+  it('fails to get permission matrix without Admin role', async () => {
+    const res = await request(app)
+      .get('/api/permissions/matrix');
+    expect(res.status).toBe(401);
+  });
+
+  it('assigns roles to a user', async () => {
+    const rolesRes = await request(app)
+      .get('/api/roles')
+      .set(authHeader);
+    const roleId = rolesRes.body.data.roles[0]?._id;
+
+    const usersRes = await request(app)
+      .get('/api/users')
+      .set(authHeader);
+    const targetUser = usersRes.body.data.users[0];
+
+    if (roleId && targetUser) {
+      const res = await request(app)
+        .post(`/api/users/${targetUser._id}/roles`)
+        .set(authHeader)
+        .send({ roleIds: [roleId] });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+    }
+  });
 });

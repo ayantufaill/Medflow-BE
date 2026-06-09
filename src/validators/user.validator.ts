@@ -121,3 +121,15 @@ export const queryValidator: ValidationChain[] = [
     .isISO8601()
     .withMessage('End date must be a valid ISO 8601 date string'),
 ];
+
+export const assignUserRolesValidator: ValidationChain[] = [
+  ...userIdValidator,
+  body('roleIds')
+    .isArray()
+    .withMessage('roleIds must be an array of strings'),
+  body('roleIds.*')
+    .isString()
+    .trim()
+    .notEmpty()
+    .withMessage('Each role ID must be a non-empty string'),
+];

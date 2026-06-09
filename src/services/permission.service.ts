@@ -80,7 +80,7 @@ export class PermissionService {
 
   static async getAllRoles(): Promise<AppRole[]> {
     const roles = await prisma.usergroup.findMany();
-    const mapped = await Promise.all(roles.map(mapRole));
+    const mapped = await Promise.all(roles.map((r) => mapRole(r)));
     return mapped.filter((role) => role.isActive !== false);
   }
 

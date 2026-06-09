@@ -248,7 +248,7 @@ export class AuthService {
       userRoles
         .map((ur) => ur.usergroup)
         .filter(Boolean)
-        .map(mapRole)
+        .map((r) => mapRole(r))
     );
 
     return {

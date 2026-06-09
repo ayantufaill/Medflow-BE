@@ -90,6 +90,22 @@ export const getUserMeta = async (userNum: bigint) => {
   return parseJson<Record<string, any>>(pref?.ValueString);
 };
 
+export const getUsersMeta = async (userNums: bigint[]): Promise<Record<string, Record<string, any>>> => {
+  const prefs = await prisma.userodpref.findMany({
+    where: {
+      UserNum: { in: userNums },
+      FkeyType: USER_META_FKEYTYPE,
+    },
+  });
+  const map: Record<string, Record<string, any>> = {};
+  for (const pref of prefs) {
+    if (pref.UserNum) {
+      map[pref.UserNum.toString()] = parseJson<Record<string, any>>(pref.ValueString);
+    }
+  }
+  return map;
+};
+
 export const setUserMeta = async (userNum: bigint, meta: Record<string, any>) => {
   return upsertUserOdPref(
     { userNum, fkeyType: USER_META_FKEYTYPE },
@@ -104,6 +120,22 @@ export const getRoleMeta = async (userGroupNum: bigint) => {
   return parseJson<Record<string, any>>(pref?.ValueString);
 };
 
+export const getRolesMeta = async (roleNums: bigint[]): Promise<Record<string, Record<string, any>>> => {
+  const prefs = await prisma.userodpref.findMany({
+    where: {
+      Fkey: { in: roleNums },
+      FkeyType: ROLE_META_FKEYTYPE,
+    },
+  });
+  const map: Record<string, Record<string, any>> = {};
+  for (const pref of prefs) {
+    if (pref.Fkey) {
+      map[pref.Fkey.toString()] = parseJson<Record<string, any>>(pref.ValueString);
+    }
+  }
+  return map;
+};
+
 export const setRoleMeta = async (userGroupNum: bigint, meta: Record<string, any>) => {
   return upsertUserOdPref(
     { fkey: userGroupNum, fkeyType: ROLE_META_FKEYTYPE },
@@ -116,6 +148,22 @@ export const getProviderMeta = async (provNum: bigint) => {
     where: { Fkey: provNum, FkeyType: PROVIDER_META_FKEYTYPE },
   });
   return parseJson<Record<string, any>>(pref?.ValueString);
+};
+
+export const getProvidersMeta = async (provNums: bigint[]): Promise<Record<string, Record<string, any>>> => {
+  const prefs = await prisma.userodpref.findMany({
+    where: {
+      Fkey: { in: provNums },
+      FkeyType: PROVIDER_META_FKEYTYPE,
+    },
+  });
+  const map: Record<string, Record<string, any>> = {};
+  for (const pref of prefs) {
+    if (pref.Fkey) {
+      map[pref.Fkey.toString()] = parseJson<Record<string, any>>(pref.ValueString);
+    }
+  }
+  return map;
 };
 
 export const setProviderMeta = async (provNum: bigint, meta: Record<string, any>) => {
@@ -147,6 +195,22 @@ export const getPatientMeta = async (patNum: bigint) => {
     where: { Fkey: patNum, FkeyType: PATIENT_META_FKEYTYPE },
   });
   return parseJson<Record<string, any>>(pref?.ValueString);
+};
+
+export const getPatientsMeta = async (patNums: bigint[]): Promise<Record<string, Record<string, any>>> => {
+  const prefs = await prisma.userodpref.findMany({
+    where: {
+      Fkey: { in: patNums },
+      FkeyType: PATIENT_META_FKEYTYPE,
+    },
+  });
+  const map: Record<string, Record<string, any>> = {};
+  for (const pref of prefs) {
+    if (pref.Fkey) {
+      map[pref.Fkey.toString()] = parseJson<Record<string, any>>(pref.ValueString);
+    }
+  }
+  return map;
 };
 
 export const setPatientMeta = async (patNum: bigint, meta: Record<string, any>) => {
@@ -258,8 +322,8 @@ export const deleteAudienceMeta = async (audienceId: bigint) => {
   });
 };
 
-export const mapUser = async (row: any): Promise<AppUser> => {
-  const meta = await getUserMeta(row.UserNum);
+export const mapUser = async (row: any, preloadedMeta?: Record<string, any>): Promise<AppUser> => {
+  const meta = preloadedMeta ?? await getUserMeta(row.UserNum);
   return {
     _id: row.UserNum.toString(),
     email: row.UserName ?? meta.email ?? '',
@@ -276,8 +340,8 @@ export const mapUser = async (row: any): Promise<AppUser> => {
   } as AppUser;
 };
 
-export const mapRole = async (row: any): Promise<AppRole> => {
-  const meta = await getRoleMeta(row.UserGroupNum);
+export const mapRole = async (row: any, preloadedMeta?: Record<string, any>): Promise<AppRole> => {
+  const meta = preloadedMeta ?? await getRoleMeta(row.UserGroupNum);
   return {
     _id: row.UserGroupNum.toString(),
     name: row.Description ?? '',

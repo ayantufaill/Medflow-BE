@@ -3,7 +3,7 @@ import { NotFoundError, ConflictError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { mapProviderToApi } from '../utils/opendental-mappers.util';
-import { getProviderMeta, mapUser, setProviderMeta } from '../utils/opendental-auth.util';
+import { getProviderMeta, getProvidersMeta, getUsersMeta, mapUser, setProviderMeta } from '../utils/opendental-auth.util';
 
 const PROVIDER_SPECIALTY_CATEGORY = 0;
 
@@ -113,10 +113,14 @@ export class ProviderService {
         })
       : [];
 
+    const userNums = linkedUsers.map((u) => u.UserNum);
+    const usersMeta = userNums.length ? await getUsersMeta(userNums) : {};
+
     const linkedUsersMap = new Map(
       await Promise.all(
         linkedUsers.map(async (user) => {
-          const mappedUser = await mapUser(user);
+          const preloadedMeta = usersMeta[user.UserNum.toString()];
+          const mappedUser = await mapUser(user, preloadedMeta);
           return [
             user.UserNum.toString(),
             {
@@ -130,26 +134,24 @@ export class ProviderService {
       )
     );
 
-    const providerMetaMap = new Map(
-      await Promise.all(
-        providers.map(async (provider) => [provider.ProvNum.toString(), await getProviderMeta(provider.ProvNum)] as const)
-      )
-    );
+    const providerNums = providers.map((p) => p.ProvNum);
+    const providersMeta = await getProvidersMeta(providerNums);
 
     return {
-      providers: providers.map((p) =>
-        mapProviderToApi(p, {
+      providers: providers.map((p) => {
+        const meta = providersMeta[p.ProvNum.toString()] ?? {};
+        return mapProviderToApi(p, {
           specialtyName: p.definition?.ItemName ?? null,
           userId: p.CustomID ?? null,
           user: p.CustomID ? linkedUsersMap.get(p.CustomID) ?? null : null,
-          appointmentBufferMinutes: providerMetaMap.get(p.ProvNum.toString())?.appointmentBufferMinutes ?? 0,
-          workingHours: providerMetaMap.get(p.ProvNum.toString())?.workingHours ?? [],
-          maxDailyAppointments: providerMetaMap.get(p.ProvNum.toString())?.maxDailyAppointments ?? null,
-          consultationFee: providerMetaMap.get(p.ProvNum.toString())?.consultationFee ?? null,
-          isAcceptingNewPatients: providerMetaMap.get(p.ProvNum.toString())?.isAcceptingNewPatients ?? true,
-          telehealthEnabled: providerMetaMap.get(p.ProvNum.toString())?.telehealthEnabled ?? false,
-        })
-      ),
+          appointmentBufferMinutes: meta.appointmentBufferMinutes ?? 0,
+          workingHours: meta.workingHours ?? [],
+          maxDailyAppointments: meta.maxDailyAppointments ?? null,
+          consultationFee: meta.consultationFee ?? null,
+          isAcceptingNewPatients: meta.isAcceptingNewPatients ?? true,
+          telehealthEnabled: meta.telehealthEnabled ?? false,
+        });
+      }),
       pagination: {
         page,
         limit,

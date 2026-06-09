@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { roleController } from '../controllers/role.controller';
-import { authenticate } from '../middleware/auth.middleware';
+import { authenticate, requireRoles } from '../middleware/auth.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { body } from 'express-validator';
 
@@ -67,6 +67,26 @@ router.post(
     body('userId').optional().isString().trim().withMessage('User ID must be a string'),
   ]),
   roleController.checkPermission.bind(roleController)
+);
+
+/**
+ * @swagger
+ * /permissions/matrix:
+ *   get:
+ *     summary: Get permissions matrix (Admin only)
+ *     tags: [Permissions]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Role-permission map
+ *       403:
+ *         description: Forbidden
+ */
+router.get(
+  '/matrix',
+  requireRoles('Admin'),
+  roleController.getPermissionMatrix.bind(roleController)
 );
 
 export default router;

@@ -1,5 +1,5 @@
 import { prisma } from '../config/db';
-import { getProviderMeta } from '../utils/opendental-auth.util';
+import { getProvidersMeta } from '../utils/opendental-auth.util';
 
 export interface MetricCard {
   completedVal: number;
@@ -246,6 +246,9 @@ export class DashboardMetricsService {
     let dentistWorkingHours = 0;
     let hygienistWorkingHours = 0;
 
+    const providerNums = providers.map((p) => p.ProvNum);
+    const providersMeta = await getProvidersMeta(providerNums);
+
     for (const p of providers) {
       const spec = p.definition?.ItemName?.toLowerCase() || '';
       const isHygienist = spec.includes('hygiene') || spec.includes('hygienist');
@@ -256,7 +259,7 @@ export class DashboardMetricsService {
       }
 
       // Check user preferences for working hours
-      const meta = await getProviderMeta(p.ProvNum);
+      const meta = providersMeta[p.ProvNum.toString()] ?? {};
       const hoursMap = new Map<number, number>();
       if (meta.workingHours && Array.isArray(meta.workingHours)) {
         for (const item of meta.workingHours) {
