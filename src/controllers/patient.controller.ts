@@ -75,6 +75,24 @@ export class PatientController {
     }
   }
 
+  async getPatientLastVisit(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { patientId } = req.params;
+    if (!patientId) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Patient ID is required' },
+      });
+    }
+    const result = await patientService.getPatientLastVisit(patientId);
+    res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
   async searchPatients(req: Request, res: Response, next: NextFunction) {
     try {
       const page = parseInt(req.query.page as string) || 1;
@@ -244,6 +262,25 @@ export class PatientController {
       next(error);
     }
   }
+
+  async getPatientHistory(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { patientId } = req.params;
+    if (!patientId) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Patient ID is required' },
+      });
+    }
+    const result = await patientService.getPatientHistoryAggregate(patientId);
+    res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
 
   async updateStructuredMedicalHistory(req: Request, res: Response, next: NextFunction) {
     try {
