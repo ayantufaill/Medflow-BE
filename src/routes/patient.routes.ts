@@ -174,6 +174,25 @@ router.get('/:patientId/balance', requireRoles('Receptionist', 'Admin', 'Billing
 
 /**
  * @swagger
+ * /patients/{patientId}/last-visit:
+ *   get:
+ *     summary: Get patient's last completed visit
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Last visit details }
+ *       404: { description: No completed appointments found }
+ */
+router.get('/:patientId/last-visit', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientLastVisit.bind(patientController));
+
+/**
+ * @swagger
  * /patients/{patientId}/workspace:
  *   get:
  *     summary: Get patient workspace
@@ -265,6 +284,25 @@ router.patch('/:patientId/medical-history', requireRoles('Receptionist', 'Admin'
 router.get('/:patientId/dental-history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getDentalHistory.bind(patientController));
 router.patch('/:patientId/dental-history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate([...patientIdValidator, ...patientDentalHistoryValidator]), patientController.updateDentalHistory.bind(patientController));
 
+
+/**
+ * @swagger
+ * /patients/{patientId}/history:
+ *   get:
+ *     summary: Get patient history aggregate
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Patient history aggregate including allergies, conditions, medications and vitals }
+ *       404: { description: Not found }
+ */
+router.get('/:patientId/history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientHistory.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}/allergies:
