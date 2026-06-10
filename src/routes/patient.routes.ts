@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { body } from 'express-validator';
+import { appointmentController } from '../controllers/appointment.controller';
 import { patientController } from '../controllers/patient.controller';
 import { insurancePlanController } from '../controllers/insurance-plan.controller';
 import { allergyController } from '../controllers/allergy.controller';
@@ -284,6 +285,28 @@ router.patch('/:patientId/medical-history', requireRoles('Receptionist', 'Admin'
 router.get('/:patientId/dental-history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getDentalHistory.bind(patientController));
 router.patch('/:patientId/dental-history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate([...patientIdValidator, ...patientDentalHistoryValidator]), patientController.updateDentalHistory.bind(patientController));
 
+/**
+ * @swagger
+ * /patients/{patientId}/appointments:
+ *   get:
+ *     summary: Get patient appointments
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *         description: Number of appointments to return (default 10)
+ *     responses:
+ *       200: { description: List of patient appointments }
+ *       404: { description: Not found }
+ */
+router.get('/:patientId/appointments', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), appointmentController.getPatientAppointments.bind(appointmentController));
 
 /**
  * @swagger
@@ -315,11 +338,44 @@ router.get('/:patientId/history', requireRoles('Receptionist', 'Admin', 'Doctor'
  *       - in: path
  *         name: patientId
  *         required: true
- *         schema: { type: integer }
+ *         schema:
+ *           type: integer
+ *         description: Patient ID
+ *         example: 1
  *     responses:
- *       200: { description: List of allergies }
+ *       200:
+ *         description: List of allergies
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: integer
+ *                   patientId:
+ *                     type: integer
+ *                   allergen:
+ *                     type: string
+ *                   severity:
+ *                     type: string
+ *                   reaction:
+ *                     type: string
+ *                   status:
+ *                     type: string
+ *                   documentedDate:
+ *                     type: string
+ *                   notes:
+ *                     type: string
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Patient not found
+ * 
  *   post:
  *     summary: Add allergy to patient
+ *     description: Create a new allergy record for a specific patient
  *     tags: [Patients]
  *     security:
  *       - bearerAuth: []
@@ -327,13 +383,135 @@ router.get('/:patientId/history', requireRoles('Receptionist', 'Admin', 'Doctor'
  *       - in: path
  *         name: patientId
  *         required: true
- *         schema: { type: integer }
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *         description: Patient ID
+ *         example: 1
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - allergen
+ *               - severity
+ *               - reaction
+ *               - documentedDate
+ *             properties:
+ *               allergen:
+ *                 type: string
+ *                 description: Name of the allergen (e.g., Penicillin, Latex, Peanuts, Shellfish)
+ *                 example: "Penicillin"
+ *                 minLength: 1
+ *                 maxLength: 255
+ *               severity:
+ *                 type: string
+ *                 description: Severity level of the allergy
+ *                 enum: [mild, moderate, severe, life-threatening]
+ *                 example: "severe"
+ *               reaction:
+ *                 type: string
+ *                 description: Physical reaction to the allergen
+ *                 example: "Hives, difficulty breathing, swelling of throat"
+ *                 maxLength: 500
+ *               documentedDate:
+ *                 type: string
+ *                 format: date
+ *                 description: Date when the allergy was documented
+ *                 example: "2024-03-15"
+ *               status:
+ *                 type: string
+ *                 description: Current status of the allergy
+ *                 enum: [active, inactive, resolved]
+ *                 default: active
+ *                 example: "active"
+ *               notes:
+ *                 type: string
+ *                 description: Additional clinical notes or comments
+ *                 example: "Patient carries EpiPen. Previous reaction required emergency room visit."
+ *                 maxLength: 1000
+ *               onsetDate:
+ *                 type: string
+ *                 format: date
+ *                 description: Date when the allergy first appeared
+ *                 example: "2018-06-20"
+ *               diagnosedBy:
+ *                 type: string
+ *                 description: Name of the diagnosing provider
+ *                 example: "Dr. Sarah Mitchell"
+ *           example:
+ *             allergen: "Penicillin"
+ *             severity: "severe"
+ *             reaction: "Hives, difficulty breathing, swelling"
+ *             documentedDate: "2024-03-15"
+ *             status: "active"
+ *             notes: "Patient carries EpiPen"
  *     responses:
- *       201: { description: Allergy added }
+ *       201:
+ *         description: Allergy added successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Allergy added successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: integer
+ *                     patientId:
+ *                       type: integer
+ *                     allergen:
+ *                       type: string
+ *                     severity:
+ *                       type: string
+ *                     reaction:
+ *                       type: string
+ *                     documentedDate:
+ *                       type: string
+ *                     status:
+ *                       type: string
+ *                     notes:
+ *                       type: string
+ *                     createdAt:
+ *                       type: string
+ *                     updatedAt:
+ *                       type: string
+ *       400:
+ *         description: Bad request - missing required fields or invalid data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     message:
+ *                       type: string
+ *                       example: "Allergen is required. Severity is required. Reaction is required. Documented date is required"
+ *       401:
+ *         description: Unauthorized - Invalid or missing token
+ *       403:
+ *         description: Forbidden - Insufficient permissions
+ *       404:
+ *         description: Patient not found
+ *       500:
+ *         description: Internal server error
  */
 router.get('/:patientId/allergies', validate(patientIdValidator), requireRoles('Receptionist', 'Doctor', 'Admin'), allergyController.getPatientAllergies.bind(allergyController));
 router.post('/:patientId/allergies', requireRoles('Receptionist', 'Doctor', 'Admin'), validate([...patientIdValidator, ...createPatientAllergyValidator]), allergyController.createPatientAllergy.bind(allergyController));
-
 /**
  * @swagger
  * /patients/{patientId}/allergies/{allergyId}:

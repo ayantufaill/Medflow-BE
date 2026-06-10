@@ -856,7 +856,7 @@ async getPatientLastVisit(patientId: string) {
       throw new NotFoundError('Patient not found');
     }
 
-    const [procedures, clinicalNotesResult, documents, providers] = await Promise.all([
+    const [procedures, clinicalNotesResult, documents, providers, toothInitials] = await Promise.all([
       prisma.procedurelog.findMany({
         where: { PatNum: BigInt(patientId) },
         include: { procedurecode_procedurelog_CodeNumToprocedurecode: true },
@@ -870,6 +870,10 @@ async getPatientLastVisit(patientId: string) {
         take: 50,
       }),
       prisma.provider.findMany(),
+      prisma.toothinitial.findMany({
+        where: { PatNum: BigInt(patientId) },
+        orderBy: { ToothNum: 'asc' },
+      }),
     ]);
 
     const providerMap = new Map(
@@ -878,6 +882,45 @@ async getPatientLastVisit(patientId: string) {
         `${provider.FName || ''} ${provider.LName || ''}`.trim() || provider.Abbr || 'Provider',
       ])
     );
+
+    // All 32 tooth numbers
+    const allTeeth = [
+      '1','2','3','4','5','6','7','8',
+      '9','10','11','12','13','14','15','16',
+      '17','18','19','20','21','22','23','24',
+      '25','26','27','28','29','30','31','32'
+    ];
+
+    // Map existing records by tooth number
+    const toothInitialMap = new Map(
+      toothInitials.map((t) => [t.ToothNum ?? '', t])
+    );
+
+    // Build full 32-tooth chart
+    const toothChart = allTeeth.map((toothNum) => {
+      const tooth = toothInitialMap.get(toothNum);
+      return {
+        toothNum,
+        status: tooth ? (() => {
+          switch (tooth.InitialType) {
+            case 0: return 'missing';
+            case 1: return 'implant';
+            case 2: return 'crown';
+            case 3: return 'bridge';
+            case 4: return 'root_canal';
+            case 5: return 'veneer';
+            case 6: return 'watch';
+            case 7: return 'fracture';
+            case 8: return 'decay';
+            default: return 'normal';
+          }
+        })() : 'normal',
+        movement: tooth?.Movement ?? null,
+        drawingSegment: tooth?.DrawingSegment ?? null,
+        colorDraw: tooth?.ColorDraw ?? null,
+        drawText: tooth?.DrawText ?? null,
+      };
+    });
 
     const mappedProcedures = procedures
       .map((proc) => {
@@ -1003,6 +1046,7 @@ async getPatientLastVisit(patientId: string) {
         clinicalNotesCount: mappedNotes.length,
         xrayCount: xrays.length,
       },
+      toothChart,
       procedures: mappedProcedures,
       timeline,
       clinicalNotes: mappedNotes,
@@ -1010,8 +1054,13 @@ async getPatientLastVisit(patientId: string) {
     };
   }
 
-  /**
- * Get patient history aggregate — joins allergies, conditions, medications, vitals
+/**
+ * Get patient history aggregate — joins allergies, conditions, medications, vitals,
+ * diagnoses, surgical history, and family history
+ */
+/**
+ * Get patient history aggregate — joins allergies, conditions, medications, vitals,
+ * diagnoses, surgical history, and family history
  */
 async getPatientHistoryAggregate(patientId: string) {
   const patient = await prisma.patient.findUnique({
@@ -1021,7 +1070,7 @@ async getPatientHistoryAggregate(patientId: string) {
     throw new NotFoundError('Patient not found');
   }
 
-  const [allergies, medications, vitals, conditions] = await Promise.all([
+  const [allergies, medications, vitals, conditions, familyHealthRecords] = await Promise.all([
     prisma.allergy.findMany({
       where: { PatNum: BigInt(patientId) },
       include: { allergydef: true },
@@ -1038,18 +1087,50 @@ async getPatientHistoryAggregate(patientId: string) {
       where: { PatNum: BigInt(patientId) },
       include: { diseasedef: true },
     }),
+    prisma.familyhealth.findMany({
+      where: { PatNum: BigInt(patientId) },
+      include: { diseasedef: true },
+    }),
   ]);
 
   const patientMeta = await getPatientMeta(patient.PatNum);
+  const medicalHistory = patientMeta.medicalHistory ?? {};
+  const metaSections: any[] = Array.isArray(medicalHistory.sections)
+    ? medicalHistory.sections
+    : [];
+
+  // Surgical history from meta sections
+  const surgicalFromMeta = metaSections
+    .filter((s: any) =>
+      s?.group === 'surgical' ||
+      s?.question?.toLowerCase().includes('surg') ||
+      s?.question?.toLowerCase().includes('operation') ||
+      s?.question?.toLowerCase().includes('hospitalization')
+    )
+    .map((s: any) => ({
+      _id: s.id ?? null,
+      procedure: s.question ?? '',
+      answer: s.answer ?? 'no',
+      notes: s.comment ?? null,
+      date: null,
+    }));
 
   return {
     patient: mapPatientToApi(patient, buildPatientMapperOptions(patientMeta)),
-    allergies: allergies.map((a) => ({
-      _id: a.AllergyNum.toString(),
-      name: a.allergydef?.Description ?? 'Unknown',
-      reaction: a.Reaction ?? null,
-      isActive: a.StatusIsActive === 1,
-    })),
+
+    // Diagnoses — active medical conditions from DB
+    diagnoses: conditions
+      .filter((c) => c.ProbStatus === 0)
+      .map((c) => ({
+        _id: c.DiseaseNum.toString(),
+        name: c.diseasedef?.DiseaseName ?? 'Unknown',
+        icdCode: c.diseasedef?.Icd10Code ?? null,
+        status: 'active',
+        dateStart: c.DateStart ?? null,
+        notes: c.PatNote ?? null,
+      })),
+
+    // Medical conditions — all conditions from DB
     medicalConditions: conditions.map((c) => ({
       _id: c.DiseaseNum.toString(),
       name: c.diseasedef?.DiseaseName ?? 'Unknown',
@@ -1057,13 +1138,37 @@ async getPatientHistoryAggregate(patientId: string) {
       dateStart: c.DateStart ?? null,
       dateStop: c.DateStop ?? null,
     })),
+
+    // Medications from DB only
     medications: medications.map((m) => ({
       _id: m.MedicationPatNum.toString(),
       name: m.medication?.MedName ?? m.MedDescript ?? 'Unknown',
       dateStart: m.DateStart ?? null,
       dateStop: m.DateStop ?? null,
+      isActive: m.DateStop === null,
       notes: m.PatNote ?? null,
     })),
+
+    // Allergies from DB
+    allergies: allergies.map((a) => ({
+      _id: a.AllergyNum.toString(),
+      name: a.allergydef?.Description ?? 'Unknown',
+      reaction: a.Reaction ?? null,
+      isActive: a.StatusIsActive === 1,
+    })),
+
+    // Surgical history from meta sections
+    surgicalHistory: surgicalFromMeta,
+
+    // Family history from DB
+    familyHistory: familyHealthRecords.map((f) => ({
+      _id: f.FamilyHealthNum.toString(),
+      condition: f.diseasedef?.DiseaseName ?? 'Unknown',
+      relationship: f.Relationship !== null ? String(f.Relationship) : null,
+      personName: f.PersonName ?? null,
+    })),
+
+    // Vitals from DB
     vitals: {
       latest: vitals
         ? {
@@ -1076,6 +1181,12 @@ async getPatientHistoryAggregate(patientId: string) {
           }
         : null,
     },
+
+    // Raw meta sections for MedicalHistoryTab component
+    generalInfo: medicalHistory.generalInfo ?? null,
+    premed: medicalHistory.premed ?? null,
+    risk: medicalHistory.risk ?? null,
+    sections: metaSections,
   };
 }
 
