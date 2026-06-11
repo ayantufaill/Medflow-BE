@@ -294,4 +294,35 @@ router.get('/:patientId/insurance/:patientInsuranceId', requireRoles('Receptioni
 router.put('/:patientId/insurance/:patientInsuranceId', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...patientInsuranceIdValidator, ...updatePatientInsuranceValidator]), patientInsuranceController.updatePatientInsurance.bind(patientInsuranceController));
 router.delete('/:patientId/insurance/:patientInsuranceId', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...patientInsuranceIdValidator]), patientInsuranceController.deletePatientInsurance.bind(patientInsuranceController));
 
+/**
+ * @swagger
+ * /patients/{patientId}/insurance/{patientInsuranceId}/primary:
+ *   patch:
+ *     summary: Set insurance as primary
+ *     tags: [Patient Insurance]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *         example: 1
+ *       - in: path
+ *         name: patientInsuranceId
+ *         required: true
+ *         schema: { type: integer }
+ *         example: 2
+ *     responses:
+ *       200:
+ *         description: Insurance set as primary successfully
+ *       404:
+ *         description: Insurance not found or does not belong to patient
+ */
+router.patch(
+  '/:patientId/insurance/:patientInsuranceId/primary',
+  requireRoles('Receptionist', 'Admin'),
+  validate([...patientIdValidator, ...patientInsuranceIdValidator]),
+  patientInsuranceController.setPrimaryInsurance.bind(patientInsuranceController)
+);
 export default router;

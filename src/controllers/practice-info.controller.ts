@@ -45,7 +45,58 @@ export class PracticeInfoController {
       next(error);
     }
   }
+  
+  /**
+ * Update current practice info (no ID needed)
+ */
+async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction) {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({
+        success: false,
+        error: { message: 'User not authenticated' },
+      });
+    }
 
+    // Get current practice
+    const currentPractice = await practiceInfoService.getPracticeInfo();
+    if (!currentPractice) {
+      return res.status(404).json({
+        success: false,
+        error: { message: 'No practice info found' },
+      });
+    }
+
+    // Handle logo upload
+    let logoUrl: string | undefined;
+    if (req.file) {
+      if (!isValidFileSize(req.file.size)) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Logo file size must be less than 5MB' },
+        });
+      }
+      logoUrl = buildMockS3Url(req.file.originalname || 'practice-logo.png');
+    }
+
+    const practiceData = {
+      ...req.body,
+      logoPath: logoUrl || req.body.logoPath || currentPractice.logoPath,
+    };
+
+    const result = await practiceInfoService.updatePracticeInfo(
+      currentPractice._id,
+      practiceData
+    );
+
+    res.status(200).json({
+      success: true,
+      data: { practiceInfo: result },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
   /**
    * Get practice info by ID
    */
@@ -550,6 +601,44 @@ export class PracticeInfoController {
       next(error);
     }
   }
+  /**
+ * GET /practice-info/timings
+ */
+async getTimings(req: Request, res: Response, next: NextFunction) {
+  try {
+    const result = await practiceInfoService.getOfficeTimings();
+    res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * PUT /practice-info/timings
+ */
+async updateTimings(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { timings } = req.body;
+
+    if (!Array.isArray(timings) || timings.length !== 7) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'timings must be an array of 7 days' },
+      });
+    }
+
+    const result = await practiceInfoService.updateOfficeTimings(timings);
+    res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
 }
 
 export const practiceInfoController = new PracticeInfoController();

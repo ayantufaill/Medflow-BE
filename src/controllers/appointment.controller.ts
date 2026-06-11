@@ -642,6 +642,26 @@ export class AppointmentController {
       next(error);
     }
   }
+
+  async getPatientAppointments(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { patientId } = req.params;
+    if (!patientId) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Patient ID is required' },
+      });
+    }
+    const limit = parseInt(req.query.limit as string) || 10;
+    const result = await appointmentService.getPatientAppointments(patientId, limit);
+    res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
 }
 
 export const appointmentController = new AppointmentController();
