@@ -141,7 +141,12 @@ export class VitalSignService {
     };
   }
 
-  async getVitalSignsByPatient(patientId: string, page = 1, limit = 10) {
+  async getVitalSignsByPatient(
+    patientId: string,
+    page = 1,
+    limit = 10,
+    filters: { startDate?: Date; endDate?: Date } = {}
+  ) {
     const skip = (page - 1) * limit;
 
     const patient = await prisma.patient.findUnique({
@@ -151,14 +156,22 @@ export class VitalSignService {
       throw new NotFoundError('Patient not found');
     }
 
+    const where: any = { PatNum: BigInt(patientId) };
+
+    if (filters.startDate || filters.endDate) {
+      where.DateTaken = {};
+      if (filters.startDate) where.DateTaken.gte = filters.startDate;
+      if (filters.endDate) where.DateTaken.lte = filters.endDate;
+    }
+
     const [rows, total] = await Promise.all([
       prisma.vitalsign.findMany({
-        where: { PatNum: BigInt(patientId) },
+        where,
         orderBy: [{ DateTaken: 'desc' }],
         skip,
         take: limit,
       }),
-      prisma.vitalsign.count({ where: { PatNum: BigInt(patientId) } }),
+      prisma.vitalsign.count({ where }),
     ]);
 
     return {
