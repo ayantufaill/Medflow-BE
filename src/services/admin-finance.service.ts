@@ -24,6 +24,46 @@ export class AdminFinanceService {
       },
     });
 
+    if (category === 1) {
+      // Category 1: Adjustments
+      const setting = await this.getSetting('adjustment_definitions_metadata');
+      const meta = typeof setting === 'object' ? setting : {};
+      return list.map((item) => {
+        const itemId = item.DefNum.toString();
+        const itemMeta = meta[itemId] || {};
+        return {
+          id: itemId,
+          type: item.ItemName || '',
+          note: itemMeta.note || item.ItemValue || '',
+          isHidden: item.IsHidden === 1,
+          itemOrder: item.ItemOrder ?? 0,
+          amount: itemMeta.amount || '',
+          percent: itemMeta.percent || '',
+        };
+      });
+    }
+
+    if (category === 4) {
+      // Category 4: Payment Types
+      const setting = await this.getSetting('payment_types_metadata');
+      const meta = typeof setting === 'object' ? setting : {};
+      return list.map((item) => {
+        const itemId = item.DefNum.toString();
+        const itemMeta = meta[itemId] || {};
+        return {
+          id: itemId,
+          type: item.ItemName || '',
+          note: itemMeta.note || item.ItemValue || '',
+          isHidden: item.IsHidden === 1,
+          itemOrder: item.ItemOrder ?? 0,
+          depositSlip: Boolean(itemMeta.depositSlip),
+          openEdge: Boolean(itemMeta.openEdge),
+          prosperipay: Boolean(itemMeta.prosperipay),
+          smilepay: Boolean(itemMeta.smilepay),
+        };
+      });
+    }
+
     return list.map((item) => ({
       id: item.DefNum.toString(),
       type: item.ItemName || '',
@@ -35,8 +75,19 @@ export class AdminFinanceService {
 
   async createDefinition(
     category: number,
-    data: { name: string; value?: string; itemOrder?: number }
-  ): Promise<{ id: string; type: string; note: string; isHidden: boolean; itemOrder: number }> {
+    data: {
+      name: string;
+      value?: string;
+      itemOrder?: number;
+      amount?: string;
+      percent?: string;
+      note?: string;
+      depositSlip?: boolean;
+      openEdge?: boolean;
+      prosperipay?: boolean;
+      smilepay?: boolean;
+    }
+  ): Promise<any> {
     return new Promise((resolve, reject) => {
       AdminFinanceService.writeLock = AdminFinanceService.writeLock.then(async () => {
         try {
@@ -51,8 +102,58 @@ export class AdminFinanceService {
               IsHidden: 0,
             },
           });
+          const idStr = item.DefNum.toString();
+
+          if (category === 1) {
+            const currentSetting = await this.getSetting('adjustment_definitions_metadata');
+            const meta = typeof currentSetting === 'object' ? currentSetting : {};
+            meta[idStr] = {
+              amount: data.amount ?? '',
+              percent: data.percent ?? '',
+              note: data.note ?? '',
+            };
+            await this.saveSetting('adjustment_definitions_metadata', meta);
+
+            resolve({
+              id: idStr,
+              type: item.ItemName || '',
+              note: data.note ?? (item.ItemValue || ''),
+              isHidden: item.IsHidden === 1,
+              itemOrder: item.ItemOrder ?? 0,
+              amount: data.amount ?? '',
+              percent: data.percent ?? '',
+            });
+            return;
+          }
+
+          if (category === 4) {
+            const currentSetting = await this.getSetting('payment_types_metadata');
+            const meta = typeof currentSetting === 'object' ? currentSetting : {};
+            meta[idStr] = {
+              depositSlip: Boolean(data.depositSlip),
+              openEdge: Boolean(data.openEdge),
+              prosperipay: Boolean(data.prosperipay),
+              smilepay: Boolean(data.smilepay),
+              note: data.note ?? '',
+            };
+            await this.saveSetting('payment_types_metadata', meta);
+
+            resolve({
+              id: idStr,
+              type: item.ItemName || '',
+              note: data.note ?? (item.ItemValue || ''),
+              isHidden: item.IsHidden === 1,
+              itemOrder: item.ItemOrder ?? 0,
+              depositSlip: Boolean(data.depositSlip),
+              openEdge: Boolean(data.openEdge),
+              prosperipay: Boolean(data.prosperipay),
+              smilepay: Boolean(data.smilepay),
+            });
+            return;
+          }
+
           resolve({
-            id: item.DefNum.toString(),
+            id: idStr,
             type: item.ItemName || '',
             note: item.ItemValue || '',
             isHidden: item.IsHidden === 1,
@@ -67,7 +168,19 @@ export class AdminFinanceService {
 
   async updateDefinition(
     defNum: string,
-    updates: Partial<{ name: string; value: string; isHidden: boolean; itemOrder: number }>
+    updates: Partial<{
+      name: string;
+      value: string;
+      isHidden: boolean;
+      itemOrder: number;
+      amount: string;
+      percent: string;
+      note: string;
+      depositSlip: boolean;
+      openEdge: boolean;
+      prosperipay: boolean;
+      smilepay: boolean;
+    }>
   ) {
     const defNumBigInt = BigInt(defNum);
     const existing = await prisma.definition.findUnique({
@@ -87,6 +200,54 @@ export class AdminFinanceService {
         ItemOrder: updates.itemOrder ?? undefined,
       },
     });
+
+    const idStr = updated.DefNum.toString();
+
+    if (existing.Category === 1) {
+      const currentSetting = await this.getSetting('adjustment_definitions_metadata');
+      const meta = typeof currentSetting === 'object' ? currentSetting : {};
+      meta[idStr] = {
+        amount: updates.amount !== undefined ? updates.amount : (meta[idStr]?.amount ?? ''),
+        percent: updates.percent !== undefined ? updates.percent : (meta[idStr]?.percent ?? ''),
+        note: updates.note !== undefined ? updates.note : (meta[idStr]?.note ?? ''),
+      };
+      await this.saveSetting('adjustment_definitions_metadata', meta);
+
+      return {
+        id: idStr,
+        type: updated.ItemName || '',
+        note: meta[idStr].note || updated.ItemValue || '',
+        isHidden: updated.IsHidden === 1,
+        itemOrder: updated.ItemOrder ?? 0,
+        amount: meta[idStr].amount,
+        percent: meta[idStr].percent,
+      };
+    }
+
+    if (existing.Category === 4) {
+      const currentSetting = await this.getSetting('payment_types_metadata');
+      const meta = typeof currentSetting === 'object' ? currentSetting : {};
+      meta[idStr] = {
+        depositSlip: updates.depositSlip !== undefined ? Boolean(updates.depositSlip) : Boolean(meta[idStr]?.depositSlip),
+        openEdge: updates.openEdge !== undefined ? Boolean(updates.openEdge) : Boolean(meta[idStr]?.openEdge),
+        prosperipay: updates.prosperipay !== undefined ? Boolean(updates.prosperipay) : Boolean(meta[idStr]?.prosperipay),
+        smilepay: updates.smilepay !== undefined ? Boolean(updates.smilepay) : Boolean(meta[idStr]?.smilepay),
+        note: updates.note !== undefined ? updates.note : (meta[idStr]?.note ?? ''),
+      };
+      await this.saveSetting('payment_types_metadata', meta);
+
+      return {
+        id: idStr,
+        type: updated.ItemName || '',
+        note: meta[idStr].note || updated.ItemValue || '',
+        isHidden: updated.IsHidden === 1,
+        itemOrder: updated.ItemOrder ?? 0,
+        depositSlip: meta[idStr].depositSlip,
+        openEdge: meta[idStr].openEdge,
+        prosperipay: meta[idStr].prosperipay,
+        smilepay: meta[idStr].smilepay,
+      };
+    }
 
     return {
       id: updated.DefNum.toString(),
@@ -146,6 +307,13 @@ export class AdminFinanceService {
           ],
         };
       }
+      if (key === 'payment_types_defaults') {
+        return {
+          patient: 'Master Card',
+          insurance: 'Master Card',
+          family: '',
+        };
+      }
       return {};
     }
 
@@ -169,6 +337,140 @@ export class AdminFinanceService {
     } catch {
       return { value: setting.Value };
     }
+  }
+
+  // --- STATEMENT PRINT-OUT FORMS ---
+  async getStatementForms() {
+    const data = await this.getSetting('statement_printout_forms');
+    if (!Array.isArray(data) || data.length === 0) {
+      // Default statement form
+      return [
+        {
+          id: '1',
+          name: 'Simple Statement',
+          isDefault: true,
+          sections: {
+            header: true,
+            transaction: true,
+            balances: true,
+            aging: true,
+            summary: true,
+            appointments: true,
+            disclaimer: true,
+          },
+        },
+      ];
+    }
+    return data;
+  }
+
+  async createStatementForm(data: any) {
+    const forms = await this.getStatementForms();
+    const newForm = {
+      id: `sf-${Date.now()}`,
+      name: data.name || 'New Statement Form',
+      isDefault: data.isDefault || false,
+      sections: data.sections || {
+        header: true,
+        transaction: true,
+        balances: true,
+        aging: true,
+        summary: true,
+        appointments: true,
+        disclaimer: true,
+      },
+    };
+    if (newForm.isDefault) {
+      forms.forEach((f: any) => (f.isDefault = false));
+    }
+    forms.push(newForm);
+    await this.saveSetting('statement_printout_forms', forms);
+    return newForm;
+  }
+
+  async updateStatementForm(id: string, updates: any) {
+    const forms = await this.getStatementForms();
+    const index = forms.findIndex((f: any) => f.id === id);
+    if (index === -1) {
+      throw new NotFoundError('Statement form not found');
+    }
+    if (updates.isDefault) {
+      forms.forEach((f: any) => (f.isDefault = false));
+    }
+    forms[index] = {
+      ...forms[index],
+      ...updates,
+      id, // ensure ID is preserved
+    };
+    await this.saveSetting('statement_printout_forms', forms);
+    return forms[index];
+  }
+
+  async deleteStatementForm(id: string) {
+    const forms = await this.getStatementForms();
+    const filtered = forms.filter((f: any) => f.id !== id);
+    await this.saveSetting('statement_printout_forms', filtered);
+    return { success: true };
+  }
+
+  // --- COVERAGE BOOK SHORTCUTS ---
+  async getCoverageBookShortcuts() {
+    const data = await this.getSetting('coverage_book_shortcuts');
+    if (!Array.isArray(data) || data.length === 0) {
+      // Return the default coverage book shortcuts to prevent empty pages
+      return [
+        {
+          id: 1,
+          name: 'Preventive',
+          groups: [
+            {
+              id: 101,
+              name: 'Exam',
+              deliveryPattern: '2/1 year(s)',
+              codes: [
+                { code: 'D0120', desc: 'periodic oral evaluation - established patient' },
+                { code: 'D0150', desc: 'comprehensive oral evaluation - new or established patient' },
+              ],
+            },
+          ],
+        },
+      ];
+    }
+    return data;
+  }
+
+  async createCoverageBookShortcut(data: any) {
+    const list = await this.getCoverageBookShortcuts();
+    const newShortcut = {
+      id: data.id || Date.now(),
+      name: data.name,
+      groups: data.groups || [],
+    };
+    list.push(newShortcut);
+    await this.saveSetting('coverage_book_shortcuts', list);
+    return newShortcut;
+  }
+
+  async updateCoverageBookShortcut(id: number | string, updates: any) {
+    const list = await this.getCoverageBookShortcuts();
+    const index = list.findIndex((item: any) => item.id.toString() === id.toString());
+    if (index === -1) {
+      throw new NotFoundError('Coverage shortcut not found');
+    }
+    list[index] = {
+      ...list[index],
+      ...updates,
+      id: list[index].id, // preserve ID
+    };
+    await this.saveSetting('coverage_book_shortcuts', list);
+    return list[index];
+  }
+
+  async deleteCoverageBookShortcut(id: number | string) {
+    const list = await this.getCoverageBookShortcuts();
+    const filtered = list.filter((item: any) => item.id.toString() !== id.toString());
+    await this.saveSetting('coverage_book_shortcuts', filtered);
+    return { success: true };
   }
 }
 

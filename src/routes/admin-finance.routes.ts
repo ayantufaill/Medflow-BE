@@ -166,4 +166,40 @@ router.put(
   adminFinanceController.saveSetting.bind(adminFinanceController)
 );
 
+// Statement Forms Layouts
+router.get(
+  '/statement-forms',
+  adminFinanceController.getStatementForms.bind(adminFinanceController)
+);
+router.post(
+  '/statement-forms',
+  adminFinanceController.createStatementForm.bind(adminFinanceController)
+);
+router.put(
+  '/statement-forms/:id',
+  adminFinanceController.updateStatementForm.bind(adminFinanceController)
+);
+router.delete(
+  '/statement-forms/:id',
+  adminFinanceController.deleteStatementForm.bind(adminFinanceController)
+);
+
+// Coverage Book Shortcuts
+router.get(
+  '/coverage-book-shortcuts',
+  adminFinanceController.getCoverageBookShortcuts.bind(adminFinanceController)
+);
+router.post(
+  '/coverage-book-shortcuts',
+  adminFinanceController.createCoverageBookShortcut.bind(adminFinanceController)
+);
+router.put(
+  '/coverage-book-shortcuts/:id',
+  adminFinanceController.updateCoverageBookShortcut.bind(adminFinanceController)
+);
+router.delete(
+  '/coverage-book-shortcuts/:id',
+  adminFinanceController.deleteCoverageBookShortcut.bind(adminFinanceController)
+);
+
 export default router;

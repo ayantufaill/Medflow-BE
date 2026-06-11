@@ -7650,3 +7650,18 @@ model prepostopinstructiontemplate {
   IsActive   Boolean @default(true)
 }
 
+model paymentterminal {
+  TerminalNum  BigInt  @id @default(autoincrement())
+  Type         String  @db.VarChar(50)
+  SerialNum    String  @db.VarChar(255)
+  AccountToken String? @db.VarChar(255)
+  Name         String? @db.VarChar(255)
+  MerchantId   String? @db.VarChar(255)
+  Model        String? @db.VarChar(255)
+  DeviceId     String? @db.VarChar(255)
+  TerminalId   String? @db.VarChar(255)
+  LaneId       String? @db.VarChar(50)
+  IsActive     Boolean @default(true)
+}
+
+
