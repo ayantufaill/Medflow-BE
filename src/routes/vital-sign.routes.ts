@@ -11,6 +11,7 @@ import {
   updateVitalSignValidator,
   vitalSignQueryValidator,
   paginationQueryValidator,
+  dateFilterQueryValidator,
   vitalSignNormalRangesValidator,
 } from '../validators/vital-sign.validator';
 
@@ -56,6 +57,25 @@ router.get(
 
 /**
  * @swagger
+ * /vital-signs/normal-ranges:
+ *   get:
+ *     summary: Get normal ranges for vital signs
+ *     tags: [Vital Signs]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Normal ranges for vital signs
+ */
+router.get(
+  '/normal-ranges',
+  authenticate,
+  requirePermission('vital-signs.read'),
+  vitalSignController.getNormalRanges
+);
+
+/**
+ * @swagger
  * /vital-signs/patient/{patientId}:
  *   get:
  *     summary: Get vital signs by patient
@@ -81,7 +101,7 @@ router.get(
   '/patient/:patientId',
   authenticate,
   requirePermission('vital-signs.read'),
-  validate([...patientIdParamValidator, ...paginationQueryValidator]),
+  validate([...patientIdParamValidator, ...paginationQueryValidator, ...dateFilterQueryValidator]),
   vitalSignController.getVitalSignsByPatient
 );
 
