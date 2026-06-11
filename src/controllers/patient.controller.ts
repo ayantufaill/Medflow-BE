@@ -13,7 +13,14 @@ export class PatientController {
       const dobStart = req.query.dobStart as string | undefined;
       const dobEnd = req.query.dobEnd as string | undefined;
 
-      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd);
+      // Support isActive param and map to status
+const isActive = req.query.isActive as string | undefined;
+let resolvedStatus = status;
+if (isActive !== undefined && resolvedStatus === undefined) {
+  resolvedStatus = isActive === 'true' ? 'active' : isActive === 'false' ? 'inactive' : undefined;
+}
+
+const result = await patientService.getAllPatients(page, limit, search, resolvedStatus, dobStart, dobEnd);
       res.status(200).json({
         success: true,
         data: result,

@@ -259,7 +259,117 @@ router.post(
   practiceInfoController.moveProviderData.bind(practiceInfoController)
 );
 
+/**
+ * @swagger
+ * /practice-info/profile:
+ *   get:
+ *     summary: Get current practice profile
+ *     tags: [Practice Info]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Current practice information
+ */
+router.get(
+  '/profile',
+  requireRoles('Admin'),
+  practiceInfoController.getPracticeInfo.bind(practiceInfoController)
+);
 
+/**
+ * @swagger
+ * /practice-info/profile:
+ *   put:
+ *     summary: Update current practice profile
+ *     tags: [Practice Info]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               practiceName:
+ *                 type: string
+ *               phone:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *               website:
+ *                 type: string
+ *               taxId:
+ *                 type: string
+ *               npiNumber:
+ *                 type: string
+ *               licenseNumber:
+ *                 type: string
+ *               logo:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Practice profile updated
+ *       404:
+ *         description: Practice not found
+ */
+router.put(
+  '/profile',
+  requireRoles('Admin'),
+  uploadLogo.single('logo'),
+  validateFormData(updatePracticeInfoValidator),
+  practiceInfoController.updateCurrentPracticeInfo.bind(practiceInfoController)
+);
+
+/**
+ * @swagger
+ * /practice-info/timings:
+ *   get:
+ *     summary: Get office timings (7-day array)
+ *     tags: [Practice Info]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Office timings array
+ *   put:
+ *     summary: Update office timings (7-day array)
+ *     tags: [Practice Info]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [timings]
+ *             properties:
+ *               timings:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     dayOfWeek: { type: integer, minimum: 0, maximum: 6 }
+ *                     isOpen: { type: boolean }
+ *                     openTime: { type: string, example: "09:00" }
+ *                     closeTime: { type: string, example: "17:00" }
+ *     responses:
+ *       200:
+ *         description: Office timings updated
+ */
+router.get(
+  '/timings',
+  requireRoles('Admin'),
+  practiceInfoController.getTimings.bind(practiceInfoController)
+);
+router.put(
+  '/timings',
+  requireRoles('Admin'),
+  practiceInfoController.updateTimings.bind(practiceInfoController)
+);
 /**
  * @swagger
  * /practice-info/{practiceInfoId}:

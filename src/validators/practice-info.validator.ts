@@ -53,9 +53,7 @@ export const createPracticeInfoValidator: ValidationChain[] = [
     .withMessage('Please provide a valid website URL'),
   body('address')
     .notEmpty()
-    .withMessage('Address is required')
-    .isObject()
-    .withMessage('Address must be an object'),
+    .withMessage('Address is required'),
   body('address.line1')
     .optional()
     .trim()
@@ -195,9 +193,7 @@ export const updatePracticeInfoValidator: ValidationChain[] = [
     .isURL({ protocols: ['http', 'https'], require_protocol: false })
     .withMessage('Please provide a valid website URL'),
   body('address')
-    .optional()
-    .isObject()
-    .withMessage('Address must be an object'),
+    .optional(),
   body('address.line1')
     .optional()
     .trim()

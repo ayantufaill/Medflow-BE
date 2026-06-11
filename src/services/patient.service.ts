@@ -1296,6 +1296,7 @@ async getPatientHistoryAggregate(patientId: string) {
 
     return { message: 'Patient deactivated successfully' };
   }
+  
 }
 
 export const patientService = new PatientService();
