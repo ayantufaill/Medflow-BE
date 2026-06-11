@@ -130,6 +130,243 @@ export class FeeManagementService {
       amount: Number(f.Amount) || 0,
     }));
   }
+
+  async createFeeSchedule(data: { description: string; feeSchedType?: number; isGlobal?: boolean }) {
+    const nextId = await getNextId('feesched', 'FeeSchedNum');
+    const sched = await prisma.feesched.create({
+      data: {
+        FeeSchedNum: nextId,
+        Description: data.description,
+        FeeSchedType: data.feeSchedType ?? 0,
+        IsHidden: 0,
+        IsGlobal: data.isGlobal ? 1 : 0,
+      },
+    });
+    return {
+      _id: sched.FeeSchedNum.toString(),
+      description: sched.Description ?? '',
+      feeSchedType: sched.FeeSchedType,
+      isHidden: Boolean(sched.IsHidden),
+      isGlobal: Boolean(sched.IsGlobal),
+    };
+  }
+
+  async updateFeeSchedule(
+    id: string,
+    updates: Partial<{ description: string; feeSchedType: number; isHidden: boolean; isGlobal: boolean }>
+  ) {
+    const feeSchedNum = BigInt(id);
+    const existing = await prisma.feesched.findUnique({
+      where: { FeeSchedNum: feeSchedNum },
+    });
+    if (!existing) {
+      throw new NotFoundError('Fee schedule not found');
+    }
+
+    const updated = await prisma.feesched.update({
+      where: { FeeSchedNum: feeSchedNum },
+      data: {
+        Description: updates.description ?? undefined,
+        FeeSchedType: updates.feeSchedType ?? undefined,
+        IsHidden: updates.isHidden !== undefined ? (updates.isHidden ? 1 : 0) : undefined,
+        IsGlobal: updates.isGlobal !== undefined ? (updates.isGlobal ? 1 : 0) : undefined,
+      },
+    });
+
+    return {
+      _id: updated.FeeSchedNum.toString(),
+      description: updated.Description ?? '',
+      feeSchedType: updated.FeeSchedType,
+      isHidden: Boolean(updated.IsHidden),
+      isGlobal: Boolean(updated.IsGlobal),
+    };
+  }
+
+  async deleteFeeSchedule(id: string) {
+    const feeSchedNum = BigInt(id);
+    const existing = await prisma.feesched.findUnique({
+      where: { FeeSchedNum: feeSchedNum },
+    });
+    if (!existing) {
+      throw new NotFoundError('Fee schedule not found');
+    }
+
+    // Soft delete/hide it
+    await prisma.feesched.update({
+      where: { FeeSchedNum: feeSchedNum },
+      data: { IsHidden: 1 },
+    });
+    return { success: true };
+  }
+
+  async copyFeeSchedule(id: string, description: string) {
+    const sourceSchedNum = BigInt(id);
+    const sourceSched = await prisma.feesched.findUnique({
+      where: { FeeSchedNum: sourceSchedNum },
+    });
+    if (!sourceSched) {
+      throw new NotFoundError('Source fee schedule not found');
+    }
+
+    const nextId = await getNextId('feesched', 'FeeSchedNum');
+    const newSched = await prisma.feesched.create({
+      data: {
+        FeeSchedNum: nextId,
+        Description: description || `${sourceSched.Description} (Copy)`,
+        FeeSchedType: sourceSched.FeeSchedType,
+        IsHidden: sourceSched.IsHidden,
+        IsGlobal: sourceSched.IsGlobal,
+      },
+    });
+
+    // Copy all fee entries
+    const fees = await prisma.fee.findMany({
+      where: { FeeSched: sourceSchedNum },
+    });
+
+    for (const f of fees) {
+      const nextFeeId = await getNextId('fee', 'FeeNum');
+      await prisma.fee.create({
+        data: {
+          FeeNum: nextFeeId,
+          CodeNum: f.CodeNum,
+          FeeSched: nextId,
+          Amount: f.Amount,
+          UseDefaultFee: f.UseDefaultFee,
+          UseDefaultCov: f.UseDefaultCov,
+        },
+      });
+    }
+
+    return {
+      _id: newSched.FeeSchedNum.toString(),
+      description: newSched.Description ?? '',
+      feeSchedType: newSched.FeeSchedType,
+      isHidden: Boolean(newSched.IsHidden),
+      isGlobal: Boolean(newSched.IsGlobal),
+    };
+  }
+
+  async reestimateTPlans() {
+    // 1. Fetch all treatment plan procedure logs (ProcStatus = 1)
+    const procLogs = await prisma.procedurelog.findMany({
+      where: { ProcStatus: 1 },
+      include: {
+        patient: true,
+      },
+    });
+
+    let updatedCount = 0;
+
+    for (const log of procLogs) {
+      if (!log.CodeNum) continue;
+
+      // Find the fee schedule: Patient's assigned FeeSched, or default (first active schedule)
+      let feeSchedNum = log.patient?.FeeSched;
+      if (!feeSchedNum) {
+        const defaultSched = await prisma.feesched.findFirst({
+          where: { IsHidden: 0 },
+          orderBy: { FeeSchedNum: 'asc' },
+        });
+        feeSchedNum = defaultSched?.FeeSchedNum || null;
+      }
+
+      if (!feeSchedNum) continue;
+
+      // Find the fee amount
+      const feeRecord = await prisma.fee.findFirst({
+        where: {
+          CodeNum: log.CodeNum,
+          FeeSched: feeSchedNum,
+        },
+      });
+
+      if (feeRecord) {
+        await prisma.procedurelog.update({
+          where: { ProcNum: log.ProcNum },
+          data: { ProcFee: Number(feeRecord.Amount) || 0 },
+        });
+        updatedCount++;
+      }
+    }
+
+    return { updatedCount };
+  }
+
+  async clearLockedFees() {
+    const result = await prisma.procedurelog.updateMany({
+      where: { ProcStatus: 1, IsLocked: 1 },
+      data: { IsLocked: 0 },
+    });
+    return { updatedCount: result.count };
+  }
+
+  async resetTPlans(patientIds?: string[]) {
+    // 1. If patientIds are provided, convert to BigInts, else find all patients with FeeSched set
+    let patNums: bigint[] = [];
+    if (patientIds && patientIds.length > 0) {
+      patNums = patientIds.map(id => BigInt(id));
+    } else {
+      const patientsWithManualGuides = await prisma.patient.findMany({
+        where: { FeeSched: { not: null } },
+        select: { PatNum: true },
+      });
+      patNums = patientsWithManualGuides.map(p => p.PatNum);
+    }
+
+    if (patNums.length === 0) {
+      return { updatedPatientsCount: 0, updatedProceduresCount: 0 };
+    }
+
+    // 2. Clear manual FeeSched (set to null) for those patients
+    await prisma.patient.updateMany({
+      where: { PatNum: { in: patNums } },
+      data: { FeeSched: null },
+    });
+
+    // 3. Re-estimate treatment plan fees for affected patients (now using default fee guides)
+    const procLogs = await prisma.procedurelog.findMany({
+      where: {
+        ProcStatus: 1,
+        PatNum: { in: patNums },
+      },
+      include: {
+        patient: true,
+      },
+    });
+
+    let updatedProceduresCount = 0;
+    const defaultSched = await prisma.feesched.findFirst({
+      where: { IsHidden: 0 },
+      orderBy: { FeeSchedNum: 'asc' },
+    });
+
+    if (defaultSched) {
+      for (const log of procLogs) {
+        if (!log.CodeNum) continue;
+
+        const feeRecord = await prisma.fee.findFirst({
+          where: {
+            CodeNum: log.CodeNum,
+            FeeSched: defaultSched.FeeSchedNum,
+          },
+        });
+
+        if (feeRecord) {
+          await prisma.procedurelog.update({
+            where: { ProcNum: log.ProcNum },
+            data: { ProcFee: Number(feeRecord.Amount) || 0 },
+          });
+          updatedProceduresCount++;
+        }
+      }
+    }
+
+    return {
+      updatedPatientsCount: patNums.length,
+      updatedProceduresCount,
+    };
+  }
 }
 
 export const feeManagementService = new FeeManagementService();

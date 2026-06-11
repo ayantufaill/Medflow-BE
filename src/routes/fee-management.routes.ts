@@ -100,4 +100,15 @@ router.get('/codes/:procCode/fees', feeManagementController.getProcedureFees.bin
  */
 router.put('/codes/:procCode/fees', feeManagementController.updateProcedureFees.bind(feeManagementController));
 
+// Fee Schedule CRUD operations
+router.post('/guides', feeManagementController.createFeeSchedule.bind(feeManagementController));
+router.put('/guides/:id', feeManagementController.updateFeeSchedule.bind(feeManagementController));
+router.delete('/guides/:id', feeManagementController.deleteFeeSchedule.bind(feeManagementController));
+router.post('/guides/:id/copy', feeManagementController.copyFeeSchedule.bind(feeManagementController));
+
+// Advanced Tools
+router.post('/tools/reestimate', feeManagementController.reestimateTPlans.bind(feeManagementController));
+router.post('/tools/clear-locked', feeManagementController.clearLockedFees.bind(feeManagementController));
+router.post('/tools/reset-tplans', feeManagementController.resetTPlans.bind(feeManagementController));
+
 export default router;

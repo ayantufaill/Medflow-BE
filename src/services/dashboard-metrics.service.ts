@@ -56,6 +56,7 @@ export interface DashboardGoals {
   reappointmentPercentGoal: number;
   newPtCaseAcceptPercent: number;
   existingPtCaseAcceptPercent: number;
+  [key: string]: any;
 }
 
 const DEFAULT_GOALS: DashboardGoals = {

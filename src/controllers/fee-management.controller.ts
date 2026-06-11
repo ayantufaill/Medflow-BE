@@ -61,6 +61,109 @@ export class FeeManagementController {
       next(error);
     }
   }
+
+  async createFeeSchedule(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { description, feeSchedType, isGlobal } = req.body;
+      const created = await feeManagementService.createFeeSchedule({
+        description,
+        feeSchedType: feeSchedType !== undefined ? parseInt(feeSchedType, 10) : 0,
+        isGlobal: isGlobal !== undefined ? Boolean(isGlobal) : true,
+      });
+      res.status(201).json({
+        success: true,
+        data: created,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateFeeSchedule(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { description, feeSchedType, isHidden, isGlobal } = req.body;
+      const updated = await feeManagementService.updateFeeSchedule(id as string, {
+        description,
+        feeSchedType: feeSchedType !== undefined ? parseInt(feeSchedType, 10) : undefined,
+        isHidden: isHidden !== undefined ? Boolean(isHidden) : undefined,
+        isGlobal: isGlobal !== undefined ? Boolean(isGlobal) : undefined,
+      });
+      res.status(200).json({
+        success: true,
+        data: updated,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deleteFeeSchedule(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      await feeManagementService.deleteFeeSchedule(id as string);
+      res.status(200).json({
+        success: true,
+        message: 'Fee schedule deleted successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async copyFeeSchedule(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { description } = req.body;
+      const copied = await feeManagementService.copyFeeSchedule(id as string, description as string);
+      res.status(201).json({
+        success: true,
+        data: copied,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async reestimateTPlans(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await feeManagementService.reestimateTPlans();
+      res.status(200).json({
+        success: true,
+        message: 'Treatment plan fee re-estimation started successfully',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async clearLockedFees(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await feeManagementService.clearLockedFees();
+      res.status(200).json({
+        success: true,
+        message: 'Locked fees cleared successfully',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async resetTPlans(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientIds } = req.body;
+      const result = await feeManagementService.resetTPlans(patientIds);
+      res.status(200).json({
+        success: true,
+        message: 'Treatment plans reset to default successfully',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const feeManagementController = new FeeManagementController();

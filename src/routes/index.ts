@@ -47,8 +47,11 @@ import communicationRoutes from './communication.routes';
 import clinicalManagementRoutes from './clinical-management.routes';
 import feeManagementRoutes from './fee-management.routes';
 import adminFinanceRoutes from './admin-finance.routes';
+import paymentTerminalRoutes from './payment-terminal.routes';
+import membershipPlanRoutes from './membership-plan.routes';
 
 const router = Router();
+
 
 
 router.use('/auth', authRoutes);
@@ -99,5 +102,8 @@ router.use('/communication', communicationRoutes);
 router.use('/clinical-management', clinicalManagementRoutes);
 router.use('/fee-management', feeManagementRoutes);
 router.use('/admin-finance', adminFinanceRoutes);
+router.use('/payment-terminals', paymentTerminalRoutes);
+router.use('/membership-plans', membershipPlanRoutes);
 
 export default router;
+

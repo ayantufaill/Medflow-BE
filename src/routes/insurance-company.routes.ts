@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { insuranceCompanyController } from '../controllers/insurance-company.controller';
+import { carrierMatchingController } from '../controllers/carrier-matching.controller';
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -195,5 +196,20 @@ router.delete(
   validate(insuranceCompanyIdValidator),
   insuranceCompanyController.deleteInsuranceCompany.bind(insuranceCompanyController)
 );
+
+// Converted Carriers Matching routes
+router.get('/converted/old-payers', carrierMatchingController.getConvertedOldPayers.bind(carrierMatchingController));
+router.get('/converted/oryx-payers', carrierMatchingController.getConvertedOryxPayers.bind(carrierMatchingController));
+router.get('/converted/matched', carrierMatchingController.getConvertedMatchedPayers.bind(carrierMatchingController));
+router.post('/converted/match', carrierMatchingController.matchConvertedCarrier.bind(carrierMatchingController));
+router.delete('/converted/match/:oldPayerId', carrierMatchingController.deleteConvertedMatch.bind(carrierMatchingController));
+router.post('/converted/fetch-matches', carrierMatchingController.fetchMatches.bind(carrierMatchingController));
+
+// Vyne Carriers Matching routes
+router.get('/vyne/office-payers', carrierMatchingController.getVyneOfficePayers.bind(carrierMatchingController));
+router.get('/vyne/payers', carrierMatchingController.getVynePayers.bind(carrierMatchingController));
+router.get('/vyne/matched', carrierMatchingController.getVyneMatchedPayers.bind(carrierMatchingController));
+router.post('/vyne/match', carrierMatchingController.matchVyneCarrier.bind(carrierMatchingController));
+router.delete('/vyne/match/:officePayerId', carrierMatchingController.deleteVyneMatch.bind(carrierMatchingController));
 
 export default router;

@@ -40,6 +40,34 @@ export const createDefinitionValidator = [
     .optional()
     .isInt()
     .withMessage('ItemOrder must be an integer'),
+  body('amount')
+    .optional()
+    .custom((val) => typeof val === 'string' || typeof val === 'number')
+    .withMessage('Amount must be a string or number'),
+  body('percent')
+    .optional()
+    .custom((val) => typeof val === 'string' || typeof val === 'number')
+    .withMessage('Percent must be a string or number'),
+  body('note')
+    .optional()
+    .isString()
+    .withMessage('Note must be a string'),
+  body('depositSlip')
+    .optional()
+    .isBoolean()
+    .withMessage('depositSlip must be a boolean'),
+  body('openEdge')
+    .optional()
+    .isBoolean()
+    .withMessage('openEdge must be a boolean'),
+  body('prosperipay')
+    .optional()
+    .isBoolean()
+    .withMessage('prosperipay must be a boolean'),
+  body('smilepay')
+    .optional()
+    .isBoolean()
+    .withMessage('smilepay must be a boolean'),
 ];
 
 export const updateDefinitionValidator = [
@@ -61,4 +89,32 @@ export const updateDefinitionValidator = [
     .optional()
     .isInt()
     .withMessage('ItemOrder must be an integer'),
+  body('amount')
+    .optional()
+    .custom((val) => typeof val === 'string' || typeof val === 'number')
+    .withMessage('Amount must be a string or number'),
+  body('percent')
+    .optional()
+    .custom((val) => typeof val === 'string' || typeof val === 'number')
+    .withMessage('Percent must be a string or number'),
+  body('note')
+    .optional()
+    .isString()
+    .withMessage('Note must be a string'),
+  body('depositSlip')
+    .optional()
+    .isBoolean()
+    .withMessage('depositSlip must be a boolean'),
+  body('openEdge')
+    .optional()
+    .isBoolean()
+    .withMessage('openEdge must be a boolean'),
+  body('prosperipay')
+    .optional()
+    .isBoolean()
+    .withMessage('prosperipay must be a boolean'),
+  body('smilepay')
+    .optional()
+    .isBoolean()
+    .withMessage('smilepay must be a boolean'),
 ];
