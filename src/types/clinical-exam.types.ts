@@ -6,7 +6,11 @@ export type ExamType =
   | 'morphological'
   | 'periodontal'
   | 'dentofacial'
-  | 'airway';
+  | 'airway'
+  | 'biomechanical'
+  | 'functional'
+  | 'dentofacial-opinion'
+  | 'periodontal-opinion';
 
 export interface UpsertExamInput {
   patientId: string;

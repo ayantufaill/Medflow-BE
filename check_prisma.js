@@ -1,4 +1,4 @@
-import { prisma } from './src/config/db.js';
-
-console.log('Keys of prisma:', Object.keys(prisma).filter(k => k.toLowerCase().includes('setting') || k.toLowerCase().includes('clinical')));
+import { PrismaClient } from '@prisma/client';
+const p = new PrismaClient();
+console.log('Keys of prisma client:', Object.keys(p).filter(k => k.toLowerCase().includes('exam') || k.toLowerCase().includes('biomechanical') || k.toLowerCase().includes('functional')));
 process.exit(0);
