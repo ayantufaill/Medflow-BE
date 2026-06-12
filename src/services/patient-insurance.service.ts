@@ -8,7 +8,7 @@ import {
   mapRelationshipFromDb,
   mapRelationshipToDb,
 } from '../utils/opendental-mappers.util';
-import { getPatientInsuranceMeta, setPatientInsuranceMeta } from '../utils/opendental-auth.util';
+import { getPatientInsuranceMeta, setPatientInsuranceMeta, getPatientInsurancesMeta } from '../utils/opendental-auth.util';
 
 export class PatientInsuranceService {
   /**
@@ -36,11 +36,11 @@ export class PatientInsuranceService {
       orderBy: { Ordinal: 'asc' },
     });
 
-    const metaMap = new Map(
-      await Promise.all(
-        patPlans.map(async (patplan) => [patplan.PatPlanNum.toString(), await getPatientInsuranceMeta(patplan.PatPlanNum)] as const)
-      )
-    );
+    const patPlanNums = patPlans.map((p) => p.PatPlanNum);
+    const metaMapData = await getPatientInsurancesMeta(patPlanNums);
+    const metaMap = {
+      get: (id: string) => metaMapData[id] || {}
+    };
 
     return patPlans.map((patplan) => ({
       _id: patplan.PatPlanNum.toString(),

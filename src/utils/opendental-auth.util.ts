@@ -14,6 +14,7 @@ const VERIFICATION_FKEYTYPE = 203;
 const RESET_FKEYTYPE = 204;
 const REPORT_META_FKEYTYPE = 210;
 const AUDIENCE_META_FKEYTYPE = 211;
+const RX_META_FKEYTYPE = 212;
 
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;
@@ -180,6 +181,22 @@ export const getAppointmentTypeMeta = async (appointmentTypeNum: bigint) => {
   return parseJson<Record<string, any>>(pref?.ValueString);
 };
 
+export const getAppointmentTypesMeta = async (appointmentTypeNums: bigint[]): Promise<Record<string, Record<string, any>>> => {
+  const prefs = await prisma.userodpref.findMany({
+    where: {
+      Fkey: { in: appointmentTypeNums },
+      FkeyType: APPOINTMENT_TYPE_META_FKEYTYPE,
+    },
+  });
+  const map: Record<string, Record<string, any>> = {};
+  for (const pref of prefs) {
+    if (pref.Fkey) {
+      map[pref.Fkey.toString()] = parseJson<Record<string, any>>(pref.ValueString);
+    }
+  }
+  return map;
+};
+
 export const setAppointmentTypeMeta = async (
   appointmentTypeNum: bigint,
   meta: Record<string, any>
@@ -227,6 +244,22 @@ export const getPatientInsuranceMeta = async (patPlanNum: bigint) => {
   return parseJson<Record<string, any>>(pref?.ValueString);
 };
 
+export const getPatientInsurancesMeta = async (patPlanNums: bigint[]): Promise<Record<string, Record<string, any>>> => {
+  const prefs = await prisma.userodpref.findMany({
+    where: {
+      Fkey: { in: patPlanNums },
+      FkeyType: PATIENT_INSURANCE_META_FKEYTYPE,
+    },
+  });
+  const map: Record<string, Record<string, any>> = {};
+  for (const pref of prefs) {
+    if (pref.Fkey) {
+      map[pref.Fkey.toString()] = parseJson<Record<string, any>>(pref.ValueString);
+    }
+  }
+  return map;
+};
+
 export const setPatientInsuranceMeta = async (patPlanNum: bigint, meta: Record<string, any>) => {
   return upsertUserOdPref(
     { fkey: patPlanNum, fkeyType: PATIENT_INSURANCE_META_FKEYTYPE },
@@ -239,6 +272,22 @@ export const getAllergyMeta = async (allergyNum: bigint) => {
     where: { Fkey: allergyNum, FkeyType: ALLERGY_META_FKEYTYPE },
   });
   return parseJson<Record<string, any>>(pref?.ValueString);
+};
+
+export const getAllergiesMeta = async (allergyNums: bigint[]): Promise<Record<string, Record<string, any>>> => {
+  const prefs = await prisma.userodpref.findMany({
+    where: {
+      Fkey: { in: allergyNums },
+      FkeyType: ALLERGY_META_FKEYTYPE,
+    },
+  });
+  const map: Record<string, Record<string, any>> = {};
+  for (const pref of prefs) {
+    if (pref.Fkey) {
+      map[pref.Fkey.toString()] = parseJson<Record<string, any>>(pref.ValueString);
+    }
+  }
+  return map;
 };
 
 export const setAllergyMeta = async (allergyNum: bigint, meta: Record<string, any>) => {
@@ -320,6 +369,36 @@ export const deleteAudienceMeta = async (audienceId: bigint) => {
   await prisma.userodpref.deleteMany({
     where: { Fkey: audienceId, FkeyType: AUDIENCE_META_FKEYTYPE },
   });
+};
+
+export const getRxMeta = async (rxNum: bigint) => {
+  const pref = await prisma.userodpref.findFirst({
+    where: { Fkey: rxNum, FkeyType: RX_META_FKEYTYPE },
+  });
+  return parseJson<Record<string, any>>(pref?.ValueString);
+};
+
+export const getRxsMeta = async (rxNums: bigint[]): Promise<Record<string, Record<string, any>>> => {
+  const prefs = await prisma.userodpref.findMany({
+    where: {
+      Fkey: { in: rxNums },
+      FkeyType: RX_META_FKEYTYPE,
+    },
+  });
+  const map: Record<string, Record<string, any>> = {};
+  for (const pref of prefs) {
+    if (pref.Fkey) {
+      map[pref.Fkey.toString()] = parseJson<Record<string, any>>(pref.ValueString);
+    }
+  }
+  return map;
+};
+
+export const setRxMeta = async (rxNum: bigint, meta: Record<string, any>) => {
+  return upsertUserOdPref(
+    { fkey: rxNum, fkeyType: RX_META_FKEYTYPE },
+    buildJson(meta)
+  );
 };
 
 export const mapUser = async (row: any, preloadedMeta?: Record<string, any>): Promise<AppUser> => {

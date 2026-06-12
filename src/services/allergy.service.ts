@@ -5,6 +5,7 @@ import {
   getAllergyMeta,
   setAllergyMeta,
   mapUser,
+  getAllergiesMeta,
 } from '../utils/opendental-auth.util';
 
 export class AllergyService {
@@ -96,14 +97,11 @@ export class AllergyService {
       include: { allergydef: true },
     });
 
-    const metaMap = new Map(
-      await Promise.all(
-        allergies.map(async (allergy) => [
-          allergy.AllergyNum.toString(),
-          await getAllergyMeta(allergy.AllergyNum),
-        ] as const)
-      )
-    );
+    const allergyNums = allergies.map((a) => a.AllergyNum);
+    const metaMapData = await getAllergiesMeta(allergyNums);
+    const metaMap = {
+      get: (id: string) => metaMapData[id] || {}
+    };
 
     const documentedByMap = new Map(
       await Promise.all(

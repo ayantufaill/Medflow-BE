@@ -3,7 +3,7 @@ import { NotFoundError, ConflictError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { mapAppointmentTypeToApi } from '../utils/opendental-mappers.util';
-import { getAppointmentTypeMeta, setAppointmentTypeMeta } from '../utils/opendental-auth.util';
+import { getAppointmentTypeMeta, setAppointmentTypeMeta, getAppointmentTypesMeta } from '../utils/opendental-auth.util';
 
 const parseColorCodeToInt = (colorCode?: string): number | null => {
   if (!colorCode) return null;
@@ -42,11 +42,11 @@ export class AppointmentTypeService {
       prisma.appointmenttype.count({ where }),
     ]);
 
-    const metaMap = new Map(
-      await Promise.all(
-        rows.map(async (row) => [row.AppointmentTypeNum.toString(), await getAppointmentTypeMeta(row.AppointmentTypeNum)] as const)
-      )
-    );
+    const appointmentTypeNums = rows.map((r) => r.AppointmentTypeNum);
+    const metaMapData = await getAppointmentTypesMeta(appointmentTypeNums);
+    const metaMap = {
+      get: (id: string) => metaMapData[id] || {}
+    };
 
     return {
       appointmentTypes: rows.map((row) =>
