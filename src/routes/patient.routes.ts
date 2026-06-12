@@ -30,14 +30,60 @@ router.use(authenticate);
  *       - in: query
  *         name: search
  *         schema: { type: string }
+ *         description: Search by name, email, phone, or patient code
+ *         example: James
  *       - in: query
  *         name: page
- *         schema: { type: integer }
+ *         schema: { type: integer, default: 1 }
+ *         description: Page number
  *       - in: query
  *         name: limit
- *         schema: { type: integer }
+ *         schema: { type: integer, default: 10 }
+ *         description: Number of results per page
+ *       - in: query
+ *         name: isActive
+ *         schema: { type: boolean }
+ *         description: Filter by active/inactive status
+ *       - in: query
+ *         name: dobStart
+ *         schema: { type: string, format: date }
+ *         description: Filter by date of birth range start
+ *       - in: query
+ *         name: dobEnd
+ *         schema: { type: string, format: date }
+ *         description: Filter by date of birth range end
  *     responses:
- *       200: { description: List of patients }
+ *       200:
+ *         description: List of patients
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     patients:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           _id: { type: string, example: "1" }
+ *                           patientCode: { type: string, example: "PAT001" }
+ *                           firstName: { type: string, example: "James" }
+ *                           lastName: { type: string, example: "Harrison" }
+ *                           dateOfBirth: { type: string, example: "1978-04-12T00:00:00.000Z" }
+ *                           email: { type: string, example: "james@example.com" }
+ *                           isActive: { type: boolean, example: true }
+ *                     pagination:
+ *                       type: object
+ *                       properties:
+ *                         page: { type: integer, example: 1 }
+ *                         limit: { type: integer, example: 10 }
+ *                         total: { type: integer, example: 25 }
+ *                         pages: { type: integer, example: 3 }
+ *       401: { description: Unauthorized }
  *       403: { description: Forbidden }
  *   post:
  *     summary: Create a new patient
@@ -52,14 +98,65 @@ router.use(authenticate);
  *             type: object
  *             required: [firstName, lastName, dateOfBirth]
  *             properties:
- *               firstName: { type: string }
- *               lastName: { type: string }
- *               dateOfBirth: { type: string, format: date }
- *               email: { type: string, format: email }
- *               phone: { type: string }
+ *               firstName: { type: string, example: "James" }
+ *               lastName: { type: string, example: "Harrison" }
+ *               middleName: { type: string, example: "Robert" }
+ *               dateOfBirth: { type: string, format: date, example: "1978-04-12" }
+ *               gender: { type: string, enum: [male, female, other], example: "male" }
+ *               email: { type: string, format: email, example: "james@example.com" }
+ *               phonePrimary: { type: string, example: "12145559101" }
+ *               address:
+ *                 type: object
+ *                 properties:
+ *                   line1: { type: string, example: "142 Maple Street" }
+ *                   city: { type: string, example: "Dallas" }
+ *                   state: { type: string, example: "TX" }
+ *                   postalCode: { type: string, example: "75201" }
  *     responses:
- *       201: { description: Patient created }
+ *       201:
+ *         description: Patient created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     patient:
+ *                       type: object
+ *                       properties:
+ *                         _id: { type: string, example: "26" }
+ *                         patientCode: { type: string, example: "PAT026" }
+ *                         firstName: { type: string, example: "James" }
+ *                         lastName: { type: string, example: "Harrison" }
+ *       400:
+ *         description: Validation error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: false }
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     message: { type: string, example: "firstName is required. lastName is required." }
+ *       401: { description: Unauthorized }
  *       403: { description: Forbidden }
+ *       409:
+ *         description: Duplicate patient
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: false }
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     message: { type: string, example: "A patient already exists with given details." }
  */
 router.get('/', requireRoles('Receptionist', 'Admin'), validate(patientSearchValidator), patientController.getAllPatients.bind(patientController));
 router.post('/', requireRoles('Receptionist', 'Admin'), validate(createPatientValidator), patientController.createPatient.bind(patientController));
@@ -74,10 +171,35 @@ router.post('/', requireRoles('Receptionist', 'Admin'), validate(createPatientVa
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
- *         name: q
+ *         name: search
  *         schema: { type: string }
+ *         description: Search term
+ *         example: James
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10 }
+ *       - in: query
+ *         name: isActive
+ *         schema: { type: boolean }
  *     responses:
- *       200: { description: Search results }
+ *       200:
+ *         description: Search results
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     patients: { type: array, items: { type: object } }
+ *                     pagination: { type: object }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
  */
 router.get('/search', requireRoles('Receptionist', 'Admin'), validate(patientSearchValidator), patientController.searchPatients.bind(patientController));
 
@@ -97,11 +219,37 @@ router.get('/search', requireRoles('Receptionist', 'Admin'), validate(patientSea
  *             type: object
  *             required: [firstName, lastName, dateOfBirth]
  *             properties:
- *               firstName: { type: string }
- *               lastName: { type: string }
- *               dateOfBirth: { type: string, format: date }
+ *               firstName: { type: string, example: "James" }
+ *               lastName: { type: string, example: "Harrison" }
+ *               dateOfBirth: { type: string, format: date, example: "1978-04-12" }
+ *               phonePrimary: { type: string, example: "12145559101" }
+ *               email: { type: string, example: "james@example.com" }
  *     responses:
- *       200: { description: Duplicate check result }
+ *       200:
+ *         description: Duplicate check result
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     duplicates:
+ *                       type: array
+ *                       items: { type: object }
+ *       400:
+ *         description: Validation error - missing required fields
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: false }
+ *                 error: { type: object, properties: { message: { type: string } } }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
  */
 router.post('/check-duplicates', requireRoles('Receptionist', 'Admin'), validate([
   body('firstName').notEmpty(),
@@ -122,9 +270,40 @@ router.post('/check-duplicates', requireRoles('Receptionist', 'Admin'), validate
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *     responses:
- *       200: { description: Patient details }
- *       404: { description: Not found }
+ *       200:
+ *         description: Patient details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     patient:
+ *                       type: object
+ *                       properties:
+ *                         _id: { type: string, example: "1" }
+ *                         patientCode: { type: string, example: "PAT001" }
+ *                         firstName: { type: string, example: "James" }
+ *                         lastName: { type: string, example: "Harrison" }
+ *                         dateOfBirth: { type: string, example: "1978-04-12T00:00:00.000Z" }
+ *                         isActive: { type: boolean, example: true }
+ *       400: { description: Invalid patient ID }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404:
+ *         description: Patient not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: false }
+ *                 error: { type: object, properties: { message: { type: string, example: "Patient not found" } } }
  *   put:
  *     summary: Update patient
  *     tags: [Patients]
@@ -135,10 +314,35 @@ router.post('/check-duplicates', requireRoles('Receptionist', 'Admin'), validate
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               firstName: { type: string, example: "James" }
+ *               lastName: { type: string, example: "Harrison" }
+ *               email: { type: string, example: "james@example.com" }
+ *               phonePrimary: { type: string, example: "12145559101" }
+ *               isActive: { type: boolean, example: true }
  *     responses:
- *       200: { description: Patient updated }
+ *       200:
+ *         description: Patient updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data: { type: object, properties: { patient: { type: object } } }
+ *       400: { description: Validation error }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Patient not found }
  *   delete:
- *     summary: Delete patient (Admin only)
+ *     summary: Delete (deactivate) patient — Admin only
  *     tags: [Patients]
  *     security:
  *       - bearerAuth: []
@@ -147,9 +351,20 @@ router.post('/check-duplicates', requireRoles('Receptionist', 'Admin'), validate
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *     responses:
- *       200: { description: Patient deleted }
- *       403: { description: Forbidden }
+ *       200:
+ *         description: Patient deactivated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data: { type: object, properties: { message: { type: string, example: "Patient deactivated successfully" } } }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden - Admin only }
+ *       404: { description: Patient not found }
  */
 router.get('/:patientId', requireRoles('Receptionist', 'Admin'), validate(patientIdValidator), patientController.getPatientById.bind(patientController));
 router.put('/:patientId', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...updatePatientValidator]), patientController.updatePatient.bind(patientController));
@@ -168,8 +383,25 @@ router.delete('/:patientId', requireRoles('Admin'), validate(patientIdValidator)
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *     responses:
- *       200: { description: Account balance }
+ *       200:
+ *         description: Account balance summary
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     balance: { type: number, example: 150.00 }
+ *                     lastPaymentDate: { type: string, example: "2026-06-09T00:00:00.000Z", nullable: true }
+ *                     overdueAmount: { type: number, example: 150.00 }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Patient not found }
  */
 router.get('/:patientId/balance', requireRoles('Receptionist', 'Admin', 'Billing Staff'), validate(patientIdValidator), patientController.getPatientBalance.bind(patientController));
 
@@ -186,9 +418,34 @@ router.get('/:patientId/balance', requireRoles('Receptionist', 'Admin', 'Billing
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *     responses:
- *       200: { description: Last visit details }
- *       404: { description: No completed appointments found }
+ *       200:
+ *         description: Last visit details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     date: { type: string, example: "2025-12-08T09:00:00.000Z" }
+ *                     providerName: { type: string, example: "Dr. Sarah Mitchell" }
+ *                     appointmentType: { type: string, example: "Consultation" }
+ *                     notesSummary: { type: string, example: "New patient exam and full mouth X-rays", nullable: true }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404:
+ *         description: No completed appointments found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: false }
+ *                 error: { type: object, properties: { message: { type: string, example: "No completed appointments found for this patient" } } }
  */
 router.get('/:patientId/last-visit', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientLastVisit.bind(patientController));
 
@@ -205,8 +462,20 @@ router.get('/:patientId/last-visit', requireRoles('Receptionist', 'Admin', 'Doct
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *     responses:
- *       200: { description: Patient workspace }
+ *       200:
+ *         description: Patient workspace data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data: { type: object, properties: { patient: { type: object } } }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Patient not found }
  *   patch:
  *     summary: Update patient workspace metadata
  *     tags: [Patients]
@@ -217,8 +486,23 @@ router.get('/:patientId/last-visit', requireRoles('Receptionist', 'Admin', 'Doct
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               preferredDentistId: { type: string, example: "1" }
+ *               preferredHygienistId: { type: string, example: "6" }
+ *               patientFlags: { type: array, items: { type: string } }
  *     responses:
  *       200: { description: Workspace updated }
+ *       400: { description: Validation error }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Patient not found }
  */
 router.get('/:patientId/workspace', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientWorkspace.bind(patientController));
 router.patch('/:patientId/workspace', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...patientWorkspaceMetaValidator]), patientController.updatePatientWorkspaceMeta.bind(patientController));
@@ -236,8 +520,27 @@ router.patch('/:patientId/workspace', requireRoles('Receptionist', 'Admin'), val
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *     responses:
- *       200: { description: Medical history }
+ *       200:
+ *         description: Structured medical history
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     generalInfo: { type: object }
+ *                     premed: { type: object }
+ *                     risk: { type: object }
+ *                     sections: { type: array, items: { type: object } }
+ *                     medications: { type: array, items: { type: object } }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Patient not found }
  *   patch:
  *     summary: Update patient medical history
  *     tags: [Patients]
@@ -248,8 +551,25 @@ router.patch('/:patientId/workspace', requireRoles('Receptionist', 'Admin'), val
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               generalInfo: { type: object }
+ *               premed: { type: object }
+ *               risk: { type: object }
+ *               sections: { type: array, items: { type: object } }
+ *               medications: { type: array, items: { type: object } }
  *     responses:
  *       200: { description: Medical history updated }
+ *       400: { description: Validation error }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Patient not found }
  */
 router.get('/:patientId/medical-history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getStructuredMedicalHistory.bind(patientController));
 router.patch('/:patientId/medical-history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate([...patientIdValidator, ...patientMedicalHistoryValidator]), patientController.updateStructuredMedicalHistory.bind(patientController));
@@ -267,8 +587,26 @@ router.patch('/:patientId/medical-history', requireRoles('Receptionist', 'Admin'
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *     responses:
- *       200: { description: Dental history }
+ *       200:
+ *         description: Dental history including procedures, notes, x-rays
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     generalInfo: { type: object }
+ *                     personalHistory: { type: array, items: { type: object } }
+ *                     procedures: { type: array, items: { type: object } }
+ *                     xrays: { type: array, items: { type: object } }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Patient not found }
  *   patch:
  *     summary: Update patient dental history
  *     tags: [Patients]
@@ -279,8 +617,23 @@ router.patch('/:patientId/medical-history', requireRoles('Receptionist', 'Admin'
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               generalInfo: { type: object }
+ *               personalHistory: { type: array, items: { type: object } }
+ *               review: { type: object }
  *     responses:
  *       200: { description: Dental history updated }
+ *       400: { description: Validation error }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Patient not found }
  */
 router.get('/:patientId/dental-history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getDentalHistory.bind(patientController));
 router.patch('/:patientId/dental-history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate([...patientIdValidator, ...patientDentalHistoryValidator]), patientController.updateDentalHistory.bind(patientController));
@@ -298,13 +651,27 @@ router.patch('/:patientId/dental-history', requireRoles('Receptionist', 'Admin',
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *       - in: query
  *         name: limit
- *         schema: { type: integer }
- *         description: Number of appointments to return (default 10)
+ *         schema: { type: integer, default: 10 }
+ *         description: Number of appointments to return
  *     responses:
- *       200: { description: List of patient appointments }
- *       404: { description: Not found }
+ *       200:
+ *         description: List of patient appointments
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     appointments: { type: array, items: { type: object } }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Patient not found }
  */
 router.get('/:patientId/appointments', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), appointmentController.getPatientAppointments.bind(appointmentController));
 
@@ -321,11 +688,32 @@ router.get('/:patientId/appointments', requireRoles('Receptionist', 'Admin', 'Do
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *     responses:
- *       200: { description: Patient history aggregate including allergies, conditions, medications and vitals }
- *       404: { description: Not found }
+ *       200:
+ *         description: Patient history including allergies, conditions, medications, vitals, family history
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     diagnoses: { type: array, items: { type: object } }
+ *                     medicalConditions: { type: array, items: { type: object } }
+ *                     medications: { type: array, items: { type: object } }
+ *                     allergies: { type: array, items: { type: object } }
+ *                     surgicalHistory: { type: array, items: { type: object } }
+ *                     familyHistory: { type: array, items: { type: object } }
+ *                     vitals: { type: object }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Patient not found }
  */
 router.get('/:patientId/history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientHistory.bind(patientController));
+
 /**
  * @swagger
  * /patients/{patientId}/allergies:
@@ -338,44 +726,34 @@ router.get('/:patientId/history', requireRoles('Receptionist', 'Admin', 'Doctor'
  *       - in: path
  *         name: patientId
  *         required: true
- *         schema:
- *           type: integer
- *         description: Patient ID
+ *         schema: { type: integer }
  *         example: 1
  *     responses:
  *       200:
- *         description: List of allergies
+ *         description: List of patient allergies
  *         content:
  *           application/json:
  *             schema:
- *               type: array
- *               items:
- *                 type: object
- *                 properties:
- *                   id:
- *                     type: integer
- *                   patientId:
- *                     type: integer
- *                   allergen:
- *                     type: string
- *                   severity:
- *                     type: string
- *                   reaction:
- *                     type: string
- *                   status:
- *                     type: string
- *                   documentedDate:
- *                     type: string
- *                   notes:
- *                     type: string
- *       401:
- *         description: Unauthorized
- *       404:
- *         description: Patient not found
- * 
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     allergies:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           _id: { type: string, example: "1" }
+ *                           name: { type: string, example: "Penicillin" }
+ *                           reaction: { type: string, example: "Hives and rash" }
+ *                           isActive: { type: boolean, example: true }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Patient not found }
  *   post:
  *     summary: Add allergy to patient
- *     description: Create a new allergy record for a specific patient
  *     tags: [Patients]
  *     security:
  *       - bearerAuth: []
@@ -383,10 +761,7 @@ router.get('/:patientId/history', requireRoles('Receptionist', 'Admin', 'Doctor'
  *       - in: path
  *         name: patientId
  *         required: true
- *         schema:
- *           type: integer
- *           minimum: 1
- *         description: Patient ID
+ *         schema: { type: integer }
  *         example: 1
  *     requestBody:
  *       required: true
@@ -394,60 +769,14 @@ router.get('/:patientId/history', requireRoles('Receptionist', 'Admin', 'Doctor'
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - allergen
- *               - severity
- *               - reaction
- *               - documentedDate
+ *             required: [allergen, reaction, documentedDate]
  *             properties:
- *               allergen:
- *                 type: string
- *                 description: Name of the allergen (e.g., Penicillin, Latex, Peanuts, Shellfish)
- *                 example: "Penicillin"
- *                 minLength: 1
- *                 maxLength: 255
- *               severity:
- *                 type: string
- *                 description: Severity level of the allergy
- *                 enum: [mild, moderate, severe, life-threatening]
- *                 example: "severe"
- *               reaction:
- *                 type: string
- *                 description: Physical reaction to the allergen
- *                 example: "Hives, difficulty breathing, swelling of throat"
- *                 maxLength: 500
- *               documentedDate:
- *                 type: string
- *                 format: date
- *                 description: Date when the allergy was documented
- *                 example: "2024-03-15"
- *               status:
- *                 type: string
- *                 description: Current status of the allergy
- *                 enum: [active, inactive, resolved]
- *                 default: active
- *                 example: "active"
- *               notes:
- *                 type: string
- *                 description: Additional clinical notes or comments
- *                 example: "Patient carries EpiPen. Previous reaction required emergency room visit."
- *                 maxLength: 1000
- *               onsetDate:
- *                 type: string
- *                 format: date
- *                 description: Date when the allergy first appeared
- *                 example: "2018-06-20"
- *               diagnosedBy:
- *                 type: string
- *                 description: Name of the diagnosing provider
- *                 example: "Dr. Sarah Mitchell"
- *           example:
- *             allergen: "Penicillin"
- *             severity: "severe"
- *             reaction: "Hives, difficulty breathing, swelling"
- *             documentedDate: "2024-03-15"
- *             status: "active"
- *             notes: "Patient carries EpiPen"
+ *               allergen: { type: string, example: "Penicillin" }
+ *               reaction: { type: string, example: "Hives and rash" }
+ *               severity: { type: string, enum: [mild, moderate, severe, unknown], example: "severe" }
+ *               documentedDate: { type: string, format: date, example: "2024-03-15" }
+ *               isActive: { type: boolean, example: true }
+ *               notes: { type: string, example: "Patient carries EpiPen" }
  *     responses:
  *       201:
  *         description: Allergy added successfully
@@ -456,62 +785,16 @@ router.get('/:patientId/history', requireRoles('Receptionist', 'Admin', 'Doctor'
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Allergy added successfully"
- *                 data:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: integer
- *                     patientId:
- *                       type: integer
- *                     allergen:
- *                       type: string
- *                     severity:
- *                       type: string
- *                     reaction:
- *                       type: string
- *                     documentedDate:
- *                       type: string
- *                     status:
- *                       type: string
- *                     notes:
- *                       type: string
- *                     createdAt:
- *                       type: string
- *                     updatedAt:
- *                       type: string
- *       400:
- *         description: Bad request - missing required fields or invalid data
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 error:
- *                   type: object
- *                   properties:
- *                     message:
- *                       type: string
- *                       example: "Allergen is required. Severity is required. Reaction is required. Documented date is required"
- *       401:
- *         description: Unauthorized - Invalid or missing token
- *       403:
- *         description: Forbidden - Insufficient permissions
- *       404:
- *         description: Patient not found
- *       500:
- *         description: Internal server error
+ *                 success: { type: boolean, example: true }
+ *                 data: { type: object, properties: { allergy: { type: object } } }
+ *       400: { description: Validation error }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Patient not found }
  */
 router.get('/:patientId/allergies', validate(patientIdValidator), requireRoles('Receptionist', 'Doctor', 'Admin'), allergyController.getPatientAllergies.bind(allergyController));
 router.post('/:patientId/allergies', requireRoles('Receptionist', 'Doctor', 'Admin'), validate([...patientIdValidator, ...createPatientAllergyValidator]), allergyController.createPatientAllergy.bind(allergyController));
+
 /**
  * @swagger
  * /patients/{patientId}/allergies/{allergyId}:
@@ -525,12 +808,25 @@ router.post('/:patientId/allergies', requireRoles('Receptionist', 'Doctor', 'Adm
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *       - in: path
  *         name: allergyId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *     responses:
- *       200: { description: Allergy details }
+ *       200:
+ *         description: Allergy details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data: { type: object, properties: { allergy: { type: object } } }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Allergy not found }
  *   put:
  *     summary: Update patient allergy
  *     tags: [Patients]
@@ -541,12 +837,36 @@ router.post('/:patientId/allergies', requireRoles('Receptionist', 'Doctor', 'Adm
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *       - in: path
  *         name: allergyId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reaction: { type: string, example: "Updated reaction" }
+ *               severity: { type: string, enum: [mild, moderate, severe, unknown] }
+ *               isActive: { type: boolean, example: false }
  *     responses:
- *       200: { description: Allergy updated }
+ *       200:
+ *         description: Allergy updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data: { type: object }
+ *       400: { description: Validation error }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Allergy not found }
  *   delete:
  *     summary: Delete patient allergy
  *     tags: [Patients]
@@ -557,12 +877,25 @@ router.post('/:patientId/allergies', requireRoles('Receptionist', 'Doctor', 'Adm
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *       - in: path
  *         name: allergyId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *     responses:
- *       200: { description: Allergy deleted }
+ *       200:
+ *         description: Allergy deleted
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data: { type: object, properties: { message: { type: string, example: "Allergy deleted successfully" } } }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Allergy not found }
  */
 router.get('/:patientId/allergies/:allergyId', requireRoles('Receptionist', 'Doctor', 'Admin'), validate([...patientIdValidator, ...allergyIdParamValidator]), allergyController.getAllergyById.bind(allergyController));
 router.put('/:patientId/allergies/:allergyId', requireRoles('Receptionist', 'Doctor', 'Admin'), validate([...patientIdValidator, ...allergyIdParamValidator, ...updateAllergyValidator]), allergyController.updatePatientAllergy.bind(allergyController));
@@ -581,8 +914,20 @@ router.delete('/:patientId/allergies/:allergyId', requireRoles('Receptionist', '
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *         example: 1
  *     responses:
- *       200: { description: List of communications }
+ *       200:
+ *         description: List of communications
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data: { type: object }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Patient not found }
  */
 router.get('/:patientId/communications', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientCommunications.bind(patientController));
 router.post('/:patientId/communications/send', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate([...patientIdValidator, ...patientCommunicationValidator]), patientController.createPatientCommunication.bind(patientController));
