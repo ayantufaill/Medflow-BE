@@ -308,6 +308,24 @@ export class InsurancePlanService {
     });
     return this.getCoverageTemplates();
   }
+
+  async deleteInsurancePlan(planId: string) {
+    const plan = await prisma.insplan.findUnique({
+      where: { PlanNum: BigInt(planId) },
+    });
+    if (!plan) {
+      throw new NotFoundError('Insurance plan not found');
+    }
+
+    // Soft-delete: OpenDental hides plans using the IsHidden flag to preserve clinical history
+    await prisma.insplan.update({
+      where: { PlanNum: BigInt(planId) },
+      data: {
+        IsHidden: 1,
+        SecDateTEdit: new Date(),
+      },
+    });
+  }
 }
 
 export const insurancePlanService = new InsurancePlanService();
