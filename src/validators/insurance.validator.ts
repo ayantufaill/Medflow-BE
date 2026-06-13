@@ -21,7 +21,7 @@ export const createInsuranceCompanyValidator: ValidationChain[] = [
     .isLength({ max: 20 })
     .withMessage('Payer ID must be less than 20 characters'),
   body('phone')
-    .optional()
+    .optional({ values: 'falsy' })
     .trim()
     .matches(/^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/)
     .withMessage('Please provide a valid phone number'),
@@ -41,12 +41,12 @@ export const createInsuranceCompanyValidator: ValidationChain[] = [
     .isLength({ max: 50 })
     .withMessage('State must be less than 50 characters'),
   body('zipCode')
-    .optional()
+    .optional({ values: 'falsy' })
     .trim()
     .matches(/^\d{5}(-\d{4})?$/)
     .withMessage('Zip code must be in format XXXXX or XXXXX-XXXX'),
   body('email')
-    .optional()
+    .optional({ values: 'falsy' })
     .trim()
     .isEmail()
     .withMessage('Please provide a valid email address')
@@ -70,7 +70,7 @@ export const updateInsuranceCompanyValidator: ValidationChain[] = [
     .isLength({ max: 20 })
     .withMessage('Payer ID must be less than 20 characters'),
   body('phone')
-    .optional()
+    .optional({ values: 'falsy' })
     .trim()
     .matches(/^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/)
     .withMessage('Please provide a valid phone number'),
@@ -90,12 +90,12 @@ export const updateInsuranceCompanyValidator: ValidationChain[] = [
     .isLength({ max: 50 })
     .withMessage('State must be less than 50 characters'),
   body('zipCode')
-    .optional()
+    .optional({ values: 'falsy' })
     .trim()
     .matches(/^\d{5}(-\d{4})?$/)
     .withMessage('Zip code must be in format XXXXX or XXXXX-XXXX'),
   body('email')
-    .optional()
+    .optional({ values: 'falsy' })
     .trim()
     .isEmail()
     .withMessage('Please provide a valid email address')
