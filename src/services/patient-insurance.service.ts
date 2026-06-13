@@ -42,36 +42,45 @@ export class PatientInsuranceService {
       get: (id: string) => metaMapData[id] || {}
     };
 
-    return patPlans.map((patplan) => ({
-      _id: patplan.PatPlanNum.toString(),
-      patientId,
-      insuranceCompanyId: patplan.inssub?.insplan?.carrier
-        ? {
-            _id: patplan.inssub.insplan.carrier.CarrierNum.toString(),
-            name: patplan.inssub.insplan.carrier.CarrierName ?? '',
-            payerId: patplan.inssub.insplan.carrier.ElectID ?? null,
-          }
-        : null,
-      policyNumber: patplan.inssub?.SubscriberID ?? '',
-      groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
-      subscriberName: patplan.inssub?.insplan?.GroupName ?? '',
-      subscriberDateOfBirth:
-        metaMap.get(patplan.PatPlanNum.toString())?.subscriberDateOfBirth ?? null,
-      relationshipToPatient: mapRelationshipFromDb(patplan.Relationship),
-      insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
-      effectiveDate: patplan.inssub?.DateEffective ?? null,
-      expirationDate: patplan.inssub?.DateTerm ?? null,
-      copayAmount: metaMap.get(patplan.PatPlanNum.toString())?.copayAmount ?? null,
-      deductibleAmount:
-        metaMap.get(patplan.PatPlanNum.toString())?.deductibleAmount ?? null,
-      autoVerify: metaMap.get(patplan.PatPlanNum.toString())?.autoVerify ?? true,
-      verificationStatus:
-        metaMap.get(patplan.PatPlanNum.toString())?.verificationStatus ?? 'pending',
-      verificationDate:
-        metaMap.get(patplan.PatPlanNum.toString())?.verificationDate ?? null,
-      isActive: patplan.IsPending ? false : true,
-      notes: patplan.inssub?.SubscNote ?? null,
-    }));
+    return patPlans.map((patplan) => {
+      const meta = metaMap.get(patplan.PatPlanNum.toString());
+      return {
+        _id: patplan.PatPlanNum.toString(),
+        patientId,
+        insuranceCompanyId: patplan.inssub?.insplan?.carrier
+          ? {
+              _id: patplan.inssub.insplan.carrier.CarrierNum.toString(),
+              name: patplan.inssub.insplan.carrier.CarrierName ?? '',
+              payerId: patplan.inssub.insplan.carrier.ElectID ?? null,
+            }
+          : null,
+        policyNumber: patplan.inssub?.SubscriberID ?? '',
+        groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
+        subscriberName: patplan.inssub?.insplan?.GroupName ?? '',
+        subscriberDateOfBirth: meta?.subscriberDateOfBirth ?? null,
+        relationshipToPatient: mapRelationshipFromDb(patplan.Relationship),
+        insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
+        effectiveDate: patplan.inssub?.DateEffective ?? null,
+        expirationDate: patplan.inssub?.DateTerm ?? null,
+        copayAmount: meta?.copayAmount ?? null,
+        deductibleAmount: meta?.deductibleAmount ?? null,
+        autoVerify: meta?.autoVerify ?? true,
+        verificationStatus: meta?.verificationStatus ?? 'pending',
+        verificationDate: meta?.verificationDate ?? null,
+        isActive: patplan.IsPending ? false : true,
+        notes: patplan.inssub?.SubscNote ?? null,
+
+        // Advanced Dentistry Fields
+        deductiblesGrid: meta?.deductiblesGrid ?? [],
+        coverageLimits: meta?.coverageLimits ?? null,
+        planFeeGuide: meta?.planFeeGuide ?? null,
+        coverageType: meta?.coverageType ?? null,
+        subscriberSsn: meta?.subscriberSsn ?? null,
+        renewalMonth: meta?.renewalMonth ?? null,
+        assignmentOfBenefits: meta?.assignmentOfBenefits ?? null,
+        honorWriteOff: meta?.honorWriteOff ?? null,
+      };
+    });
   }
 
   /**
@@ -124,6 +133,16 @@ export class PatientInsuranceService {
       verificationDate: insuranceMeta.verificationDate ?? null,
       isActive: patplan.IsPending ? false : true,
       notes: patplan.inssub?.SubscNote ?? null,
+
+      // Advanced Dentistry Fields
+      deductiblesGrid: insuranceMeta.deductiblesGrid ?? [],
+      coverageLimits: insuranceMeta.coverageLimits ?? null,
+      planFeeGuide: insuranceMeta.planFeeGuide ?? null,
+      coverageType: insuranceMeta.coverageType ?? null,
+      subscriberSsn: insuranceMeta.subscriberSsn ?? null,
+      renewalMonth: insuranceMeta.renewalMonth ?? null,
+      assignmentOfBenefits: insuranceMeta.assignmentOfBenefits ?? null,
+      honorWriteOff: insuranceMeta.honorWriteOff ?? null,
     };
   }
 
@@ -148,6 +167,16 @@ export class PatientInsuranceService {
       verificationStatus?: string;
       verificationDate?: Date;
       notes?: string;
+
+      // Advanced Dentistry Fields
+      deductiblesGrid?: Array<any>;
+      coverageLimits?: any;
+      planFeeGuide?: string;
+      coverageType?: string;
+      subscriberSsn?: string;
+      renewalMonth?: number;
+      assignmentOfBenefits?: string;
+      honorWriteOff?: boolean;
     },
     createdBy?: string
   ) {
@@ -245,6 +274,16 @@ export class PatientInsuranceService {
       autoVerify: data.autoVerify ?? true,
       verificationStatus: data.verificationStatus ?? 'pending',
       verificationDate: data.verificationDate ?? null,
+
+      // Advanced Dentistry Fields
+      deductiblesGrid: data.deductiblesGrid ?? [],
+      coverageLimits: data.coverageLimits ?? null,
+      planFeeGuide: data.planFeeGuide ?? null,
+      coverageType: data.coverageType ?? null,
+      subscriberSsn: data.subscriberSsn ?? null,
+      renewalMonth: data.renewalMonth ?? null,
+      assignmentOfBenefits: data.assignmentOfBenefits ?? null,
+      honorWriteOff: data.honorWriteOff ?? null,
     });
 
     // Log activity
@@ -286,6 +325,16 @@ export class PatientInsuranceService {
       verificationStatus?: string;
       verificationDate?: Date;
       notes?: string;
+
+      // Advanced Dentistry Fields
+      deductiblesGrid?: Array<any>;
+      coverageLimits?: any;
+      planFeeGuide?: string;
+      coverageType?: string;
+      subscriberSsn?: string;
+      renewalMonth?: number;
+      assignmentOfBenefits?: string;
+      honorWriteOff?: boolean;
     },
     updatedBy?: string
   ) {
@@ -365,6 +414,16 @@ export class PatientInsuranceService {
       verificationStatus:
         updates.verificationStatus ?? currentMeta.verificationStatus ?? 'pending',
       verificationDate: updates.verificationDate ?? currentMeta.verificationDate ?? null,
+
+      // Advanced Dentistry Fields
+      deductiblesGrid: updates.deductiblesGrid ?? currentMeta.deductiblesGrid ?? [],
+      coverageLimits: updates.coverageLimits ?? currentMeta.coverageLimits ?? null,
+      planFeeGuide: updates.planFeeGuide ?? currentMeta.planFeeGuide ?? null,
+      coverageType: updates.coverageType ?? currentMeta.coverageType ?? null,
+      subscriberSsn: updates.subscriberSsn ?? currentMeta.subscriberSsn ?? null,
+      renewalMonth: updates.renewalMonth ?? currentMeta.renewalMonth ?? null,
+      assignmentOfBenefits: updates.assignmentOfBenefits ?? currentMeta.assignmentOfBenefits ?? null,
+      honorWriteOff: updates.honorWriteOff ?? currentMeta.honorWriteOff ?? null,
     });
 
     // Log activity

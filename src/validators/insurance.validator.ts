@@ -248,6 +248,38 @@ export const createPatientInsuranceValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 500 })
     .withMessage('Notes must be less than 500 characters'),
+  body('deductiblesGrid')
+    .optional()
+    .isArray()
+    .withMessage('deductiblesGrid must be an array'),
+  body('coverageLimits')
+    .optional()
+    .isObject()
+    .withMessage('coverageLimits must be an object'),
+  body('planFeeGuide')
+    .optional()
+    .isString()
+    .withMessage('planFeeGuide must be a string'),
+  body('coverageType')
+    .optional()
+    .isString()
+    .withMessage('coverageType must be a string'),
+  body('subscriberSsn')
+    .optional()
+    .isString()
+    .withMessage('subscriberSsn must be a string'),
+  body('renewalMonth')
+    .optional()
+    .custom((value) => value === undefined || value === null || value === '' || !isNaN(Number(value)))
+    .withMessage('renewalMonth must be a number'),
+  body('assignmentOfBenefits')
+    .optional()
+    .isString()
+    .withMessage('assignmentOfBenefits must be a string'),
+  body('honorWriteOff')
+    .optional()
+    .isBoolean()
+    .withMessage('honorWriteOff must be a boolean'),
 ];
 
 export const updatePatientInsuranceValidator: ValidationChain[] = [
@@ -329,6 +361,38 @@ export const updatePatientInsuranceValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 500 })
     .withMessage('Notes must be less than 500 characters'),
+  body('deductiblesGrid')
+    .optional()
+    .isArray()
+    .withMessage('deductiblesGrid must be an array'),
+  body('coverageLimits')
+    .optional()
+    .isObject()
+    .withMessage('coverageLimits must be an object'),
+  body('planFeeGuide')
+    .optional()
+    .isString()
+    .withMessage('planFeeGuide must be a string'),
+  body('coverageType')
+    .optional()
+    .isString()
+    .withMessage('coverageType must be a string'),
+  body('subscriberSsn')
+    .optional()
+    .isString()
+    .withMessage('subscriberSsn must be a string'),
+  body('renewalMonth')
+    .optional()
+    .custom((value) => value === undefined || value === null || value === '' || !isNaN(Number(value)))
+    .withMessage('renewalMonth must be a number'),
+  body('assignmentOfBenefits')
+    .optional()
+    .isString()
+    .withMessage('assignmentOfBenefits must be a string'),
+  body('honorWriteOff')
+    .optional()
+    .isBoolean()
+    .withMessage('honorWriteOff must be a boolean'),
 ];
 
 export const allergyIdValidator: ValidationChain[] = [
