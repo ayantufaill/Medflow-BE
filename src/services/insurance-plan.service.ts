@@ -35,9 +35,27 @@ export class InsurancePlanService {
   private mapPlan(plan: any) {
     return {
       _id: plan.PlanNum.toString(),
+      id: plan.PlanNum.toString(),
       name: plan.GroupName ?? '',
-      groupNumber: plan.GroupNum ?? null,
+      groupName: plan.GroupName ?? '',
+      groupNumber: plan.GroupNum ?? '',
       notes: plan.PlanNote ?? null,
+      
+      // Flatten carrier properties
+      carrier: plan.carrier?.CarrierName ?? 'Manual Entry',
+      electronicId: plan.carrier?.ElectID ?? 'N/A',
+      phone: plan.carrier?.Phone ?? '-',
+      
+      // Mapped fee schedule to feeGuide
+      feeGuide: plan.FeeSched && plan.FeeSched.toString() !== '0' 
+        ? `Sched ${plan.FeeSched}` 
+        : 'none',
+
+      // Placeholders/Fields for other frontend columns
+      employer: plan.EmployerNum ? 'Associated Employer' : '-',
+      templateName: 'Standard',
+      subscribers: 0,
+
       insuranceCompany: plan.carrier
         ? {
             _id: plan.carrier.CarrierNum.toString(),
