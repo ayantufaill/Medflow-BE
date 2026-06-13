@@ -376,9 +376,13 @@ export class InsuranceCompanyService {
       name: company.CarrierName ?? '',
     };
 
-    // Hard delete
-    await prisma.carrier.delete({
+    // Soft-delete (OpenDental Standard): Mark as hidden to bypass foreign key constraint conflicts
+    await prisma.carrier.update({
       where: { CarrierNum: BigInt(insuranceCompanyId) },
+      data: {
+        IsHidden: 1,
+        SecDateTEdit: new Date(),
+      },
     });
 
     // Log activity
@@ -389,14 +393,14 @@ export class InsuranceCompanyService {
         'insurance_companies',
         insuranceCompanyId,
         oldValues,
-        null,         // new data = null because record is gone
+        { ...oldValues, isActive: false },
         undefined,
         undefined,
         'high'
       );
     }
 
-    return { message: 'Insurance company deleted permanently' };
+    return { message: 'Insurance company deleted' };
   }
 
 }
