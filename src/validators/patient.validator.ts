@@ -280,6 +280,14 @@ export const createPatientValidator: ValidationChain[] = [
     .optional()
     .isObject()
     .withMessage('customFields must be an object'),
+  body('preferredDentistId')
+    .optional({ nullable: true })
+    .isString()
+    .withMessage('preferredDentistId must be a string'),
+  body('preferredHygienistId')
+    .optional({ nullable: true })
+    .isString()
+    .withMessage('preferredHygienistId must be a string'),
 ];
 
 export const updatePatientValidator: ValidationChain[] = [
@@ -535,6 +543,34 @@ export const updatePatientValidator: ValidationChain[] = [
     .optional()
     .isObject()
     .withMessage('customFields must be an object'),
+  body('preferredDentistId')
+    .optional({ nullable: true })
+    .isString()
+    .withMessage('preferredDentistId must be a string'),
+  body('preferredHygienistId')
+    .optional({ nullable: true })
+    .isString()
+    .withMessage('preferredHygienistId must be a string'),
+  body('headOfCommunication')
+    .optional({ nullable: true })
+    .isObject()
+    .withMessage('headOfCommunication must be an object'),
+  body('household')
+    .optional()
+    .isArray()
+    .withMessage('household must be an array'),
+  body('spouseInfo')
+    .optional({ nullable: true })
+    .isObject()
+    .withMessage('spouseInfo must be an object'),
+  body('patientFlags')
+    .optional()
+    .isArray()
+    .withMessage('patientFlags must be an array'),
+  body('financialResponsibility')
+    .optional({ nullable: true })
+    .isObject()
+    .withMessage('financialResponsibility must be an object'),
 ];
 
 export const patientWorkspaceMetaValidator: ValidationChain[] = [
