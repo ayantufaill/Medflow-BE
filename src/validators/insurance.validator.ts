@@ -136,6 +136,11 @@ export const createPatientInsuranceValidator: ValidationChain[] = [
     .withMessage('Group number must not exceed 30 characters')
     .matches(/^[A-Za-z0-9]*$/)
     .withMessage('Group number must be alphanumeric only'),
+  body('groupName')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Group name must be less than 100 characters'),
   body('subscriberName')
     .trim()
     .notEmpty()
@@ -293,6 +298,11 @@ export const updatePatientInsuranceValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 50 })
     .withMessage('Group number must be less than 50 characters'),
+  body('groupName')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Group name must be less than 100 characters'),
   body('subscriberName')
     .optional()
     .trim()

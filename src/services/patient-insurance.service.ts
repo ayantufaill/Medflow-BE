@@ -56,7 +56,8 @@ export class PatientInsuranceService {
           : null,
         policyNumber: patplan.inssub?.SubscriberID ?? '',
         groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
-        subscriberName: patplan.inssub?.insplan?.GroupName ?? '',
+        groupName: patplan.inssub?.insplan?.GroupName ?? null,
+        subscriberName: meta?.subscriberName ?? '',
         subscriberDateOfBirth: meta?.subscriberDateOfBirth ?? null,
         relationshipToPatient: mapRelationshipFromDb(patplan.Relationship),
         insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
@@ -120,7 +121,8 @@ export class PatientInsuranceService {
         : null,
       policyNumber: patplan.inssub?.SubscriberID ?? '',
       groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
-      subscriberName: patplan.inssub?.insplan?.GroupName ?? '',
+      groupName: patplan.inssub?.insplan?.GroupName ?? null,
+      subscriberName: insuranceMeta.subscriberName ?? '',
       subscriberDateOfBirth: insuranceMeta.subscriberDateOfBirth ?? null,
       relationshipToPatient: mapRelationshipFromDb(patplan.Relationship),
       insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
@@ -155,6 +157,7 @@ export class PatientInsuranceService {
       insuranceCompanyId: string;
       policyNumber: string;
       groupNumber?: string;
+      groupName?: string;
       subscriberName: string;
       subscriberDateOfBirth: Date;
       relationshipToPatient: string;
@@ -238,7 +241,7 @@ export class PatientInsuranceService {
         PlanNum: planNum,
         CarrierNum: BigInt(data.insuranceCompanyId),
         GroupNum: data.groupNumber ?? null,
-        GroupName: data.subscriberName ?? null,
+        GroupName: data.groupName ?? null,
         PlanNote: data.notes ?? null,
         IsHidden: 0,
       },
@@ -268,6 +271,7 @@ export class PatientInsuranceService {
     });
 
     await setPatientInsuranceMeta(patPlanNum, {
+      subscriberName: data.subscriberName ?? null,
       subscriberDateOfBirth: data.subscriberDateOfBirth ?? null,
       copayAmount: data.copayAmount ?? null,
       deductibleAmount: data.deductibleAmount ?? null,
@@ -312,6 +316,7 @@ export class PatientInsuranceService {
     updates: {
       policyNumber?: string;
       groupNumber?: string;
+      groupName?: string;
       subscriberName?: string;
       subscriberDateOfBirth?: Date;
       relationshipToPatient?: string;
@@ -387,7 +392,7 @@ export class PatientInsuranceService {
         where: { PlanNum: patplan.inssub.insplan.PlanNum },
         data: {
           GroupNum: updates.groupNumber ?? undefined,
-          GroupName: updates.subscriberName ?? undefined,
+          GroupName: updates.groupName ?? undefined,
           PlanNote: updates.notes ?? undefined,
         },
       });
@@ -405,6 +410,7 @@ export class PatientInsuranceService {
     });
 
     await setPatientInsuranceMeta(patplan.PatPlanNum, {
+      subscriberName: updates.subscriberName ?? currentMeta.subscriberName ?? null,
       subscriberDateOfBirth:
         updates.subscriberDateOfBirth ?? currentMeta.subscriberDateOfBirth ?? null,
       copayAmount: updates.copayAmount ?? currentMeta.copayAmount ?? null,
