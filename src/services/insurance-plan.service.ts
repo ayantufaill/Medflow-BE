@@ -35,9 +35,27 @@ export class InsurancePlanService {
   private mapPlan(plan: any) {
     return {
       _id: plan.PlanNum.toString(),
+      id: plan.PlanNum.toString(),
       name: plan.GroupName ?? '',
-      groupNumber: plan.GroupNum ?? null,
+      groupName: plan.GroupName ?? '',
+      groupNumber: plan.GroupNum ?? '',
       notes: plan.PlanNote ?? null,
+      
+      // Flatten carrier properties
+      carrier: plan.carrier?.CarrierName ?? 'Manual Entry',
+      electronicId: plan.carrier?.ElectID ?? 'N/A',
+      phone: plan.carrier?.Phone ?? '-',
+      
+      // Mapped fee schedule to feeGuide
+      feeGuide: plan.FeeSched && plan.FeeSched.toString() !== '0' 
+        ? `Sched ${plan.FeeSched}` 
+        : 'none',
+
+      // Placeholders/Fields for other frontend columns
+      employer: plan.EmployerNum ? 'Associated Employer' : '-',
+      templateName: 'Standard',
+      subscribers: 0,
+
       insuranceCompany: plan.carrier
         ? {
             _id: plan.carrier.CarrierNum.toString(),
@@ -289,6 +307,24 @@ export class InsurancePlanService {
       } satisfies CoverageTemplateMeta,
     });
     return this.getCoverageTemplates();
+  }
+
+  async deleteInsurancePlan(planId: string) {
+    const plan = await prisma.insplan.findUnique({
+      where: { PlanNum: BigInt(planId) },
+    });
+    if (!plan) {
+      throw new NotFoundError('Insurance plan not found');
+    }
+
+    // Soft-delete: OpenDental hides plans using the IsHidden flag to preserve clinical history
+    await prisma.insplan.update({
+      where: { PlanNum: BigInt(planId) },
+      data: {
+        IsHidden: 1,
+        SecDateTEdit: new Date(),
+      },
+    });
   }
 }
 

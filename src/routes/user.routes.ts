@@ -10,6 +10,7 @@ import {
   assignRoleValidator,
   queryValidator,
   createUserValidator,
+  assignUserRolesValidator,
 } from '../validators/user.validator';
 
 // Validator for activity and login history endpoints
@@ -302,8 +303,8 @@ router.post(
 router.post(
   '/:userId/roles',
   requireRoles('Admin'),
-  validate([...userIdValidator, ...assignRoleValidator]),
-  userController.assignRole.bind(userController)
+  validate(assignUserRolesValidator),
+  userController.assignUserRoles.bind(userController)
 );
 
 /**

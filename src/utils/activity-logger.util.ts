@@ -93,7 +93,7 @@ export const logActivityFromRequest = async (
     return;
   }
 
-  await logActivity(
+  logActivity(
     req.userId,
     action,
     tableName,
@@ -102,5 +102,7 @@ export const logActivityFromRequest = async (
     newValues,
     getClientIp(req),
     getUserAgent(req)
-  );
+  ).catch((err) => {
+    console.error('Audit log failed:', err);
+  });
 };

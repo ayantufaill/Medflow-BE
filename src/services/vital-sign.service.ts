@@ -141,7 +141,12 @@ export class VitalSignService {
     };
   }
 
-  async getVitalSignsByPatient(patientId: string, page = 1, limit = 10) {
+  async getVitalSignsByPatient(
+    patientId: string,
+    page = 1,
+    limit = 10,
+    filters: { startDate?: Date; endDate?: Date } = {}
+  ) {
     const skip = (page - 1) * limit;
 
     const patient = await prisma.patient.findUnique({
@@ -151,14 +156,22 @@ export class VitalSignService {
       throw new NotFoundError('Patient not found');
     }
 
+    const where: any = { PatNum: BigInt(patientId) };
+
+    if (filters.startDate || filters.endDate) {
+      where.DateTaken = {};
+      if (filters.startDate) where.DateTaken.gte = filters.startDate;
+      if (filters.endDate) where.DateTaken.lte = filters.endDate;
+    }
+
     const [rows, total] = await Promise.all([
       prisma.vitalsign.findMany({
-        where: { PatNum: BigInt(patientId) },
+        where,
         orderBy: [{ DateTaken: 'desc' }],
         skip,
         take: limit,
       }),
-      prisma.vitalsign.count({ where: { PatNum: BigInt(patientId) } }),
+      prisma.vitalsign.count({ where }),
     ]);
 
     return {
@@ -569,6 +582,54 @@ export class VitalSignService {
       };
     });
   }
+
+  async getNormalRanges(ageInput?: number, gender?: string) {
+    const age = ageInput ?? 30; // Default to adult if not specified
+    const isPediatric = age <= 12;
+    const isElderly = age >= 65;
+
+    if (isPediatric) {
+      return {
+        bloodPressureSystolic: { min: 80, max: 110, unit: 'mmHg' },
+        bloodPressureDiastolic: { min: 50, max: 80, unit: 'mmHg' },
+        temperature: { min: 97.0, max: 99.0, unit: '°F' },
+        weight: { min: 5, max: 120, unit: 'lbs' },
+        height: { min: 20, max: 60, unit: 'in' },
+        heartRate: { min: 70, max: 120, unit: 'bpm' },
+        respiratoryRate: { min: 15, max: 30, unit: 'breaths/min' },
+        oxygenSaturation: { min: 95, max: 100, unit: '%' },
+        bmi: { min: 14.0, max: 22.0, unit: 'kg/m²' },
+      };
+    }
+
+    if (isElderly) {
+      return {
+        bloodPressureSystolic: { min: 90, max: 130, unit: 'mmHg' },
+        bloodPressureDiastolic: { min: 60, max: 90, unit: 'mmHg' },
+        temperature: { min: 96.8, max: 98.5, unit: '°F' },
+        weight: { min: 100, max: 220, unit: 'lbs' },
+        height: { min: 56, max: 74, unit: 'in' },
+        heartRate: { min: 60, max: 100, unit: 'bpm' },
+        respiratoryRate: { min: 12, max: 24, unit: 'breaths/min' },
+        oxygenSaturation: { min: 95, max: 100, unit: '%' },
+        bmi: { min: 22.0, max: 29.0, unit: 'kg/m²' },
+      };
+    }
+
+    // Default: Adult
+    return {
+      bloodPressureSystolic: { min: 90, max: 120, unit: 'mmHg' },
+      bloodPressureDiastolic: { min: 60, max: 80, unit: 'mmHg' },
+      temperature: { min: 97.0, max: 99.0, unit: '°F' },
+      weight: { min: 100, max: 250, unit: 'lbs' },
+      height: { min: 58, max: 76, unit: 'in' },
+      heartRate: { min: 60, max: 100, unit: 'bpm' },
+      respiratoryRate: { min: 12, max: 20, unit: 'breaths/min' },
+      oxygenSaturation: { min: 95, max: 100, unit: '%' },
+      bmi: { min: 18.5, max: 24.9, unit: 'kg/m²' },
+    };
+  }
 }
 
 export const vitalSignService = new VitalSignService();
+

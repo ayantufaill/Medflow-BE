@@ -42,13 +42,16 @@ type DocumentMeta = {
 export class DocumentService {
   private mapDocumentRow(doc: any) {
     const meta = parseJson<DocumentMeta>(doc.Note);
+    const storagePath = meta.storagePath ?? doc.FileName ?? null;
     return {
       _id: doc.DocNum.toString(),
       patientId: doc.PatNum?.toString() ?? null,
       appointmentId: meta.appointmentId ?? null,
       documentName: doc.Description ?? doc.FileName ?? 'Document',
       documentType: meta.documentType ?? 'other',
-      storagePath: meta.storagePath ?? doc.FileName ?? null,
+      storagePath,
+      fileUrl: storagePath,
+      documentUrl: storagePath,
       fileSizeInBytes: meta.fileSizeInBytes ?? null,
       mimeType: meta.mimeType ?? null,
       description: meta.description ?? null,

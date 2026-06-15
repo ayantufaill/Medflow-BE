@@ -1,7 +1,7 @@
 import { prisma } from '../config/db';
 import { NotFoundError, ConflictError } from '../utils/error.util';
 import type { AppRole } from '../types/auth.types';
-import { getRoleMeta, mapRole, mapUser, setRoleMeta } from '../utils/opendental-auth.util';
+import { getRoleMeta, mapRole, mapUser, setRoleMeta, getRolesMeta, getUsersMeta } from '../utils/opendental-auth.util';
 import { getNextId } from '../utils/opendental-ids.util';
 
 export class RoleService {
@@ -23,7 +23,11 @@ export class RoleService {
       prisma.usergroup.count({ where }),
     ]);
 
-    const roles = await Promise.all(rows.map(mapRole));
+    const roleNums = rows.map((r) => r.UserGroupNum);
+    const roleMetaMap = await getRolesMeta(roleNums);
+    const roles = await Promise.all(
+      rows.map((row) => mapRole(row, roleMetaMap[row.UserGroupNum.toString()]))
+    );
     const activeRoles = roles.filter((role) => role.isActive !== false);
 
     return {
@@ -180,10 +184,15 @@ export class RoleService {
       prisma.usergroupattach.count({ where: { UserGroupNum: BigInt(roleId) } }),
     ]);
 
+    const userNums = userRoles
+      .map((ur) => ur.userod?.UserNum)
+      .filter((num): num is bigint => num !== undefined && num !== null);
+    const userMetaMap = await getUsersMeta(userNums);
+
     return {
       users: await Promise.all(
         userRoles.map(async (ur) => ({
-          user: ur.userod ? await mapUser(ur.userod) : null,
+          user: ur.userod ? await mapUser(ur.userod, userMetaMap[ur.userod.UserNum.toString()]) : null,
           assignedAt: null,
           assignedBy: null,
         }))

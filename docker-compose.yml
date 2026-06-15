@@ -32,7 +32,7 @@ services:
   seed:
     build:
       context: .
-      target: dev
+      target: deps
     env_file:
       - .env.docker
     volumes:
@@ -48,7 +48,7 @@ services:
   api:
     build:
       context: .
-      target: dev
+      target: deps
       network: host
     ports:
       - "5001:5001"

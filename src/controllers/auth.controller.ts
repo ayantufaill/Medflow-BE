@@ -72,7 +72,8 @@ export class AuthController {
       }
 
       const meta = await getUserMeta(user.UserNum);
-      if (decoded.tokenVersion !== undefined && meta.tokenVersion !== decoded.tokenVersion) {
+      const storedVersion = Number(meta.tokenVersion ?? 0);
+      if (decoded.tokenVersion !== undefined && storedVersion !== decoded.tokenVersion) {
         throw new AuthenticationError('Token has been invalidated. Please login again.');
       }
 

@@ -5,6 +5,7 @@ import {
   getAllergyMeta,
   setAllergyMeta,
   mapUser,
+  getAllergiesMeta,
 } from '../utils/opendental-auth.util';
 
 export class AllergyService {
@@ -96,14 +97,11 @@ export class AllergyService {
       include: { allergydef: true },
     });
 
-    const metaMap = new Map(
-      await Promise.all(
-        allergies.map(async (allergy) => [
-          allergy.AllergyNum.toString(),
-          await getAllergyMeta(allergy.AllergyNum),
-        ] as const)
-      )
-    );
+    const allergyNums = allergies.map((a) => a.AllergyNum);
+    const metaMapData = await getAllergiesMeta(allergyNums);
+    const metaMap = {
+      get: (id: string) => metaMapData[id] || {}
+    };
 
     const documentedByMap = new Map(
       await Promise.all(
@@ -118,17 +116,19 @@ export class AllergyService {
     );
 
     const mappedAllergies = allergies.map((allergy) => ({
-      _id: allergy.AllergyNum.toString(),
-      patientId,
-      allergen: allergy.allergydef?.Description ?? 'Allergy',
-      reaction: metaMap.get(allergy.AllergyNum.toString())?.reaction ?? null,
-      severity: metaMap.get(allergy.AllergyNum.toString())?.severity ?? 'mild',
-      isActive: metaMap.get(allergy.AllergyNum.toString())?.isActive ?? true,
-      documentedBy:
-        documentedByMap.get(metaMap.get(allergy.AllergyNum.toString())?.documentedBy ?? '') ??
-        null,
-      documentedDate: metaMap.get(allergy.AllergyNum.toString())?.documentedDate ?? null,
-    }));
+     id: allergy.AllergyNum.toString(),
+    _id: allergy.AllergyNum.toString(),
+    patientId,
+  allergen: allergy.allergydef?.Description ?? 'Allergy',
+  reaction: metaMap.get(allergy.AllergyNum.toString())?.reaction ?? null,
+  severity: metaMap.get(allergy.AllergyNum.toString())?.severity ?? 'mild',
+  isActive: metaMap.get(allergy.AllergyNum.toString())?.isActive ?? true,
+  documentedBy:
+    documentedByMap.get(metaMap.get(allergy.AllergyNum.toString())?.documentedBy ?? '') ??
+    null,
+  documentedDate: metaMap.get(allergy.AllergyNum.toString())?.documentedDate ?? null,
+  onsetDate: metaMap.get(allergy.AllergyNum.toString())?.documentedDate ?? null,
+}));
 
     if (isActive === undefined) return mappedAllergies;
     return mappedAllergies.filter((allergy) => allergy.isActive === isActive);

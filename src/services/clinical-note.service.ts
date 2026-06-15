@@ -4,7 +4,7 @@ import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { allergyService } from './allergy.service';
 import { mapPatientToApi, mapProviderToApi } from '../utils/opendental-mappers.util';
-import { getProviderMeta, mapUser } from '../utils/opendental-auth.util';
+import { getProviderMeta, getProvidersMeta, getUsersMeta, mapUser } from '../utils/opendental-auth.util';
 
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;
@@ -73,10 +73,14 @@ export class ClinicalNoteService {
           where: { UserNum: { in: userIds.map((id) => BigInt(id)) } },
         })
       : [];
+    const userNums = linkedUsers.map((u) => u.UserNum);
+    const usersMeta = userNums.length ? await getUsersMeta(userNums) : {};
+
     const linkedUsersMap = new Map(
       await Promise.all(
         linkedUsers.map(async (user) => {
-          const mappedUser = await mapUser(user);
+          const preloadedMeta = usersMeta[user.UserNum.toString()];
+          const mappedUser = await mapUser(user, preloadedMeta);
           return [
             user.UserNum.toString(),
             {
@@ -89,22 +93,27 @@ export class ClinicalNoteService {
         })
       )
     );
+
+    const providerNums = providers.map((p) => p.ProvNum);
+    const providersMeta = await getProvidersMeta(providerNums);
+
     const providerMap = new Map(
-      await Promise.all(
-        providers.map(async (provider) => [
+      providers.map((provider) => {
+        const meta = providersMeta[provider.ProvNum.toString()] ?? {};
+        return [
           provider.ProvNum.toString(),
           mapProviderToApi(provider, {
             userId: provider.CustomID ?? null,
             user: provider.CustomID ? linkedUsersMap.get(provider.CustomID) ?? null : null,
-            appointmentBufferMinutes: (await getProviderMeta(provider.ProvNum)).appointmentBufferMinutes ?? 0,
-            workingHours: (await getProviderMeta(provider.ProvNum)).workingHours ?? [],
-            maxDailyAppointments: (await getProviderMeta(provider.ProvNum)).maxDailyAppointments ?? null,
-            consultationFee: (await getProviderMeta(provider.ProvNum)).consultationFee ?? null,
-            isAcceptingNewPatients: (await getProviderMeta(provider.ProvNum)).isAcceptingNewPatients ?? true,
-            telehealthEnabled: (await getProviderMeta(provider.ProvNum)).telehealthEnabled ?? false,
+            appointmentBufferMinutes: meta.appointmentBufferMinutes ?? 0,
+            workingHours: meta.workingHours ?? [],
+            maxDailyAppointments: meta.maxDailyAppointments ?? null,
+            consultationFee: meta.consultationFee ?? null,
+            isAcceptingNewPatients: meta.isAcceptingNewPatients ?? true,
+            telehealthEnabled: meta.telehealthEnabled ?? false,
           }),
-        ] as const)
-      )
+        ] as const;
+      })
     );
 
     return notes.map((note) => ({

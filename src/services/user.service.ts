@@ -12,6 +12,8 @@ import {
   findVerificationByToken,
   clearVerification,
   parsePrefJson,
+  getUsersMeta,
+  getRolesMeta,
 } from '../utils/opendental-auth.util';
 import type { UserWithRoles, AppUser } from '../types/auth.types';
 import crypto from 'crypto';
@@ -62,7 +64,11 @@ export class UserService {
       prisma.userod.count({ where }),
     ]);
 
-    let users = await Promise.all(rows.map(mapUser));
+    const userNums = rows.map((r) => r.UserNum);
+    const userMetaMap = await getUsersMeta(userNums);
+    let users = await Promise.all(
+      rows.map((row) => mapUser(row, userMetaMap[row.UserNum.toString()]))
+    );
 
     if (search) {
       const searchLower = search.toLowerCase();
@@ -82,13 +88,24 @@ export class UserService {
       include: { usergroup: true },
     });
 
+    const allRoleNums = Array.from(
+      new Set(
+        userRoles
+          .map((ur) => ur.UserGroupNum)
+          .filter((num): num is bigint => num !== null && num !== undefined)
+      )
+    );
+    const roleMetaMap = await getRolesMeta(allRoleNums);
+
     const usersWithRoles = await Promise.all(
       users.map(async (user) => {
-        const roleIds = userRoles
+        const roleGroups = userRoles
           .filter((ur) => ur.UserNum?.toString() === user._id)
           .map((ur) => ur.usergroup)
-          .filter(Boolean);
-        const roles = await Promise.all(roleIds.map(mapRole));
+          .filter((ug): ug is NonNullable<typeof ug> => ug !== null && ug !== undefined);
+        const roles = await Promise.all(
+          roleGroups.map((role) => mapRole(role, roleMetaMap[role.UserGroupNum.toString()]))
+        );
         return { ...sanitizeUser(user), roles };
       })
     );
@@ -138,7 +155,7 @@ export class UserService {
       userRoles
         .map((ur) => ur.usergroup)
         .filter(Boolean)
-        .map(mapRole)
+        .map((r) => mapRole(r))
     );
 
     return { ...sanitizeUser(mapped), roles } as UserWithRoles;
@@ -494,6 +511,54 @@ export class UserService {
       .filter(Boolean);
 
     return { history, pagination: { page, limit, total: history.length, pages: Math.ceil(history.length / limit) } };
+  }
+
+  async assignUserRoles(userId: string, roleIds: string[]): Promise<void> {
+    const userNum = BigInt(userId);
+    const user = await prisma.userod.findUnique({
+      where: { UserNum: userNum },
+    });
+    if (!user) {
+      throw new NotFoundError('User not found');
+    }
+
+    const bigIntRoleIds = roleIds.map((id) => BigInt(id));
+    const roles = await prisma.usergroup.findMany({
+      where: { UserGroupNum: { in: bigIntRoleIds } },
+    });
+    if (roles.length !== bigIntRoleIds.length) {
+      throw new NotFoundError('One or more roles do not exist');
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Delete existing attachments
+      await tx.usergroupattach.deleteMany({
+        where: { UserNum: userNum },
+      });
+
+      // Retrieve the starting UserGroupAttachNum
+      const maxRow = await tx.$queryRawUnsafe<{ nextId: bigint }[]>(
+        'SELECT COALESCE(MAX("UserGroupAttachNum"), 0) + 1 AS "nextId" FROM "usergroupattach"'
+      );
+      let nextAttachId = maxRow[0]?.nextId ?? 1n;
+
+      // Add new attachments
+      for (const roleId of bigIntRoleIds) {
+        await tx.usergroupattach.create({
+          data: {
+            UserGroupAttachNum: nextAttachId,
+            UserNum: userNum,
+            UserGroupNum: roleId,
+          },
+        });
+        nextAttachId += 1n;
+      }
+    });
+
+    // Invalidate JWTs by incrementing user preference token version
+    const meta = await getUserMeta(userNum);
+    const nextVersion = (meta.tokenVersion || 0) + 1;
+    await setUserMeta(userNum, { ...meta, tokenVersion: nextVersion });
   }
 }
 

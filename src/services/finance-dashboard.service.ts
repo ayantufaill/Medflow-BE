@@ -152,6 +152,56 @@ export class FinanceDashboardService {
       total: bucket0_30 + bucket31_60 + bucket61_90 + bucket90Plus
     };
   }
+
+  async getGlobalOverview() {
+    // Total Practice Collections
+    const totalPayments = await prisma.payment.aggregate({
+      _sum: { PayAmt: true }
+    });
+
+    const totalAdjustments = await prisma.adjustment.aggregate({
+      _sum: { AdjAmt: true }
+    });
+
+    // We can estimate total billing by looking at all statements or patient balances
+    const totalInvoices = await prisma.statement.aggregate({
+      _sum: { BalTotal: true }
+    });
+
+    // Monthly Performance
+    const now = new Date();
+    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    
+    const monthlyPayments = await prisma.payment.aggregate({
+      where: {
+        PayDate: { gte: firstDayOfMonth }
+      },
+      _sum: { PayAmt: true }
+    });
+
+    // Claim stats
+    const totalClaims = await prisma.claim.count();
+    const pendingClaims = await prisma.claim.count({
+      where: { ClaimStatus: 'S' } // 'S' for Sent (Pending)
+    });
+
+    const collections = Number(totalPayments._sum.PayAmt) || 0;
+    const adjustments = Number(totalAdjustments._sum.AdjAmt) || 0;
+    const billings = Number(totalInvoices._sum.BalTotal) || 0;
+
+    // Simplified A/R calculation
+    const totalAR = billings + adjustments - collections;
+
+    return {
+      totalCollections: collections,
+      totalAR: totalAR > 0 ? totalAR : 0,
+      monthlyCollections: Number(monthlyPayments._sum.PayAmt) || 0,
+      claims: {
+        total: totalClaims,
+        pending: pendingClaims
+      }
+    };
+  }
 }
 
 export const financeDashboardService = new FinanceDashboardService();

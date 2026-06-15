@@ -1,0 +1,69 @@
+services:
+  - type: web
+    name: medflow-api
+    runtime: node
+    rootDir: Medflow-BE
+    region: oregon            # Choose: oregon | ohio | frankfurt | singapore
+    plan: free                # Free tier: 512MB RAM, 0.1 CPU, spins down after 15min inactivity
+
+    buildCommand: |
+      npm ci
+      npx prisma generate --schema prisma/schema.prisma
+      npm run build
+
+    startCommand: node dist/server.js
+
+    healthCheckPath: /health
+
+    # Auto-deploy on every push to the connected branch
+    autoDeploy: true
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5001
+
+      # ── Set these in Render dashboard (sensitive values) ────────────────────
+      - key: DATABASE_URL
+        sync: false           # Will be set manually in Render dashboard
+
+      - key: JWT_SECRET
+        generateValue: true   # Render generates a secure random value automatically
+
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+
+      - key: JWT_ACCESS_EXPIRES_IN
+        value: 1d
+
+      - key: JWT_REFRESH_EXPIRES_IN
+        value: 7d
+
+      - key: CORS_ORIGIN
+        sync: false           # Set to your frontend URL
+
+      - key: EMAIL_PROVIDER
+        value: console        # Change to 'gmail' in production
+
+      - key: FROM_EMAIL
+        value: noreply@medflow.com
+
+      - key: FROM_NAME
+        value: MedFlow
+
+      # Optional — set in dashboard if using S3
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        value: us-west-2
+      - key: AWS_S3_BUCKET_NAME
+        sync: false
+      - key: AWS_S3_BASE_URL
+        sync: false
+
+    # Render free tier gets 512MB RAM. Node's default heap is ~1.5GB which
+    # causes OOM. Cap it at 400MB to leave room for the OS.
+    envVarsFromFile: []       # (placeholder — remove if not using envVarsFromFile)

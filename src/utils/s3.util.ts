@@ -26,10 +26,10 @@ const getS3Client = (): S3Client => {
   if (!validateAWSConfig()) {
     throw new Error('AWS S3 is not configured');
   }
-  console.log('AWS_REGION:', process.env.AWS_REGION);
-  console.log('AWS_S3_BUCKET_NAME:', process.env.AWS_S3_BUCKET_NAME);
-  console.log('AWS_S3_BASE_URL:', process.env.AWS_S3_BASE_URL);
-  console.log('AWS_S3_USE_ACL:', process.env.AWS_S3_USE_ACL);
+  // console.log('AWS_REGION:', process.env.AWS_REGION);
+  // console.log('AWS_S3_BUCKET_NAME:', process.env.AWS_S3_BUCKET_NAME);
+  // console.log('AWS_S3_BASE_URL:', process.env.AWS_S3_BASE_URL);
+  // console.log('AWS_S3_USE_ACL:', process.env.AWS_S3_USE_ACL);
   return new S3Client({
     region: process.env.AWS_REGION || 'us-west-2',
     credentials: {

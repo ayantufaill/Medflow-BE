@@ -21,9 +21,10 @@ const getAllowedOrigins = (): string[] | string => {
 
 export const corsOptions: cors.CorsOptions = {
   origin: '*',
-  credentials: false,
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
+  optionsSuccessStatus: 200
 };
 
 export const helmetOptions = {

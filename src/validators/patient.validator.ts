@@ -3,17 +3,23 @@ import { body, param, query, ValidationChain } from 'express-validator';
 const isNumericIdString = (value: unknown): boolean =>
   typeof value === 'string' && /^\d+$/.test(value.trim());
 
+const isUuidString = (value: unknown): boolean =>
+  typeof value === 'string' && /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value.trim());
+
+const isValidPatientIdString = (value: unknown): boolean =>
+  isNumericIdString(value) || isUuidString(value);
+
 const optionalNumericIdValidator = (field: string, message: string) =>
   body(field)
     .optional({ values: 'falsy' })
-    .custom((value) => isNumericIdString(value))
+    .custom((value) => isValidPatientIdString(value))
     .withMessage(message);
 
 export const patientIdValidator: ValidationChain[] = [
   param('patientId')
     .notEmpty()
     .withMessage('Patient ID is required')
-    .custom((value) => isNumericIdString(value))
+    .custom((value) => isValidPatientIdString(value))
     .withMessage('Invalid patient ID format'),
 ];
 
@@ -274,6 +280,14 @@ export const createPatientValidator: ValidationChain[] = [
     .optional()
     .isObject()
     .withMessage('customFields must be an object'),
+  body('preferredDentistId')
+    .optional({ nullable: true })
+    .isString()
+    .withMessage('preferredDentistId must be a string'),
+  body('preferredHygienistId')
+    .optional({ nullable: true })
+    .isString()
+    .withMessage('preferredHygienistId must be a string'),
 ];
 
 export const updatePatientValidator: ValidationChain[] = [
@@ -529,6 +543,34 @@ export const updatePatientValidator: ValidationChain[] = [
     .optional()
     .isObject()
     .withMessage('customFields must be an object'),
+  body('preferredDentistId')
+    .optional({ nullable: true })
+    .isString()
+    .withMessage('preferredDentistId must be a string'),
+  body('preferredHygienistId')
+    .optional({ nullable: true })
+    .isString()
+    .withMessage('preferredHygienistId must be a string'),
+  body('headOfCommunication')
+    .optional({ nullable: true })
+    .isObject()
+    .withMessage('headOfCommunication must be an object'),
+  body('household')
+    .optional()
+    .isArray()
+    .withMessage('household must be an array'),
+  body('spouseInfo')
+    .optional({ nullable: true })
+    .isObject()
+    .withMessage('spouseInfo must be an object'),
+  body('patientFlags')
+    .optional()
+    .isArray()
+    .withMessage('patientFlags must be an array'),
+  body('financialResponsibility')
+    .optional({ nullable: true })
+    .isObject()
+    .withMessage('financialResponsibility must be an object'),
 ];
 
 export const patientWorkspaceMetaValidator: ValidationChain[] = [

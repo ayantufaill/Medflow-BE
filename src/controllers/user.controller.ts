@@ -389,6 +389,36 @@ export class UserController {
       next(error);
     }
   }
+
+  async assignUserRoles(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId } = req.params;
+      const { roleIds } = req.body;
+
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'User ID is required' },
+        });
+      }
+
+      if (!Array.isArray(roleIds)) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'roleIds must be an array of strings' },
+        });
+      }
+
+      await userService.assignUserRoles(userId, roleIds);
+
+      res.status(200).json({
+        success: true,
+        data: { message: 'User roles updated successfully' },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const userController = new UserController();

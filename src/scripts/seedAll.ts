@@ -20,6 +20,7 @@ const scripts = [
   'src/scripts/seedProviders.ts',
   'src/scripts/seedAssistants.ts',
   'src/scripts/seedAppointments.ts',
+  'src/scripts/seedClaims.ts',
 ];
 
 for (const script of scripts) {

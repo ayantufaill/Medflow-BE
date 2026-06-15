@@ -2,6 +2,7 @@ import { Router } from 'express';
 import authRoutes from './auth.routes';
 import userRoutes from './user.routes';
 import roleRoutes from './role.routes';
+import patientInsuranceRoutes from './patient-insurance.routes';
 import permissionRoutes from './permission.routes';
 import practiceInfoRoutes from './practice-info.routes';
 import patientRoutes from './patient.routes';
@@ -43,8 +44,18 @@ import reportingRoutes from './reporting.routes';
 import audienceRoutes from './audience.routes';
 import kpiRoutes from './kpi.routes';
 import communicationRoutes from './communication.routes';
+import clinicalManagementRoutes from './clinical-management.routes';
+import feeManagementRoutes from './fee-management.routes';
+import adminFinanceRoutes from './admin-finance.routes';
+import paymentTerminalRoutes from './payment-terminal.routes';
+import membershipPlanRoutes from './membership-plan.routes';
+import medicationRoutes from './medication.routes';
+import adjunctiveTherapyRoutes from './adjunctive-therapy.routes';
+import aiConversationRoutes from './ai-conversation.routes';
 
 const router = Router();
+
+
 
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
@@ -52,6 +63,7 @@ router.use('/roles', roleRoutes);
 router.use('/permissions', permissionRoutes);
 router.use('/practice-info', practiceInfoRoutes);
 router.use('/patients', patientRoutes);
+router.use('/patients', patientInsuranceRoutes);
 router.use('/insurance-companies', insuranceCompanyRoutes);
 router.use('/insurance-plans', insurancePlanRoutes);
 router.use('/coverage-templates', coverageTemplateRoutes);
@@ -90,5 +102,14 @@ router.use('/reports', reportingRoutes);
 router.use('/audiences', audienceRoutes);
 router.use('/kpis', kpiRoutes);
 router.use('/communication', communicationRoutes);
+router.use('/clinical-management', clinicalManagementRoutes);
+router.use('/fee-management', feeManagementRoutes);
+router.use('/admin-finance', adminFinanceRoutes);
+router.use('/payment-terminals', paymentTerminalRoutes);
+router.use('/membership-plans', membershipPlanRoutes);
+router.use('/medications', medicationRoutes);
+router.use('/patients', adjunctiveTherapyRoutes);
+router.use('/ai-conversation', aiConversationRoutes);
 
 export default router;
+

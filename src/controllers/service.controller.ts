@@ -213,6 +213,42 @@ export class ServiceController {
       next(error);
     }
   }
+
+  async toggleServiceStatus(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const { serviceId } = req.params;
+      if (!serviceId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Service ID is required' },
+        });
+      }
+
+      const service = await serviceService.getServiceById(serviceId);
+      const nextActive = !service.isActive;
+
+      const updatedService = await serviceService.updateService(
+        serviceId,
+        { isActive: nextActive },
+        req.userId
+      );
+
+      res.status(200).json({
+        success: true,
+        data: { service: updatedService },
+        message: `Service status toggled to ${nextActive ? 'active' : 'inactive'}`,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const serviceController = new ServiceController();

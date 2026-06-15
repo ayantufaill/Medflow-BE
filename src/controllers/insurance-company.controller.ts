@@ -52,6 +52,8 @@ export class InsuranceCompanyController {
     for (const [key, value] of Object.entries(normalized)) {
       if (value !== undefined) {
         payload[key] = value;
+      } else {
+        delete payload[key];
       }
     }
     return payload;
