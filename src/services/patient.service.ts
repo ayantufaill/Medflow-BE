@@ -60,10 +60,43 @@ export class PatientService {
     search?: string,
     status?: string,
     dobStart?: string,
-    dobEnd?: string
+    dobEnd?: string,
+    gender?: string,
+    providerId?: string
   ) {
     const skip = (page - 1) * limit;
     const where: any = {};
+
+    // Filter by gender using mapGenderToDb
+    if (gender) {
+      const dbGender = mapGenderToDb(gender);
+      if (dbGender !== null) {
+        where.Gender = dbGender;
+      }
+    }
+
+    // Filter by provider using userodpref json search
+    if (providerId) {
+      const matchingPrefs = await prisma.userodpref.findMany({
+        where: {
+          FkeyType: 206,
+          ValueString: {
+            contains: `"preferredDentistId":"${providerId}"`,
+          },
+        },
+        select: {
+          Fkey: true,
+        },
+      });
+
+      const matchingPatNums = matchingPrefs
+        .map((p) => p.Fkey)
+        .filter((fkey): fkey is bigint => fkey !== null);
+
+      where.PatNum = {
+        in: matchingPatNums,
+      };
+    }
 
     // Search filter - search by name, DOB, phone, email, patient code
     if (search) {
