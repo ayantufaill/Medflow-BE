@@ -164,6 +164,107 @@ export class FeeManagementController {
       next(error);
     }
   }
+
+  async getFeeScheduleById(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const sched = await feeManagementService.getFeeScheduleById(id as string);
+      res.status(200).json({
+        success: true,
+        data: sched,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getFeeScheduleFees(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const search = req.query.search as string | undefined;
+      const category = req.query.category as string | undefined;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+
+      const result = await feeManagementService.getFeeScheduleFees(id as string, {
+        search,
+        category,
+        page,
+        limit,
+      });
+
+      res.status(200).json({
+        success: true,
+        ...result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateFeeScheduleFees(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { fees } = req.body;
+
+      const result = await feeManagementService.updateFeeScheduleFees(id as string, fees);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async roundFeeScheduleFees(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { toNearest } = req.body;
+
+      const result = await feeManagementService.roundFeeScheduleFees(
+        id as string,
+        toNearest !== undefined ? parseFloat(toNearest) : 1
+      );
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async setProviderFeeSchedule(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { providerId } = req.body;
+
+      const result = await feeManagementService.setProviderFeeSchedule(id as string, providerId as string);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async uploadFeeScheduleFees(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { fees } = req.body;
+
+      const result = await feeManagementService.updateFeeScheduleFees(id as string, fees);
+      res.status(200).json({
+        success: true,
+        message: 'Fees uploaded successfully',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const feeManagementController = new FeeManagementController();

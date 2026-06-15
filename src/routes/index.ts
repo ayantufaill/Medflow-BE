@@ -49,6 +49,9 @@ import feeManagementRoutes from './fee-management.routes';
 import adminFinanceRoutes from './admin-finance.routes';
 import paymentTerminalRoutes from './payment-terminal.routes';
 import membershipPlanRoutes from './membership-plan.routes';
+import medicationRoutes from './medication.routes';
+import adjunctiveTherapyRoutes from './adjunctive-therapy.routes';
+import aiConversationRoutes from './ai-conversation.routes';
 
 const router = Router();
 
@@ -104,6 +107,9 @@ router.use('/fee-management', feeManagementRoutes);
 router.use('/admin-finance', adminFinanceRoutes);
 router.use('/payment-terminals', paymentTerminalRoutes);
 router.use('/membership-plans', membershipPlanRoutes);
+router.use('/medications', medicationRoutes);
+router.use('/patients', adjunctiveTherapyRoutes);
+router.use('/ai-conversation', aiConversationRoutes);
 
 export default router;
 

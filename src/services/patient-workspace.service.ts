@@ -104,6 +104,33 @@ export class PatientWorkspaceService {
     };
   }
 
+  private async resolveActors(userIds: string[]) {
+    if (userIds.length === 0) return new Map();
+    const bigintIds = userIds.map((id) => BigInt(id));
+    const users = await prisma.userod.findMany({
+      where: { UserNum: { in: bigintIds } },
+    });
+    const userNums = users.map((u) => u.UserNum);
+    const { getUsersMeta } = await import('../utils/opendental-auth.util');
+    const usersMeta = await getUsersMeta(userNums);
+
+    const mappedActors = await Promise.all(
+      users.map(async (user) => {
+        const mapped = await mapUser(user, usersMeta[user.UserNum.toString()]);
+        return [
+          user.UserNum.toString(),
+          {
+            _id: mapped._id,
+            firstName: mapped.firstName || mapped.email || '',
+            lastName: mapped.lastName || '',
+            email: mapped.email || null,
+          },
+        ] as const;
+      })
+    );
+    return new Map(mappedActors);
+  }
+
   async getPatientWorkspace(patientId: string) {
     const patient = await this.requirePatient(patientId);
     const patientMeta = await getPatientMeta(patient.PatNum);
@@ -359,11 +386,7 @@ export class PatientWorkspaceService {
       entries
         .flatMap(({ meta }) => [meta.sentBy, meta.appliedBy].filter(Boolean) as string[])
     );
-    const actorMap = new Map(
-      await Promise.all(
-        actorIds.map(async (actorId) => [actorId, await this.resolveActor(actorId)] as const)
-      )
-    );
+    const actorMap = await this.resolveActors(actorIds);
 
     return {
       updateRequests: entries.map(({ meta, row }) => ({
@@ -617,11 +640,7 @@ export class PatientWorkspaceService {
         .map(({ meta }) => meta.actorUserId)
         .filter((value): value is string => Boolean(value))
     );
-    const actorMap = new Map(
-      await Promise.all(
-        actorIds.map(async (actorId) => [actorId, await this.resolveActor(actorId)] as const)
-      )
-    );
+    const actorMap = await this.resolveActors(actorIds);
 
     return {
       auditEvents: entries.map(({ meta }) => ({
@@ -682,11 +701,7 @@ export class PatientWorkspaceService {
         .map(({ meta }) => meta.createdBy)
         .filter((value): value is string => Boolean(value))
     );
-    const actorMap = new Map(
-      await Promise.all(
-        actorIds.map(async (actorId) => [actorId, await this.resolveActor(actorId)] as const)
-      )
-    );
+    const actorMap = await this.resolveActors(actorIds);
 
     return {
       communications: entries.map(({ meta }) => ({

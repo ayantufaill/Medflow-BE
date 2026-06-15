@@ -204,6 +204,13 @@ router.patch(
   insurancePlanController.updateInsurancePlan.bind(insurancePlanController)
 );
 
+router.delete(
+  '/:planId',
+  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  validate(insurancePlanIdValidator),
+  insurancePlanController.deleteInsurancePlan.bind(insurancePlanController)
+);
+
 /**
  * @swagger
  * /insurance-plans/patients/{patientId}/coverages:

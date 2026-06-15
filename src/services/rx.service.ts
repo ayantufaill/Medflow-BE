@@ -1,5 +1,6 @@
 import { prisma } from '../config/db';
 import { getNextId } from '../utils/opendental-ids.util';
+import { getRxsMeta, setRxMeta } from '../utils/opendental-auth.util';
 
 export class RxService {
   async getPrescriptions(patientId?: string, page = 1, limit = 25) {
@@ -32,19 +33,25 @@ export class RxService {
       providerMap.set(p.ProvNum.toString(), `${p.FName} ${p.LName}`.trim());
     });
 
-    const prescriptions = rows.map((rx: any) => ({
-      id: rx.RxNum.toString(),
-      rxNum: rx.RxNum.toString(),
-      description: rx.Drug || '',
-      startDate: rx.RxDate ? rx.RxDate.toISOString().split('T')[0] : '',
-      duration: '', 
-      longTerm: '', 
-      refills: rx.Refills || '',
-      dose: rx.Disp || '',
-      prints: '0', 
-      provider: rx.ProvNum ? providerMap.get(rx.ProvNum.toString()) || 'Unknown Provider' : 'Unknown Provider',
-      notes: rx.Sig || rx.PatientInstruction || ''
-    }));
+    const rxNums = rows.map((r) => r.RxNum);
+    const rxsMetaMap = await getRxsMeta(rxNums);
+
+    const prescriptions = rows.map((rx: any) => {
+      const meta = rxsMetaMap[rx.RxNum.toString()] ?? {};
+      return {
+        id: rx.RxNum.toString(),
+        rxNum: rx.RxNum.toString(),
+        description: rx.Drug || '',
+        startDate: rx.RxDate ? rx.RxDate.toISOString().split('T')[0] : '',
+        duration: meta.duration || '', 
+        longTerm: meta.longTerm || '', 
+        refills: rx.Refills || '',
+        dose: rx.Disp || '',
+        prints: meta.prints || '0', 
+        provider: rx.ProvNum ? providerMap.get(rx.ProvNum.toString()) || 'Unknown Provider' : 'Unknown Provider',
+        notes: rx.Sig || rx.PatientInstruction || ''
+      };
+    });
 
     return {
       prescriptions,
@@ -60,11 +67,6 @@ export class RxService {
   async createPrescription(data: any) {
     const nextId = await getNextId('rxpat', 'RxNum');
     
-    // Construct Sig / Notes from duration and longTerm if passed
-    let sigOrNotes = data.notes || '';
-    if (data.duration) sigOrNotes += ` | Duration: ${data.duration}`;
-    if (data.longTerm) sigOrNotes += ` | Long Term: ${data.longTerm}`;
-
     let rxDate = null;
     if (data.startDate) {
         rxDate = new Date(data.startDate);
@@ -76,15 +78,22 @@ export class RxService {
       data: {
         RxNum: nextId,
         PatNum: BigInt(data.patientId),
-        ProvNum: data.providerId ? BigInt(data.providerId) : BigInt(0),
+        ProvNum: data.providerId ? BigInt(data.providerId) : null,
         Drug: data.description || '',
         RxDate: rxDate,
         Disp: data.dose || '',
         Refills: data.refills || '',
-        Sig: sigOrNotes,
+        Sig: data.notes || '',
         PatientInstruction: data.notes || '',
         Notes: '',
       }
+    });
+
+    // Save custom metadata
+    await setRxMeta(nextId, {
+      duration: data.duration || '',
+      longTerm: data.longTerm || '',
+      prints: data.prints || '0',
     });
 
     // Fetch provider name for response
@@ -103,7 +112,7 @@ export class RxService {
       longTerm: data.longTerm || '',
       refills: rx.Refills,
       dose: rx.Disp,
-      prints: '0',
+      prints: data.prints || '0',
       provider: providerName,
       notes: rx.Sig
     };
@@ -111,3 +120,4 @@ export class RxService {
 }
 
 export const rxService = new RxService();
+

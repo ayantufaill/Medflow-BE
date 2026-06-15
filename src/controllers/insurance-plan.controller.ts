@@ -92,6 +92,19 @@ export class InsurancePlanController {
       next(error);
     }
   }
+
+  async deleteInsurancePlan(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { planId } = req.params;
+      if (!planId) {
+        return res.status(400).json({ success: false, error: { message: 'Plan ID is required' } });
+      }
+      await insurancePlanService.deleteInsurancePlan(planId);
+      res.status(200).json({ success: true, message: 'Insurance plan deleted successfully' });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const insurancePlanController = new InsurancePlanController();

@@ -415,6 +415,8 @@ async getPatientLastVisit(patientId: string) {
       };
       notes?: string;
       customFields?: Record<string, unknown>;
+      preferredDentistId?: string;
+      preferredHygienistId?: string;
     },
     createdBy?: string
   ) {
@@ -480,8 +482,8 @@ async getPatientLastVisit(patientId: string) {
       portalAccessEnabled: data.portalAccessEnabled ?? false,
       referralSource: data.referralSource?.trim() || null,
       customFields: data.customFields ?? {},
-      preferredDentistId: null,
-      preferredHygienistId: null,
+      preferredDentistId: data.preferredDentistId ?? null,
+      preferredHygienistId: data.preferredHygienistId ?? null,
       headOfCommunication: null,
       household: [],
       spouseInfo: null,
@@ -577,6 +579,13 @@ async getPatientLastVisit(patientId: string) {
       };
       notes?: string;
       customFields?: Record<string, unknown>;
+      preferredDentistId?: string | null;
+      preferredHygienistId?: string | null;
+      headOfCommunication?: Record<string, any> | null;
+      household?: any[];
+      spouseInfo?: Record<string, any> | null;
+      patientFlags?: any[];
+      financialResponsibility?: Record<string, any> | null;
     },
     updatedBy?: string
   ) {
@@ -651,13 +660,13 @@ async getPatientLastVisit(patientId: string) {
           ? updates.referralSource.trim() || null
           : currentMeta.referralSource ?? null,
       customFields: updates.customFields ?? currentMeta.customFields ?? {},
-      preferredDentistId: currentMeta.preferredDentistId ?? null,
-      preferredHygienistId: currentMeta.preferredHygienistId ?? null,
-      headOfCommunication: currentMeta.headOfCommunication ?? null,
-      household: currentMeta.household ?? [],
-      spouseInfo: currentMeta.spouseInfo ?? null,
-      patientFlags: currentMeta.patientFlags ?? [],
-      financialResponsibility: currentMeta.financialResponsibility ?? null,
+      preferredDentistId: updates.preferredDentistId !== undefined ? updates.preferredDentistId : currentMeta.preferredDentistId ?? null,
+      preferredHygienistId: updates.preferredHygienistId !== undefined ? updates.preferredHygienistId : currentMeta.preferredHygienistId ?? null,
+      headOfCommunication: updates.headOfCommunication !== undefined ? updates.headOfCommunication : currentMeta.headOfCommunication ?? null,
+      household: updates.household !== undefined ? updates.household : currentMeta.household ?? [],
+      spouseInfo: updates.spouseInfo !== undefined ? updates.spouseInfo : currentMeta.spouseInfo ?? null,
+      patientFlags: updates.patientFlags !== undefined ? updates.patientFlags : currentMeta.patientFlags ?? [],
+      financialResponsibility: updates.financialResponsibility !== undefined ? updates.financialResponsibility : currentMeta.financialResponsibility ?? null,
       sexAtBirth:
         updates.sexAtBirth !== undefined ? updates.sexAtBirth : currentMeta.sexAtBirth ?? null,
       genderIdentity:

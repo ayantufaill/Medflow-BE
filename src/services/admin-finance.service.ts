@@ -49,17 +49,29 @@ export class AdminFinanceService {
       const meta = typeof setting === 'object' ? setting : {};
       return list.map((item) => {
         const itemId = item.DefNum.toString();
+        
+        // Try parsing JSON from ItemValue first
+        let parsedVal: any = {};
+        try {
+          if (item.ItemValue && item.ItemValue.trim().startsWith('{')) {
+            parsedVal = JSON.parse(item.ItemValue);
+          }
+        } catch (e) {
+          // ignore parsing error, fallback to legacy
+        }
+
         const itemMeta = meta[itemId] || {};
+        
         return {
           id: itemId,
           type: item.ItemName || '',
-          note: itemMeta.note || item.ItemValue || '',
+          note: parsedVal.note ?? itemMeta.note ?? item.ItemValue ?? '',
           isHidden: item.IsHidden === 1,
           itemOrder: item.ItemOrder ?? 0,
-          depositSlip: Boolean(itemMeta.depositSlip),
-          openEdge: Boolean(itemMeta.openEdge),
-          prosperipay: Boolean(itemMeta.prosperipay),
-          smilepay: Boolean(itemMeta.smilepay),
+          depositSlip: parsedVal.depositSlip !== undefined ? Boolean(parsedVal.depositSlip) : Boolean(itemMeta.depositSlip),
+          openEdge: parsedVal.openEdge !== undefined ? Boolean(parsedVal.openEdge) : Boolean(itemMeta.openEdge),
+          prosperipay: parsedVal.prosperipay !== undefined ? Boolean(parsedVal.prosperipay) : Boolean(itemMeta.prosperipay),
+          smilepay: parsedVal.smilepay !== undefined ? Boolean(parsedVal.smilepay) : Boolean(itemMeta.smilepay),
         };
       });
     }
@@ -127,6 +139,21 @@ export class AdminFinanceService {
           }
 
           if (category === 4) {
+            // Serialize Payment Type metadata properties directly to ItemValue JSON string
+            const serializedValue = JSON.stringify({
+              depositSlip: Boolean(data.depositSlip),
+              openEdge: Boolean(data.openEdge),
+              prosperipay: Boolean(data.prosperipay),
+              smilepay: Boolean(data.smilepay),
+              note: data.note ?? '',
+            });
+
+            // Update item to store the serialized JSON in ItemValue column
+            const updatedItem = await prisma.definition.update({
+              where: { DefNum: defNum },
+              data: { ItemValue: serializedValue },
+            });
+
             const currentSetting = await this.getSetting('payment_types_metadata');
             const meta = typeof currentSetting === 'object' ? currentSetting : {};
             meta[idStr] = {
@@ -140,10 +167,10 @@ export class AdminFinanceService {
 
             resolve({
               id: idStr,
-              type: item.ItemName || '',
-              note: data.note ?? (item.ItemValue || ''),
-              isHidden: item.IsHidden === 1,
-              itemOrder: item.ItemOrder ?? 0,
+              type: updatedItem.ItemName || '',
+              note: data.note ?? '',
+              isHidden: updatedItem.IsHidden === 1,
+              itemOrder: updatedItem.ItemOrder ?? 0,
               depositSlip: Boolean(data.depositSlip),
               openEdge: Boolean(data.openEdge),
               prosperipay: Boolean(data.prosperipay),
@@ -227,25 +254,46 @@ export class AdminFinanceService {
     if (existing.Category === 4) {
       const currentSetting = await this.getSetting('payment_types_metadata');
       const meta = typeof currentSetting === 'object' ? currentSetting : {};
+      
+      const newDepositSlip = updates.depositSlip !== undefined ? Boolean(updates.depositSlip) : Boolean(meta[idStr]?.depositSlip);
+      const newOpenEdge = updates.openEdge !== undefined ? Boolean(updates.openEdge) : Boolean(meta[idStr]?.openEdge);
+      const newProsperipay = updates.prosperipay !== undefined ? Boolean(updates.prosperipay) : Boolean(meta[idStr]?.prosperipay);
+      const newSmilepay = updates.smilepay !== undefined ? Boolean(updates.smilepay) : Boolean(meta[idStr]?.smilepay);
+      const newNote = updates.note !== undefined ? updates.note : (meta[idStr]?.note ?? '');
+
+      const serializedValue = JSON.stringify({
+        depositSlip: newDepositSlip,
+        openEdge: newOpenEdge,
+        prosperipay: newProsperipay,
+        smilepay: newSmilepay,
+        note: newNote,
+      });
+
+      // Update definition record ItemValue with new serialized JSON value
+      const finalUpdated = await prisma.definition.update({
+        where: { DefNum: defNumBigInt },
+        data: { ItemValue: serializedValue },
+      });
+
       meta[idStr] = {
-        depositSlip: updates.depositSlip !== undefined ? Boolean(updates.depositSlip) : Boolean(meta[idStr]?.depositSlip),
-        openEdge: updates.openEdge !== undefined ? Boolean(updates.openEdge) : Boolean(meta[idStr]?.openEdge),
-        prosperipay: updates.prosperipay !== undefined ? Boolean(updates.prosperipay) : Boolean(meta[idStr]?.prosperipay),
-        smilepay: updates.smilepay !== undefined ? Boolean(updates.smilepay) : Boolean(meta[idStr]?.smilepay),
-        note: updates.note !== undefined ? updates.note : (meta[idStr]?.note ?? ''),
+        depositSlip: newDepositSlip,
+        openEdge: newOpenEdge,
+        prosperipay: newProsperipay,
+        smilepay: newSmilepay,
+        note: newNote,
       };
       await this.saveSetting('payment_types_metadata', meta);
 
       return {
         id: idStr,
-        type: updated.ItemName || '',
-        note: meta[idStr].note || updated.ItemValue || '',
-        isHidden: updated.IsHidden === 1,
-        itemOrder: updated.ItemOrder ?? 0,
-        depositSlip: meta[idStr].depositSlip,
-        openEdge: meta[idStr].openEdge,
-        prosperipay: meta[idStr].prosperipay,
-        smilepay: meta[idStr].smilepay,
+        type: finalUpdated.ItemName || '',
+        note: newNote,
+        isHidden: finalUpdated.IsHidden === 1,
+        itemOrder: finalUpdated.ItemOrder ?? 0,
+        depositSlip: newDepositSlip,
+        openEdge: newOpenEdge,
+        prosperipay: newProsperipay,
+        smilepay: newSmilepay,
       };
     }
 

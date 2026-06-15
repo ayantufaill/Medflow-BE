@@ -12,6 +12,10 @@ export const examTypeParamValidator = [
       'periodontal',
       'dentofacial',
       'airway',
+      'biomechanical',
+      'functional',
+      'dentofacial-opinion',
+      'periodontal-opinion',
     ])
     .withMessage('Invalid examType provided.'),
 ];
