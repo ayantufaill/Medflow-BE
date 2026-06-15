@@ -90,6 +90,10 @@ export const createAppointmentValidator: ValidationChain[] = [
     .optional()
     .isObject()
     .withMessage('customFields must be an object'),
+  body('checklists')
+    .optional()
+    .isObject()
+    .withMessage('checklists must be an object'),
 ];
 
 export const updateAppointmentValidator: ValidationChain[] = [
@@ -162,6 +166,10 @@ export const updateAppointmentValidator: ValidationChain[] = [
     .optional()
     .isObject()
     .withMessage('customFields must be an object'),
+  body('checklists')
+    .optional()
+    .isObject()
+    .withMessage('checklists must be an object'),
 ];
 
 export const rescheduleAppointmentValidator: ValidationChain[] = [
