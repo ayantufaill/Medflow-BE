@@ -7119,7 +7119,6 @@ model userod {
  wikipage wikipage[]
  wikipagehist wikipagehist[]
 }
-
 model userodapptview {
  UserodApptViewNum BigInt @id(map: "PK__userodap__86907414C2ED35E9")
  UserNum BigInt?
@@ -7139,6 +7138,15 @@ model userodpref {
  ClinicNum BigInt?
  userod userod? @relation(fields: [UserNum], references: [UserNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_userodpref_1_UserNum")
  clinic clinic? @relation(fields: [ClinicNum], references: [ClinicNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_userodpref_2_ClinicNum")
+}
+
+model usertoken {
+  UserTokenNum BigInt   @id
+  UserNum      BigInt
+  Token        String   @unique @db.VarChar(255)
+  TokenType    String   @db.VarChar(50)
+  ValueString  String   @db.VarChar(Max)
+  userod       userod   @relation(fields: [UserNum], references: [UserNum], onDelete: Cascade, onUpdate: NoAction, map: "fk_usertoken_UserNum")
 }
 
 model userquery {
