@@ -4673,6 +4673,13 @@ model patplan {
  OrthoAutoNextClaimDate DateTime? @db.Date
  SecDateTEntry DateTime?
  SecDateTEdit DateTime?
+ DeductiblesGrid       String?  @db.Text
+ CoverageLimits        String?  @db.Text
+ CoverageCategoryTable String?  @db.Text
+ CoverageBookData      String?  @db.Text
+ HonorWriteOff         Boolean  @default(false)
+ AssignmentOfBenefits  String?  @db.VarChar(50)
+ RenewalMonth          Int?
  benefit benefit[]
  patient patient? @relation(fields: [PatNum], references: [PatNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_patplan_1_PatNum")
  inssub inssub? @relation(fields: [InsSubNum], references: [InsSubNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_patplan_2_InsSubNum")

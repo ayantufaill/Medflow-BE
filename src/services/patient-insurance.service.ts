@@ -72,14 +72,16 @@ export class PatientInsuranceService {
         notes: patplan.inssub?.SubscNote ?? null,
 
         // Advanced Dentistry Fields
-        deductiblesGrid: meta?.deductiblesGrid ?? [],
-        coverageLimits: meta?.coverageLimits ?? null,
+        deductiblesGrid: patplan.DeductiblesGrid ? JSON.parse(patplan.DeductiblesGrid) : (meta?.deductiblesGrid ?? []),
+        coverageLimits: patplan.CoverageLimits ? JSON.parse(patplan.CoverageLimits) : (meta?.coverageLimits ?? null),
+        coverageCategoryTable: patplan.CoverageCategoryTable ? JSON.parse(patplan.CoverageCategoryTable) : (meta?.coverageCategoryTable ?? []),
+        coverageBookData: patplan.CoverageBookData ? JSON.parse(patplan.CoverageBookData) : (meta?.coverageBookData ?? []),
         planFeeGuide: meta?.planFeeGuide ?? null,
         coverageType: meta?.coverageType ?? null,
         subscriberSsn: meta?.subscriberSsn ?? null,
-        renewalMonth: meta?.renewalMonth ?? null,
-        assignmentOfBenefits: meta?.assignmentOfBenefits ?? null,
-        honorWriteOff: meta?.honorWriteOff ?? null,
+        renewalMonth: patplan.RenewalMonth !== null ? patplan.RenewalMonth : (meta?.renewalMonth ?? null),
+        assignmentOfBenefits: patplan.AssignmentOfBenefits !== null ? patplan.AssignmentOfBenefits : (meta?.assignmentOfBenefits ?? null),
+        honorWriteOff: patplan.HonorWriteOff !== null ? patplan.HonorWriteOff : (meta?.honorWriteOff ?? null),
       };
     });
   }
@@ -137,14 +139,16 @@ export class PatientInsuranceService {
       notes: patplan.inssub?.SubscNote ?? null,
 
       // Advanced Dentistry Fields
-      deductiblesGrid: insuranceMeta.deductiblesGrid ?? [],
-      coverageLimits: insuranceMeta.coverageLimits ?? null,
+      deductiblesGrid: patplan.DeductiblesGrid ? JSON.parse(patplan.DeductiblesGrid) : (insuranceMeta.deductiblesGrid ?? []),
+      coverageLimits: patplan.CoverageLimits ? JSON.parse(patplan.CoverageLimits) : (insuranceMeta.coverageLimits ?? null),
+      coverageCategoryTable: patplan.CoverageCategoryTable ? JSON.parse(patplan.CoverageCategoryTable) : (insuranceMeta.coverageCategoryTable ?? []),
+      coverageBookData: patplan.CoverageBookData ? JSON.parse(patplan.CoverageBookData) : (insuranceMeta.coverageBookData ?? []),
       planFeeGuide: insuranceMeta.planFeeGuide ?? null,
       coverageType: insuranceMeta.coverageType ?? null,
       subscriberSsn: insuranceMeta.subscriberSsn ?? null,
-      renewalMonth: insuranceMeta.renewalMonth ?? null,
-      assignmentOfBenefits: insuranceMeta.assignmentOfBenefits ?? null,
-      honorWriteOff: insuranceMeta.honorWriteOff ?? null,
+      renewalMonth: patplan.RenewalMonth !== null ? patplan.RenewalMonth : (insuranceMeta.renewalMonth ?? null),
+      assignmentOfBenefits: patplan.AssignmentOfBenefits !== null ? patplan.AssignmentOfBenefits : (insuranceMeta.assignmentOfBenefits ?? null),
+      honorWriteOff: patplan.HonorWriteOff !== null ? patplan.HonorWriteOff : (insuranceMeta.honorWriteOff ?? null),
     };
   }
 
@@ -174,6 +178,8 @@ export class PatientInsuranceService {
       // Advanced Dentistry Fields
       deductiblesGrid?: Array<any>;
       coverageLimits?: any;
+      coverageCategoryTable?: Array<any>;
+      coverageBookData?: Array<any>;
       planFeeGuide?: string;
       coverageType?: string;
       subscriberSsn?: string;
@@ -267,6 +273,13 @@ export class PatientInsuranceService {
         IsPending: 0,
         Relationship: mapRelationshipToDb(data.relationshipToPatient),
         InsSubNum: insSubNum,
+        DeductiblesGrid: data.deductiblesGrid ? JSON.stringify(data.deductiblesGrid) : null,
+        CoverageLimits: data.coverageLimits ? JSON.stringify(data.coverageLimits) : null,
+        CoverageCategoryTable: data.coverageCategoryTable ? JSON.stringify(data.coverageCategoryTable) : null,
+        CoverageBookData: data.coverageBookData ? JSON.stringify(data.coverageBookData) : null,
+        HonorWriteOff: data.honorWriteOff ?? false,
+        AssignmentOfBenefits: data.assignmentOfBenefits ?? null,
+        RenewalMonth: data.renewalMonth !== undefined && data.renewalMonth !== null && data.renewalMonth !== '' ? Number(data.renewalMonth) : null,
       },
     });
 
@@ -282,6 +295,8 @@ export class PatientInsuranceService {
       // Advanced Dentistry Fields
       deductiblesGrid: data.deductiblesGrid ?? [],
       coverageLimits: data.coverageLimits ?? null,
+      coverageCategoryTable: data.coverageCategoryTable ?? [],
+      coverageBookData: data.coverageBookData ?? [],
       planFeeGuide: data.planFeeGuide ?? null,
       coverageType: data.coverageType ?? null,
       subscriberSsn: data.subscriberSsn ?? null,
@@ -334,6 +349,8 @@ export class PatientInsuranceService {
       // Advanced Dentistry Fields
       deductiblesGrid?: Array<any>;
       coverageLimits?: any;
+      coverageCategoryTable?: Array<any>;
+      coverageBookData?: Array<any>;
       planFeeGuide?: string;
       coverageType?: string;
       subscriberSsn?: string;
@@ -406,6 +423,13 @@ export class PatientInsuranceService {
           updates.relationshipToPatient !== undefined
             ? mapRelationshipToDb(updates.relationshipToPatient)
             : undefined,
+        DeductiblesGrid: updates.deductiblesGrid !== undefined ? (updates.deductiblesGrid ? JSON.stringify(updates.deductiblesGrid) : null) : undefined,
+        CoverageLimits: updates.coverageLimits !== undefined ? (updates.coverageLimits ? JSON.stringify(updates.coverageLimits) : null) : undefined,
+        CoverageCategoryTable: updates.coverageCategoryTable !== undefined ? (updates.coverageCategoryTable ? JSON.stringify(updates.coverageCategoryTable) : null) : undefined,
+        CoverageBookData: updates.coverageBookData !== undefined ? (updates.coverageBookData ? JSON.stringify(updates.coverageBookData) : null) : undefined,
+        HonorWriteOff: updates.honorWriteOff !== undefined ? updates.honorWriteOff : undefined,
+        AssignmentOfBenefits: updates.assignmentOfBenefits !== undefined ? updates.assignmentOfBenefits : undefined,
+        RenewalMonth: updates.renewalMonth !== undefined ? (updates.renewalMonth !== null && updates.renewalMonth !== '' ? Number(updates.renewalMonth) : null) : undefined,
       },
     });
 
@@ -424,6 +448,8 @@ export class PatientInsuranceService {
       // Advanced Dentistry Fields
       deductiblesGrid: updates.deductiblesGrid ?? currentMeta.deductiblesGrid ?? [],
       coverageLimits: updates.coverageLimits ?? currentMeta.coverageLimits ?? null,
+      coverageCategoryTable: updates.coverageCategoryTable ?? currentMeta.coverageCategoryTable ?? [],
+      coverageBookData: updates.coverageBookData ?? currentMeta.coverageBookData ?? [],
       planFeeGuide: updates.planFeeGuide ?? currentMeta.planFeeGuide ?? null,
       coverageType: updates.coverageType ?? currentMeta.coverageType ?? null,
       subscriberSsn: updates.subscriberSsn ?? currentMeta.subscriberSsn ?? null,

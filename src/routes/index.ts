@@ -52,6 +52,7 @@ import membershipPlanRoutes from './membership-plan.routes';
 import medicationRoutes from './medication.routes';
 import adjunctiveTherapyRoutes from './adjunctive-therapy.routes';
 import aiConversationRoutes from './ai-conversation.routes';
+import scheduleBlockRoutes from './schedule-block.routes';
 
 const router = Router();
 
@@ -110,6 +111,7 @@ router.use('/membership-plans', membershipPlanRoutes);
 router.use('/medications', medicationRoutes);
 router.use('/patients', adjunctiveTherapyRoutes);
 router.use('/ai-conversation', aiConversationRoutes);
+router.use('/schedule-blocks', scheduleBlockRoutes);
 
 export default router;
 

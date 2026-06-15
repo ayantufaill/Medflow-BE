@@ -261,6 +261,14 @@ export const createPatientInsuranceValidator: ValidationChain[] = [
     .optional()
     .isObject()
     .withMessage('coverageLimits must be an object'),
+  body('coverageCategoryTable')
+    .optional()
+    .isArray()
+    .withMessage('coverageCategoryTable must be an array'),
+  body('coverageBookData')
+    .optional()
+    .isArray()
+    .withMessage('coverageBookData must be an array'),
   body('planFeeGuide')
     .optional()
     .isString()
@@ -379,6 +387,14 @@ export const updatePatientInsuranceValidator: ValidationChain[] = [
     .optional()
     .isObject()
     .withMessage('coverageLimits must be an object'),
+  body('coverageCategoryTable')
+    .optional()
+    .isArray()
+    .withMessage('coverageCategoryTable must be an array'),
+  body('coverageBookData')
+    .optional()
+    .isArray()
+    .withMessage('coverageBookData must be an array'),
   body('planFeeGuide')
     .optional()
     .isString()

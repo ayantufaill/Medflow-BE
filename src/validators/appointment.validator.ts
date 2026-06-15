@@ -119,8 +119,30 @@ export const updateAppointmentValidator: ValidationChain[] = [
     .withMessage('Duration must be at least 5 minutes'),
   body('status')
     .optional()
-    .isIn(['scheduled', 'confirmed', 'checked_in', 'completed', 'cancelled', 'no_show'])
-    .withMessage('Status must be one of: scheduled, confirmed, checked_in, completed, cancelled, no_show'),
+    .isIn([
+      'scheduled',
+      'unconfirmed',
+      'preconfirmed',
+      'confirmed',
+      'arrived',
+      'ready_to_be_seated',
+      'seated',
+      'ready_for_doctor',
+      'in_treatment',
+      'ready_for_checkout',
+      'checked_out_incomplete',
+      'checked_out_complete',
+      'completed',
+      'no_show',
+      'call',
+      'left_message',
+      'running_late',
+      'sent_email_or_text',
+      'late',
+      'cancelled',
+      'rescheduled'
+    ])
+    .withMessage('Invalid appointment status'),
   body('chiefComplaint')
     .optional()
     .trim()
