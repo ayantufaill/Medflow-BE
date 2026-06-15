@@ -5,7 +5,7 @@ import { ExamType, UpsertExamInput } from '../types/clinical-exam.types';
 import { getNextId } from '../utils/opendental-ids.util';
 
 const getModel = (examType: ExamType) => {
-  const modelMap = {
+  const modelMap: Record<string, any> = {
     'radiographic': prisma.examradiographic,
     'tmj': prisma.examtmj,
     'head-neck': prisma.examheadneck,

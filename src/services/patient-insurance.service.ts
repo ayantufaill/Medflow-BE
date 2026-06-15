@@ -279,7 +279,7 @@ export class PatientInsuranceService {
         CoverageBookData: data.coverageBookData ? JSON.stringify(data.coverageBookData) : null,
         HonorWriteOff: data.honorWriteOff ?? false,
         AssignmentOfBenefits: data.assignmentOfBenefits ?? null,
-        RenewalMonth: data.renewalMonth !== undefined && data.renewalMonth !== null && data.renewalMonth !== '' ? Number(data.renewalMonth) : null,
+        RenewalMonth: data.renewalMonth !== undefined && data.renewalMonth !== null ? Number(data.renewalMonth) : null,
       },
     });
 
@@ -429,7 +429,7 @@ export class PatientInsuranceService {
         CoverageBookData: updates.coverageBookData !== undefined ? (updates.coverageBookData ? JSON.stringify(updates.coverageBookData) : null) : undefined,
         HonorWriteOff: updates.honorWriteOff !== undefined ? updates.honorWriteOff : undefined,
         AssignmentOfBenefits: updates.assignmentOfBenefits !== undefined ? updates.assignmentOfBenefits : undefined,
-        RenewalMonth: updates.renewalMonth !== undefined ? (updates.renewalMonth !== null && updates.renewalMonth !== '' ? Number(updates.renewalMonth) : null) : undefined,
+        RenewalMonth: updates.renewalMonth !== undefined ? (updates.renewalMonth !== null ? Number(updates.renewalMonth) : null) : undefined,
       },
     });
 
