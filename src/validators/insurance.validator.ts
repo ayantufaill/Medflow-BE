@@ -361,6 +361,26 @@ export const createPatientInsuranceValidator: ValidationChain[] = [
     .optional()
     .isBoolean()
     .withMessage('honorWriteOff must be a boolean'),
+  body('providersPlanFeeGuides')
+    .optional()
+    .isArray()
+    .withMessage('providersPlanFeeGuides must be an array'),
+  body('policyNotes')
+    .optional()
+    .isString()
+    .withMessage('policyNotes must be a string'),
+  body('eligibilityPolicyNotes')
+    .optional()
+    .isString()
+    .withMessage('eligibilityPolicyNotes must be a string'),
+  body('insurancePlanNotes')
+    .optional()
+    .isString()
+    .withMessage('insurancePlanNotes must be a string'),
+  body('healthPlan')
+    .optional(),
+  body('paymentPlan')
+    .optional(),
 ];
 
 export const updatePatientInsuranceValidator: ValidationChain[] = [
@@ -491,6 +511,26 @@ export const updatePatientInsuranceValidator: ValidationChain[] = [
     .optional()
     .isBoolean()
     .withMessage('honorWriteOff must be a boolean'),
+  body('providersPlanFeeGuides')
+    .optional()
+    .isArray()
+    .withMessage('providersPlanFeeGuides must be an array'),
+  body('policyNotes')
+    .optional()
+    .isString()
+    .withMessage('policyNotes must be a string'),
+  body('eligibilityPolicyNotes')
+    .optional()
+    .isString()
+    .withMessage('eligibilityPolicyNotes must be a string'),
+  body('insurancePlanNotes')
+    .optional()
+    .isString()
+    .withMessage('insurancePlanNotes must be a string'),
+  body('healthPlan')
+    .optional(),
+  body('paymentPlan')
+    .optional(),
 ];
 
 export const allergyIdValidator: ValidationChain[] = [

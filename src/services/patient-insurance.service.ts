@@ -120,6 +120,12 @@ export class PatientInsuranceService {
         renewalMonth: patplan.RenewalMonth !== null ? patplan.RenewalMonth : (meta?.renewalMonth ?? null),
         assignmentOfBenefits: patplan.AssignmentOfBenefits !== null ? patplan.AssignmentOfBenefits : (meta?.assignmentOfBenefits ?? null),
         honorWriteOff: patplan.HonorWriteOff !== null ? patplan.HonorWriteOff : (meta?.honorWriteOff ?? null),
+        providersPlanFeeGuides: meta?.providersPlanFeeGuides ?? [],
+        policyNotes: meta?.policyNotes ?? null,
+        eligibilityPolicyNotes: meta?.eligibilityPolicyNotes ?? null,
+        insurancePlanNotes: meta?.insurancePlanNotes ?? null,
+        healthPlan: meta?.healthPlan ?? null,
+        paymentPlan: meta?.paymentPlan ?? null,
       };
     });
   }
@@ -211,6 +217,12 @@ export class PatientInsuranceService {
       renewalMonth: patplan.RenewalMonth !== null ? patplan.RenewalMonth : (insuranceMeta.renewalMonth ?? null),
       assignmentOfBenefits: patplan.AssignmentOfBenefits !== null ? patplan.AssignmentOfBenefits : (insuranceMeta.assignmentOfBenefits ?? null),
       honorWriteOff: patplan.HonorWriteOff !== null ? patplan.HonorWriteOff : (insuranceMeta.honorWriteOff ?? null),
+      providersPlanFeeGuides: insuranceMeta.providersPlanFeeGuides ?? [],
+      policyNotes: insuranceMeta.policyNotes ?? null,
+      eligibilityPolicyNotes: insuranceMeta.eligibilityPolicyNotes ?? null,
+      insurancePlanNotes: insuranceMeta.insurancePlanNotes ?? null,
+      healthPlan: insuranceMeta.healthPlan ?? null,
+      paymentPlan: insuranceMeta.paymentPlan ?? null,
     };
   }
 
@@ -248,6 +260,12 @@ export class PatientInsuranceService {
       renewalMonth?: number;
       assignmentOfBenefits?: string;
       honorWriteOff?: boolean;
+      providersPlanFeeGuides?: Array<any>;
+      policyNotes?: string;
+      eligibilityPolicyNotes?: string;
+      insurancePlanNotes?: string;
+      healthPlan?: any;
+      paymentPlan?: any;
     },
     createdBy?: string
   ) {
@@ -365,6 +383,12 @@ export class PatientInsuranceService {
       renewalMonth: data.renewalMonth ?? null,
       assignmentOfBenefits: data.assignmentOfBenefits ?? null,
       honorWriteOff: data.honorWriteOff ?? null,
+      providersPlanFeeGuides: data.providersPlanFeeGuides ?? [],
+      policyNotes: data.policyNotes ?? null,
+      eligibilityPolicyNotes: data.eligibilityPolicyNotes ?? null,
+      insurancePlanNotes: data.insurancePlanNotes ?? null,
+      healthPlan: data.healthPlan ?? null,
+      paymentPlan: data.paymentPlan ?? null,
     });
 
     // Log activity
@@ -420,6 +444,12 @@ export class PatientInsuranceService {
       renewalMonth?: number;
       assignmentOfBenefits?: string;
       honorWriteOff?: boolean;
+      providersPlanFeeGuides?: Array<any>;
+      policyNotes?: string;
+      eligibilityPolicyNotes?: string;
+      insurancePlanNotes?: string;
+      healthPlan?: any;
+      paymentPlan?: any;
     },
     updatedBy?: string
   ) {
@@ -520,6 +550,12 @@ export class PatientInsuranceService {
       renewalMonth: updates.renewalMonth ?? currentMeta.renewalMonth ?? null,
       assignmentOfBenefits: updates.assignmentOfBenefits ?? currentMeta.assignmentOfBenefits ?? null,
       honorWriteOff: updates.honorWriteOff ?? currentMeta.honorWriteOff ?? null,
+      providersPlanFeeGuides: updates.providersPlanFeeGuides ?? currentMeta.providersPlanFeeGuides ?? [],
+      policyNotes: updates.policyNotes ?? currentMeta.policyNotes ?? null,
+      eligibilityPolicyNotes: updates.eligibilityPolicyNotes ?? currentMeta.eligibilityPolicyNotes ?? null,
+      insurancePlanNotes: updates.insurancePlanNotes ?? currentMeta.insurancePlanNotes ?? null,
+      healthPlan: updates.healthPlan ?? currentMeta.healthPlan ?? null,
+      paymentPlan: updates.paymentPlan ?? currentMeta.paymentPlan ?? null,
     });
 
     // Log activity
