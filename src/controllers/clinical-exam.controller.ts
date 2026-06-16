@@ -65,6 +65,24 @@ export class ClinicalExamController {
       next(error);
     }
   };
+  // DELETE /clinical-exams/:examType/:appointmentId
+deleteExam = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const examType = req.params.examType as ExamType;
+    const appointmentId = req.params.appointmentId;
+    const userId = req.user?.userId || '0';
+
+    await clinicalExamService.deleteExam(examType, appointmentId, userId);
+
+    res.status(200).json({
+      success: true,
+      data: null,
+      message: `${examType} exam deleted successfully`,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 }
 
 export const clinicalExamController = new ClinicalExamController();

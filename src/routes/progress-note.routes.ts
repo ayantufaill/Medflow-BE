@@ -16,6 +16,7 @@ const router = Router();
  * /progress-notes:
  *   get:
  *     summary: Get all progress notes
+ *     description: Returns a paginated list of progress notes, optionally filtered by patient, archive tab, or category. Filtering and pagination are applied in-memory after fetching matching notes.
  *     tags: [Progress Notes]
  *     security:
  *       - bearerAuth: []
@@ -23,21 +24,66 @@ const router = Router();
  *       - in: query
  *         name: patientId
  *         schema: { type: string }
+ *         description: Filter notes by patient ID
+ *         example: "1"
  *       - in: query
  *         name: tab
- *         schema: { type: string }
+ *         schema: { type: string, enum: [Archived, Active] }
+ *         description: Filter by archive status. "Archived" returns archived notes; any other value (or omitted) returns active (non-archived) notes.
+ *         example: "Active"
  *       - in: query
  *         name: category
  *         schema: { type: string }
+ *         description: Filter by note category. "All" or omitted returns notes of every category.
+ *         example: "General Notes"
  *       - in: query
  *         name: page
- *         schema: { type: integer }
+ *         schema: { type: integer, minimum: 1, default: 1 }
+ *         description: Page number for pagination
  *       - in: query
  *         name: limit
- *         schema: { type: integer }
+ *         schema: { type: integer, minimum: 1, default: 25 }
+ *         description: Number of records per page
  *     responses:
  *       200:
- *         description: List of progress notes
+ *         description: List of progress notes with pagination metadata
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     notes:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id: { type: string, example: "12345" }
+ *                           date: { type: string, format: date-time }
+ *                           procedures:
+ *                             type: array
+ *                             items: { type: string }
+ *                             example: ["D0120", "D2750"]
+ *                           description: { type: string }
+ *                           provider: { type: string, example: "Dr. Sarah Mitchell" }
+ *                           signedBy: { type: string, example: "Dr. Sarah Mitchell" }
+ *                           signedDate: { type: string, format: date-time }
+ *                           category: { type: string, example: "General Notes" }
+ *                           isExpanded: { type: boolean, example: false }
+ *                     pagination:
+ *                       type: object
+ *                       properties:
+ *                         page: { type: integer, example: 1 }
+ *                         limit: { type: integer, example: 25 }
+ *                         total: { type: integer, description: "Total count after filters applied" }
+ *                         pages: { type: integer }
+ *       401:
+ *         description: Unauthorized — missing or invalid token
+ *       403:
+ *         description: Forbidden — missing clinical-notes.read permission
  */
 router.get(
   '/',
@@ -52,6 +98,7 @@ router.get(
  * /progress-notes:
  *   post:
  *     summary: Create a new progress note
+ *     description: Creates a new progress note for a patient. The note is stored as a structured commlog entry.
  *     tags: [Progress Notes]
  *     security:
  *       - bearerAuth: []
@@ -61,18 +108,57 @@ router.get(
  *         application/json:
  *           schema:
  *             type: object
+ *             required: [patientId, category, description, providerId]
  *             properties:
  *               patientId:
  *                 type: string
+ *                 description: ID of the patient this note belongs to
+ *                 example: "1"
  *               category:
  *                 type: string
+ *                 description: Note category (e.g. "exam", "treatment", "soap")
+ *                 example: "exam"
  *               description:
  *                 type: string
+ *                 description: Free-text content of the progress note
+ *                 example: "Routine checkup completed - no issues found"
  *               providerId:
  *                 type: string
+ *                 description: ID of the provider who authored the note
+ *                 example: "1"
  *     responses:
  *       201:
  *         description: Progress note created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     progressNote:
+ *                       type: object
+ *                       properties:
+ *                         id: { type: string }
+ *                         date: { type: string, format: date-time }
+ *                         procedures:
+ *                           type: array
+ *                           items: { type: string }
+ *                         description: { type: string }
+ *                         provider: { type: string }
+ *                         signedBy: { type: string }
+ *                         signedDate: { type: string, format: date-time }
+ *                         category: { type: string }
+ *                         isExpanded: { type: boolean }
+ *                 message: { type: string, example: "Progress note created successfully" }
+ *       400:
+ *         description: Validation error — missing or invalid fields
+ *       401:
+ *         description: Unauthorized — missing or invalid token
+ *       403:
+ *         description: Forbidden — missing clinical-notes.update permission
  */
 router.post(
   '/',
@@ -87,6 +173,7 @@ router.post(
  * /progress-notes/{id}/procedures:
  *   post:
  *     summary: Add a procedure to a progress note
+ *     description: Appends a procedure code to an existing progress note's procedure list.
  *     tags: [Progress Notes]
  *     security:
  *       - bearerAuth: []
@@ -95,18 +182,46 @@ router.post(
  *         name: id
  *         required: true
  *         schema: { type: string }
+ *         description: ID of the progress note to update
+ *         example: "12345"
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
+ *             required: [procedureCode]
  *             properties:
  *               procedureCode:
  *                 type: string
+ *                 description: ADA procedure code to add
+ *                 example: "D0120"
  *     responses:
  *       200:
  *         description: Procedure added successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     message: { type: string, example: "Procedure added successfully" }
+ *                     procedures:
+ *                       type: array
+ *                       items: { type: string }
+ *                       example: ["D0120", "D2140"]
+ *                 message: { type: string, example: "Procedure added successfully" }
+ *       400:
+ *         description: Validation error — missing procedureCode
+ *       401:
+ *         description: Unauthorized — missing or invalid token
+ *       403:
+ *         description: Forbidden — missing clinical-notes.update permission
+ *       404:
+ *         description: Progress note not found
  */
 router.post(
   '/:id/procedures',

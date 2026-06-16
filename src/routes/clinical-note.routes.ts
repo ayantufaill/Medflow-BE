@@ -61,7 +61,7 @@ router.get(
  *     tags: [Clinical Notes]
  *     security:
  *       - bearerAuth: []
- *     parameters:
+ *     parameters: 
  *       - in: path
  *         name: patientId
  *         required: true

@@ -328,6 +328,71 @@ export class ClinicalExamService {
 
     return mapExamRecord(updatedRecord, examType);
   }
+  async deleteExam(examType: ExamType, appointmentId: string, userId: string) {
+  const aptNum = BigInt(appointmentId);
+
+  // Handle pref-based exams (biomechanical & functional)
+  if (examType === 'biomechanical' || examType === 'functional') {
+    const existingRecord = await this.getPrefExam(examType, aptNum);
+
+    if (!existingRecord) {
+      throw new NotFoundError(`No ${examType} exam found for appointment ${appointmentId}.`);
+    }
+
+    if (existingRecord.IsSigned) {
+      throw new AuthorizationError('Exam is signed and locked. It cannot be deleted.');
+    }
+
+    const fkeyType = examType === 'biomechanical' ? 215 : 216;
+    await prisma.userodpref.deleteMany({
+      where: {
+        Fkey: aptNum,
+        FkeyType: fkeyType,
+      },
+    });
+
+    await logActivity(
+      userId,
+      'deleted',
+      `exam_${examType}`,
+      aptNum.toString(),
+      existingRecord,
+      null
+    );
+
+    return true;
+  }
+
+  // Handle regular exam tables
+  const model = getModel(examType);
+
+  const existingRecord = await model.findUnique({
+    where: { AptNum: aptNum },
+  });
+
+  if (!existingRecord) {
+    throw new NotFoundError(`No ${examType} exam found for appointment ${appointmentId}.`);
+  }
+
+  if (existingRecord.IsSigned) {
+    throw new AuthorizationError('Exam is signed and locked. It cannot be deleted.');
+  }
+
+  await model.delete({
+    where: { AptNum: aptNum },
+  });
+
+  await logActivity(
+    userId,
+    'deleted',
+    `exam_${examType}`,
+    aptNum.toString(),
+    existingRecord,
+    null
+  );
+
+  return true;
+}
 }
 
 export const clinicalExamService = new ClinicalExamService();
