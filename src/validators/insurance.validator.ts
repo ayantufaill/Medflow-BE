@@ -296,6 +296,10 @@ export const createPatientInsuranceValidator: ValidationChain[] = [
 ];
 
 export const updatePatientInsuranceValidator: ValidationChain[] = [
+  body('insuranceCompanyId')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Invalid insurance company ID format'),
   body('policyNumber')
     .optional()
     .trim()

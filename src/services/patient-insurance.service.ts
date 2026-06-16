@@ -329,6 +329,7 @@ export class PatientInsuranceService {
   async updatePatientInsurance(
     patientInsuranceId: string,
     updates: {
+      insuranceCompanyId?: string;
       policyNumber?: string;
       groupNumber?: string;
       groupName?: string;
@@ -408,6 +409,7 @@ export class PatientInsuranceService {
       await prisma.insplan.update({
         where: { PlanNum: patplan.inssub.insplan.PlanNum },
         data: {
+          CarrierNum: updates.insuranceCompanyId ? BigInt(updates.insuranceCompanyId) : undefined,
           GroupNum: updates.groupNumber ?? undefined,
           GroupName: updates.groupName ?? undefined,
           PlanNote: updates.notes ?? undefined,
