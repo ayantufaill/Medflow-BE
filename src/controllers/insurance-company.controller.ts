@@ -47,6 +47,9 @@ export class InsuranceCompanyController {
       fax: normalizeOptionalString(pick('fax', 'Fax')),
       website: normalizeOptionalString(pick('website', 'Website')),
       country: normalizeOptionalString(pick('country', 'Country')),
+      claimType: normalizeOptionalString(pick('claimType', 'ClaimType', 'claimtype')),
+      notes: normalizeOptionalString(pick('notes', 'Notes', 'note')),
+      providersOutOfNetwork: pick('providersOutOfNetwork', 'ProvidersOutOfNetwork', 'providersoutofnetwork'),
       isActive: pick('isActive', 'IsActive'),
     };
   }
@@ -144,6 +147,9 @@ export class InsuranceCompanyController {
         fax?: string;
         website?: string;
         country?: string;
+        claimType?: string;
+        notes?: string;
+        providersOutOfNetwork?: string[];
         isActive?: boolean;
       } = {
         name:
@@ -160,6 +166,9 @@ export class InsuranceCompanyController {
         fax: mergedPayload.fax,
         website: mergedPayload.website,
         country: mergedPayload.country,
+        claimType: mergedPayload.claimType,
+        notes: mergedPayload.notes,
+        providersOutOfNetwork: mergedPayload.providersOutOfNetwork,
         isActive: mergedPayload.isActive,
       };
       if (!createPayload.email) {

@@ -10,6 +10,9 @@ type InsuranceCompanyMeta = {
   fax?: string | null;
   website?: string | null;
   country?: string | null;
+  claimType?: string | null;
+  notes?: string | null;
+  providersOutOfNetwork?: string[] | null;
 };
 
 const parseMeta = (value?: string | null): InsuranceCompanyMeta => {
@@ -75,6 +78,9 @@ export class InsuranceCompanyService {
       fax: meta.fax !== undefined ? meta.fax : (currentMeta.fax ?? null),
       website: meta.website !== undefined ? meta.website : (currentMeta.website ?? null),
       country: meta.country !== undefined ? meta.country : (currentMeta.country ?? null),
+      claimType: meta.claimType !== undefined ? meta.claimType : (currentMeta.claimType ?? null),
+      notes: meta.notes !== undefined ? meta.notes : (currentMeta.notes ?? null),
+      providersOutOfNetwork: meta.providersOutOfNetwork !== undefined ? meta.providersOutOfNetwork : (currentMeta.providersOutOfNetwork ?? null),
     });
 
     if (existing) {
@@ -149,6 +155,9 @@ export class InsuranceCompanyService {
           fax: meta?.fax ?? null,
           website: meta?.website ?? null,
           country: meta?.country ?? null,
+          claimType: meta?.claimType ?? null,
+          notes: meta?.notes ?? null,
+          providersOutOfNetwork: meta?.providersOutOfNetwork ?? [],
           isActive: !c.IsHidden,
         };
       }),
@@ -189,6 +198,9 @@ export class InsuranceCompanyService {
       fax: meta?.fax ?? null,
       website: meta?.website ?? null,
       country: meta?.country ?? null,
+      claimType: meta?.claimType ?? null,
+      notes: meta?.notes ?? null,
+      providersOutOfNetwork: meta?.providersOutOfNetwork ?? [],
       isActive: !company.IsHidden,
     };
   }
@@ -210,6 +222,9 @@ export class InsuranceCompanyService {
       fax?: string;
       website?: string;
       country?: string;
+      claimType?: string;
+      notes?: string;
+      providersOutOfNetwork?: string[];
       isActive?: boolean;
     },
     createdBy?: string
@@ -256,6 +271,9 @@ export class InsuranceCompanyService {
       fax: data.fax ?? null,
       website: data.website ?? null,
       country: data.country ?? null,
+      claimType: data.claimType ?? null,
+      notes: data.notes ?? null,
+      providersOutOfNetwork: data.providersOutOfNetwork ?? null,
     });
 
     // Log activity
@@ -287,6 +305,9 @@ export class InsuranceCompanyService {
       fax: data.fax ?? null,
       website: data.website ?? null,
       country: data.country ?? null,
+      claimType: data.claimType ?? null,
+      notes: data.notes ?? null,
+      providersOutOfNetwork: data.providersOutOfNetwork ?? [],
       isActive: !company.IsHidden,
     };
   }
@@ -309,6 +330,9 @@ export class InsuranceCompanyService {
       fax?: string;
       website?: string;
       country?: string;
+      claimType?: string;
+      notes?: string;
+      providersOutOfNetwork?: string[];
       isActive?: boolean;
     },
     updatedBy?: string
@@ -369,12 +393,15 @@ export class InsuranceCompanyService {
         IsHidden: updates.isActive !== undefined ? (updates.isActive ? 0 : 1) : undefined,
       },
     });
-    if (emailValue !== undefined || updates.fax !== undefined || updates.website !== undefined || updates.country !== undefined) {
+    if (emailValue !== undefined || updates.fax !== undefined || updates.website !== undefined || updates.country !== undefined || updates.claimType !== undefined || updates.notes !== undefined || updates.providersOutOfNetwork !== undefined) {
       await this.saveMeta(updated.CarrierNum, {
         email: emailValue,
         fax: updates.fax,
         website: updates.website,
         country: updates.country,
+        claimType: updates.claimType,
+        notes: updates.notes,
+        providersOutOfNetwork: updates.providersOutOfNetwork,
       });
     }
     const metaMap = await this.getMetaMap([updated.CarrierNum]);
@@ -409,6 +436,9 @@ export class InsuranceCompanyService {
       fax: updatedMeta?.fax ?? null,
       website: updatedMeta?.website ?? null,
       country: updatedMeta?.country ?? null,
+      claimType: updatedMeta?.claimType ?? null,
+      notes: updatedMeta?.notes ?? null,
+      providersOutOfNetwork: updatedMeta?.providersOutOfNetwork ?? [],
       isActive: !updated.IsHidden,
     };
   }

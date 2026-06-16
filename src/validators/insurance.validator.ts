@@ -72,6 +72,20 @@ export const createInsuranceCompanyValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 100 })
     .withMessage('Country must be less than 100 characters'),
+  body('claimType')
+    .optional()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage('Claim type must be less than 50 characters'),
+  body('notes')
+    .optional()
+    .trim()
+    .isLength({ max: 2000 })
+    .withMessage('Notes must be less than 2000 characters'),
+  body('providersOutOfNetwork')
+    .optional()
+    .isArray()
+    .withMessage('Providers out of network must be an array'),
   body('isActive')
     .optional()
     .isBoolean()
@@ -141,6 +155,20 @@ export const updateInsuranceCompanyValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 100 })
     .withMessage('Country must be less than 100 characters'),
+  body('claimType')
+    .optional()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage('Claim type must be less than 50 characters'),
+  body('notes')
+    .optional()
+    .trim()
+    .isLength({ max: 2000 })
+    .withMessage('Notes must be less than 2000 characters'),
+  body('providersOutOfNetwork')
+    .optional()
+    .isArray()
+    .withMessage('Providers out of network must be an array'),
   body('isActive')
     .optional()
     .isBoolean()
