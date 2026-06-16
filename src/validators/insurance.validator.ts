@@ -30,6 +30,11 @@ export const createInsuranceCompanyValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 200 })
     .withMessage('Address line 1 must be less than 200 characters'),
+  body('addressLine2')
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage('Address line 2 must be less than 200 characters'),
   body('city')
     .optional()
     .trim()
@@ -52,6 +57,21 @@ export const createInsuranceCompanyValidator: ValidationChain[] = [
     .withMessage('Please provide a valid email address')
     .normalizeEmail()
     .toLowerCase(),
+  body('fax')
+    .optional()
+    .trim()
+    .isLength({ max: 30 })
+    .withMessage('Fax must be less than 30 characters'),
+  body('website')
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage('Website must be less than 200 characters'),
+  body('country')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Country must be less than 100 characters'),
   body('isActive')
     .optional()
     .isBoolean()
@@ -79,6 +99,11 @@ export const updateInsuranceCompanyValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 200 })
     .withMessage('Address line 1 must be less than 200 characters'),
+  body('addressLine2')
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage('Address line 2 must be less than 200 characters'),
   body('city')
     .optional()
     .trim()
@@ -101,6 +126,21 @@ export const updateInsuranceCompanyValidator: ValidationChain[] = [
     .withMessage('Please provide a valid email address')
     .normalizeEmail()
     .toLowerCase(),
+  body('fax')
+    .optional()
+    .trim()
+    .isLength({ max: 30 })
+    .withMessage('Fax must be less than 30 characters'),
+  body('website')
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage('Website must be less than 200 characters'),
+  body('country')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Country must be less than 100 characters'),
   body('isActive')
     .optional()
     .isBoolean()

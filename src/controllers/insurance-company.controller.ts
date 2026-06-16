@@ -39,10 +39,14 @@ export class InsuranceCompanyController {
       payerId: normalizeOptionalString(pick('payerId', 'PayerId', 'payerID')),
       phone: normalizeOptionalString(pick('phone', 'Phone')),
       addressLine1: normalizeOptionalString(pick('addressLine1', 'AddressLine1', 'address')),
+      addressLine2: normalizeOptionalString(pick('addressLine2', 'AddressLine2', 'address2')),
       city: normalizeOptionalString(pick('city', 'City')),
       state: normalizeOptionalString(pick('state', 'State')),
       zipCode: normalizeOptionalString(pick('zipCode', 'ZipCode', 'zip')),
       email: normalizeOptionalString(pick('email', 'Email', 'emailAddress')),
+      fax: normalizeOptionalString(pick('fax', 'Fax')),
+      website: normalizeOptionalString(pick('website', 'Website')),
+      country: normalizeOptionalString(pick('country', 'Country')),
       isActive: pick('isActive', 'IsActive'),
     };
   }
@@ -132,10 +136,14 @@ export class InsuranceCompanyController {
         payerId?: string;
         phone?: string;
         addressLine1?: string;
+        addressLine2?: string;
         city?: string;
         state?: string;
         zipCode?: string;
         email?: string;
+        fax?: string;
+        website?: string;
+        country?: string;
         isActive?: boolean;
       } = {
         name:
@@ -144,10 +152,14 @@ export class InsuranceCompanyController {
         payerId: mergedPayload.payerId,
         phone: mergedPayload.phone,
         addressLine1: mergedPayload.addressLine1,
+        addressLine2: mergedPayload.addressLine2,
         city: mergedPayload.city,
         state: mergedPayload.state,
         zipCode: mergedPayload.zipCode,
         email: mergedPayload.email,
+        fax: mergedPayload.fax,
+        website: mergedPayload.website,
+        country: mergedPayload.country,
         isActive: mergedPayload.isActive,
       };
       if (!createPayload.email) {
