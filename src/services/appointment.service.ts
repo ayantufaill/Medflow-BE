@@ -427,6 +427,67 @@ export class AppointmentService {
   }
 
   /**
+ * Get appointments for a specific patient sorted by date desc with limit
+ */
+async getPatientAppointments(patientId: string, limit = 10) {
+  const patient = await prisma.patient.findUnique({
+    where: { PatNum: BigInt(patientId) },
+  });
+  if (!patient) {
+    throw new NotFoundError('Patient not found');
+  }
+
+  const appointments = await prisma.appointment.findMany({
+    where: { PatNum: BigInt(patientId) },
+    include: {
+      patient: true,
+      provider_appointment_ProvNumToprovider: true,
+      appointmenttype: true,
+      userod: true,
+    },
+    orderBy: { AptDateTime: 'desc' },
+    take: limit,
+  });
+
+  const mappedAppointments = await Promise.all(
+    appointments.map((apt) =>
+      this.mapAppointmentWithMeta(apt, {
+        patient: apt.patient,
+        provider: apt.provider_appointment_ProvNumToprovider,
+        appointmentType: apt.appointmenttype,
+        createdBy: apt.userod,
+      })
+    )
+  );
+
+  return {
+    appointments: mappedAppointments.map((apt) => ({
+      _id: apt._id,
+      date: apt.appointmentDate,
+      startTime: apt.startTime,
+      endTime: apt.endTime,
+      status: apt.status,
+      appointmentType: apt.appointmentTypeId
+        ? {
+            _id: apt.appointmentTypeId?._id ?? null,
+            name: apt.appointmentTypeId?.name ?? null,
+          }
+        : null,
+      provider: apt.providerId
+        ? {
+            _id: apt.providerId?._id ?? null,
+            name: `${apt.providerId?.firstName ?? ''} ${apt.providerId?.lastName ?? ''}`.trim(),
+          }
+        : null,
+      chiefComplaint: apt.chiefComplaint ?? null,
+      notes: apt.notes ?? null,
+    })),
+    total: mappedAppointments.length,
+    limit,
+  };
+}
+
+  /**
    * Get appointment by ID
    */
   async getAppointmentById(appointmentId: string) {

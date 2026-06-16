@@ -413,6 +413,7 @@ export class PatientInsuranceService {
    * Update patient insurance
    */
   async updatePatientInsurance(
+    patientId: string,
     patientInsuranceId: string,
     updates: {
       insuranceCompanyId?: string;
@@ -460,6 +461,9 @@ export class PatientInsuranceService {
     if (!patplan) {
       throw new NotFoundError('Patient insurance not found');
     }
+    if (patplan.PatNum?.toString() !== patientId) {
+  throw new NotFoundError('Insurance record does not belong to this patient');
+}
 
     // If changing insurance type, check for conflicts
     if (updates.insuranceType) {
@@ -579,13 +583,16 @@ export class PatientInsuranceService {
   /**
    * Delete patient insurance (soft delete)
    */
-  async deletePatientInsurance(patientInsuranceId: string, deletedBy?: string) {
+  async deletePatientInsurance(patientId: string,patientInsuranceId: string, deletedBy?: string) {
     const patplan = await prisma.patplan.findUnique({
       where: { PatPlanNum: BigInt(patientInsuranceId) },
     });
     if (!patplan) {
       throw new NotFoundError('Patient insurance not found');
     }
+    if (patplan.PatNum?.toString() !== patientId) {
+    throw new NotFoundError('Insurance record does not belong to this patient');
+  }
 
     // Hard delete
     await prisma.patplan.delete({
@@ -609,6 +616,50 @@ export class PatientInsuranceService {
 
     return { message: 'Patient insurance deleted successfully' };
   }
+  /**
+ * Set a specific insurance as primary using a transaction
+ */
+async setPrimaryInsurance(patientId: string, patientInsuranceId: string) {
+  // Verify the insurance record exists and belongs to this patient
+  const patplan = await prisma.patplan.findUnique({
+    where: { PatPlanNum: BigInt(patientInsuranceId) },
+  });
+
+  if (!patplan) {
+    throw new NotFoundError('Patient insurance not found');
+  }
+
+  if (patplan.PatNum?.toString() !== patientId) {
+    throw new NotFoundError('Insurance record does not belong to this patient');
+  }
+
+  // Atomic transaction — set all to non-primary, then set target to primary
+  await prisma.$transaction(async (tx) => {
+    // Step 1 — set all patient insurances to non-primary (Ordinal >= 2)
+    const allPatPlans = await tx.patplan.findMany({
+      where: { PatNum: BigInt(patientId) },
+    });
+
+    for (const plan of allPatPlans) {
+      const currentOrdinal = plan.Ordinal ?? 1;
+      // If it's currently primary (ordinal 1), bump it to secondary (ordinal 2)
+      if (currentOrdinal === 1 && plan.PatPlanNum !== BigInt(patientInsuranceId)) {
+        await tx.patplan.update({
+          where: { PatPlanNum: plan.PatPlanNum },
+          data: { Ordinal: 2 },
+        });
+      }
+    }
+
+    // Step 2 — set the target insurance as primary (Ordinal = 1)
+    await tx.patplan.update({
+      where: { PatPlanNum: BigInt(patientInsuranceId) },
+      data: { Ordinal: 1 },
+    });
+  });
+
+  return this.getPatientInsuranceById(patientInsuranceId);
+}
 
 }
 

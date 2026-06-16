@@ -4,6 +4,7 @@ import { NotFoundError } from '../utils/error.util';
 import { getNextId } from '../utils/opendental-ids.util';
 
 const PREF_PREFIX = 'medflow.practiceInfo.';
+const PREF_LICENSE_NUMBER = `${PREF_PREFIX}licenseNumber`;
 const PREF_TAX_ID = `${PREF_PREFIX}taxId`;
 const PREF_NPI_NUMBER = `${PREF_PREFIX}npiNumber`;
 const PREF_EMAIL = `${PREF_PREFIX}email`;
@@ -29,6 +30,7 @@ const PREF_COUNTRY = `${PREF_PREFIX}country`;
 type PracticeInfoMeta = {
   taxId?: string | null;
   npiNumber?: string | null;
+  licenseNumber?: string | null;
   email?: string | null;
   website?: string | null;
   logoPath?: string | null;
@@ -54,6 +56,7 @@ type PracticeInfoPayload = {
   practiceName: string;
   taxId?: string;
   npiNumber?: string;
+  licenseNumber?: string;
   phone: string;
   fax?: string;
   email?: string;
@@ -170,6 +173,9 @@ const setMetaFromPref = (
     case PREF_COUNTRY:
       meta.country = prefValue ?? null;
       break;
+    case PREF_LICENSE_NUMBER:
+  meta.licenseNumber = prefValue ?? null;
+  break;
     default:
       break;
   }
@@ -230,6 +236,7 @@ export class PracticeInfoService {
       _id: row.ClinicNum.toString(),
       practiceName: row.Description ?? '',
       taxId: meta.taxId ?? null,
+      licenseNumber: meta.licenseNumber ?? null,
       npiNumber: meta.npiNumber ?? null,
       phone: row.Phone ?? '',
       fax: row.Fax ?? null,
@@ -313,6 +320,9 @@ export class PracticeInfoService {
     if ('logoPath' in data) {
       await this.setClinicPref(clinicNum, PREF_LOGO_PATH, data.logoPath ?? null);
     }
+    if ('licenseNumber' in data) {
+  await this.setClinicPref(clinicNum, PREF_LICENSE_NUMBER, data.licenseNumber ?? null);
+}
     if ('businessHours' in data) {
       await this.setClinicPref(
         clinicNum,
@@ -725,6 +735,66 @@ export class PracticeInfoService {
       migratedAt: new Date().toISOString(),
     };
   }
+  /**
+ * Get office timings as 7-day array
+ */
+async getOfficeTimings() {
+  const practice = await this.getPracticeInfo();
+  if (!practice) {
+    throw new NotFoundError('Practice info not found');
+  }
+
+  const stored = practice.officeTimings as any;
+
+  // Default 7-day array
+  const defaultTimings = [
+    { dayOfWeek: 0, isOpen: false, openTime: '09:00', closeTime: '17:00' }, // Sunday
+    { dayOfWeek: 1, isOpen: true,  openTime: '09:00', closeTime: '17:00' }, // Monday
+    { dayOfWeek: 2, isOpen: true,  openTime: '09:00', closeTime: '17:00' }, // Tuesday
+    { dayOfWeek: 3, isOpen: true,  openTime: '09:00', closeTime: '17:00' }, // Wednesday
+    { dayOfWeek: 4, isOpen: true,  openTime: '09:00', closeTime: '17:00' }, // Thursday
+    { dayOfWeek: 5, isOpen: true,  openTime: '09:00', closeTime: '17:00' }, // Friday
+    { dayOfWeek: 6, isOpen: false, openTime: '09:00', closeTime: '17:00' }, // Saturday
+  ];
+
+  // If stored as array use it, otherwise return defaults
+  const timings = Array.isArray(stored?.days)
+    ? stored.days
+    : Array.isArray(stored)
+    ? stored
+    : defaultTimings;
+
+  return {
+    practiceId: practice._id,
+    timings: timings.map((day: any) => ({
+      dayOfWeek: day.dayOfWeek,
+      isOpen: day.isOpen ?? false,
+      openTime: day.openTime ?? '09:00',
+      closeTime: day.closeTime ?? '17:00',
+    })),
+  };
+}
+
+/**
+ * Update office timings from 7-day array
+ */
+async updateOfficeTimings(timings: Array<{
+  dayOfWeek: number;
+  isOpen: boolean;
+  openTime: string;
+  closeTime: string;
+}>) {
+  const practice = await this.getPracticeInfo();
+  if (!practice) {
+    throw new NotFoundError('Practice info not found');
+  }
+
+  await this.updatePracticeInfo(practice._id, {
+    officeTimings: { days: timings } as any,
+  });
+
+  return this.getOfficeTimings();
+}
 }
 
 export const practiceInfoService = new PracticeInfoService();
