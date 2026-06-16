@@ -328,6 +328,20 @@ router.get('/:patientId/history', requireRoles('Receptionist', 'Admin', 'Doctor'
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [allergen, reaction, severity, documentedDate]
+ *             properties:
+ *               allergen: { type: string, example: "Penicillin" }
+ *               reaction: { type: string, example: "Hives and difficulty breathing" }
+ *               severity: { type: string, enum: [mild, moderate, severe], example: "severe" }
+ *               documentedBy: { type: integer, example: 1 }
+ *               documentedDate: { type: string, format: date-time, example: "2026-06-16T12:00:00.000Z" }
+ *               isActive: { type: boolean, example: true }
  *     responses:
  *       201: { description: Allergy added }
  */
