@@ -7,6 +7,12 @@ const INSURANCE_COMPANY_META_FKEY_TYPE = 214;
 
 type InsuranceCompanyMeta = {
   email?: string | null;
+  fax?: string | null;
+  website?: string | null;
+  country?: string | null;
+  claimType?: string | null;
+  notes?: string | null;
+  providersOutOfNetwork?: string[] | null;
 };
 
 const parseMeta = (value?: string | null): InsuranceCompanyMeta => {
@@ -62,7 +68,21 @@ export class InsuranceCompanyService {
       orderBy: { UserOdPrefNum: 'desc' },
     });
 
-    const valueString = JSON.stringify({ email: meta.email ?? null });
+    let currentMeta: InsuranceCompanyMeta = {};
+    if (existing) {
+      currentMeta = parseMeta(existing.ValueString);
+    }
+
+    const valueString = JSON.stringify({
+      email: meta.email !== undefined ? meta.email : (currentMeta.email ?? null),
+      fax: meta.fax !== undefined ? meta.fax : (currentMeta.fax ?? null),
+      website: meta.website !== undefined ? meta.website : (currentMeta.website ?? null),
+      country: meta.country !== undefined ? meta.country : (currentMeta.country ?? null),
+      claimType: meta.claimType !== undefined ? meta.claimType : (currentMeta.claimType ?? null),
+      notes: meta.notes !== undefined ? meta.notes : (currentMeta.notes ?? null),
+      providersOutOfNetwork: meta.providersOutOfNetwork !== undefined ? meta.providersOutOfNetwork : (currentMeta.providersOutOfNetwork ?? null),
+    });
+
     if (existing) {
       await prisma.userodpref.update({
         where: { UserOdPrefNum: existing.UserOdPrefNum },
@@ -119,18 +139,28 @@ export class InsuranceCompanyService {
     const metaMap = await this.getMetaMap(companies.map((c) => c.CarrierNum));
 
     return {
-      companies: companies.map((c) => ({
-        _id: c.CarrierNum.toString(),
-        name: c.CarrierName ?? '',
-        payerId: c.ElectID ?? null,
-        phone: c.Phone ?? null,
-        addressLine1: c.Address ?? null,
-        city: c.City ?? null,
-        state: c.State ?? null,
-        zipCode: c.Zip ?? null,
-        email: metaMap.get(c.CarrierNum.toString())?.email ?? c.TIN ?? null,
-        isActive: !c.IsHidden,
-      })),
+      companies: companies.map((c) => {
+        const meta = metaMap.get(c.CarrierNum.toString());
+        return {
+          _id: c.CarrierNum.toString(),
+          name: c.CarrierName ?? '',
+          payerId: c.ElectID ?? null,
+          phone: c.Phone ?? null,
+          addressLine1: c.Address ?? null,
+          addressLine2: c.Address2 ?? null,
+          city: c.City ?? null,
+          state: c.State ?? null,
+          zipCode: c.Zip ?? null,
+          email: meta?.email ?? c.TIN ?? null,
+          fax: meta?.fax ?? null,
+          website: meta?.website ?? null,
+          country: meta?.country ?? null,
+          claimType: meta?.claimType ?? null,
+          notes: meta?.notes ?? null,
+          providersOutOfNetwork: meta?.providersOutOfNetwork ?? [],
+          isActive: !c.IsHidden,
+        };
+      }),
       pagination: {
         page,
         limit,
@@ -152,6 +182,7 @@ export class InsuranceCompanyService {
       throw new NotFoundError('Insurance company not found');
     }
     const metaMap = await this.getMetaMap([company.CarrierNum]);
+    const meta = metaMap.get(company.CarrierNum.toString());
 
     return {
       _id: company.CarrierNum.toString(),
@@ -159,10 +190,17 @@ export class InsuranceCompanyService {
       payerId: company.ElectID ?? null,
       phone: company.Phone ?? null,
       addressLine1: company.Address ?? null,
+      addressLine2: company.Address2 ?? null,
       city: company.City ?? null,
       state: company.State ?? null,
       zipCode: company.Zip ?? null,
-      email: metaMap.get(company.CarrierNum.toString())?.email ?? company.TIN ?? null,
+      email: meta?.email ?? company.TIN ?? null,
+      fax: meta?.fax ?? null,
+      website: meta?.website ?? null,
+      country: meta?.country ?? null,
+      claimType: meta?.claimType ?? null,
+      notes: meta?.notes ?? null,
+      providersOutOfNetwork: meta?.providersOutOfNetwork ?? [],
       isActive: !company.IsHidden,
     };
   }
@@ -176,10 +214,17 @@ export class InsuranceCompanyService {
       payerId?: string;
       phone?: string;
       addressLine1?: string;
+      addressLine2?: string;
       city?: string;
       state?: string;
       zipCode?: string;
       email?: string;
+      fax?: string;
+      website?: string;
+      country?: string;
+      claimType?: string;
+      notes?: string;
+      providersOutOfNetwork?: string[];
       isActive?: boolean;
     },
     createdBy?: string
@@ -213,6 +258,7 @@ export class InsuranceCompanyService {
         ElectID: data.payerId?.toUpperCase(),
         Phone: data.phone ?? null,
         Address: data.addressLine1 ?? null,
+        Address2: data.addressLine2 ?? null,
         City: data.city ?? null,
         State: data.state ?? null,
         Zip: data.zipCode ?? null,
@@ -220,7 +266,15 @@ export class InsuranceCompanyService {
         IsHidden: data.isActive === false ? 1 : 0,
       },
     });
-    await this.saveMeta(company.CarrierNum, { email: emailValue ?? null });
+    await this.saveMeta(company.CarrierNum, {
+      email: emailValue ?? null,
+      fax: data.fax ?? null,
+      website: data.website ?? null,
+      country: data.country ?? null,
+      claimType: data.claimType ?? null,
+      notes: data.notes ?? null,
+      providersOutOfNetwork: data.providersOutOfNetwork ?? null,
+    });
 
     // Log activity
     if (createdBy) {
@@ -243,10 +297,17 @@ export class InsuranceCompanyService {
       payerId: company.ElectID ?? null,
       phone: company.Phone ?? null,
       addressLine1: company.Address ?? null,
+      addressLine2: company.Address2 ?? null,
       city: company.City ?? null,
       state: company.State ?? null,
       zipCode: company.Zip ?? null,
       email: emailValue ?? company.TIN ?? null,
+      fax: data.fax ?? null,
+      website: data.website ?? null,
+      country: data.country ?? null,
+      claimType: data.claimType ?? null,
+      notes: data.notes ?? null,
+      providersOutOfNetwork: data.providersOutOfNetwork ?? [],
       isActive: !company.IsHidden,
     };
   }
@@ -261,10 +322,17 @@ export class InsuranceCompanyService {
       payerId?: string;
       phone?: string;
       addressLine1?: string;
+      addressLine2?: string;
       city?: string;
       state?: string;
       zipCode?: string;
       email?: string;
+      fax?: string;
+      website?: string;
+      country?: string;
+      claimType?: string;
+      notes?: string;
+      providersOutOfNetwork?: string[];
       isActive?: boolean;
     },
     updatedBy?: string
@@ -317,6 +385,7 @@ export class InsuranceCompanyService {
         ElectID: updates.payerId ? updates.payerId.toUpperCase() : undefined,
         Phone: updates.phone ?? undefined,
         Address: updates.addressLine1 ?? undefined,
+        Address2: updates.addressLine2 ?? undefined,
         City: updates.city ?? undefined,
         State: updates.state ?? undefined,
         Zip: updates.zipCode ?? undefined,
@@ -324,10 +393,19 @@ export class InsuranceCompanyService {
         IsHidden: updates.isActive !== undefined ? (updates.isActive ? 0 : 1) : undefined,
       },
     });
-    if (emailValue !== undefined) {
-      await this.saveMeta(updated.CarrierNum, { email: emailValue ?? null });
+    if (emailValue !== undefined || updates.fax !== undefined || updates.website !== undefined || updates.country !== undefined || updates.claimType !== undefined || updates.notes !== undefined || updates.providersOutOfNetwork !== undefined) {
+      await this.saveMeta(updated.CarrierNum, {
+        email: emailValue,
+        fax: updates.fax,
+        website: updates.website,
+        country: updates.country,
+        claimType: updates.claimType,
+        notes: updates.notes,
+        providersOutOfNetwork: updates.providersOutOfNetwork,
+      });
     }
     const metaMap = await this.getMetaMap([updated.CarrierNum]);
+    const updatedMeta = metaMap.get(updated.CarrierNum.toString());
 
     // Log activity
     if (updatedBy) {
@@ -350,10 +428,17 @@ export class InsuranceCompanyService {
       payerId: updated.ElectID ?? null,
       phone: updated.Phone ?? null,
       addressLine1: updated.Address ?? null,
+      addressLine2: updated.Address2 ?? null,
       city: updated.City ?? null,
       state: updated.State ?? null,
       zipCode: updated.Zip ?? null,
-      email: metaMap.get(updated.CarrierNum.toString())?.email ?? updated.TIN ?? null,
+      email: updatedMeta?.email ?? updated.TIN ?? null,
+      fax: updatedMeta?.fax ?? null,
+      website: updatedMeta?.website ?? null,
+      country: updatedMeta?.country ?? null,
+      claimType: updatedMeta?.claimType ?? null,
+      notes: updatedMeta?.notes ?? null,
+      providersOutOfNetwork: updatedMeta?.providersOutOfNetwork ?? [],
       isActive: !updated.IsHidden,
     };
   }

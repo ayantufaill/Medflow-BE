@@ -149,7 +149,7 @@ const seedClaims = async () => {
           ClaimNum: claim!.ClaimNum,
           TrackingType: 'Clearinghouse Acknowledgement',
           Note: 'Claim successfully verified and received by Delta Dental clearinghouse.',
-          DateTimeValue: new Date(),
+          DateTimeEntry: new Date(),
         },
       });
       console.log('Created claim tracking log (claimtracking)');

@@ -12,15 +12,10 @@ export class PatientController {
       const status = req.query.status as string | undefined;
       const dobStart = req.query.dobStart as string | undefined;
       const dobEnd = req.query.dobEnd as string | undefined;
+      const gender = req.query.gender as string | undefined;
+      const providerId = req.query.providerId as string | undefined;
 
-      // Support isActive param and map to status
-const isActive = req.query.isActive as string | undefined;
-let resolvedStatus = status;
-if (isActive !== undefined && resolvedStatus === undefined) {
-  resolvedStatus = isActive === 'true' ? 'active' : isActive === 'false' ? 'inactive' : undefined;
-}
-
-const result = await patientService.getAllPatients(page, limit, search, resolvedStatus, dobStart, dobEnd);
+      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId);
       res.status(200).json({
         success: true,
         data: result,
@@ -108,8 +103,10 @@ const result = await patientService.getAllPatients(page, limit, search, resolved
       const status = req.query.status as string | undefined;
       const dobStart = req.query.dobStart as string | undefined;
       const dobEnd = req.query.dobEnd as string | undefined;
+      const gender = req.query.gender as string | undefined;
+      const providerId = req.query.providerId as string | undefined;
 
-      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd);
+      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId);
       res.status(200).json({
         success: true,
         data: result,

@@ -30,6 +30,11 @@ export const createInsuranceCompanyValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 200 })
     .withMessage('Address line 1 must be less than 200 characters'),
+  body('addressLine2')
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage('Address line 2 must be less than 200 characters'),
   body('city')
     .optional()
     .trim()
@@ -52,6 +57,35 @@ export const createInsuranceCompanyValidator: ValidationChain[] = [
     .withMessage('Please provide a valid email address')
     .normalizeEmail()
     .toLowerCase(),
+  body('fax')
+    .optional()
+    .trim()
+    .isLength({ max: 30 })
+    .withMessage('Fax must be less than 30 characters'),
+  body('website')
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage('Website must be less than 200 characters'),
+  body('country')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Country must be less than 100 characters'),
+  body('claimType')
+    .optional()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage('Claim type must be less than 50 characters'),
+  body('notes')
+    .optional()
+    .trim()
+    .isLength({ max: 2000 })
+    .withMessage('Notes must be less than 2000 characters'),
+  body('providersOutOfNetwork')
+    .optional()
+    .isArray()
+    .withMessage('Providers out of network must be an array'),
   body('isActive')
     .optional()
     .isBoolean()
@@ -79,6 +113,11 @@ export const updateInsuranceCompanyValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 200 })
     .withMessage('Address line 1 must be less than 200 characters'),
+  body('addressLine2')
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage('Address line 2 must be less than 200 characters'),
   body('city')
     .optional()
     .trim()
@@ -101,6 +140,35 @@ export const updateInsuranceCompanyValidator: ValidationChain[] = [
     .withMessage('Please provide a valid email address')
     .normalizeEmail()
     .toLowerCase(),
+  body('fax')
+    .optional()
+    .trim()
+    .isLength({ max: 30 })
+    .withMessage('Fax must be less than 30 characters'),
+  body('website')
+    .optional()
+    .trim()
+    .isLength({ max: 200 })
+    .withMessage('Website must be less than 200 characters'),
+  body('country')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Country must be less than 100 characters'),
+  body('claimType')
+    .optional()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage('Claim type must be less than 50 characters'),
+  body('notes')
+    .optional()
+    .trim()
+    .isLength({ max: 2000 })
+    .withMessage('Notes must be less than 2000 characters'),
+  body('providersOutOfNetwork')
+    .optional()
+    .isArray()
+    .withMessage('Providers out of network must be an array'),
   body('isActive')
     .optional()
     .isBoolean()
@@ -136,6 +204,11 @@ export const createPatientInsuranceValidator: ValidationChain[] = [
     .withMessage('Group number must not exceed 30 characters')
     .matches(/^[A-Za-z0-9]*$/)
     .withMessage('Group number must be alphanumeric only'),
+  body('groupName')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Group name must be less than 100 characters'),
   body('subscriberName')
     .trim()
     .notEmpty()
@@ -256,6 +329,14 @@ export const createPatientInsuranceValidator: ValidationChain[] = [
     .optional()
     .isObject()
     .withMessage('coverageLimits must be an object'),
+  body('coverageCategoryTable')
+    .optional()
+    .isArray()
+    .withMessage('coverageCategoryTable must be an array'),
+  body('coverageBookData')
+    .optional()
+    .isArray()
+    .withMessage('coverageBookData must be an array'),
   body('planFeeGuide')
     .optional()
     .isString()
@@ -280,9 +361,33 @@ export const createPatientInsuranceValidator: ValidationChain[] = [
     .optional()
     .isBoolean()
     .withMessage('honorWriteOff must be a boolean'),
+  body('providersPlanFeeGuides')
+    .optional()
+    .isArray()
+    .withMessage('providersPlanFeeGuides must be an array'),
+  body('policyNotes')
+    .optional()
+    .isString()
+    .withMessage('policyNotes must be a string'),
+  body('eligibilityPolicyNotes')
+    .optional()
+    .isString()
+    .withMessage('eligibilityPolicyNotes must be a string'),
+  body('insurancePlanNotes')
+    .optional()
+    .isString()
+    .withMessage('insurancePlanNotes must be a string'),
+  body('healthPlan')
+    .optional(),
+  body('paymentPlan')
+    .optional(),
 ];
 
 export const updatePatientInsuranceValidator: ValidationChain[] = [
+  body('insuranceCompanyId')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Invalid insurance company ID format'),
   body('policyNumber')
     .optional()
     .trim()
@@ -293,6 +398,11 @@ export const updatePatientInsuranceValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 50 })
     .withMessage('Group number must be less than 50 characters'),
+  body('groupName')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Group name must be less than 100 characters'),
   body('subscriberName')
     .optional()
     .trim()
@@ -369,6 +479,14 @@ export const updatePatientInsuranceValidator: ValidationChain[] = [
     .optional()
     .isObject()
     .withMessage('coverageLimits must be an object'),
+  body('coverageCategoryTable')
+    .optional()
+    .isArray()
+    .withMessage('coverageCategoryTable must be an array'),
+  body('coverageBookData')
+    .optional()
+    .isArray()
+    .withMessage('coverageBookData must be an array'),
   body('planFeeGuide')
     .optional()
     .isString()
@@ -393,6 +511,26 @@ export const updatePatientInsuranceValidator: ValidationChain[] = [
     .optional()
     .isBoolean()
     .withMessage('honorWriteOff must be a boolean'),
+  body('providersPlanFeeGuides')
+    .optional()
+    .isArray()
+    .withMessage('providersPlanFeeGuides must be an array'),
+  body('policyNotes')
+    .optional()
+    .isString()
+    .withMessage('policyNotes must be a string'),
+  body('eligibilityPolicyNotes')
+    .optional()
+    .isString()
+    .withMessage('eligibilityPolicyNotes must be a string'),
+  body('insurancePlanNotes')
+    .optional()
+    .isString()
+    .withMessage('insurancePlanNotes must be a string'),
+  body('healthPlan')
+    .optional(),
+  body('paymentPlan')
+    .optional(),
 ];
 
 export const allergyIdValidator: ValidationChain[] = [

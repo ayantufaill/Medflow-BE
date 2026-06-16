@@ -258,6 +258,7 @@ export class AppointmentService {
     mapped.participants = meta.participants ?? [];
     mapped.workspaceNotes = meta.workspaceNotes ?? [];
     mapped.systemEvents = meta.systemEvents ?? [];
+    mapped.checklists = meta.checklists ?? { preAppt: {}, checkIn: {}, checkOut: {} };
 
     if (options?.provider) {
       const providerMeta = await getProviderMeta(options.provider.ProvNum);
@@ -895,6 +896,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       cancellationReason: null,
       checkInAt: null,
       completedAt: null,
+      checklists: (data as any).checklists ?? { preAppt: {}, checkIn: {}, checkOut: {} },
     });
 
     // Log activity
@@ -1052,6 +1054,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
         updates.status === 'completed'
           ? new Date().toISOString()
           : existingMeta.completedAt ?? (updated.DateTimeDismissed ? updated.DateTimeDismissed.toISOString() : null),
+      checklists: (updates as any).checklists ?? existingMeta.checklists ?? { preAppt: {}, checkIn: {}, checkOut: {} },
     };
     await setAppointmentMeta(updated.AptNum, nextMeta);
 
