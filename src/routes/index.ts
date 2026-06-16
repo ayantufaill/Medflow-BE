@@ -52,6 +52,7 @@ import membershipPlanRoutes from './membership-plan.routes';
 import medicationRoutes from './medication.routes';
 import adjunctiveTherapyRoutes from './adjunctive-therapy.routes';
 import aiConversationRoutes from './ai-conversation.routes';
+import procedureCodeRoutes from './procedure-code.routes';
 
 const router = Router();
 
@@ -70,6 +71,7 @@ router.use('/coverage-templates', coverageTemplateRoutes);
 router.use('/ocr', ocrRoutes);
 router.use('/allergies', allergyRoutes);
 router.use('/appointments', appointmentRoutes);
+router.use('/procedure-codes', procedureCodeRoutes);
 router.use('/providers', providerRoutes);
 router.use('/appointment-types', appointmentTypeRoutes);
 router.use('/recurring-appointments', recurringAppointmentRoutes);
