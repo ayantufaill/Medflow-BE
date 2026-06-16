@@ -42,8 +42,42 @@ export class PatientInsuranceService {
       get: (id: string) => metaMapData[id] || {}
     };
 
+    const insSubNums = patPlans
+      .map((p) => p.InsSubNum)
+      .filter((num): num is bigint => num !== null && num !== undefined && num !== 0n);
+
+    const sharingPlans = insSubNums.length > 0
+      ? await prisma.patplan.findMany({
+          where: { InsSubNum: { in: insSubNums } },
+          include: {
+            patient: {
+              select: {
+                FName: true,
+                LName: true,
+                PatNum: true,
+              },
+            },
+          },
+        })
+      : [];
+
+    const membersBySubNum = new Map<string, string[]>();
+    for (const plan of sharingPlans) {
+      if (!plan.InsSubNum || !plan.patient) continue;
+      const subKey = plan.InsSubNum.toString();
+      const name = [plan.patient.FName, plan.patient.LName].filter(Boolean).join(' ');
+      if (!membersBySubNum.has(subKey)) {
+        membersBySubNum.set(subKey, []);
+      }
+      membersBySubNum.get(subKey)!.push(name);
+    }
+
     return patPlans.map((patplan) => {
       const meta = metaMap.get(patplan.PatPlanNum.toString());
+      const subKey = patplan.InsSubNum ? patplan.InsSubNum.toString() : '';
+      const members = subKey ? (membersBySubNum.get(subKey) ?? []) : [];
+      const isFamilyPlan = members.length > 1;
+
       return {
         _id: patplan.PatPlanNum.toString(),
         patientId,
@@ -70,6 +104,10 @@ export class PatientInsuranceService {
         verificationDate: meta?.verificationDate ?? null,
         isActive: patplan.IsPending ? false : true,
         notes: patplan.inssub?.SubscNote ?? null,
+
+        // Family Coverage Fields
+        isFamilyPlan,
+        members,
 
         // Advanced Dentistry Fields
         deductiblesGrid: patplan.DeductiblesGrid ? JSON.parse(patplan.DeductiblesGrid) : (meta?.deductiblesGrid ?? []),
@@ -111,6 +149,26 @@ export class PatientInsuranceService {
 
     const insuranceMeta = await getPatientInsuranceMeta(patplan.PatPlanNum);
 
+    // Fetch family members if there's an InsSubNum
+    let members: string[] = [];
+    if (patplan.InsSubNum && patplan.InsSubNum !== 0n) {
+      const familyPlans = await prisma.patplan.findMany({
+        where: { InsSubNum: patplan.InsSubNum },
+        include: {
+          patient: {
+            select: {
+              FName: true,
+              LName: true,
+            },
+          },
+        },
+      });
+      members = familyPlans
+        .map((p) => [p.patient?.FName, p.patient?.LName].filter(Boolean).join(' '))
+        .filter(Boolean);
+    }
+    const isFamilyPlan = members.length > 1;
+
     return {
       _id: patplan.PatPlanNum.toString(),
       patientId: patplan.PatNum?.toString() ?? '',
@@ -137,6 +195,10 @@ export class PatientInsuranceService {
       verificationDate: insuranceMeta.verificationDate ?? null,
       isActive: patplan.IsPending ? false : true,
       notes: patplan.inssub?.SubscNote ?? null,
+
+      // Family Coverage Fields
+      isFamilyPlan,
+      members,
 
       // Advanced Dentistry Fields
       deductiblesGrid: patplan.DeductiblesGrid ? JSON.parse(patplan.DeductiblesGrid) : (insuranceMeta.deductiblesGrid ?? []),
