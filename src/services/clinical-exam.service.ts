@@ -15,8 +15,6 @@ const getModel = (examType: ExamType) => {
     'periodontal': prisma.examperiodontal,
     'dentofacial': prisma.examdentofacial,
     'airway': prisma.examairway,
-    'dentofacial-opinion': prisma.examdentofacial,
-    'periodontal-opinion': prisma.examperiodontal,
   };
   return modelMap[examType] as any; 
 };
@@ -43,8 +41,23 @@ const mapExamRecord = (record: any, examType: ExamType) => {
 
 export class ClinicalExamService {
   
+  private getFkeyType(examType: ExamType): number {
+    switch (examType) {
+      case 'biomechanical':
+        return 215;
+      case 'functional':
+        return 216;
+      case 'dentofacial-opinion':
+        return 217;
+      case 'periodontal-opinion':
+        return 218;
+      default:
+        return 216;
+    }
+  }
+
   private async getPrefExam(examType: ExamType, aptNum: bigint) {
-    const fkeyType = examType === 'biomechanical' ? 215 : 216;
+    const fkeyType = this.getFkeyType(examType);
     const pref = await prisma.userodpref.findFirst({
       where: {
         Fkey: aptNum,
@@ -76,7 +89,7 @@ export class ClinicalExamService {
   }
 
   private async savePrefExam(examType: ExamType, aptNum: bigint, record: any) {
-    const fkeyType = examType === 'biomechanical' ? 215 : 216;
+    const fkeyType = this.getFkeyType(examType);
     const existing = await prisma.userodpref.findFirst({
       where: {
         Fkey: aptNum,
@@ -127,7 +140,7 @@ export class ClinicalExamService {
 
   async getExamByAppointment(examType: ExamType, appointmentId: string) {
     const aptNum = BigInt(appointmentId);
-    if (examType === 'biomechanical' || examType === 'functional') {
+    if (examType === 'biomechanical' || examType === 'functional' || examType === 'dentofacial-opinion' || examType === 'periodontal-opinion') {
       const record = await this.getPrefExam(examType, aptNum);
       return mapExamRecord(record, examType);
     }
@@ -147,7 +160,7 @@ export class ClinicalExamService {
     const userNum = BigInt(userId);
     const examDataJson = data.examData; // object or json
 
-    if (examType === 'biomechanical' || examType === 'functional') {
+    if (examType === 'biomechanical' || examType === 'functional' || examType === 'dentofacial-opinion' || examType === 'periodontal-opinion') {
       const existingRecord = await this.getPrefExam(examType, aptNum);
       if (existingRecord) {
         if (existingRecord.IsSigned) {
@@ -262,7 +275,7 @@ export class ClinicalExamService {
     const aptNum = BigInt(appointmentId);
     const userNum = BigInt(userId);
 
-    if (examType === 'biomechanical' || examType === 'functional') {
+    if (examType === 'biomechanical' || examType === 'functional' || examType === 'dentofacial-opinion' || examType === 'periodontal-opinion') {
       const existingRecord = await this.getPrefExam(examType, aptNum);
       if (!existingRecord) {
         throw new NotFoundError(`No ${examType} exam found for appointment ${appointmentId} to sign.`);
@@ -332,8 +345,8 @@ export class ClinicalExamService {
   async deleteExam(examType: ExamType, appointmentId: string, userId: string) {
   const aptNum = BigInt(appointmentId);
 
-  // Handle pref-based exams (biomechanical & functional)
-  if (examType === 'biomechanical' || examType === 'functional') {
+  // Handle pref-based exams (biomechanical, functional, opinions)
+  if (examType === 'biomechanical' || examType === 'functional' || examType === 'dentofacial-opinion' || examType === 'periodontal-opinion') {
     const existingRecord = await this.getPrefExam(examType, aptNum);
 
     if (!existingRecord) {
@@ -344,7 +357,7 @@ export class ClinicalExamService {
       throw new AuthorizationError('Exam is signed and locked. It cannot be deleted.');
     }
 
-    const fkeyType = examType === 'biomechanical' ? 215 : 216;
+    const fkeyType = this.getFkeyType(examType);
     await prisma.userodpref.deleteMany({
       where: {
         Fkey: aptNum,
