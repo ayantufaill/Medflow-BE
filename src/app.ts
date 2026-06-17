@@ -10,9 +10,12 @@ import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import routes from './routes/index';
 import swaggerOptions from './config/swagger';
 
+
 // Initialize Express app
 const app = express();
 app.set('trust proxy', 1);
+
+app.use('/uploads', express.static('/app/uploads'));
 
 // Security Middleware
 app.use(helmet(helmetOptions));
@@ -61,5 +64,7 @@ app.use('/api', routes);
 // Error handling middleware (must be last)
 app.use(notFoundHandler);
 app.use(errorHandler);
+
+
 
 export default app;

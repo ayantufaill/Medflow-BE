@@ -59,6 +59,7 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
+      - patient-uploads:/app/uploads
     command: ["/bin/sh", "-c", "npx prisma generate --schema prisma/schema.prisma && npm run dev"]
     depends_on:
       db:
@@ -70,3 +71,4 @@ services:
 
 volumes:
   mssql_data:
+  patient-uploads: 

@@ -4597,6 +4597,19 @@ model patient {
  examperiodontals examperiodontal[]
  examdentofacials examdentofacial[]
  examairways examairway[]
+ patientimage patientimage?
+}
+model patientimage {
+  ImageId        BigInt   @id @default(autoincrement())
+  PatNum         BigInt   @unique
+  ProfileImagePath   String?  @db.VarChar(500)
+  XrayImagePath      String?  @db.VarChar(500)
+  TeethCropImagePath String?  @db.VarChar(500)
+  CreatedAt      DateTime @default(now())
+  UpdatedAt      DateTime @updatedAt
+  CreatedBy      BigInt?
+  UpdatedBy      BigInt?
+  patient        patient  @relation(fields: [PatNum], references: [PatNum])
 }
 
 model patientlink {
@@ -7125,6 +7138,7 @@ model userod {
  wikilisthist wikilisthist[]
  wikipage wikipage[]
  wikipagehist wikipagehist[]
+ usertoken usertoken[]
 }
 model userodapptview {
  UserodApptViewNum BigInt @id(map: "PK__userodap__86907414C2ED35E9")

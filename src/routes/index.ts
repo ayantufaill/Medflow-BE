@@ -54,6 +54,7 @@ import adjunctiveTherapyRoutes from './adjunctive-therapy.routes';
 import aiConversationRoutes from './ai-conversation.routes';
 import scheduleBlockRoutes from './schedule-block.routes';
 import procedureCodeRoutes from './procedure-code.routes';
+import patientImageRouter from './patient-image.route';
 
 const router = Router();
 
@@ -114,6 +115,7 @@ router.use('/medications', medicationRoutes);
 router.use('/patients', adjunctiveTherapyRoutes);
 router.use('/ai-conversation', aiConversationRoutes);
 router.use('/schedule-blocks', scheduleBlockRoutes);
+router.use('/patients/:patientId/images', patientImageRouter);
 
 export default router;
 
