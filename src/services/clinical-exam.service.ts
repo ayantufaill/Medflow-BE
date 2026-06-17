@@ -10,6 +10,7 @@ const getModel = (examType: ExamType) => {
     'tmj': prisma.examtmj,
     'head-neck': prisma.examheadneck,
     'tooth-structure': prisma.examtoothstructure,
+    'teeth-structure': prisma.examtoothstructure,
     'morphological': prisma.exammorphological,
     'periodontal': prisma.examperiodontal,
     'dentofacial': prisma.examdentofacial,
