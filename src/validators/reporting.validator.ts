@@ -20,3 +20,9 @@ export const runReportValidator: ValidationChain[] = [
 export const reportIdParamValidator: ValidationChain[] = [
   param('reportId').isString().notEmpty().withMessage('reportId is required'),
 ];
+
+export const archiveReportValidator: ValidationChain[] = [
+  body('type').isString().notEmpty().withMessage('Report type is required'),
+  body('data').notEmpty().withMessage('Report data is required'),
+];
+

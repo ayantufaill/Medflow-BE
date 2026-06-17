@@ -176,6 +176,61 @@ export class ReportingService {
 
     return { data, total };
   }
+
+  async archiveReport(type: string, data: any, userId?: string) {
+    const createdBy = userId && /^\d+$/.test(userId) ? BigInt(userId) : null;
+    const report = await prisma.archivedreport.create({
+      data: {
+        ReportType: type,
+        ReportData: JSON.stringify(data),
+        CreatedBy: createdBy,
+      },
+    });
+
+    return {
+      id: report.ReportId.toString(),
+      type: report.ReportType,
+      snapshotDate: report.SnapshotDate,
+      createdBy: report.CreatedBy?.toString() || null,
+    };
+  }
+
+  async getArchivedReports() {
+    const reports = await prisma.archivedreport.findMany({
+      orderBy: { SnapshotDate: 'desc' },
+      select: {
+        ReportId: true,
+        ReportType: true,
+        SnapshotDate: true,
+        CreatedBy: true,
+      },
+    });
+
+    return reports.map((r) => ({
+      id: r.ReportId.toString(),
+      type: r.ReportType,
+      snapshotDate: r.SnapshotDate,
+      createdBy: r.CreatedBy?.toString() || null,
+    }));
+  }
+
+  async getArchivedReportById(id: string) {
+    const report = await prisma.archivedreport.findUnique({
+      where: { ReportId: BigInt(id) },
+    });
+
+    if (!report) {
+      throw new NotFoundError('Archived report not found');
+    }
+
+    return {
+      id: report.ReportId.toString(),
+      type: report.ReportType,
+      snapshotDate: report.SnapshotDate,
+      createdBy: report.CreatedBy?.toString() || null,
+      data: JSON.parse(report.ReportData),
+    };
+  }
 }
 
 export const reportingService = new ReportingService();

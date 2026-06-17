@@ -7561,3 +7561,11 @@ model examairway {
  appointment appointment @relation(fields: [AptNum], references: [AptNum])
  provider provider @relation(fields: [ProvNum], references: [ProvNum])
 }
+
+model archivedreport {
+  ReportId     BigInt   @id @default(autoincrement())
+  ReportType   String   @db.VarChar(50)
+  SnapshotDate DateTime @default(now())
+  ReportData   String
+  CreatedBy    BigInt?
+}

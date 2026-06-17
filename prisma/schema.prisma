@@ -7680,3 +7680,11 @@ model paymentterminal {
   LaneId       String? @db.VarChar(50)
   IsActive     Boolean @default(true)
 }
+
+model archivedreport {
+  ReportId     BigInt   @id @default(autoincrement())
+  ReportType   String   @db.VarChar(50)
+  SnapshotDate DateTime @default(now())
+  ReportData   String   @db.VarChar(Max)
+  CreatedBy    BigInt?
+}

@@ -131,4 +131,60 @@ describe('Reports Section APIs', () => {
       expect(Array.isArray(res.body.data)).toBe(true);
     });
   });
+
+  describe('Archived Reports', () => {
+    let createdReportId: string;
+
+    it('archives a report snapshot', async () => {
+      const sampleData = [
+        { name: 'John Smith', total: 500, buckets: { '0-30': { pt: 500, ins: 0 } } },
+      ];
+      const res = await request(app)
+        .post('/api/reports/archive')
+        .set(authHeader)
+        .send({
+          type: 'aging',
+          data: sampleData,
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.id).toBeDefined();
+      expect(res.body.data.type).toBe('aging');
+      createdReportId = res.body.data.id;
+    });
+
+    it('gets list of archived reports', async () => {
+      const res = await request(app)
+        .get('/api/reports/archive')
+        .set(authHeader);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.data)).toBe(true);
+      expect(res.body.data.length).toBeGreaterThan(0);
+      expect(res.body.data.some((r: any) => r.id === createdReportId)).toBe(true);
+    });
+
+    it('gets archived report by id', async () => {
+      const res = await request(app)
+        .get(`/api/reports/archive/${createdReportId}`)
+        .set(authHeader);
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.id).toBe(createdReportId);
+      expect(res.body.data.type).toBe('aging');
+      expect(Array.isArray(res.body.data.data)).toBe(true);
+      expect(res.body.data.data[0].name).toBe('John Smith');
+    });
+
+    it('returns 404 for non-existent archived report', async () => {
+      const res = await request(app)
+        .get('/api/reports/archive/99999999')
+        .set(authHeader);
+
+      expect(res.status).toBe(404);
+    });
+  });
 });
