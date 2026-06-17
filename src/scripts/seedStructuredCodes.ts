@@ -238,10 +238,24 @@ async function seedStructuredCodes() {
         LaymanTerm: proc.desc,
       },
     });
+
+    // Seed default fee of $90 under default fee schedule (FeeSchedNum = 1n)
+    const feeNum = await getNextId('fee', 'FeeNum');
+    await prisma.fee.create({
+      data: {
+        FeeNum: feeNum,
+        CodeNum: codeNum,
+        FeeSched: 1n,
+        Amount: 90,
+        UseDefaultFee: 0,
+        UseDefaultCov: 0,
+      },
+    });
+
     createdCount++;
   }
 
-  console.log(`Structured CDT procedure codes seeding complete. Created: ${createdCount} codes.`);
+  console.log(`Structured CDT procedure codes and fees seeding complete. Created: ${createdCount} codes and fees.`);
 }
 
 seedStructuredCodes()

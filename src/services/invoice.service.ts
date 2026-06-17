@@ -918,6 +918,138 @@ export class InvoiceService {
 
     return this.mapStatementToInvoice(updated, nextMeta);
   }
+
+  async createStandaloneInvoice(
+    data: {
+      patientId: string;
+      items: Array<{
+        code: string;
+        description: string;
+        date?: string;
+        site?: string;
+        provider?: string;
+        writeoff?: number;
+        ptPortion?: number;
+        insPortion?: number;
+        charge?: number;
+        balance?: number;
+        dbi?: boolean;
+        completed?: boolean;
+      }>;
+    },
+    createdBy: string
+  ) {
+    const patientId = BigInt(data.patientId);
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: patientId },
+    });
+    if (!patient) {
+      throw new NotFoundError('Patient not found');
+    }
+
+    const invoiceNumber = await getInvoiceNumber();
+    const statementNum = await getNextId('statement', 'StatementNum');
+    const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    let totalAmount = 0;
+    let totalInsPortion = 0;
+    let totalPtPortion = 0;
+
+    for (const item of data.items) {
+      totalAmount += Number(item.charge ?? 0);
+      totalInsPortion += Number(item.insPortion ?? 0);
+      totalPtPortion += Number(item.ptPortion ?? 0);
+    }
+
+    const meta: StatementMeta = {
+      copayAmount: 0,
+      paidAmount: 0,
+      taxAmount: 0,
+      discountAmount: 0,
+      insurancePortion: totalInsPortion,
+      patientPortion: totalPtPortion,
+      status: 'draft',
+      createdBy,
+      dueDate: dueDate.toISOString(),
+    };
+
+    const statement = await prisma.statement.create({
+      data: {
+        StatementNum: statementNum,
+        PatNum: patientId,
+        DateSent: new Date(),
+        DateRangeFrom: new Date(),
+        DateRangeTo: dueDate,
+        Note: 'Standalone Invoice',
+        NoteBold: buildJson(meta),
+        IsInvoice: 1,
+        StatementType: 'draft',
+        ShortGUID: invoiceNumber,
+        InsEst: totalInsPortion,
+        BalTotal: totalAmount,
+      },
+    });
+
+    for (const item of data.items) {
+      const procNum = await getNextId('procedurelog', 'ProcNum');
+      const service = await prisma.procedurecode.findFirst({
+        where: { ProcCode: item.code },
+      });
+
+      const billingNotePayload = {
+        description: item.description,
+        unitPrice: Number(item.charge ?? 0),
+        quantity: 1,
+        cptCode: item.code,
+        serviceId: service?.CodeNum?.toString() ?? null,
+        site: item.site ?? 'None',
+        provider: item.provider ?? 'Default',
+        writeoff: Number(item.writeoff ?? 0),
+        ptPortion: Number(item.ptPortion ?? 0),
+        insPortion: Number(item.insPortion ?? 0),
+        charge: Number(item.charge ?? 0),
+        balance: Number(item.balance ?? 0),
+        dbi: Boolean(item.dbi),
+        completed: Boolean(item.completed),
+      };
+
+      await prisma.procedurelog.create({
+        data: {
+          ProcNum: procNum,
+          PatNum: patientId,
+          ProcDate: item.date ? new Date(item.date) : new Date(),
+          ProcFee: Number(item.charge ?? 0),
+          UnitQty: 1,
+          CodeNum: service?.CodeNum ?? null,
+          StatementNum: statementNum,
+          ProcStatus: item.completed ? 2 : 1,
+          BillingNote: buildJson(billingNotePayload),
+        },
+      });
+    }
+
+    await this.recalculateInvoice(statementNum.toString());
+
+    const finalStatement = await prisma.statement.findUnique({
+      where: { StatementNum: statementNum },
+    });
+
+    const finalMeta = parseJson<StatementMeta>(finalStatement?.NoteBold);
+
+    await logActivity(
+      createdBy,
+      'created',
+      'invoices',
+      statementNum.toString(),
+      undefined,
+      this.mapStatementToInvoice(finalStatement, finalMeta),
+      undefined,
+      undefined,
+      'medium'
+    );
+
+    return this.mapStatementToInvoice(finalStatement, finalMeta);
+  }
 }
 
 export const invoiceService = new InvoiceService();

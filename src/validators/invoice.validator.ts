@@ -176,3 +176,51 @@ export const voidInvoiceValidator: ValidationChain[] = [
     .isLength({ max: 500 })
     .withMessage('reason must be less than 500 characters'),
 ];
+
+export const createStandaloneInvoiceValidator: ValidationChain[] = [
+  body('patientId')
+    .notEmpty()
+    .withMessage('Patient ID is required')
+    .isInt({ min: 1 })
+    .withMessage('Invalid patient ID format'),
+  body('items')
+    .isArray({ min: 1 })
+    .withMessage('Items must be a non-empty array'),
+  body('items.*.code')
+    .notEmpty()
+    .withMessage('Item code is required'),
+  body('items.*.description')
+    .notEmpty()
+    .withMessage('Item description is required'),
+  body('items.*.date')
+    .optional()
+    .isISO8601()
+    .withMessage('Item date must be a valid ISO8601 date'),
+  body('items.*.site')
+    .optional()
+    .isString(),
+  body('items.*.provider')
+    .optional()
+    .isString(),
+  body('items.*.writeoff')
+    .optional()
+    .isNumeric(),
+  body('items.*.ptPortion')
+    .optional()
+    .isNumeric(),
+  body('items.*.insPortion')
+    .optional()
+    .isNumeric(),
+  body('items.*.charge')
+    .optional()
+    .isNumeric(),
+  body('items.*.balance')
+    .optional()
+    .isNumeric(),
+  body('items.*.dbi')
+    .optional()
+    .isBoolean(),
+  body('items.*.completed')
+    .optional()
+    .isBoolean(),
+];
