@@ -33,6 +33,27 @@ type ItemMeta = {
   serviceId?: string;
 };
 
+// Add this helper function
+const buildBillingNote = (data: any) => {
+  const payload: Record<string, any> = {};
+  
+  if (data.cptCode) payload.cptCode = data.cptCode;
+  if (data.writeoff && Number(data.writeoff) > 0) payload.writeoff = Number(data.writeoff);
+  if (data.ptPortion && Number(data.ptPortion) > 0) payload.ptPortion = Number(data.ptPortion);
+  if (data.insPortion && Number(data.insPortion) > 0) payload.insPortion = Number(data.insPortion);
+  if (data.dbi !== undefined && data.dbi !== null) payload.dbi = Boolean(data.dbi);
+  if (data.paidAmount && Number(data.paidAmount) > 0) payload.paidAmount = Number(data.paidAmount);
+
+  if (data.description) {
+    payload.description = data.description.substring(0, 100);
+  }
+
+  if (data.unitPrice !== undefined) payload.unitPrice = Number(data.unitPrice);
+  if (data.quantity !== undefined) payload.quantity = Number(data.quantity);
+
+  return JSON.stringify(payload);
+};
+
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;
   try {
@@ -1053,6 +1074,56 @@ export class InvoiceService {
 
     return this.mapStatementToInvoice(finalStatement, finalMeta);
   }
+  async markItemPaid(invoiceId: string, itemId: string, amount: number) {
+  // Check if invoice exists
+  const invoice = await this.getStatementById(invoiceId);
+  if (!invoice) {
+    throw new NotFoundError('Invoice not found');
+  }
+
+  const meta = parseJson<StatementMeta>(invoice.NoteBold);
+  if (String(meta.status) === 'void') {
+    throw new BadRequestError('Cannot pay a voided invoice');
+  }
+
+  // Find the item in the invoice
+  const item = await prisma.procedurelog.findUnique({
+    where: { ProcNum: BigInt(itemId) },
+  });
+  
+  if (!item || item.StatementNum?.toString() !== invoiceId) {
+    throw new NotFoundError('Invoice item not found');
+  }
+
+  // Get current paid amount from meta
+  const itemMeta = parseJson<ItemMeta>(item.BillingNote);
+  const currentPaid = Number((itemMeta as any).paidAmount || 0);
+  const newPaid = roundCurrency(currentPaid + amount);
+
+  // Update the item's paid amount in BillingNote
+  const updatedItemMeta = {
+    ...itemMeta,
+    paidAmount: newPaid,
+  };
+
+  // Update the item
+  await prisma.procedurelog.update({
+    where: { ProcNum: BigInt(itemId) },
+    data: {
+      BillingNote: buildJson(updatedItemMeta),
+    },
+  });
+
+  // Recalculate the invoice totals
+  await this.recalculateInvoice(invoiceId);
+
+  return { 
+    success: true, 
+    message: 'Item payment recorded',
+    itemId,
+    paidAmount: newPaid
+  };
+}
 }
 
 export const invoiceService = new InvoiceService();

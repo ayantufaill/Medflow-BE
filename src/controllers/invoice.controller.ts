@@ -340,6 +340,27 @@ export class InvoiceController {
       next(error);
     }
   }
+  async markItemPaid(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { invoiceId, itemId } = req.params;
+    const { amount } = req.body;
+    
+    if (!amount || Number(amount) <= 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: { message: 'amount must be > 0' } 
+      });
+    }
+    
+    await invoiceService.markItemPaid(invoiceId, itemId, Number(amount));
+    res.json({ 
+      success: true, 
+      message: 'Item payment recorded' 
+    });
+  } catch (error) {
+    next(error);
+  }
+}
 }
 
 export const invoiceController = new InvoiceController();
