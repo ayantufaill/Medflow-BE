@@ -83,6 +83,9 @@ export class InvoiceService {
       quantity,
       unitPrice,
       totalPrice,
+      ptPortion: Number((meta as any).ptPortion || 0),
+      insPortion: Number((meta as any).insPortion || 0),
+      writeoff: Number((meta as any).writeoff || 0)
     };
   }
 
