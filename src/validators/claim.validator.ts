@@ -110,4 +110,73 @@ export const uncompleteProceduresValidator: ValidationChain[] = [
   body('procedureIds.*').isString().notEmpty().withMessage('Each procedureId must be a string'),
 ];
 
+export const createManualClaimValidator: ValidationChain[] = [
+  body('patientId')
+    .isString()
+    .notEmpty()
+    .withMessage('patientId is required')
+    .matches(/^\d+$/)
+    .withMessage('Invalid patient ID'),
+
+  body('insuranceId')
+    .isString()
+    .notEmpty()
+    .withMessage('insuranceId is required')
+    .matches(/^\d+$/)
+    .withMessage('Invalid insurance ID'),
+
+  body('treatingProviderId')
+    .isString()
+    .notEmpty()
+    .withMessage('treatingProviderId is required')
+    .matches(/^\d+$/)
+    .withMessage('Invalid treating provider ID'),
+
+  body('billingEntityId')
+    .isString()
+    .notEmpty()
+    .withMessage('billingEntityId is required')
+    .matches(/^\d+$/)
+    .withMessage('Invalid billing entity ID'),
+
+  body('claimType')
+    .optional()
+    .isIn(['Manual', 'Electronic'])
+    .withMessage('claimType must be either Manual or Electronic')
+    .default('Manual'),
+
+  body('description')
+    .optional()
+    .isString()
+    .withMessage('description must be a string'),
+
+  body('note')
+    .optional()
+    .isString()
+    .withMessage('note must be a string'),
+
+  body('selectedItems')
+    .isArray({ min: 1 })
+    .withMessage('selectedItems must be a non-empty array'),
+
+  body('selectedItems.*.invoiceId')
+    .isString()
+    .notEmpty()
+    .withMessage('invoiceId is required')
+    .matches(/^\d+$/)
+    .withMessage('Invalid invoice ID'),
+
+  body('selectedItems.*.itemId')
+    .isString()
+    .notEmpty()
+    .withMessage('itemId is required')
+    .matches(/^\d+$/)
+    .withMessage('Invalid item ID'),
+
+  body('selectedItems.*.amount')
+    .isNumeric()
+    .withMessage('amount must be a number')
+    .custom((value) => value > 0)
+    .withMessage('amount must be greater than 0'),
+];
 
