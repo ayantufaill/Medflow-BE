@@ -231,4 +231,263 @@ router.post(
   progressNoteController.addProcedure
 );
 
+/**
+ * @swagger
+ * /progress-notes/{id}:
+ *   put:
+ *     summary: Update a progress note
+ *     description: Updates the description and/or category of an existing progress note
+ *     tags: [Progress Notes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *         description: ID of the progress note to update
+ *         example: "12345"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               description:
+ *                 type: string
+ *                 description: Updated description/content of the note
+ *                 example: "Updated: Patient reported improvement"
+ *               category:
+ *                 type: string
+ *                 description: Updated category
+ *                 example: "follow-up"
+ *     responses:
+ *       200:
+ *         description: Progress note updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     progressNote:
+ *                       type: object
+ *                       properties:
+ *                         id: { type: string }
+ *                         date: { type: string, format: date-time }
+ *                         procedures:
+ *                           type: array
+ *                           items: { type: string }
+ *                         description: { type: string }
+ *                         provider: { type: string }
+ *                         signedBy: { type: string }
+ *                         signedDate: { type: string, format: date-time }
+ *                         category: { type: string }
+ *                         isExpanded: { type: boolean }
+ *                 message: { type: string, example: "Progress note updated successfully" }
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized — missing or invalid token
+ *       403:
+ *         description: Forbidden — missing clinical-notes.update permission
+ *       404:
+ *         description: Progress note not found
+ */
+router.put(
+  '/:id',
+  authenticate,
+  requirePermission('clinical-notes.update'),
+  progressNoteController.updateProgressNote
+);
+
+/**
+ * @swagger
+ * /progress-notes/{id}/archive:
+ *   patch:
+ *     summary: Archive a progress note
+ *     description: Marks a progress note as archived by setting isArchived to true
+ *     tags: [Progress Notes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *         description: ID of the progress note to archive
+ *         example: "12345"
+ *     responses:
+ *       200:
+ *         description: Progress note archived successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     progressNote:
+ *                       type: object
+ *                       properties:
+ *                         id: { type: string }
+ *                         date: { type: string, format: date-time }
+ *                         procedures:
+ *                           type: array
+ *                           items: { type: string }
+ *                         description: { type: string }
+ *                         provider: { type: string }
+ *                         signedBy: { type: string }
+ *                         signedDate: { type: string, format: date-time }
+ *                         category: { type: string }
+ *                         isArchived: { type: boolean, example: true }
+ *                         isExpanded: { type: boolean }
+ *                 message: { type: string, example: "Progress note archived successfully" }
+ *       401:
+ *         description: Unauthorized — missing or invalid token
+ *       403:
+ *         description: Forbidden — missing clinical-notes.update permission
+ *       404:
+ *         description: Progress note not found
+ */
+router.patch(
+  '/:id/archive',
+  authenticate,
+  requirePermission('clinical-notes.update'),
+  progressNoteController.archiveProgressNote
+);
+
+/**
+ * @swagger
+ * /progress-notes/{id}/unarchive:
+ *   patch:
+ *     summary: Unarchive a progress note
+ *     description: Removes archive status from a progress note by setting isArchived to false
+ *     tags: [Progress Notes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *         description: ID of the progress note to unarchive
+ *         example: "12345"
+ *     responses:
+ *       200:
+ *         description: Progress note unarchived successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     progressNote:
+ *                       type: object
+ *                       properties:
+ *                         id: { type: string }
+ *                         date: { type: string, format: date-time }
+ *                         procedures:
+ *                           type: array
+ *                           items: { type: string }
+ *                         description: { type: string }
+ *                         provider: { type: string }
+ *                         signedBy: { type: string }
+ *                         signedDate: { type: string, format: date-time }
+ *                         category: { type: string }
+ *                         isArchived: { type: boolean, example: false }
+ *                         isExpanded: { type: boolean }
+ *                 message: { type: string, example: "Progress note unarchived successfully" }
+ *       401:
+ *         description: Unauthorized — missing or invalid token
+ *       403:
+ *         description: Forbidden — missing clinical-notes.update permission
+ *       404:
+ *         description: Progress note not found
+ */
+router.patch(
+  '/:id/unarchive',
+  authenticate,
+  requirePermission('clinical-notes.update'),
+  progressNoteController.unarchiveProgressNote
+);
+
+/**
+ * @swagger
+ * /progress-notes/{id}/sign:
+ *   patch:
+ *     summary: Sign a progress note
+ *     description: Marks a progress note as signed by updating signedBy and signedDate
+ *     tags: [Progress Notes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *         description: ID of the progress note to sign
+ *         example: "12345"
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               signedBy:
+ *                 type: string
+ *                 description: Name of the person signing (defaults to current user)
+ *                 example: "Dr. Sarah Mitchell"
+ *     responses:
+ *       200:
+ *         description: Progress note signed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     progressNote:
+ *                       type: object
+ *                       properties:
+ *                         id: { type: string }
+ *                         date: { type: string, format: date-time }
+ *                         procedures:
+ *                           type: array
+ *                           items: { type: string }
+ *                         description: { type: string }
+ *                         provider: { type: string }
+ *                         signedBy: { type: string }
+ *                         signedDate: { type: string, format: date-time }
+ *                         category: { type: string }
+ *                         isArchived: { type: boolean }
+ *                         status: { type: string, example: "signed" }
+ *                         isExpanded: { type: boolean }
+ *                 message: { type: string, example: "Progress note signed successfully" }
+ *       401:
+ *         description: Unauthorized — missing or invalid token
+ *       403:
+ *         description: Forbidden — missing clinical-notes.update permission
+ *       404:
+ *         description: Progress note not found
+ */
+router.patch(
+  '/:id/sign',
+  authenticate,
+  requirePermission('clinical-notes.update'),
+  progressNoteController.signProgressNote
+);
 export default router;

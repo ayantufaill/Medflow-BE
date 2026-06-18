@@ -61,6 +61,78 @@ export class ProgressNoteController {
       next(error);
     }
   };
+  updateProgressNote = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { description, category } = req.body;
+    
+    const result = await progressNoteService.updateProgressNote(id, {
+      description,
+      category
+    });
+
+    res.status(200).json({
+      success: true,
+      data: { progressNote: result },
+      message: 'Progress note updated successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+archiveProgressNote = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    
+    const result = await progressNoteService.archiveProgressNote(id);
+
+    res.status(200).json({
+      success: true,
+      data: { progressNote: result },
+      message: 'Progress note archived successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+unarchiveProgressNote = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    
+    const result = await progressNoteService.unarchiveProgressNote(id);
+
+    res.status(200).json({
+      success: true,
+      data: { progressNote: result },
+      message: 'Progress note unarchived successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+signProgressNote = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const { signedBy } = req.body;
+    
+    // JWTPayload has userId, not id
+    const userId = req.user?.userId;
+    
+    const result = await progressNoteService.signProgressNote(id, {
+      signedBy: signedBy || userId?.toString() || 'Unknown',
+      signedDate: new Date().toISOString()
+    });
+
+    res.status(200).json({
+      success: true,
+      data: { progressNote: result },
+      message: 'Progress note signed successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 }
 
 export const progressNoteController = new ProgressNoteController();

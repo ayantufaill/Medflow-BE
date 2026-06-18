@@ -155,6 +155,232 @@ export class ProgressNoteService {
 
     return { message: 'Procedure added successfully', procedures: meta.procedures };
   }
+  
+  async updateProgressNote(
+  noteId: string, 
+  data: { description?: string; category?: string }
+) {
+  // 1. Check if note exists
+  const note = await prisma.commlog.findUnique({
+    where: { CommlogNum: BigInt(noteId) }
+  });
+
+  if (!note) {
+    throw new NotFoundError('Progress note not found');
+  }
+
+  // 2. Parse existing meta data
+  const meta = parseJson(note.Note);
+  
+  // 3. Ensure it's a progress note
+  if (!meta.isProgressNote) {
+    throw new Error('This is not a progress note');
+  }
+
+  // 4. Update only the fields provided
+  if (data.description !== undefined) {
+    meta.description = data.description;
+  }
+  
+  if (data.category !== undefined) {
+    meta.category = data.category;
+  }
+
+  // 5. Update the note
+  const updatedNote = await prisma.commlog.update({
+    where: { CommlogNum: BigInt(noteId) },
+    data: {
+      Note: buildJson(meta),
+      CommDateTime: new Date() // Update timestamp
+    }
+  });
+
+  // 6. Get provider name
+  const providerName = meta.providerId 
+    ? await this.getProviderName(meta.providerId)
+    : 'Unknown Provider';
+
+  // 7. Return formatted response
+  return {
+    id: updatedNote.CommlogNum.toString(),
+    date: updatedNote.CommDateTime,
+    procedures: meta.procedures || [],
+    description: meta.description || '',
+    provider: providerName,
+    signedBy: meta.signedBy || providerName,
+    signedDate: meta.signedDate || updatedNote.CommDateTime,
+    category: meta.category || 'General Notes',
+    isExpanded: true
+  };
+}
+
+// Helper method to get provider name
+private async getProviderName(providerId: string): Promise<string> {
+  try {
+    const provider = await prisma.provider.findUnique({
+      where: { ProvNum: BigInt(providerId) }
+    });
+    return provider ? `${provider.FName} ${provider.LName}`.trim() : 'Unknown Provider';
+  } catch {
+    return 'Unknown Provider';
+  }
+}
+async archiveProgressNote(noteId: string) {
+  // 1. Check if note exists
+  const note = await prisma.commlog.findUnique({
+    where: { CommlogNum: BigInt(noteId) }
+  });
+
+  if (!note) {
+    throw new NotFoundError('Progress note not found');
+  }
+
+  // 2. Parse existing meta data
+  const meta = parseJson(note.Note);
+  
+  // 3. Ensure it's a progress note
+  if (!meta.isProgressNote) {
+    throw new Error('This is not a progress note');
+  }
+
+  // 4. Set isArchived to true
+  meta.isArchived = true;
+
+  // 5. Update the note
+  const updatedNote = await prisma.commlog.update({
+    where: { CommlogNum: BigInt(noteId) },
+    data: {
+      Note: buildJson(meta),
+      CommDateTime: new Date()
+    }
+  });
+
+  // 6. Get provider name
+  const providerName = meta.providerId 
+    ? await this.getProviderName(meta.providerId)
+    : 'Unknown Provider';
+
+  // 7. Return formatted response
+  return {
+    id: updatedNote.CommlogNum.toString(),
+    date: updatedNote.CommDateTime,
+    procedures: meta.procedures || [],
+    description: meta.description || '',
+    provider: providerName,
+    signedBy: meta.signedBy || providerName,
+    signedDate: meta.signedDate || updatedNote.CommDateTime,
+    category: meta.category || 'General Notes',
+    isArchived: meta.isArchived || false,
+    isExpanded: true
+  };
+}
+
+async unarchiveProgressNote(noteId: string) {
+  // 1. Check if note exists
+  const note = await prisma.commlog.findUnique({
+    where: { CommlogNum: BigInt(noteId) }
+  });
+
+  if (!note) {
+    throw new NotFoundError('Progress note not found');
+  }
+
+  // 2. Parse existing meta data
+  const meta = parseJson(note.Note);
+  
+  // 3. Ensure it's a progress note
+  if (!meta.isProgressNote) {
+    throw new Error('This is not a progress note');
+  }
+
+  // 4. Set isArchived to false
+  meta.isArchived = false;
+
+  // 5. Update the note
+  const updatedNote = await prisma.commlog.update({
+    where: { CommlogNum: BigInt(noteId) },
+    data: {
+      Note: buildJson(meta),
+      CommDateTime: new Date()
+    }
+  });
+
+  // 6. Get provider name
+  const providerName = meta.providerId 
+    ? await this.getProviderName(meta.providerId)
+    : 'Unknown Provider';
+
+  // 7. Return formatted response
+  return {
+    id: updatedNote.CommlogNum.toString(),
+    date: updatedNote.CommDateTime,
+    procedures: meta.procedures || [],
+    description: meta.description || '',
+    provider: providerName,
+    signedBy: meta.signedBy || providerName,
+    signedDate: meta.signedDate || updatedNote.CommDateTime,
+    category: meta.category || 'General Notes',
+    isArchived: meta.isArchived || false,
+    isExpanded: true
+  };
+}
+async signProgressNote(
+  noteId: string, 
+  data: { signedBy: string; signedDate: string }
+) {
+  // 1. Check if note exists
+  const note = await prisma.commlog.findUnique({
+    where: { CommlogNum: BigInt(noteId) }
+  });
+
+  if (!note) {
+    throw new NotFoundError('Progress note not found');
+  }
+
+  // 2. Parse existing meta data
+  const meta = parseJson(note.Note);
+  
+  // 3. Ensure it's a progress note
+  if (!meta.isProgressNote) {
+    throw new Error('This is not a progress note');
+  }
+
+  // 4. Update signedBy and signedDate
+  meta.signedBy = data.signedBy;
+  meta.signedDate = data.signedDate;
+  
+  // Optionally update status to 'signed' if you have a status field
+  meta.status = 'signed';
+
+  // 5. Update the note
+  const updatedNote = await prisma.commlog.update({
+    where: { CommlogNum: BigInt(noteId) },
+    data: {
+      Note: buildJson(meta),
+      CommDateTime: new Date()
+    }
+  });
+
+  // 6. Get provider name
+  const providerName = meta.providerId 
+    ? await this.getProviderName(meta.providerId)
+    : 'Unknown Provider';
+
+  // 7. Return formatted response
+  return {
+    id: updatedNote.CommlogNum.toString(),
+    date: updatedNote.CommDateTime,
+    procedures: meta.procedures || [],
+    description: meta.description || '',
+    provider: providerName,
+    signedBy: meta.signedBy || providerName,
+    signedDate: meta.signedDate || updatedNote.CommDateTime,
+    category: meta.category || 'General Notes',
+    isArchived: meta.isArchived || false,
+    status: meta.status || 'signed',
+    isExpanded: true
+  };
+}
 }
 
 export const progressNoteService = new ProgressNoteService();
