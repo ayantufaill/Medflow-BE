@@ -95,4 +95,38 @@ describe('Invoices', () => {
       .send({});
     expect(res.status).toBe(400);
   });
+
+  it('creates a standalone invoice successfully', async () => {
+    const token = uniqueToken('standalone-inv');
+    const patient = await createPatientRecord(token);
+    
+    const payload = {
+      patientId: patient.PatNum.toString(),
+      items: [
+        {
+          code: 'D0120',
+          description: 'Periodic oral evaluation',
+          date: new Date().toISOString(),
+          site: 'Upper Right',
+          provider: 'Dentist',
+          writeoff: 10,
+          ptPortion: 40,
+          insPortion: 40,
+          charge: 90,
+          balance: 80,
+          dbi: true,
+          completed: true
+        }
+      ]
+    };
+
+    const res = await request(app)
+      .post('/api/invoices')
+      .set(authHeader)
+      .send(payload);
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.invoice.patientId).toBe(patient.PatNum.toString());
+  });
 });

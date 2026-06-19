@@ -7,6 +7,7 @@ import {
   saveReportValidator,
   runReportValidator,
   reportIdParamValidator,
+  archiveReportValidator,
 } from '../validators/reporting.validator';
 
 const router = Router();
@@ -400,6 +401,29 @@ router.get(
   authenticate,
   requirePermission('reports.read'),
   reportGenerationController.getOthersReport.bind(reportGenerationController)
+);
+
+router.post(
+  '/archive',
+  authenticate,
+  requirePermission('reports.write'),
+  validate(archiveReportValidator),
+  reportingController.archiveReport.bind(reportingController)
+);
+
+router.get(
+  '/archive',
+  authenticate,
+  requirePermission('reports.read'),
+  reportingController.getArchivedReports.bind(reportingController)
+);
+
+router.get(
+  '/archive/:reportId',
+  authenticate,
+  requirePermission('reports.read'),
+  validate(reportIdParamValidator),
+  reportingController.getArchivedReportById.bind(reportingController)
 );
 
 export default router;
