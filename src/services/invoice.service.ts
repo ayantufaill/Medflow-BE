@@ -106,7 +106,9 @@ export class InvoiceService {
       totalPrice,
       ptPortion: Number((meta as any).ptPortion || 0),
       insPortion: Number((meta as any).insPortion || 0),
-      writeoff: Number((meta as any).writeoff || 0)
+      writeoff: Number((meta as any).writeoff || 0),
+      paidAmount: Number((meta as any).paidAmount || 0),
+      dbi: (meta as any).dbi !== undefined ? Boolean((meta as any).dbi) : null
     };
   }
 
@@ -815,7 +817,12 @@ export class InvoiceService {
     }
 
     const patientPortion = roundCurrency(Math.max(0, subtotal - insurancePortion));
-    const balanceDue = roundCurrency(Math.max(0, subtotal - (Number(meta.paidAmount) || 0)));
+    const totalPaid = items.reduce((sum, item) => {
+      const itemMeta = parseJson<any>(item.BillingNote);
+      return sum + (Number(itemMeta.paidAmount) || 0);
+    }, 0);
+
+    const balanceDue = roundCurrency(Math.max(0, subtotal - totalPaid));
 
     const nextMeta: StatementMeta = {
       ...meta,
@@ -823,9 +830,10 @@ export class InvoiceService {
       discountAmount: roundCurrency(discountAmount),
       insurancePortion,
       patientPortion,
+      paidAmount: totalPaid,
     };
 
-    await prisma.statement.update({
+    const updated = await prisma.statement.update({
       where: { StatementNum: invoice.StatementNum },
       data: {
         BalTotal: roundCurrency(balanceDue),
@@ -834,7 +842,7 @@ export class InvoiceService {
       },
     });
 
-    return invoice;
+    return this.mapStatementToInvoice(updated, nextMeta);
   }
 
   async getInvoicesByPatient(patientId: string, page = 1, limit = 10) {
