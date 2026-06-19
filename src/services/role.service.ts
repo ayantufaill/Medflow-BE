@@ -10,7 +10,7 @@ export class RoleService {
     const where: any = {};
 
     if (search) {
-      where.Description = { contains: search, mode: 'insensitive' };
+      where.Description = { contains: search };
     }
 
     const [rows, total] = await Promise.all([

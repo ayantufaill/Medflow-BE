@@ -72,19 +72,19 @@ export class ProviderService {
 
     if (specialty) {
       where.definition = {
-        ItemName: { contains: specialty, mode: 'insensitive' },
+        ItemName: { contains: specialty },
       };
     }
 
     if (search) {
       where.OR = [
-        { Abbr: { contains: search, mode: 'insensitive' } },
-        { NationalProvID: { contains: search, mode: 'insensitive' } },
-        { StateLicense: { contains: search, mode: 'insensitive' } },
-        { Suffix: { contains: search, mode: 'insensitive' } },
-        { FName: { contains: search, mode: 'insensitive' } },
-        { LName: { contains: search, mode: 'insensitive' } },
-        { definition: { ItemName: { contains: search, mode: 'insensitive' } } },
+        { Abbr: { contains: search } },
+        { NationalProvID: { contains: search } },
+        { StateLicense: { contains: search } },
+        { Suffix: { contains: search } },
+        { FName: { contains: search } },
+        { LName: { contains: search } },
+        { definition: { ItemName: { contains: search } } },
       ];
     }
 

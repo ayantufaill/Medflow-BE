@@ -129,4 +129,20 @@ describe('Invoices', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.data.invoice.patientId).toBe(patient.PatNum.toString());
   });
+
+  it('gets patient composite ledger successfully', async () => {
+    const token = uniqueToken('composite-ledg');
+    const patient = await createPatientRecord(token);
+
+    const res = await request(app)
+      .get(`/api/invoices/patient/${patient.PatNum.toString()}/composite`)
+      .set(authHeader);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data).toHaveProperty('invoices');
+    expect(res.body.data).toHaveProperty('adjustments');
+    expect(res.body.data).toHaveProperty('payments');
+    expect(res.body.data).toHaveProperty('claims');
+  });
 });
