@@ -340,6 +340,19 @@ export class InvoiceController {
       next(error);
     }
   }
+  async getPatientCompositeLedger(req: Request, res: Response, next: NextFunction) {
+    try {
+      const patientId = req.params.patientId as string;
+      const result = await invoiceService.getPatientCompositeLedger(patientId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async markItemPaid(req: Request, res: Response, next: NextFunction) {
   try {
     const { invoiceId, itemId } = req.params;

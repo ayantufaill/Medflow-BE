@@ -15,8 +15,8 @@ export class RoomService {
     if (search) {
       const decodedSearch = decodeURIComponent(search.replace(/\+/g, ' '));
       where.OR = [
-        { OpName: { contains: decodedSearch, mode: 'insensitive' } },
-        { Abbrev: { contains: decodedSearch, mode: 'insensitive' } },
+        { OpName: { contains: decodedSearch } },
+        { Abbrev: { contains: decodedSearch } },
       ];
     }
 

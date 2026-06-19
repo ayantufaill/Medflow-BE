@@ -3,6 +3,9 @@ import { BadRequestError, ConflictError, NotFoundError } from '../utils/error.ut
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { mapPatientToApi, mapProviderToApi } from '../utils/opendental-mappers.util';
+import { adjustmentService } from './adjustment.service';
+import { paymentService } from './payment.service';
+import { claimService } from './claim.service';
 
 const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
@@ -263,7 +266,7 @@ export class InvoiceService {
 
     if (filters.patientId) where.PatNum = BigInt(filters.patientId);
     if (filters.status) where.StatementType = filters.status;
-    if (filters.search) where.ShortGUID = { contains: filters.search, mode: 'insensitive' };
+    if (filters.search) where.ShortGUID = { contains: filters.search };
 
     if (filters.startDate || filters.endDate) {
       where.DateSent = {};
@@ -1130,6 +1133,58 @@ export class InvoiceService {
     message: 'Item payment recorded',
     itemId,
     paidAmount: newPaid
+  };
+}
+
+async getPatientCompositeLedger(patientId: string) {
+  // 1. Fetch invoices (statements where IsInvoice = 1 and PatNum = patientId)
+  const invoiceRows = await prisma.statement.findMany({
+    where: {
+      PatNum: BigInt(patientId),
+      IsInvoice: 1,
+    },
+    orderBy: { DateSent: 'desc' },
+  });
+
+  const invoices = await Promise.all(
+    invoiceRows.map(async (row) => {
+      const meta = parseJson<StatementMeta>(row.NoteBold);
+      const [patient, provider, insuranceCompany, items] = await Promise.all([
+        row.PatNum
+          ? prisma.patient.findUnique({ where: { PatNum: row.PatNum } })
+          : null,
+        this.resolveProvider(meta.providerId ?? null),
+        this.resolveInsuranceCompany(meta.insuranceCompanyId ?? null),
+        this.getInvoiceItems(row.StatementNum),
+      ]);
+
+      return {
+        ...this.mapStatementToInvoice(row, meta),
+        patient: patient ? mapPatientToApi(patient) : null,
+        provider,
+        insuranceCompany,
+        lineItems: items,
+      };
+    })
+  );
+
+  // 2. Fetch adjustments
+  const adjustmentsResult = await adjustmentService.getAdjustmentsByPatient(patientId, 1, 1000);
+  const adjustments = adjustmentsResult.adjustments;
+
+  // 3. Fetch payments
+  const paymentsResult = await paymentService.getPaymentsByPatient(patientId, 1, 1000);
+  const payments = paymentsResult.payments;
+
+  // 4. Fetch claims
+  const claimsResult = await claimService.getAllClaims(1, 1000, { patientId });
+  const claims = claimsResult.claims;
+
+  return {
+    invoices,
+    adjustments,
+    payments,
+    claims,
   };
 }
 }

@@ -45,16 +45,16 @@ export class ServiceService {
     if (filters.search) {
       const search = filters.search.trim();
       where.OR = [
-        { ProcCode: { contains: search, mode: 'insensitive' } },
-        { Descript: { contains: search, mode: 'insensitive' } },
-        { AbbrDesc: { contains: search, mode: 'insensitive' } },
-        { DefaultNote: { contains: search, mode: 'insensitive' } },
+        { ProcCode: { contains: search } },
+        { Descript: { contains: search } },
+        { AbbrDesc: { contains: search } },
+        { DefaultNote: { contains: search } },
       ];
     }
 
     if (filters.category) {
       where.definition = {
-        ItemName: { equals: filters.category, mode: 'insensitive' },
+        ItemName: { equals: filters.category },
       };
     }
 

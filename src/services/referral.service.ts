@@ -7,9 +7,9 @@ export class ReferralService {
     const where: any = {};
     if (search) {
       where.OR = [
-        { LName: { contains: search, mode: 'insensitive' } },
-        { FName: { contains: search, mode: 'insensitive' } },
-        { Title: { contains: search, mode: 'insensitive' } },
+        { LName: { contains: search } },
+        { FName: { contains: search } },
+        { Title: { contains: search } },
       ];
     }
 

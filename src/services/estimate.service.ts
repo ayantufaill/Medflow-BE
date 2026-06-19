@@ -166,8 +166,8 @@ export class EstimateService {
     if (filters.status) where.ClaimStatus = statusToClaimStatus(filters.status);
     if (filters.search) {
       where.OR = [
-        { ClaimNote: { contains: filters.search, mode: 'insensitive' } },
-        { PreAuthString: { contains: filters.search, mode: 'insensitive' } },
+        { ClaimNote: { contains: filters.search } },
+        { PreAuthString: { contains: filters.search } },
       ];
     }
 

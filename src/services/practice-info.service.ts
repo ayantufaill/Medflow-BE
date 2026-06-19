@@ -408,13 +408,13 @@ export class PracticeInfoService {
     if (search) {
       const searchValue = search.trim();
       where.OR = [
-        { Description: { contains: searchValue, mode: 'insensitive' } },
-        { Phone: { contains: searchValue, mode: 'insensitive' } },
-        { Fax: { contains: searchValue, mode: 'insensitive' } },
-        { Address: { contains: searchValue, mode: 'insensitive' } },
-        { City: { contains: searchValue, mode: 'insensitive' } },
-        { State: { contains: searchValue, mode: 'insensitive' } },
-        { Zip: { contains: searchValue, mode: 'insensitive' } },
+        { Description: { contains: searchValue } },
+        { Phone: { contains: searchValue } },
+        { Fax: { contains: searchValue } },
+        { Address: { contains: searchValue } },
+        { City: { contains: searchValue } },
+        { State: { contains: searchValue } },
+        { Zip: { contains: searchValue } },
       ];
     }
 

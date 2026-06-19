@@ -93,6 +93,14 @@ router.get(
   invoiceController.getInvoicesByPatient.bind(invoiceController)
 );
 
+router.get(
+  '/patient/:patientId/composite',
+  authenticate,
+  requirePermission('invoices.read'),
+  validate(patientIdParamValidator),
+  invoiceController.getPatientCompositeLedger.bind(invoiceController)
+);
+
 /**
  * @swagger
  * /invoices/patient/{patientId}/balance:
