@@ -319,6 +319,27 @@ export class InvoiceController {
       next(error);
     }
   }
+
+  async createStandaloneInvoice(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const invoice = await invoiceService.createStandaloneInvoice(req.body, req.userId);
+
+      res.status(201).json({
+        success: true,
+        data: { invoice },
+        message: 'Standalone invoice created successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const invoiceController = new InvoiceController();

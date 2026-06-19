@@ -3,6 +3,7 @@ export type ExamType =
   | 'tmj'
   | 'head-neck'
   | 'tooth-structure'
+  | 'teeth-structure'
   | 'morphological'
   | 'periodontal'
   | 'dentofacial'

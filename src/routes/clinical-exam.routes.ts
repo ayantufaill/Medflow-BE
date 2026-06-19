@@ -26,7 +26,7 @@ const router = Router();
  *         required: true
  *         schema:
  *           type: string
- *           enum: [radiographic, tmj, head-neck, tooth-structure, morphological, periodontal, dentofacial, airway, biomechanical, functional, dentofacial-opinion, periodontal-opinion]
+ *           enum: [radiographic, tmj, head-neck, tooth-structure, teeth-structure, morphological, periodontal, dentofacial, airway, biomechanical, functional, dentofacial-opinion, periodontal-opinion]
  *         description: Type of clinical exam to fetch
  *         example: "periodontal"
  *       - in: path
@@ -93,7 +93,7 @@ router.get(
  *         required: true
  *         schema:
  *           type: string
- *           enum: [radiographic, tmj, head-neck, tooth-structure, morphological, periodontal, dentofacial, airway, biomechanical, functional, dentofacial-opinion, periodontal-opinion]
+ *           enum: [radiographic, tmj, head-neck, tooth-structure, teeth-structure, morphological, periodontal, dentofacial, airway, biomechanical, functional, dentofacial-opinion, periodontal-opinion]
  *         description: Type of clinical exam to create or update
  *         example: "periodontal"
  *       - in: path
@@ -179,7 +179,7 @@ router.put(
  *         required: true
  *         schema:
  *           type: string
- *           enum: [radiographic, tmj, head-neck, tooth-structure, morphological, periodontal, dentofacial, airway, biomechanical, functional, dentofacial-opinion, periodontal-opinion]
+ *           enum: [radiographic, tmj, head-neck, tooth-structure, teeth-structure, morphological, periodontal, dentofacial, airway, biomechanical, functional, dentofacial-opinion, periodontal-opinion]
  *         description: Type of clinical exam to sign
  *         example: "periodontal"
  *       - in: path
@@ -247,7 +247,7 @@ router.post(
  *         required: true
  *         schema:
  *           type: string
- *           enum: [radiographic, tmj, head-neck, tooth-structure, morphological, periodontal, dentofacial, airway, biomechanical, functional, dentofacial-opinion, periodontal-opinion]
+ *           enum: [radiographic, tmj, head-neck, tooth-structure, teeth-structure, morphological, periodontal, dentofacial, airway, biomechanical, functional, dentofacial-opinion, periodontal-opinion]
  *       - in: path
  *         name: appointmentId
  *         required: true

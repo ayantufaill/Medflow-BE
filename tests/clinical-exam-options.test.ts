@@ -115,4 +115,5 @@ describe('Biomechanical, Functional, Airway, and Clinical Opinion Exams APIs', (
   runExamTests('functional');
   runExamTests('dentofacial-opinion');
   runExamTests('periodontal-opinion');
+  runExamTests('teeth-structure');
 });

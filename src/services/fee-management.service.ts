@@ -31,15 +31,24 @@ export class FeeManagementService {
 
     if (params.search) {
       const search = params.search.trim();
-      where.OR = [
-        { ProcCode: { contains: search, mode: 'insensitive' } },
-        { Descript: { contains: search, mode: 'insensitive' } },
-      ];
+      const exactCategory = await prisma.definition.findFirst({
+        where: { Category: 1, ItemName: search },
+      });
+
+      if (exactCategory) {
+        where.ProcCat = exactCategory.DefNum;
+      } else {
+        where.OR = [
+          { ProcCode: { contains: search } },
+          { Descript: { contains: search } },
+          { definition: { ItemName: { contains: search } } },
+        ];
+      }
     }
 
     if (params.category) {
       where.definition = {
-        ItemName: { equals: params.category, mode: 'insensitive' },
+        ItemName: { equals: params.category },
       };
     }
 

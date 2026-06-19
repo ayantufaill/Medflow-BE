@@ -15,6 +15,7 @@ import {
   updateInvoiceItemValidator,
   recalculateInvoiceValidator,
   voidInvoiceValidator,
+  createStandaloneInvoiceValidator,
 } from '../validators/invoice.validator';
 
 const router = Router();
@@ -55,6 +56,14 @@ router.get(
   requirePermission('invoices.read'),
   validate(invoiceSearchValidator),
   invoiceController.getAllInvoices.bind(invoiceController)
+);
+
+router.post(
+  '/',
+  authenticate,
+  requirePermission('invoices.create'),
+  validate(createStandaloneInvoiceValidator),
+  invoiceController.createStandaloneInvoice.bind(invoiceController)
 );
 
 /**
