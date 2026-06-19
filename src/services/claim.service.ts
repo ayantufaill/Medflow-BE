@@ -4,6 +4,7 @@ import { BadRequestError, ConflictError, NotFoundError } from '../utils/error.ut
 import { getNextId } from '../utils/opendental-ids.util';
 import { mapPatientToApi } from '../utils/opendental-mappers.util';
 import { uploadToS3, deleteFromS3 } from '../utils/s3.util';
+import { logActivity } from '../utils/activity-logger.util';
 
 type ClaimStatus =
   | 'draft'
@@ -1691,6 +1692,165 @@ export class ClaimService {
       procedureIds,
     };
   }
+  private mapClaimToApi(claim: any) {
+  if (!claim) return null;
+
+  return {
+    _id: claim.ClaimNum.toString(),
+    claimNumber: `CLM${claim.ClaimNum.toString().padStart(6, '0')}`,
+    patientId: claim.PatNum?.toString() || null,
+    patientName: claim.patient ? `${claim.patient.FName || ''} ${claim.patient.LName || ''}`.trim() : null,
+    insuranceId: claim.PlanNum?.toString() || null,
+    insuranceName: claim.insplan_claim_PlanNumToinsplan?.GroupName || null,  // ✅ Fixed
+    treatingProviderId: claim.ProvTreat?.toString() || null,
+    treatingProviderName: claim.provider_claim_ProvTreatToprovider 
+      ? `${claim.provider_claim_ProvTreatToprovider.FName || ''} ${claim.provider_claim_ProvTreatToprovider.LName || ''}`.trim() 
+      : null,
+    billingEntityId: claim.ProvBill?.toString() || null,
+    billingEntityName: claim.provider_claim_ProvBillToprovider 
+      ? `${claim.provider_claim_ProvBillToprovider.FName || ''} ${claim.provider_claim_ProvBillToprovider.LName || ''}`.trim() 
+      : null,
+    claimType: claim.ClaimType || 'Manual',
+    totalAmount: Number(claim.ClaimFee) || 0,
+    status: claim.ClaimStatus || 'W',
+    statusDisplay: this.mapClaimStatus(claim.ClaimStatus),
+    dateService: claim.DateService || null,
+    dateSent: claim.DateSent || null,
+    note: claim.Narrative ? JSON.parse(claim.Narrative)?.note || null : null,
+    description: claim.Narrative ? JSON.parse(claim.Narrative)?.description || null : null,
+    selectedItems: claim.Narrative ? JSON.parse(claim.Narrative)?.selectedItems || [] : [],
+    createdAt: claim.SecDateEntry || null,
+    createdBy: claim.SecUserNumEntry?.toString() || null,
+  };
+}
+
+private mapClaimStatus(status: string | null): string {
+  const statusMap: Record<string, string> = {
+    'W': 'Waiting',
+    'S': 'Sent',
+    'R': 'Received',
+    'P': 'Paid',
+    'D': 'Denied',
+    'A': 'Approved',
+    'V': 'Void',
+  };
+  return statusMap[status || 'W'] || 'Unknown';
+}
+
+  async createManualClaim(
+  data: {
+    patientId: string;
+    insuranceId: string;
+    treatingProviderId: string;
+    billingEntityId: string;
+    claimType: string;
+    description?: string;
+    note?: string;
+    selectedItems: Array<{
+      invoiceId: string;
+      itemId: string;
+      amount: number;
+    }>;
+  },
+  userId: string
+) {
+  // 1. Verify patient exists
+  const patient = await prisma.patient.findUnique({
+    where: { PatNum: BigInt(data.patientId) },
+  });
+  if (!patient) {
+    throw new NotFoundError('Patient not found');
+  }
+
+  // 2. Verify insurance exists
+  const insurance = await prisma.insplan.findUnique({
+    where: { PlanNum: BigInt(data.insuranceId) },
+  });
+  if (!insurance) {
+    throw new NotFoundError('Insurance plan not found');
+  }
+
+  // 3. Verify treating provider exists
+  const treatingProvider = await prisma.provider.findUnique({
+    where: { ProvNum: BigInt(data.treatingProviderId) },
+  });
+  if (!treatingProvider) {
+    throw new NotFoundError('Treating provider not found');
+  }
+
+  // 4. Verify billing entity exists
+  const billingEntity = await prisma.provider.findUnique({
+    where: { ProvNum: BigInt(data.billingEntityId) },
+  });
+  if (!billingEntity) {
+    throw new NotFoundError('Billing entity not found');
+  }
+
+  // 5. Calculate total claim amount
+  const totalAmount = data.selectedItems.reduce(
+    (sum, item) => sum + item.amount,
+    0
+  );
+
+  // 6. Get next ClaimNum
+  const claimNum = await getNextId('claim', 'ClaimNum');
+
+  // 7. Build claim meta with selected items and note
+  const claimMeta = {
+    selectedItems: data.selectedItems,
+    note: data.note || null,
+    description: data.description || null,
+    claimType: data.claimType || 'Manual',
+    createdBy: userId,
+    createdAt: new Date().toISOString(),
+  };
+
+  // 8. Create the claim
+  const claim = await prisma.claim.create({
+    data: {
+      ClaimNum: claimNum,
+      PatNum: BigInt(data.patientId),
+      PlanNum: BigInt(data.insuranceId),
+      ProvTreat: BigInt(data.treatingProviderId),
+      ProvBill: BigInt(data.billingEntityId),
+      ClaimFee: totalAmount,
+      ClaimType: data.claimType || 'Manual',
+      ClaimStatus: 'W',
+      DateService: new Date(),
+      DateSent: new Date(),
+      Narrative: JSON.stringify(claimMeta),
+      ClinicNum: patient.ClinicNum || null,
+      SecUserNumEntry: userId ? BigInt(userId) : null,
+      SecDateEntry: new Date(),
+    },
+  });
+
+  // 9. Log activity
+  await logActivity(
+    userId,
+    'created',
+    'claims',
+    claim.ClaimNum.toString(),
+    undefined,
+    { claimNum: claim.ClaimNum, patientId: data.patientId, totalAmount },
+    undefined,
+    undefined,
+    'medium'
+  );
+
+  // 10. Return the created claim with correct relations
+  const createdClaim = await prisma.claim.findUnique({
+    where: { ClaimNum: claim.ClaimNum },
+    include: {
+      patient: true,
+      insplan_claim_PlanNumToinsplan: true,
+      provider_claim_ProvTreatToprovider: true,
+      provider_claim_ProvBillToprovider: true,
+    },
+  });
+
+  return this.mapClaimToApi(createdClaim);
+}
 }
 
 export const claimService = new ClaimService();

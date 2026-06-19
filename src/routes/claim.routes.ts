@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { claimController } from '../controllers/claim.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
+import { createManualClaimValidator } from '../validators/claim.validator';
 import { validate } from '../middleware/validation.middleware';
 import { uploadDocument as uploadDocumentMiddleware } from '../middleware/upload.middleware';
 import {
@@ -838,6 +839,171 @@ router.post(
   requirePermission('claims.update'),
   validate([...claimIdValidator, ...quickStatusUpdateValidator]),
   claimController.quickStatusUpdate.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/manual:
+ *   post:
+ *     summary: Create a manual claim from selected procedures
+ *     description: Creates a claim using specifically selected procedure items from one or more invoices. Allows overriding providers, selecting insurance, and adding narrative notes.
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - patientId
+ *               - insuranceId
+ *               - treatingProviderId
+ *               - billingEntityId
+ *               - selectedItems
+ *             properties:
+ *               patientId:
+ *                 type: string
+ *                 description: ID of the patient
+ *                 example: "12345"
+ *               insuranceId:
+ *                 type: string
+ *                 description: ID of the insurance plan
+ *                 example: "67890"
+ *               treatingProviderId:
+ *                 type: string
+ *                 description: ID of the treating provider
+ *                 example: "100"
+ *               billingEntityId:
+ *                 type: string
+ *                 description: ID of the billing entity/provider
+ *                 example: "101"
+ *               claimType:
+ *                 type: string
+ *                 enum: [Manual, Electronic]
+ *                 description: Type of claim submission
+ *                 default: Manual
+ *                 example: "Manual"
+ *               description:
+ *                 type: string
+ *                 description: Brief description of the claim
+ *                 example: "Routine dental procedures"
+ *               note:
+ *                 type: string
+ *                 description: Additional narrative notes
+ *                 example: "Patient requires prior authorization"
+ *               selectedItems:
+ *                 type: array
+ *                 description: List of procedures to include in the claim
+ *                 minItems: 1
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - invoiceId
+ *                     - itemId
+ *                     - amount
+ *                   properties:
+ *                     invoiceId:
+ *                       type: string
+ *                       description: ID of the invoice containing the procedure
+ *                       example: "12345"
+ *                     itemId:
+ *                       type: string
+ *                       description: ID of the procedure/item to include
+ *                       example: "67890"
+ *                     amount:
+ *                       type: number
+ *                       description: Amount to claim for this procedure
+ *                       example: 150.00
+ *     responses:
+ *       201:
+ *         description: Manual claim created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Manual claim created successfully
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     _id:
+ *                       type: string
+ *                       example: "12345"
+ *                     claimNumber:
+ *                       type: string
+ *                       example: "CLM001234"
+ *                     patientId:
+ *                       type: string
+ *                       example: "12345"
+ *                     insuranceId:
+ *                       type: string
+ *                       example: "67890"
+ *                     treatingProviderId:
+ *                       type: string
+ *                       example: "100"
+ *                     billingEntityId:
+ *                       type: string
+ *                       example: "101"
+ *                     claimType:
+ *                       type: string
+ *                       example: "Manual"
+ *                     totalAmount:
+ *                       type: number
+ *                       example: 350.00
+ *                     status:
+ *                       type: string
+ *                       example: "W"
+ *                     statusDisplay:
+ *                       type: string
+ *                       example: "Waiting"
+ *                     note:
+ *                       type: string
+ *                       example: "Patient requires prior authorization"
+ *                     description:
+ *                       type: string
+ *                       example: "Routine dental procedures"
+ *                     selectedItems:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           invoiceId:
+ *                             type: string
+ *                           itemId:
+ *                             type: string
+ *                           amount:
+ *                             type: number
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                     createdBy:
+ *                       type: string
+ *       400:
+ *         description: Validation error - missing required fields or invalid data
+ *       401:
+ *         description: Unauthorized - missing or invalid token
+ *       403:
+ *         description: Forbidden - missing claims.create permission
+ *       404:
+ *         description: Patient, insurance, provider, or billing entity not found
+ *       409:
+ *         description: Conflict - duplicate claim
+ *       500:
+ *         description: Internal server error
+ */
+router.post(
+  '/manual',
+  authenticate,
+  requirePermission('claims.create'),
+  validate(createManualClaimValidator),
+  claimController.createManualClaim.bind(claimController)
 );
 
 export default router;

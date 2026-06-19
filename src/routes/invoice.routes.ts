@@ -500,4 +500,78 @@ router.patch(
   invoiceController.voidInvoice.bind(invoiceController)
 );
 
+/**
+ * @swagger
+ * /invoices/{invoiceId}/items/{itemId}/paid:
+ *   patch:
+ *     summary: Mark an invoice line item as (partially) paid
+ *     description: Records a payment against a specific line item in an invoice. Updates the paidAmount and recalculates the invoice totals.
+ *     tags: [Invoices]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: invoiceId
+ *         required: true
+ *         schema: { type: string }
+ *         description: ID of the invoice
+ *         example: "12345"
+ *       - in: path
+ *         name: itemId
+ *         required: true
+ *         schema: { type: string }
+ *         description: ID of the line item to mark as paid
+ *         example: "67890"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [amount]
+ *             properties:
+ *               amount:
+ *                 type: number
+ *                 description: Amount paid for this line item
+ *                 example: 150.00
+ *                 minimum: 0.01
+ *     responses:
+ *       200:
+ *         description: Payment recorded successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Item payment recorded
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     itemId:
+ *                       type: string
+ *                       example: "67890"
+ *                     paidAmount:
+ *                       type: number
+ *                       example: 150.00
+ *       400:
+ *         description: Validation error - amount must be > 0
+ *       401:
+ *         description: Unauthorized - missing or invalid token
+ *       403:
+ *         description: Forbidden - missing invoices.update permission
+ *       404:
+ *         description: Invoice or item not found
+ */
+router.patch(
+  '/:invoiceId/items/:itemId/paid',
+  authenticate,
+  requirePermission('invoices.update'),
+  invoiceController.markItemPaid.bind(invoiceController)
+);
+
 export default router;

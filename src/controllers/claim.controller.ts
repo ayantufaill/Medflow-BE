@@ -496,6 +496,26 @@ export class ClaimController {
       next(error);
     }
   }
+  async createManualClaim(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = req.userId;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: { message: 'User not authenticated' },
+      });
+    }
+
+    const result = await claimService.createManualClaim(req.body, userId);
+    res.status(201).json({
+      success: true,
+      message: 'Manual claim created successfully',
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
 }
 
 export const claimController = new ClaimController();
