@@ -27,6 +27,14 @@ export const appointmentIdParamValidator = [
     .withMessage('appointmentId must be a valid integer.'),
 ];
 
+export const patientIdParamValidator = [
+  param('patientId')
+    .notEmpty()
+    .withMessage('Patient ID is required.')
+    .custom((value) => typeof value === 'string' && /^\d+$/.test(value.trim()))
+    .withMessage('patientId must be a valid integer.'),
+];
+
 export const upsertExamValidator = [
   body('patientId')
     .notEmpty()

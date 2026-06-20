@@ -407,6 +407,52 @@ export class ClinicalExamService {
 
   return true;
 }
+
+  async getExamHistoryDates(examType: ExamType, patientId: string): Promise<Date[]> {
+    const patNum = BigInt(patientId);
+
+    // Handle pref-based exams (biomechanical, functional, opinions)
+    if (examType === 'biomechanical' || examType === 'functional' || examType === 'dentofacial-opinion' || examType === 'periodontal-opinion') {
+      const fkeyType = this.getFkeyType(examType);
+      const prefs = await prisma.userodpref.findMany({
+        where: {
+          FkeyType: fkeyType,
+        },
+      });
+
+      const dates: Date[] = [];
+      for (const pref of prefs) {
+        if (!pref.ValueString) continue;
+        try {
+          const data = JSON.parse(pref.ValueString);
+          if (data.PatNum && BigInt(data.PatNum) === patNum) {
+            if (data.CreatedAt) {
+              dates.push(new Date(data.CreatedAt));
+            }
+          }
+        } catch {
+          // ignore parsing error
+        }
+      }
+
+      // Sort in ascending chronological order (oldest to newest)
+      return dates.sort((a, b) => a.getTime() - b.getTime());
+    }
+
+    // Handle regular exam tables
+    const model = getModel(examType);
+    if (!model) {
+      throw new BadRequestError(`Invalid examType: ${examType}`);
+    }
+
+    const records = await model.findMany({
+      where: { PatNum: patNum },
+      select: { CreatedAt: true },
+      orderBy: { CreatedAt: 'asc' },
+    });
+
+    return records.map((r: any) => r.CreatedAt);
+  }
 }
 
 export const clinicalExamService = new ClinicalExamService();

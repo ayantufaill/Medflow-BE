@@ -116,4 +116,38 @@ describe('Biomechanical, Functional, Airway, and Clinical Opinion Exams APIs', (
   runExamTests('dentofacial-opinion');
   runExamTests('periodontal-opinion');
   runExamTests('teeth-structure');
+
+  describe('GET /clinical-exams/history/:examType/patient/:patientId - history dates', () => {
+    it('retrieves history dates chronologically for standard and preference based exams', async () => {
+      const resStandard = await request(app)
+        .get(`/api/clinical-exams/history/teeth-structure/patient/${testPatientId}`)
+        .set(authHeader);
+
+      expect(resStandard.status).toBe(200);
+      expect(resStandard.body.success).toBe(true);
+      expect(Array.isArray(resStandard.body.data.dates)).toBe(true);
+
+      const resPref = await request(app)
+        .get(`/api/clinical-exams/history/biomechanical/patient/${testPatientId}`)
+        .set(authHeader);
+
+      expect(resPref.status).toBe(200);
+      expect(resPref.body.success).toBe(true);
+      expect(Array.isArray(resPref.body.data.dates)).toBe(true);
+    });
+
+    it('returns validation error for invalid patientId or invalid examType', async () => {
+      const resInvalidPat = await request(app)
+        .get(`/api/clinical-exams/history/teeth-structure/patient/abc`)
+        .set(authHeader);
+
+      expect(resInvalidPat.status).toBe(400);
+
+      const resInvalidType = await request(app)
+        .get(`/api/clinical-exams/history/invalid-type/patient/${testPatientId}`)
+        .set(authHeader);
+
+      expect(resInvalidType.status).toBe(400);
+    });
+  });
 });
