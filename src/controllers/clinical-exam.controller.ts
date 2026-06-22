@@ -83,6 +83,23 @@ deleteExam = async (req: Request, res: Response, next: NextFunction) => {
     next(error);
   }
 };
+
+  // GET /clinical-exams/history/:examType/patient/:patientId
+  getExamHistoryDates = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const examType = req.params.examType as ExamType;
+      const patientId = req.params.patientId;
+
+      const dates = await clinicalExamService.getExamHistoryDates(examType, patientId);
+
+      res.status(200).json({
+        success: true,
+        data: { dates }
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 export const clinicalExamController = new ClinicalExamController();

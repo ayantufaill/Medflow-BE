@@ -460,6 +460,7 @@ export class PortalService {
 
         if (Object.keys(insuranceUpdates).length > 0) {
           await patientInsuranceService.updatePatientInsurance(
+            context.patientId,
             existing[0]?._id || '',
             insuranceUpdates,
             userId

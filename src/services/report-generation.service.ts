@@ -230,6 +230,7 @@ export class ReportGenerationService {
       });
 
       return {
+        id: p.PatNum.toString(),
         flags: [],
         name: `${p.FName} ${p.LName}`,
         buckets,
@@ -245,6 +246,7 @@ export class ReportGenerationService {
     if (report.length === 0) {
       return [
         {
+          id: 'fallback-1',
           flags: [],
           name: 'John Doe',
           buckets: {

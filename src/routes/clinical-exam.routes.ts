@@ -6,6 +6,7 @@ import { validate } from '../middleware/validation.middleware';
 import {
   examTypeParamValidator,
   appointmentIdParamValidator,
+  patientIdParamValidator,
   upsertExamValidator,
 } from '../validators/clinical-exam.validator';
 
@@ -276,6 +277,58 @@ router.delete(
   requirePermission('clinical-notes.delete'),
   validate([...examTypeParamValidator, ...appointmentIdParamValidator]),
   clinicalExamController.deleteExam
+);
+
+/**
+ * @swagger
+ * /clinical-exams/history/{examType}/patient/{patientId}:
+ *   get:
+ *     summary: Fetch chronological list of dates for a patient's exam history by type
+ *     description: Returns an array of dates when exams of the given type were created for the patient, sorted in ascending order.
+ *     tags: [Clinical Exams]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: examType
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [radiographic, tmj, head-neck, tooth-structure, teeth-structure, morphological, periodontal, dentofacial, airway, biomechanical, functional, dentofacial-opinion, periodontal-opinion]
+ *         description: Type of clinical exam
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *         description: Patient ID
+ *     responses:
+ *       200:
+ *         description: Successfully fetched exam history dates
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     dates:
+ *                       type: array
+ *                       items: { type: string, format: date-time }
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ */
+router.get(
+  '/history/:examType/patient/:patientId',
+  authenticate,
+  requirePermission('clinical-notes.read'),
+  validate([...examTypeParamValidator, ...patientIdParamValidator]),
+  clinicalExamController.getExamHistoryDates
 );
 
 export default router;

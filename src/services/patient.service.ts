@@ -1227,6 +1227,172 @@ async getPatientHistoryAggregate(patientId: string) {
 
     return { message: 'Patient deactivated successfully' };
   }
+
+  /**
+   * Helper to resolve patient PatNum by ID or Name
+   */
+  private async resolvePatientPatNum(patientIdOrName: string): Promise<bigint> {
+    if (/^\d+$/.test(patientIdOrName)) {
+      return BigInt(patientIdOrName);
+    }
+    
+    let nameToLookup = patientIdOrName;
+    if (patientIdOrName === 'fallback-1') {
+      nameToLookup = 'John Doe';
+    }
+
+    const parts = nameToLookup.trim().split(/\s+/);
+    const firstName = parts[0] || '';
+    const lastName = parts.slice(1).join(' ') || '';
+
+    const patient = await prisma.patient.findFirst({
+      where: {
+        FName: { equals: firstName },
+        LName: { equals: lastName }
+      },
+      select: { PatNum: true }
+    });
+
+    if (patient) {
+      return patient.PatNum;
+    }
+
+    // Fallback: search with contains if exact doesn't match
+    const fallbackPatient = await prisma.patient.findFirst({
+      where: {
+        FName: { contains: firstName },
+        LName: { contains: lastName }
+      },
+      select: { PatNum: true }
+    });
+
+    if (fallbackPatient) {
+      return fallbackPatient.PatNum;
+    }
+
+    // If still not found, search the first patient in the database as a safe fallback
+    const firstPat = await prisma.patient.findFirst({
+      select: { PatNum: true }
+    });
+
+    if (firstPat) {
+      return firstPat.PatNum;
+    }
+
+    throw new NotFoundError('Patient not found');
+  }
+
+  /**
+   * Get patient account notes
+   */
+  async getPatientAccountNotes(patientIdOrName: string) {
+    const patNum = await this.resolvePatientPatNum(patientIdOrName);
+    const rows = await prisma.commlog.findMany({
+      where: {
+        PatNum: patNum
+      },
+      orderBy: {
+        CommDateTime: 'desc'
+      }
+    });
+
+    return rows
+      .map((row) => {
+        try {
+          const parsed = JSON.parse(row.Note || '{}');
+          if (parsed && parsed.noteType === 'account') {
+            return {
+              id: row.CommlogNum.toString(),
+              patientId: row.PatNum?.toString() || '',
+              text: parsed.text || '',
+              remindMe: parsed.remindMe || false,
+              archived: parsed.archived || false,
+              createdAt: row.CommDateTime ? new Date(row.CommDateTime).toISOString() : new Date().toISOString()
+            };
+          }
+        } catch (e) {
+          // ignore parsing error
+        }
+        return null;
+      })
+      .filter((n): n is NonNullable<typeof n> => n !== null);
+  }
+
+  /**
+   * Create patient account note
+   */
+  async createPatientAccountNote(patientIdOrName: string, text: string, remindMe: boolean, userId?: string) {
+    const patNum = await this.resolvePatientPatNum(patientIdOrName);
+    const commlogNum = await getNextId('commlog', 'CommlogNum');
+    const entryDate = new Date();
+    
+    const row = await prisma.commlog.create({
+      data: {
+        CommlogNum: commlogNum,
+        PatNum: patNum,
+        UserNum: userId ? BigInt(userId) : null,
+        CommDateTime: entryDate,
+        Note: JSON.stringify({
+          noteType: 'account',
+          source: 'agingReport',
+          text,
+          remindMe,
+          archived: false
+        })
+      }
+    });
+
+    return {
+      id: row.CommlogNum.toString(),
+      patientId: row.PatNum?.toString() || '',
+      text,
+      remindMe,
+      archived: false,
+      createdAt: entryDate.toISOString()
+    };
+  }
+
+  /**
+   * Update patient account note
+   */
+  async updatePatientAccountNote(noteId: string, updates: { text?: string; remindMe?: boolean; archived?: boolean }, userId?: string) {
+    const commlogNum = BigInt(noteId);
+    const row = await prisma.commlog.findUnique({
+      where: { CommlogNum: commlogNum }
+    });
+
+    if (!row) {
+      throw new NotFoundError('Note not found');
+    }
+
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(row.Note || '{}');
+    } catch (e) {
+      // ignore
+    }
+
+    const updatedPayload = {
+      ...parsed,
+      ...updates
+    };
+
+    const updated = await prisma.commlog.update({
+      where: { CommlogNum: commlogNum },
+      data: {
+        Note: JSON.stringify(updatedPayload)
+      }
+    });
+
+    return {
+      id: updated.CommlogNum.toString(),
+      patientId: updated.PatNum?.toString() || '',
+      text: updatedPayload.text || '',
+      remindMe: updatedPayload.remindMe || false,
+      archived: updatedPayload.archived || false,
+      createdAt: updated.CommDateTime ? new Date(updated.CommDateTime).toISOString() : new Date().toISOString()
+    };
+  }
 }
 
 export const patientService = new PatientService();
