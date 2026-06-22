@@ -568,6 +568,80 @@ export class PatientController {
       next(error);
     }
   }
+
+  async getPatientAccountNotes(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Patient ID is required' },
+        });
+      }
+      const notes = await patientService.getPatientAccountNotes(patientId);
+      res.status(200).json({
+        success: true,
+        data: notes,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createPatientAccountNote(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      const { text, remindMe } = req.body;
+      if (!patientId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Patient ID is required' },
+        });
+      }
+      if (text === undefined || text === null) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Text is required' },
+        });
+      }
+      const note = await patientService.createPatientAccountNote(
+        patientId,
+        text,
+        !!remindMe,
+        req.userId
+      );
+      res.status(201).json({
+        success: true,
+        data: note,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updatePatientAccountNote(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { noteId } = req.params;
+      const { text, remindMe, archived } = req.body;
+      if (!noteId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Note ID is required' },
+        });
+      }
+      const note = await patientService.updatePatientAccountNote(
+        noteId,
+        { text, remindMe, archived },
+        req.userId
+      );
+      res.status(200).json({
+        success: true,
+        data: note,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const patientController = new PatientController();

@@ -370,6 +370,10 @@ router.get('/:patientId', requireRoles('Receptionist', 'Admin'), validate(patien
 router.patch('/:patientId', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...updatePatientValidator]), patientController.updatePatient.bind(patientController));
 router.delete('/:patientId', requireRoles('Admin'), validate(patientIdValidator), patientController.deletePatient.bind(patientController));
 
+router.get('/:patientId/account-notes', requireRoles('Receptionist', 'Admin', 'Billing Staff'), patientController.getPatientAccountNotes.bind(patientController));
+router.post('/:patientId/account-notes', requireRoles('Receptionist', 'Admin', 'Billing Staff'), patientController.createPatientAccountNote.bind(patientController));
+router.put('/:patientId/account-notes/:noteId', requireRoles('Receptionist', 'Admin', 'Billing Staff'), patientController.updatePatientAccountNote.bind(patientController));
+
 /**
  * @swagger
  * /patients/{patientId}/balance:
