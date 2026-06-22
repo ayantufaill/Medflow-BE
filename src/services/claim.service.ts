@@ -1697,6 +1697,7 @@ export class ClaimService {
 
   return {
     _id: claim.ClaimNum.toString(),
+    id: claim.ClaimNum.toString(),
     claimNumber: `CLM${claim.ClaimNum.toString().padStart(6, '0')}`,
     patientId: claim.PatNum?.toString() || null,
     patientName: claim.patient ? `${claim.patient.FName || ''} ${claim.patient.LName || ''}`.trim() : null,

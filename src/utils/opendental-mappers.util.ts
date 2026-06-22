@@ -180,6 +180,7 @@ export const mapPatientToApi = (
     medicalHistory?: Record<string, unknown> | null;
   }
 ) => ({
+  id: row.PatNum.toString(),
   _id: row.PatNum.toString(),
   patientCode: row.ChartNumber ?? `PAT${row.PatNum.toString()}`,
   userAccountId: null,
