@@ -221,14 +221,14 @@ describe('Claims Procedures Fallback', () => {
 
     // 3. Verify filtering by claimFormat (should be E-claim by default)
     const filterFormatRes = await request(app)
-      .get(`/api/claims?claimFormat=E-claim`)
+      .get(`/api/claims?claimFormat=E-claim&limit=100`)
       .set(authHeader);
     expect(filterFormatRes.status).toBe(200);
     expect(filterFormatRes.body?.data?.claims?.some((c: any) => c.id === createdClaim.id)).toBe(true);
 
     // 4. Verify filtering by claimFormat = Paper does not return the E-claim
     const filterFormatPaperRes = await request(app)
-      .get(`/api/claims?claimFormat=Paper`)
+      .get(`/api/claims?claimFormat=Paper&limit=100`)
       .set(authHeader);
     console.log("createdClaim:", createdClaim);
     console.log("filterFormatPaperRes claims:", filterFormatPaperRes.body?.data?.claims);
@@ -237,7 +237,7 @@ describe('Claims Procedures Fallback', () => {
 
     // 5. Verify hasAttachment filtering (no attachment yet, so should be false)
     const filterAttachmentRes = await request(app)
-      .get(`/api/claims?hasAttachment=true`)
+      .get(`/api/claims?hasAttachment=true&limit=100`)
       .set(authHeader);
     expect(filterAttachmentRes.status).toBe(200);
     expect(filterAttachmentRes.body?.data?.claims?.some((c: any) => c.id === createdClaim.id)).toBe(false);
@@ -305,6 +305,27 @@ describe('Claims Procedures Fallback', () => {
     }
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+  });
+
+  it('correctly generates a filled ADA 2024 claim form PDF', async () => {
+    const claim = await prisma.claim.findFirst({
+      where: {
+        PreAuthString: { startsWith: 'CLM-SEED-' }
+      }
+    });
+    expect(claim).toBeDefined();
+
+    const res = await request(app)
+      .get(`/api/claims/${claim!.ClaimNum}/pdf`)
+      .set(authHeader);
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('application/pdf');
+    expect(res.headers['content-disposition']).toContain('inline');
+    expect(res.body).toBeDefined();
+    
+    const pdfMagicNumber = Buffer.from(res.body).toString('ascii', 0, 4);
+    expect(pdfMagicNumber).toBe('%PDF');
   });
 });
 
