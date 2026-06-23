@@ -6,6 +6,7 @@ import { mapPatientToApi, mapProviderToApi } from '../utils/opendental-mappers.u
 import { adjustmentService } from './adjustment.service';
 import { paymentService } from './payment.service';
 import { claimService } from './claim.service';
+import { patientInsuranceService } from './patient-insurance.service';
 
 const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
@@ -26,6 +27,7 @@ type StatementMeta = {
   createdBy?: string;
   dueDate?: string;
   voidReason?: string;
+  claimId?: string; // Added to store generated claim ID
 };
 
 type ItemMeta = {
@@ -36,24 +38,17 @@ type ItemMeta = {
   serviceId?: string;
 };
 
-// Add this helper function
 const buildBillingNote = (data: any) => {
   const payload: Record<string, any> = {};
-  
   if (data.cptCode) payload.cptCode = data.cptCode;
   if (data.writeoff && Number(data.writeoff) > 0) payload.writeoff = Number(data.writeoff);
   if (data.ptPortion && Number(data.ptPortion) > 0) payload.ptPortion = Number(data.ptPortion);
   if (data.insPortion && Number(data.insPortion) > 0) payload.insPortion = Number(data.insPortion);
   if (data.dbi !== undefined && data.dbi !== null) payload.dbi = Boolean(data.dbi);
   if (data.paidAmount && Number(data.paidAmount) > 0) payload.paidAmount = Number(data.paidAmount);
-
-  if (data.description) {
-    payload.description = data.description.substring(0, 100);
-  }
-
+  if (data.description) payload.description = data.description.substring(0, 100);
   if (data.unitPrice !== undefined) payload.unitPrice = Number(data.unitPrice);
   if (data.quantity !== undefined) payload.quantity = Number(data.quantity);
-
   return JSON.stringify(payload);
 };
 
@@ -80,7 +75,6 @@ const getInvoiceNumber = async (): Promise<string> => {
     orderBy: { StatementNum: 'desc' },
     take: 50,
   });
-
   let max = 0;
   for (const stmt of recent) {
     const match = String(stmt.ShortGUID || '').match(/\d+$/);
@@ -97,7 +91,6 @@ export class InvoiceService {
     const quantity = Number(meta.quantity ?? item.UnitQty ?? 1) || 1;
     const unitPrice = Number(meta.unitPrice ?? (item.ProcFee ?? 0) / quantity) || 0;
     const totalPrice = Number(item.ProcFee) || roundCurrency(unitPrice * quantity);
-
     return {
       _id: item.ProcNum.toString(),
       invoiceId: invoiceId ?? item.StatementNum?.toString() ?? null,
@@ -111,8 +104,94 @@ export class InvoiceService {
       insPortion: Number((meta as any).insPortion || 0),
       writeoff: Number((meta as any).writeoff || 0),
       paidAmount: Number((meta as any).paidAmount || 0),
-      dbi: (meta as any).dbi !== undefined ? Boolean((meta as any).dbi) : null
+      dbi: (meta as any).dbi !== undefined ? Boolean((meta as any).dbi) : null,
     };
+  }
+
+  /**
+   * Background task: generate a draft claim for the patient's primary insurance
+   * if the invoice has no claim yet and the patient has active insurance.
+   * Uses setImmediate to avoid blocking the main thread.
+   */
+  private triggerClaimGeneration(statementNum: bigint, patNum: bigint | null, createdBy: string) {
+    if (!patNum) return;
+
+    setImmediate(async () => {
+      try {
+        const invoiceId = statementNum.toString();
+        const patientId = patNum.toString();
+
+        console.log(`[InvoiceService] Triggering claim generation for invoice ${invoiceId}, patient ${patientId}`);
+
+        // 1. Check if invoice already has a claim attached (in metadata)
+        const invoice = await prisma.statement.findUnique({
+          where: { StatementNum: statementNum },
+          select: { NoteBold: true, PatNum: true },
+        });
+        if (!invoice) return;
+
+        const meta = parseJson<StatementMeta>(invoice.NoteBold || '{}');
+        if (meta.claimId) {
+          console.log(`[InvoiceService] Invoice ${invoiceId} already has claim ${meta.claimId}, skipping`);
+          return;
+        }
+
+        // 2. Fetch active insurances for the patient
+        const activeInsurances = await patientInsuranceService.getPatientInsurances(patientId, true);
+        if (!activeInsurances.length) {
+          console.log(`[InvoiceService] No active insurances for patient ${patientId}, skipping`);
+          return;
+        }
+
+        // 3. Find primary insurance
+        const primaryInsurance = activeInsurances.find(ins => ins.insuranceType === 'primary');
+        if (!primaryInsurance) {
+          console.log(`[InvoiceService] No primary insurance found for patient ${patientId}, skipping`);
+          return;
+        }
+
+        const insuranceCompanyId = primaryInsurance.insuranceCompanyId?._id;
+        if (!insuranceCompanyId) {
+          console.log(`[InvoiceService] Primary insurance has no company ID, skipping`);
+          return;
+        }
+
+        // 4. Double-check for existing claim via Narrative (fallback)
+        const existingClaim = await prisma.claim.findFirst({
+          where: {
+            ClaimType: { not: 'PreAuth' },
+            Narrative: { contains: `"invoiceId":"${invoiceId}"` },
+          },
+        });
+        if (existingClaim) {
+          console.log(`[InvoiceService] Existing claim found via Narrative, skipping`);
+          return;
+        }
+
+        // 5. Generate draft claim
+        const claim = await claimService.createClaimFromInvoice(
+          invoiceId,
+          {
+            insuranceCompanyId,
+            insuranceType: 'primary',
+            policyNumber: primaryInsurance.policyNumber ?? undefined,
+          },
+          createdBy
+        );
+
+        // 6. Store claimId in invoice metadata to prevent duplicates
+        const updatedMeta = { ...meta, claimId: claim._id };
+        await prisma.statement.update({
+          where: { StatementNum: statementNum },
+          data: { NoteBold: buildJson(updatedMeta) },
+        });
+
+        console.log(`[InvoiceService] Auto-generated claim ${claim._id} for invoice ${invoiceId}`);
+      } catch (err: any) {
+        console.error('[InvoiceService] Auto-claim generation failed:', err?.message || err);
+        console.error(err?.stack);
+      }
+    });
   }
 
   private async getDefaultFeeSchedNum(): Promise<bigint> {
@@ -120,10 +199,7 @@ export class InvoiceService {
       where: { IsHidden: 0 },
       orderBy: { FeeSchedNum: 'asc' },
     });
-    if (existing?.FeeSchedNum) {
-      return existing.FeeSchedNum;
-    }
-
+    if (existing?.FeeSchedNum) return existing.FeeSchedNum;
     const nextId = await getNextId('feesched', 'FeeSchedNum');
     const created = await prisma.feesched.create({
       data: {
@@ -148,7 +224,6 @@ export class InvoiceService {
       provider.CustomID && /^\d+$/.test(provider.CustomID)
         ? await prisma.userod.findUnique({ where: { UserNum: BigInt(provider.CustomID) } })
         : null;
-
     return mapProviderToApi(provider, {
       specialtyName: provider.definition?.ItemName ?? null,
       userId: provider.CustomID ?? null,
@@ -221,6 +296,7 @@ export class InvoiceService {
       submissionMethod: meta.submissionMethod ?? null,
       createdBy: meta.createdBy ?? null,
       notes: statement.Note ?? null,
+      claimId: meta.claimId ?? null, // Include claimId in response
     };
   }
 
@@ -229,20 +305,20 @@ export class InvoiceService {
       where: { StatementNum: statementNum },
       orderBy: { ProcNum: 'asc' },
     });
-
     const codeNums = items
       .map((item) => item.CodeNum)
       .filter((codeNum): codeNum is bigint => codeNum !== null && codeNum !== undefined);
-
     const codes = codeNums.length
-      ? await prisma.procedurecode.findMany({
-          where: { CodeNum: { in: codeNums } },
-        })
+      ? await prisma.procedurecode.findMany({ where: { CodeNum: { in: codeNums } } })
       : [];
-
     const codeMap = new Map(codes.map((code) => [code.CodeNum?.toString(), code]));
-
-    return items.map((item) => this.mapProcedureLogToInvoiceItem(item, statementNum.toString(), item.CodeNum ? codeMap.get(item.CodeNum.toString()) : null));
+    return items.map((item) =>
+      this.mapProcedureLogToInvoiceItem(
+        item,
+        statementNum.toString(),
+        item.CodeNum ? codeMap.get(item.CodeNum.toString()) : null
+      )
+    );
   }
 
   async getAllInvoices(
@@ -260,14 +336,10 @@ export class InvoiceService {
     } = {}
   ) {
     const skip = (page - 1) * limit;
-    const where: any = {
-      IsInvoice: 1,
-    };
-
+    const where: any = { IsInvoice: 1 };
     if (filters.patientId) where.PatNum = BigInt(filters.patientId);
     if (filters.status) where.StatementType = filters.status;
     if (filters.search) where.ShortGUID = { contains: filters.search };
-
     if (filters.startDate || filters.endDate) {
       where.DateSent = {};
       if (filters.startDate) where.DateSent.gte = new Date(filters.startDate);
@@ -275,12 +347,7 @@ export class InvoiceService {
     }
 
     const [rows, total] = await Promise.all([
-      prisma.statement.findMany({
-        where,
-        orderBy: { DateSent: 'desc' },
-        skip,
-        take: limit,
-      }),
+      prisma.statement.findMany({ where, orderBy: { DateSent: 'desc' }, skip, take: limit }),
       prisma.statement.count({ where }),
     ]);
 
@@ -298,13 +365,7 @@ export class InvoiceService {
           this.resolveProvider(invoice.providerId ?? null),
           this.resolveInsuranceCompany(invoice.insuranceCompanyId ?? null),
         ]);
-
-        return {
-          ...invoice,
-          patient: patient ? mapPatientToApi(patient) : null,
-          provider,
-          insuranceCompany,
-        };
+        return { ...invoice, patient: patient ? mapPatientToApi(patient) : null, provider, insuranceCompany };
       })
     );
 
@@ -317,23 +378,12 @@ export class InvoiceService {
       });
     }
 
-    return {
-      invoices,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-      },
-    };
+    return { invoices, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
   }
 
   async getInvoiceById(invoiceId: string) {
     const invoice = await this.getStatementById(invoiceId);
-    if (!invoice) {
-      throw new NotFoundError('Invoice not found');
-    }
-
+    if (!invoice) throw new NotFoundError('Invoice not found');
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
     const patient = invoice.PatNum
       ? await prisma.patient.findUnique({ where: { PatNum: invoice.PatNum } })
@@ -341,9 +391,7 @@ export class InvoiceService {
     const appointment = await this.resolveAppointment(meta.appointmentId ?? null);
     const provider = await this.resolveProvider(meta.providerId ?? appointment?.providerId ?? null);
     const insuranceCompany = await this.resolveInsuranceCompany(meta.insuranceCompanyId ?? null);
-
     const items = await this.getInvoiceItems(invoice.StatementNum);
-
     return {
       invoice: {
         ...this.mapStatementToInvoice(invoice, meta),
@@ -371,19 +419,12 @@ export class InvoiceService {
     const appointment = await prisma.appointment.findUnique({
       where: { AptNum: BigInt(appointmentId) },
     });
-    if (!appointment) {
-      throw new NotFoundError('Appointment not found');
-    }
+    if (!appointment) throw new NotFoundError('Appointment not found');
 
     const existing = await prisma.statement.findFirst({
-      where: {
-        NoteBold: { contains: `"appointmentId":"${appointmentId}"` },
-        IsInvoice: 1,
-      },
+      where: { NoteBold: { contains: `"appointmentId":"${appointmentId}"` }, IsInvoice: 1 },
     });
-    if (existing) {
-      throw new ConflictError('Invoice already exists for this appointment');
-    }
+    if (existing) throw new ConflictError('Invoice already exists for this appointment');
 
     const appointmentType = appointment.AppointmentTypeNum
       ? await prisma.appointmenttype.findUnique({
@@ -464,6 +505,9 @@ export class InvoiceService {
       'low'
     );
 
+    // AUTO-GENERATE CLAIM — runs in background
+    this.triggerClaimGeneration(statement.StatementNum, statement.PatNum, createdBy);
+
     return this.mapStatementToInvoice(statement, meta);
   }
 
@@ -479,14 +523,10 @@ export class InvoiceService {
     userId: string
   ) {
     const invoice = await this.getStatementById(invoiceId);
-    if (!invoice) {
-      throw new NotFoundError('Invoice not found');
-    }
+    if (!invoice) throw new NotFoundError('Invoice not found');
 
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
-    if (String(meta.status) !== 'draft') {
-      throw new BadRequestError('Only draft invoices can be modified');
-    }
+    if (String(meta.status) !== 'draft') throw new BadRequestError('Only draft invoices can be modified');
 
     let service = null;
     if (data.serviceId) {
@@ -498,9 +538,7 @@ export class InvoiceService {
           ],
         },
       });
-      if (!service) {
-        throw new NotFoundError('Service not found');
-      }
+      if (!service) throw new NotFoundError('Service not found');
     }
 
     if (!data.serviceId && (!data.description || data.unitPrice === undefined)) {
@@ -511,9 +549,7 @@ export class InvoiceService {
     let unitPrice = data.unitPrice ?? 0;
     if (unitPrice === 0 && service?.CodeNum) {
       const feeSchedNum = await this.getDefaultFeeSchedNum();
-      const fee = await prisma.fee.findFirst({
-        where: { CodeNum: service.CodeNum, FeeSched: feeSchedNum },
-      });
+      const fee = await prisma.fee.findFirst({ where: { CodeNum: service.CodeNum, FeeSched: feeSchedNum } });
       unitPrice = Number(fee?.Amount) || 0;
     }
     const totalPrice = roundCurrency(unitPrice * quantity);
@@ -540,21 +576,12 @@ export class InvoiceService {
     });
 
     await this.recalculateInvoice(invoiceId);
+    await logActivity(userId, 'created', 'invoice_items', item.ProcNum.toString(), undefined, item, undefined, undefined, 'low');
 
-    await logActivity(
-      userId,
-      'created',
-      'invoice_items',
-      item.ProcNum.toString(),
-      undefined,
-      item,
-      undefined,
-      undefined,
-      'low'
-    );
+    // AUTO-GENERATE CLAIM after adding item (if not already generated)
+    this.triggerClaimGeneration(invoice.StatementNum, invoice.PatNum, userId);
 
-    const mappedItem = this.mapProcedureLogToInvoiceItem(item, invoiceId, service);
-    return mappedItem;
+    return this.mapProcedureLogToInvoiceItem(item, invoiceId, service);
   }
 
   async updateInvoiceItem(
@@ -570,21 +597,13 @@ export class InvoiceService {
     userId: string
   ) {
     const invoice = await this.getStatementById(invoiceId);
-    if (!invoice) {
-      throw new NotFoundError('Invoice not found');
-    }
+    if (!invoice) throw new NotFoundError('Invoice not found');
 
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
-    if (String(meta.status) !== 'draft') {
-      throw new BadRequestError('Only draft invoices can be modified');
-    }
+    if (String(meta.status) !== 'draft') throw new BadRequestError('Only draft invoices can be modified');
 
-    const item = await prisma.procedurelog.findUnique({
-      where: { ProcNum: BigInt(itemId) },
-    });
-    if (!item || item.StatementNum?.toString() !== invoiceId) {
-      throw new NotFoundError('Invoice item not found');
-    }
+    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: BigInt(itemId) } });
+    if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
 
     let service = null;
     if (updates.serviceId) {
@@ -596,22 +615,15 @@ export class InvoiceService {
           ],
         },
       });
-      if (!service) {
-        throw new NotFoundError('Service not found');
-      }
+      if (!service) throw new NotFoundError('Service not found');
     }
 
     const currentMeta = parseJson<ItemMeta>(item.BillingNote);
     const quantity = updates.quantity ?? currentMeta.quantity ?? item.UnitQty ?? 1;
-    let unitPrice =
-      updates.unitPrice ??
-      currentMeta.unitPrice ??
-      (Number(item.ProcFee || 0) / (Number(item.UnitQty) || 1));
+    let unitPrice = updates.unitPrice ?? currentMeta.unitPrice ?? (Number(item.ProcFee || 0) / (Number(item.UnitQty) || 1));
     if (updates.unitPrice === undefined && service?.CodeNum) {
       const feeSchedNum = await this.getDefaultFeeSchedNum();
-      const fee = await prisma.fee.findFirst({
-        where: { CodeNum: service.CodeNum, FeeSched: feeSchedNum },
-      });
+      const fee = await prisma.fee.findFirst({ where: { CodeNum: service.CodeNum, FeeSched: feeSchedNum } });
       unitPrice = Number(fee?.Amount) || unitPrice;
     }
     const totalPrice = roundCurrency(unitPrice * quantity);
@@ -633,64 +645,29 @@ export class InvoiceService {
     });
 
     await this.recalculateInvoice(invoiceId);
-
-    await logActivity(
-      userId,
-      'updated',
-      'invoice_items',
-      itemId,
-      item,
-      updated,
-      undefined,
-      undefined,
-      'low'
-    );
-
-    const mappedItem = this.mapProcedureLogToInvoiceItem(updated, invoiceId, service);
-    return mappedItem;
+    await logActivity(userId, 'updated', 'invoice_items', itemId, item, updated, undefined, undefined, 'low');
+    return this.mapProcedureLogToInvoiceItem(updated, invoiceId, service);
   }
 
   async deleteInvoiceItem(invoiceId: string, itemId: string, userId: string) {
     const invoice = await this.getStatementById(invoiceId);
-    if (!invoice) {
-      throw new NotFoundError('Invoice not found');
-    }
+    if (!invoice) throw new NotFoundError('Invoice not found');
 
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
-    if (String(meta.status) !== 'draft') {
-      throw new BadRequestError('Only draft invoices can be modified');
-    }
+    if (String(meta.status) !== 'draft') throw new BadRequestError('Only draft invoices can be modified');
 
-    const item = await prisma.procedurelog.findUnique({
-      where: { ProcNum: BigInt(itemId) },
-    });
-    if (!item || item.StatementNum?.toString() !== invoiceId) {
-      throw new NotFoundError('Invoice item not found');
-    }
+    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: BigInt(itemId) } });
+    if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
 
     await prisma.procedurelog.delete({ where: { ProcNum: BigInt(itemId) } });
     await this.recalculateInvoice(invoiceId);
-
-    await logActivity(
-      userId,
-      'deleted',
-      'invoice_items',
-      itemId,
-      item,
-      undefined,
-      undefined,
-      undefined,
-      'low'
-    );
-
+    await logActivity(userId, 'deleted', 'invoice_items', itemId, item, undefined, undefined, undefined, 'low');
     return { message: 'Invoice item deleted successfully' };
   }
 
   async deleteInvoice(invoiceId: string, userId: string) {
     const invoice = await this.getStatementById(invoiceId);
-    if (!invoice) {
-      throw new NotFoundError('Invoice not found');
-    }
+    if (!invoice) throw new NotFoundError('Invoice not found');
 
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
     if (String(meta.status) !== 'draft') {
@@ -699,19 +676,7 @@ export class InvoiceService {
 
     await prisma.procedurelog.deleteMany({ where: { StatementNum: invoice.StatementNum } });
     await prisma.statement.delete({ where: { StatementNum: invoice.StatementNum } });
-
-    await logActivity(
-      userId,
-      'deleted',
-      'invoices',
-      invoiceId,
-      this.mapStatementToInvoice(invoice, meta),
-      undefined,
-      undefined,
-      undefined,
-      'medium'
-    );
-
+    await logActivity(userId, 'deleted', 'invoices', invoiceId, this.mapStatementToInvoice(invoice, meta), undefined, undefined, undefined, 'medium');
     return { message: 'Invoice deleted successfully' };
   }
 
@@ -732,14 +697,10 @@ export class InvoiceService {
     userId: string
   ) {
     const invoice = await this.getStatementById(invoiceId);
-    if (!invoice) {
-      throw new NotFoundError('Invoice not found');
-    }
+    if (!invoice) throw new NotFoundError('Invoice not found');
 
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
-    if (String(meta.status) !== 'draft') {
-      throw new BadRequestError('Only draft invoices can be modified');
-    }
+    if (String(meta.status) !== 'draft') throw new BadRequestError('Only draft invoices can be modified');
 
     const coveragePercent = updates.insuranceCoveragePercent;
     delete updates.insuranceCoveragePercent;
@@ -767,41 +728,19 @@ export class InvoiceService {
     });
 
     await this.recalculateInvoice(invoiceId, coveragePercent);
-
-    await logActivity(
-      userId,
-      'updated',
-      'invoices',
-      invoiceId,
-      this.mapStatementToInvoice(invoice, meta),
-      this.mapStatementToInvoice(updated, nextMeta),
-      undefined,
-      undefined,
-      'low'
-    );
-
+    await logActivity(userId, 'updated', 'invoices', invoiceId, this.mapStatementToInvoice(invoice, meta), this.mapStatementToInvoice(updated, nextMeta), undefined, undefined, 'low');
     return this.mapStatementToInvoice(updated, nextMeta);
   }
 
   async recalculateInvoice(invoiceId: string, insuranceCoveragePercent?: number) {
     const invoice = await this.getStatementById(invoiceId);
-    if (!invoice) {
-      throw new NotFoundError('Invoice not found');
-    }
+    if (!invoice) throw new NotFoundError('Invoice not found');
 
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
-    const items = await prisma.procedurelog.findMany({
-      where: { StatementNum: invoice.StatementNum },
-    });
+    const items = await prisma.procedurelog.findMany({ where: { StatementNum: invoice.StatementNum } });
 
-    const codeNums = items
-      .map((item) => item.CodeNum)
-      .filter((codeNum): codeNum is bigint => codeNum !== null && codeNum !== undefined);
-    const codes = codeNums.length
-      ? await prisma.procedurecode.findMany({
-          where: { CodeNum: { in: codeNums } },
-        })
-      : [];
+    const codeNums = items.map((item) => item.CodeNum).filter((codeNum): codeNum is bigint => codeNum !== null && codeNum !== undefined);
+    const codes = codeNums.length ? await prisma.procedurecode.findMany({ where: { CodeNum: { in: codeNums } } }) : [];
     const codeMap = new Map(codes.map((code) => [code.CodeNum?.toString(), code]));
 
     const totalAmount = items.reduce((sum, item) => sum + (Number(item.ProcFee) || 0), 0);
@@ -826,23 +765,11 @@ export class InvoiceService {
     }, 0);
 
     const balanceDue = roundCurrency(Math.max(0, subtotal - totalPaid));
-
-    const nextMeta: StatementMeta = {
-      ...meta,
-      taxAmount: roundCurrency(taxAmount),
-      discountAmount: roundCurrency(discountAmount),
-      insurancePortion,
-      patientPortion,
-      paidAmount: totalPaid,
-    };
+    const nextMeta: StatementMeta = { ...meta, taxAmount: roundCurrency(taxAmount), discountAmount: roundCurrency(discountAmount), insurancePortion, patientPortion, paidAmount: totalPaid };
 
     const updated = await prisma.statement.update({
       where: { StatementNum: invoice.StatementNum },
-      data: {
-        BalTotal: roundCurrency(balanceDue),
-        InsEst: roundCurrency(insurancePortion),
-        NoteBold: buildJson(nextMeta),
-      },
+      data: { BalTotal: roundCurrency(balanceDue), InsEst: roundCurrency(insurancePortion), NoteBold: buildJson(nextMeta) },
     });
 
     return this.mapStatementToInvoice(updated, nextMeta);
@@ -854,103 +781,52 @@ export class InvoiceService {
 
   async getPatientBalance(patientId: string) {
     const rows = await prisma.statement.findMany({
-      where: {
-        IsInvoice: 1,
-        PatNum: BigInt(patientId),
-      },
-      select: {
-        BalTotal: true,
-      },
+      where: { IsInvoice: 1, PatNum: BigInt(patientId) },
+      select: { BalTotal: true },
     });
-
     const totalBalance = rows.reduce((sum, row) => sum + (Number(row.BalTotal) || 0), 0);
     const openInvoices = rows.filter((row) => Number(row.BalTotal) > 0).length;
-
-    return {
-      patientId,
-      totalBalance: roundCurrency(totalBalance),
-      openInvoices,
-    };
+    return { patientId, totalBalance: roundCurrency(totalBalance), openInvoices };
   }
 
   async finalizeInvoice(invoiceId: string, userId: string) {
     const invoice = await this.getStatementById(invoiceId);
-    if (!invoice) {
-      throw new NotFoundError('Invoice not found');
-    }
+    if (!invoice) throw new NotFoundError('Invoice not found');
 
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
-    if (String(meta.status) !== 'draft') {
-      throw new BadRequestError('Only draft invoices can be finalized');
-    }
+    if (String(meta.status) !== 'draft') throw new BadRequestError('Only draft invoices can be finalized');
 
     await this.recalculateInvoice(invoiceId);
-
-    const nextMeta: StatementMeta = {
-      ...meta,
-      status: 'pending',
-    };
+    const nextMeta: StatementMeta = { ...meta, status: 'pending' };
 
     const updated = await prisma.statement.update({
       where: { StatementNum: invoice.StatementNum },
-      data: {
-        StatementType: 'pending',
-        NoteBold: buildJson(nextMeta),
-      },
+      data: { StatementType: 'pending', NoteBold: buildJson(nextMeta) },
     });
 
-    await logActivity(
-      userId,
-      'updated',
-      'invoices',
-      invoiceId,
-      this.mapStatementToInvoice(invoice, meta),
-      this.mapStatementToInvoice(updated, nextMeta),
-      undefined,
-      undefined,
-      'low'
-    );
+    await logActivity(userId, 'updated', 'invoices', invoiceId, this.mapStatementToInvoice(invoice, meta), this.mapStatementToInvoice(updated, nextMeta), undefined, undefined, 'low');
+
+    // AUTO-GENERATE CLAIM after finalization (covers any scenario where items were added later)
+    this.triggerClaimGeneration(invoice.StatementNum, invoice.PatNum, userId);
 
     return this.mapStatementToInvoice(updated, nextMeta);
   }
 
   async voidInvoice(invoiceId: string, reason: string | undefined, userId: string) {
     const invoice = await this.getStatementById(invoiceId);
-    if (!invoice) {
-      throw new NotFoundError('Invoice not found');
-    }
+    if (!invoice) throw new NotFoundError('Invoice not found');
 
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
-    if (String(meta.status) === 'void') {
-      throw new BadRequestError('Invoice is already void');
-    }
+    if (String(meta.status) === 'void') throw new BadRequestError('Invoice is already void');
 
-    const nextMeta: StatementMeta = {
-      ...meta,
-      status: 'void',
-      voidReason: reason ?? meta.voidReason,
-    };
+    const nextMeta: StatementMeta = { ...meta, status: 'void', voidReason: reason ?? meta.voidReason };
 
     const updated = await prisma.statement.update({
       where: { StatementNum: invoice.StatementNum },
-      data: {
-        StatementType: 'void',
-        NoteBold: buildJson(nextMeta),
-      },
+      data: { StatementType: 'void', NoteBold: buildJson(nextMeta) },
     });
 
-    await logActivity(
-      userId,
-      'updated',
-      'invoices',
-      invoiceId,
-      this.mapStatementToInvoice(invoice, meta),
-      this.mapStatementToInvoice(updated, nextMeta),
-      undefined,
-      undefined,
-      'medium'
-    );
-
+    await logActivity(userId, 'updated', 'invoices', invoiceId, this.mapStatementToInvoice(invoice, meta), this.mapStatementToInvoice(updated, nextMeta), undefined, undefined, 'medium');
     return this.mapStatementToInvoice(updated, nextMeta);
   }
 
@@ -975,12 +851,8 @@ export class InvoiceService {
     createdBy: string
   ) {
     const patientId = BigInt(data.patientId);
-    const patient = await prisma.patient.findUnique({
-      where: { PatNum: patientId },
-    });
-    if (!patient) {
-      throw new NotFoundError('Patient not found');
-    }
+    const patient = await prisma.patient.findUnique({ where: { PatNum: patientId } });
+    if (!patient) throw new NotFoundError('Patient not found');
 
     const invoiceNumber = await getInvoiceNumber();
     const statementNum = await getNextId('statement', 'StatementNum');
@@ -1027,26 +899,7 @@ export class InvoiceService {
 
     for (const item of data.items) {
       const procNum = await getNextId('procedurelog', 'ProcNum');
-      const service = await prisma.procedurecode.findFirst({
-        where: { ProcCode: item.code },
-      });
-
-      const billingNotePayload = {
-        description: item.description,
-        unitPrice: Number(item.charge ?? 0),
-        quantity: 1,
-        cptCode: item.code,
-        serviceId: service?.CodeNum?.toString() ?? null,
-        site: item.site ?? 'None',
-        provider: item.provider ?? 'Default',
-        writeoff: Number(item.writeoff ?? 0),
-        ptPortion: Number(item.ptPortion ?? 0),
-        insPortion: Number(item.insPortion ?? 0),
-        charge: Number(item.charge ?? 0),
-        balance: Number(item.balance ?? 0),
-        dbi: Boolean(item.dbi),
-        completed: Boolean(item.completed),
-      };
+      const service = await prisma.procedurecode.findFirst({ where: { ProcCode: item.code } });
 
       await prisma.procedurelog.create({
         data: {
@@ -1058,135 +911,98 @@ export class InvoiceService {
           CodeNum: service?.CodeNum ?? null,
           StatementNum: statementNum,
           ProcStatus: item.completed ? 2 : 1,
-          BillingNote: buildJson(billingNotePayload),
+          BillingNote: buildJson({
+            description: item.description,
+            unitPrice: Number(item.charge ?? 0),
+            quantity: 1,
+            cptCode: item.code,
+            serviceId: service?.CodeNum?.toString() ?? null,
+            site: item.site ?? 'None',
+            provider: item.provider ?? 'Default',
+            writeoff: Number(item.writeoff ?? 0),
+            ptPortion: Number(item.ptPortion ?? 0),
+            insPortion: Number(item.insPortion ?? 0),
+            charge: Number(item.charge ?? 0),
+            balance: Number(item.balance ?? 0),
+            dbi: Boolean(item.dbi),
+            completed: Boolean(item.completed),
+          }),
         },
       });
     }
 
     await this.recalculateInvoice(statementNum.toString());
 
-    const finalStatement = await prisma.statement.findUnique({
-      where: { StatementNum: statementNum },
-    });
-
+    const finalStatement = await prisma.statement.findUnique({ where: { StatementNum: statementNum } });
     const finalMeta = parseJson<StatementMeta>(finalStatement?.NoteBold);
 
-    await logActivity(
-      createdBy,
-      'created',
-      'invoices',
-      statementNum.toString(),
-      undefined,
-      this.mapStatementToInvoice(finalStatement, finalMeta),
-      undefined,
-      undefined,
-      'medium'
-    );
+    await logActivity(createdBy, 'created', 'invoices', statementNum.toString(), undefined, this.mapStatementToInvoice(finalStatement, finalMeta), undefined, undefined, 'medium');
+
+    // AUTO-GENERATE CLAIM — runs in background
+    this.triggerClaimGeneration(statementNum, patientId, createdBy);
 
     return this.mapStatementToInvoice(finalStatement, finalMeta);
   }
+
   async markItemPaid(invoiceId: string, itemId: string, amount: number) {
-  // Check if invoice exists
-  const invoice = await this.getStatementById(invoiceId);
-  if (!invoice) {
-    throw new NotFoundError('Invoice not found');
+    const invoice = await this.getStatementById(invoiceId);
+    if (!invoice) throw new NotFoundError('Invoice not found');
+
+    const meta = parseJson<StatementMeta>(invoice.NoteBold);
+    if (String(meta.status) === 'void') throw new BadRequestError('Cannot pay a voided invoice');
+
+    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: BigInt(itemId) } });
+    if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
+
+    const itemMeta = parseJson<ItemMeta>(item.BillingNote);
+    const currentPaid = Number((itemMeta as any).paidAmount || 0);
+    const newPaid = roundCurrency(currentPaid + amount);
+
+    await prisma.procedurelog.update({
+      where: { ProcNum: BigInt(itemId) },
+      data: { BillingNote: buildJson({ ...itemMeta, paidAmount: newPaid }) },
+    });
+
+    await this.recalculateInvoice(invoiceId);
+    return { success: true, message: 'Item payment recorded', itemId, paidAmount: newPaid };
   }
 
-  const meta = parseJson<StatementMeta>(invoice.NoteBold);
-  if (String(meta.status) === 'void') {
-    throw new BadRequestError('Cannot pay a voided invoice');
+  async getPatientCompositeLedger(patientId: string) {
+    const invoiceRows = await prisma.statement.findMany({
+      where: { PatNum: BigInt(patientId), IsInvoice: 1 },
+      orderBy: { DateSent: 'desc' },
+    });
+
+    const invoices = await Promise.all(
+      invoiceRows.map(async (row) => {
+        const meta = parseJson<StatementMeta>(row.NoteBold);
+        const [patient, provider, insuranceCompany, items] = await Promise.all([
+          row.PatNum ? prisma.patient.findUnique({ where: { PatNum: row.PatNum } }) : null,
+          this.resolveProvider(meta.providerId ?? null),
+          this.resolveInsuranceCompany(meta.insuranceCompanyId ?? null),
+          this.getInvoiceItems(row.StatementNum),
+        ]);
+        return {
+          ...this.mapStatementToInvoice(row, meta),
+          patient: patient ? mapPatientToApi(patient) : null,
+          provider,
+          insuranceCompany,
+          lineItems: items,
+        };
+      })
+    );
+
+    const adjustmentsResult = await adjustmentService.getAdjustmentsByPatient(patientId, 1, 1000);
+    const paymentsResult = await paymentService.getPaymentsByPatient(patientId, 1, 1000);
+    const claimsResult = await claimService.getAllClaims(1, 1000, { patientId });
+
+    return {
+      invoices,
+      adjustments: adjustmentsResult.adjustments,
+      payments: paymentsResult.payments,
+      claims: claimsResult.claims,
+    };
   }
-
-  // Find the item in the invoice
-  const item = await prisma.procedurelog.findUnique({
-    where: { ProcNum: BigInt(itemId) },
-  });
-  
-  if (!item || item.StatementNum?.toString() !== invoiceId) {
-    throw new NotFoundError('Invoice item not found');
-  }
-
-  // Get current paid amount from meta
-  const itemMeta = parseJson<ItemMeta>(item.BillingNote);
-  const currentPaid = Number((itemMeta as any).paidAmount || 0);
-  const newPaid = roundCurrency(currentPaid + amount);
-
-  // Update the item's paid amount in BillingNote
-  const updatedItemMeta = {
-    ...itemMeta,
-    paidAmount: newPaid,
-  };
-
-  // Update the item
-  await prisma.procedurelog.update({
-    where: { ProcNum: BigInt(itemId) },
-    data: {
-      BillingNote: buildJson(updatedItemMeta),
-    },
-  });
-
-  // Recalculate the invoice totals
-  await this.recalculateInvoice(invoiceId);
-
-  return { 
-    success: true, 
-    message: 'Item payment recorded',
-    itemId,
-    paidAmount: newPaid
-  };
-}
-
-async getPatientCompositeLedger(patientId: string) {
-  // 1. Fetch invoices (statements where IsInvoice = 1 and PatNum = patientId)
-  const invoiceRows = await prisma.statement.findMany({
-    where: {
-      PatNum: BigInt(patientId),
-      IsInvoice: 1,
-    },
-    orderBy: { DateSent: 'desc' },
-  });
-
-  const invoices = await Promise.all(
-    invoiceRows.map(async (row) => {
-      const meta = parseJson<StatementMeta>(row.NoteBold);
-      const [patient, provider, insuranceCompany, items] = await Promise.all([
-        row.PatNum
-          ? prisma.patient.findUnique({ where: { PatNum: row.PatNum } })
-          : null,
-        this.resolveProvider(meta.providerId ?? null),
-        this.resolveInsuranceCompany(meta.insuranceCompanyId ?? null),
-        this.getInvoiceItems(row.StatementNum),
-      ]);
-
-      return {
-        ...this.mapStatementToInvoice(row, meta),
-        patient: patient ? mapPatientToApi(patient) : null,
-        provider,
-        insuranceCompany,
-        lineItems: items,
-      };
-    })
-  );
-
-  // 2. Fetch adjustments
-  const adjustmentsResult = await adjustmentService.getAdjustmentsByPatient(patientId, 1, 1000);
-  const adjustments = adjustmentsResult.adjustments;
-
-  // 3. Fetch payments
-  const paymentsResult = await paymentService.getPaymentsByPatient(patientId, 1, 1000);
-  const payments = paymentsResult.payments;
-
-  // 4. Fetch claims
-  const claimsResult = await claimService.getAllClaims(1, 1000, { patientId });
-  const claims = claimsResult.claims;
-
-  return {
-    invoices,
-    adjustments,
-    payments,
-    claims,
-  };
-}
 }
 
 export const invoiceService = new InvoiceService();
