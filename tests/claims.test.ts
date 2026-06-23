@@ -249,6 +249,63 @@ describe('Claims Procedures Fallback', () => {
     await prisma.statement.delete({ where: { StatementNum: statement.StatementNum } });
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
+
+  it('returns 404 when updating patient insurance with non-existent carrier ID', async () => {
+    const token = uniqueToken('insupdfail');
+    const alphanumericToken = token.replace(/[^A-Za-z0-9]/g, '');
+    const patient = await createPatientRecord(alphanumericToken);
+    
+    // Create carrier
+    const carrierNum = BigInt(Date.now() - Math.floor(Math.random() * 1000000));
+    const uniqueElectId = `EL${Math.floor(100 + Math.random() * 900)}${alphanumericToken.substring(0, 2)}`;
+    await prisma.carrier.create({
+      data: {
+        CarrierNum: carrierNum,
+        CarrierName: `Carrier-${alphanumericToken}`,
+        ElectID: uniqueElectId,
+      },
+    });
+
+    // Create patient insurance
+    const insRes = await request(app)
+      .post(`/api/patients/${patient.PatNum}/insurance`)
+      .set(authHeader)
+      .send({
+        insuranceType: 'primary',
+        insuranceCompanyId: carrierNum.toString(),
+        relationshipToPatient: 'self',
+        effectiveDate: new Date().toISOString(),
+        policyNumber: `POL${alphanumericToken.substring(0, 10)}`,
+        subscriberName: `SubName`,
+        subscriberDateOfBirth: new Date(1990, 0, 1).toISOString(),
+      });
+
+    expect(insRes.status).toBe(201);
+    const insurance = insRes.body?.data?.insurance;
+    expect(insurance).toBeDefined();
+
+    // Now try to update the patient insurance with a non-existent carrier ID
+    const nonExistentCarrierId = '999999999';
+    const updateRes = await request(app)
+      .put(`/api/patients/${patient.PatNum}/insurance/${insurance._id}`)
+      .set(authHeader)
+      .send({
+        insuranceCompanyId: nonExistentCarrierId,
+      });
+
+    expect(updateRes.status).toBe(404);
+    expect(updateRes.body?.error?.message).toContain('Insurance company not found');
+
+    // Clean up
+    await prisma.patplan.deleteMany({ where: { PatNum: patient.PatNum } });
+    await prisma.inssub.deleteMany({ where: { Subscriber: patient.PatNum } });
+    const insPlans = await prisma.insplan.findMany({ where: { CarrierNum: carrierNum } });
+    for (const plan of insPlans) {
+      await prisma.insplan.delete({ where: { PlanNum: plan.PlanNum } });
+    }
+    await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
+    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+  });
 });
 
 
