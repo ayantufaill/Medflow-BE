@@ -9,6 +9,7 @@ import {
   mapRelationshipToDb,
 } from '../utils/opendental-mappers.util';
 import { getPatientInsuranceMeta, setPatientInsuranceMeta, getPatientInsurancesMeta } from '../utils/opendental-auth.util';
+import { claimService } from './claim.service';
 
 export class PatientInsuranceService {
   /**
@@ -399,6 +400,20 @@ export class PatientInsuranceService {
       );
     }
 
+    // Generate draft claims asynchronously for unbilled invoices using the newly added insurance
+    Promise.resolve().then(async () => {
+      try {
+        await claimService.generateUnsentClaimsForPatient(
+          patientId,
+          data.insuranceCompanyId,
+          data.insuranceType,
+          createdBy
+        );
+      } catch (err) {
+        console.error('Failed to generate unsent claims for patient after insurance creation:', err);
+      }
+    });
+
     return this.getPatientInsuranceById(patPlanNum.toString());
   }
 
@@ -457,6 +472,15 @@ export class PatientInsuranceService {
     if (patplan.PatNum?.toString() !== patientId) {
   throw new NotFoundError('Insurance record does not belong to this patient');
 }
+
+    if (updates.insuranceCompanyId) {
+      const insuranceCompany = await prisma.carrier.findUnique({
+        where: { CarrierNum: BigInt(updates.insuranceCompanyId) },
+      });
+      if (!insuranceCompany) {
+        throw new NotFoundError('Insurance company not found');
+      }
+    }
 
     // If changing insurance type, check for conflicts
     if (updates.insuranceType) {

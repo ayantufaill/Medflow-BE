@@ -22,6 +22,11 @@ export class ClaimController {
         startDate: req.query.startDate as string | undefined,
         endDate: req.query.endDate as string | undefined,
         deniedOnly,
+        carrierName: req.query.carrierName as string | undefined,
+        hasAttachment: req.query.hasAttachment as string | undefined,
+        claimFormat: req.query.claimFormat as string | undefined,
+        showHidden: req.query.showHidden as string | undefined,
+        patientName: req.query.patientName as string | undefined,
       });
 
       res.status(200).json({

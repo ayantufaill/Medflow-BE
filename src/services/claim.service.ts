@@ -35,6 +35,8 @@ type ClaimMeta = {
   denialReason?: string;
   paidDate?: string;
   corrections?: Record<string, unknown>;
+  claimFormat?: string;
+  isHidden?: boolean;
 };
 
 type ClaimFilters = {
@@ -48,6 +50,11 @@ type ClaimFilters = {
   endDate?: string;
   deniedOnly?: boolean;
   tab?: string;
+  carrierName?: string;
+  hasAttachment?: boolean | string;
+  claimFormat?: string;
+  showHidden?: boolean | string;
+  patientName?: string;
 };
 
 const parseJson = <T>(value?: string | null): T => {
@@ -260,6 +267,8 @@ export class ClaimService {
       createdAt: row.SecDateEntry ?? row.DateService ?? null,
       updatedAt: row.SecDateTEdit ?? row.DateService ?? null,
       procedures: context.procedures ?? [],
+      claimFormat: meta.claimFormat ?? (row.ClaimType === 'Manual' ? 'Paper' : 'E-claim'),
+      isHidden: meta.isHidden ?? false,
     };
   }
 
@@ -534,21 +543,68 @@ export class ClaimService {
       }
     }
 
+    if (filters.carrierName) {
+      const carrier = filters.carrierName.toLowerCase();
+      claims = claims.filter((claim) =>
+        String(claim.insuranceCompany?.name || '').toLowerCase().includes(carrier)
+      );
+    }
+
+    const hasAttachment = filters.hasAttachment === true || filters.hasAttachment === 'true';
+    if (hasAttachment) {
+      const documents = await prisma.document.findMany({
+        where: {
+          Note: { contains: '"claimId":' }
+        },
+        select: { Note: true }
+      });
+      const claimIdsWithAttachments = new Set<string>();
+      for (const doc of documents) {
+        const docMeta = parseJson<Record<string, any>>(doc.Note);
+        if (docMeta.claimId) {
+          claimIdsWithAttachments.add(String(docMeta.claimId));
+        }
+      }
+      claims = claims.filter((claim) => claimIdsWithAttachments.has(claim.id));
+    }
+
+    if (filters.claimFormat) {
+      const format = filters.claimFormat.toLowerCase();
+      claims = claims.filter((claim) => {
+        const currentFormat = (claim.claimFormat || '').toLowerCase();
+        console.log(`Filtering claim ${claim.id}: currentFormat='${currentFormat}', format='${format}'`);
+        return currentFormat.includes(format) || 
+               (format === 'paper' && currentFormat === 'manual') || 
+               (format === 'manual' && currentFormat === 'paper');
+      });
+    }
+
+    const showHidden = filters.showHidden === true || filters.showHidden === 'true';
+    if (!showHidden) {
+      claims = claims.filter((claim) => !claim.isHidden);
+    }
+
+    if (filters.patientName) {
+      const patName = filters.patientName.toLowerCase();
+      claims = claims.filter((claim) => {
+        const fullName = `${claim.patient?.firstName || ''} ${claim.patient?.lastName || ''}`.toLowerCase();
+        return fullName.includes(patName);
+      });
+    }
+
     if (filters.search) {
       const search = filters.search.toLowerCase();
       claims = claims.filter((claim) => {
-        const patientName = `${claim.patient?.firstName || ''} ${claim.patient?.lastName || ''}`.trim();
-        return [
-          claim.claimNumber,
-          claim.claimCode,
-          claim.status,
-          patientName,
-          claim.invoice?.invoiceNumber,
-          claim.insuranceCompany?.name,
-          claim.notes,
-        ]
-          .filter(Boolean)
-          .some((value) => String(value).toLowerCase().includes(search));
+        const claimNum = String(claim.claimNumber || '').toLowerCase();
+        const claimCd = String(claim.claimCode || '').toLowerCase();
+        
+        let sentDtStr = '';
+        if (claim.submissionDate) {
+          const d = new Date(claim.submissionDate);
+          sentDtStr = d.toLocaleDateString().toLowerCase();
+        }
+        
+        return claimNum.includes(search) || claimCd.includes(search) || sentDtStr.includes(search);
       });
     }
 
@@ -726,6 +782,63 @@ export class ClaimService {
       procedures,
     });
   }
+
+  async generateUnsentClaimsForPatient(
+    patientId: string,
+    insuranceCompanyId: string,
+    insuranceType: string,
+    userId?: string
+  ) {
+    const invoices = await prisma.statement.findMany({
+      where: {
+        PatNum: BigInt(patientId),
+      },
+    });
+
+    const existingClaims = await prisma.claim.findMany({
+      where: {
+        PatNum: BigInt(patientId),
+        ClaimType: { not: 'PreAuth' },
+      },
+      select: {
+        Narrative: true,
+      },
+    });
+
+    const claimInvoiceIds = new Set<string>();
+    for (const claim of existingClaims) {
+      if (claim.Narrative) {
+        const meta = parseJson<ClaimMeta>(claim.Narrative);
+        if (meta.invoiceId) {
+          claimInvoiceIds.add(meta.invoiceId);
+        }
+      }
+    }
+
+    const unbilledInvoices = invoices.filter(
+      (inv) => !claimInvoiceIds.has(inv.StatementNum.toString())
+    );
+
+    const createdClaims = [];
+    for (const inv of unbilledInvoices) {
+      try {
+        const claim = await this.createClaimFromInvoice(
+          inv.StatementNum.toString(),
+          {
+            insuranceCompanyId,
+            insuranceType,
+          },
+          userId
+        );
+        createdClaims.push(claim);
+      } catch (err) {
+        console.error(`Failed to create claim for invoice ${inv.StatementNum}:`, err);
+      }
+    }
+
+    return createdClaims;
+  }
+
 
   async updateClaim(
     claimId: string,
