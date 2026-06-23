@@ -71,6 +71,9 @@ export class ReportGenerationService {
       case 'family-migrated-balances':
         return this.getFamilyMigratedBalances();
 
+      case 'referral-production':
+        return this.getReferralProductionReport(startDate, endDate);
+
       default:
         // Fallback for any unhandled financial report
         return [
@@ -1700,6 +1703,119 @@ export class ReportGenerationService {
       { id: 6, patient: '', user: 'Babar Magsi', category: 'Report', subcategory: 'Report', action: 'Action Performed', object: 'Unsigned Progress Notes Report', date: '05/08/2026 02:23 PM', message: 'Success, duration=656ms, params=date=2026-4-8 & endDate=2026-5-8', diff: { key: '', old: '', new: '' } },
       { id: 7, patient: '', user: 'Babar Magsi', category: 'Report', subcategory: 'Report', action: 'Action Performed', object: 'Advanced Report', date: '05/08/2026 02:23 PM', message: 'Success, duration=281ms', diff: { key: '', old: '', new: '' } }
     ];
+  }
+
+  private async getReferralProductionReport(start: Date, end: Date) {
+    // 1. Fetch patient preference metadata having referralSource
+    const patientPrefs = await prisma.userodpref.findMany({
+      where: {
+        FkeyType: 206,
+        ValueString: {
+          contains: '"referralSource"',
+        },
+      },
+    });
+
+    const patientReferrals = patientPrefs.map(pref => {
+      try {
+        const parsed = JSON.parse(pref.ValueString || '{}');
+        return {
+          patNum: pref.Fkey,
+          referralSource: parsed.referralSource as string | undefined,
+        };
+      } catch {
+        return { patNum: null, referralSource: undefined };
+      }
+    }).filter(p => p.patNum && p.referralSource);
+
+    if (patientReferrals.length === 0) {
+      return { summary: [], detail: {} };
+    }
+
+    const patNums = patientReferrals.map(p => p.patNum!);
+
+    // 2. Fetch patient details (FName, LName)
+    const patients = await prisma.patient.findMany({
+      where: {
+        PatNum: { in: patNums },
+      },
+      select: {
+        PatNum: true,
+        FName: true,
+        LName: true,
+      },
+    });
+
+    const patientMap = new Map(patients.map(p => [p.PatNum.toString(), p]));
+
+    // 3. Fetch completed procedures (ProcStatus = 2) within range for these patients
+    const procedures = await prisma.procedurelog.findMany({
+      where: {
+        PatNum: { in: patNums },
+        ProcStatus: 2,
+        ProcDate: {
+          gte: start,
+          lte: end,
+        },
+      },
+      select: {
+        PatNum: true,
+        ProcFee: true,
+      },
+    });
+
+    const patientProductionMap = new Map<string, number>();
+    for (const proc of procedures) {
+      if (proc.PatNum) {
+        const patKey = proc.PatNum.toString();
+        const currentSum = patientProductionMap.get(patKey) || 0;
+        patientProductionMap.set(patKey, currentSum + (proc.ProcFee ?? 0));
+      }
+    }
+
+    // 4. Group by referralSource
+    const sourceSummary = new Map<string, { production: number; count: number }>();
+    const sourceDetail = new Map<string, Array<{ id: number; name: string; production: number }>>();
+
+    for (const ref of patientReferrals) {
+      const patKey = ref.patNum!.toString();
+      const pat = patientMap.get(patKey);
+      if (!pat) continue;
+
+      const production = patientProductionMap.get(patKey) || 0;
+      const source = ref.referralSource || 'Unknown';
+
+      // Update Summary
+      const summary = sourceSummary.get(source) || { production: 0, count: 0 };
+      summary.production += production;
+      summary.count += 1;
+      sourceSummary.set(source, summary);
+
+      // Update Detail
+      const list = sourceDetail.get(source) || [];
+      list.push({
+        id: Number(pat.PatNum),
+        name: `${pat.FName || ''} ${pat.LName || ''}`.trim(),
+        production: parseFloat(production.toFixed(2)),
+      });
+      sourceDetail.set(source, list);
+    }
+
+    const summaryData = Array.from(sourceSummary.entries()).map(([source, data]) => ({
+      source,
+      production: parseFloat(data.production.toFixed(2)),
+      count: data.count,
+    }));
+
+    const detailData: Record<string, Array<{ id: number; name: string; production: number }>> = {};
+    for (const [source, list] of sourceDetail.entries()) {
+      detailData[source] = list;
+    }
+
+    return {
+      summary: summaryData,
+      detail: detailData,
+    };
   }
 
   // ==========================================
