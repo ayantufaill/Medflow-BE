@@ -166,5 +166,89 @@ describe('Claims Procedures Fallback', () => {
     await prisma.statement.delete({ where: { StatementNum: statement.StatementNum } });
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
+
+  it('correctly filters claims by patientName, carrierName, hasAttachment, and claimFormat', async () => {
+    const token = uniqueToken('filtertest');
+    const alphanumericToken = token.replace(/[^A-Za-z0-9]/g, '');
+    const patient = await createPatientRecord(alphanumericToken);
+
+    // Create an invoice statement
+    const statement = await createInvoiceStatement({
+      patientId: patient.PatNum,
+      token: alphanumericToken,
+    });
+
+    // Create an insurance company (carrier)
+    const carrierNum = BigInt(Date.now() - Math.floor(Math.random() * 1000000));
+    const carrierName = `CarrierName${alphanumericToken}`;
+    const uniqueElectId = `EL${Math.floor(100 + Math.random() * 900)}${alphanumericToken.substring(0, 2)}`;
+    await prisma.carrier.create({
+      data: {
+        CarrierNum: carrierNum,
+        CarrierName: carrierName,
+        ElectID: uniqueElectId,
+      },
+    });
+
+    // Create a draft claim from invoice manually so it is associated with carrier
+    const claimRes = await request(app)
+      .post(`/api/claims/from-invoice/${statement.StatementNum}`)
+      .set(authHeader)
+      .send({
+        insuranceType: 'Primary',
+        claimAmount: 150,
+        submittedAmount: 150,
+        insuranceCompanyId: carrierNum.toString(),
+      });
+
+    expect(claimRes.status).toBe(201);
+    const createdClaim = claimRes.body?.data?.claim;
+    expect(createdClaim).toBeDefined();
+
+    // 1. Verify filtering by patientName
+    const filterPatNameRes = await request(app)
+      .get(`/api/claims?patientName=${patient.FName}`)
+      .set(authHeader);
+    expect(filterPatNameRes.status).toBe(200);
+    expect(filterPatNameRes.body?.data?.claims?.some((c: any) => c.id === createdClaim.id)).toBe(true);
+
+    // 2. Verify filtering by carrierName
+    const filterCarrierRes = await request(app)
+      .get(`/api/claims?carrierName=${carrierName}`)
+      .set(authHeader);
+    expect(filterCarrierRes.status).toBe(200);
+    expect(filterCarrierRes.body?.data?.claims?.some((c: any) => c.id === createdClaim.id)).toBe(true);
+
+    // 3. Verify filtering by claimFormat (should be E-claim by default)
+    const filterFormatRes = await request(app)
+      .get(`/api/claims?claimFormat=E-claim`)
+      .set(authHeader);
+    expect(filterFormatRes.status).toBe(200);
+    expect(filterFormatRes.body?.data?.claims?.some((c: any) => c.id === createdClaim.id)).toBe(true);
+
+    // 4. Verify filtering by claimFormat = Paper does not return the E-claim
+    const filterFormatPaperRes = await request(app)
+      .get(`/api/claims?claimFormat=Paper`)
+      .set(authHeader);
+    console.log("createdClaim:", createdClaim);
+    console.log("filterFormatPaperRes claims:", filterFormatPaperRes.body?.data?.claims);
+    expect(filterFormatPaperRes.status).toBe(200);
+    expect(filterFormatPaperRes.body?.data?.claims?.some((c: any) => c.id === createdClaim.id)).toBe(false);
+
+    // 5. Verify hasAttachment filtering (no attachment yet, so should be false)
+    const filterAttachmentRes = await request(app)
+      .get(`/api/claims?hasAttachment=true`)
+      .set(authHeader);
+    expect(filterAttachmentRes.status).toBe(200);
+    expect(filterAttachmentRes.body?.data?.claims?.some((c: any) => c.id === createdClaim.id)).toBe(false);
+
+    // Clean up
+    await prisma.claimtracking.deleteMany({ where: { ClaimNum: BigInt(createdClaim.id) } });
+    await prisma.claim.delete({ where: { ClaimNum: BigInt(createdClaim.id) } });
+    await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
+    await prisma.statement.delete({ where: { StatementNum: statement.StatementNum } });
+    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+  });
 });
+
 
