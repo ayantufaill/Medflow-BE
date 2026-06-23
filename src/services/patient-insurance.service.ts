@@ -9,6 +9,7 @@ import {
   mapRelationshipToDb,
 } from '../utils/opendental-mappers.util';
 import { getPatientInsuranceMeta, setPatientInsuranceMeta, getPatientInsurancesMeta } from '../utils/opendental-auth.util';
+import { claimService } from './claim.service';
 
 export class PatientInsuranceService {
   /**
@@ -398,6 +399,20 @@ export class PatientInsuranceService {
         'low'
       );
     }
+
+    // Generate draft claims asynchronously for unbilled invoices using the newly added insurance
+    Promise.resolve().then(async () => {
+      try {
+        await claimService.generateUnsentClaimsForPatient(
+          patientId,
+          data.insuranceCompanyId,
+          data.insuranceType,
+          createdBy
+        );
+      } catch (err) {
+        console.error('Failed to generate unsent claims for patient after insurance creation:', err);
+      }
+    });
 
     return this.getPatientInsuranceById(patPlanNum.toString());
   }

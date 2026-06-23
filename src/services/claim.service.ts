@@ -727,6 +727,63 @@ export class ClaimService {
     });
   }
 
+  async generateUnsentClaimsForPatient(
+    patientId: string,
+    insuranceCompanyId: string,
+    insuranceType: string,
+    userId?: string
+  ) {
+    const invoices = await prisma.statement.findMany({
+      where: {
+        PatNum: BigInt(patientId),
+      },
+    });
+
+    const existingClaims = await prisma.claim.findMany({
+      where: {
+        PatNum: BigInt(patientId),
+        ClaimType: { not: 'PreAuth' },
+      },
+      select: {
+        Narrative: true,
+      },
+    });
+
+    const claimInvoiceIds = new Set<string>();
+    for (const claim of existingClaims) {
+      if (claim.Narrative) {
+        const meta = parseJson<ClaimMeta>(claim.Narrative);
+        if (meta.invoiceId) {
+          claimInvoiceIds.add(meta.invoiceId);
+        }
+      }
+    }
+
+    const unbilledInvoices = invoices.filter(
+      (inv) => !claimInvoiceIds.has(inv.StatementNum.toString())
+    );
+
+    const createdClaims = [];
+    for (const inv of unbilledInvoices) {
+      try {
+        const claim = await this.createClaimFromInvoice(
+          inv.StatementNum.toString(),
+          {
+            insuranceCompanyId,
+            insuranceType,
+          },
+          userId
+        );
+        createdClaims.push(claim);
+      } catch (err) {
+        console.error(`Failed to create claim for invoice ${inv.StatementNum}:`, err);
+      }
+    }
+
+    return createdClaims;
+  }
+
+
   async updateClaim(
     claimId: string,
     updates: Partial<{
