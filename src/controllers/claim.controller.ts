@@ -521,19 +521,6 @@ export class ClaimController {
     next(error);
   }
 }
-
-  async getClaimPdf(req: Request, res: Response, next: NextFunction) {
-    try {
-      const claimId = req.params.claimId as string;
-      const pdfBuffer = await claimService.getClaimPdf(BigInt(claimId));
-      
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', `inline; filename=ada-claim-${claimId}.pdf`);
-      res.status(200).send(pdfBuffer);
-    } catch (error) {
-      next(error);
-    }
-  }
 }
 
 export const claimController = new ClaimController();
