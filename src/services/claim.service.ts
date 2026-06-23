@@ -5,6 +5,7 @@ import { getNextId } from '../utils/opendental-ids.util';
 import { mapPatientToApi } from '../utils/opendental-mappers.util';
 import { uploadToS3, deleteFromS3 } from '../utils/s3.util';
 import { logActivity } from '../utils/activity-logger.util';
+import { adaPdfService } from './ada-pdf.service';
 
 type ClaimStatus =
   | 'draft'
@@ -1965,6 +1966,88 @@ private mapClaimStatus(status: string | null): string {
 
   return this.mapClaimToApi(createdClaim);
 }
+
+  async getClaimPdf(claimId: bigint) {
+    const claim = await prisma.claim.findUnique({
+      where: { ClaimNum: claimId },
+      include: {
+        patient: true,
+        insplan_claim_PlanNumToinsplan: true,
+        provider_claim_ProvTreatToprovider: true,
+        provider_claim_ProvBillToprovider: true,
+      },
+    });
+
+    if (!claim) {
+      throw new NotFoundError('Claim not found');
+    }
+
+    let subscriber = null;
+    if (claim.InsSubNum) {
+      subscriber = await prisma.patient.findFirst({
+        where: {
+          patplan: {
+            some: {
+              InsSubNum: claim.InsSubNum,
+            },
+          },
+        },
+      });
+    }
+
+    const claimProcs = await prisma.claimproc.findMany({
+      where: { ClaimNum: claimId },
+      include: {
+        procedurelog: {
+          include: {
+            procedurecode_procedurelog_CodeNumToprocedurecode: true,
+          },
+        },
+      },
+    });
+
+    const procedures = claimProcs.map(cp => {
+      const log = cp.procedurelog;
+      return {
+        date: cp.ProcDate ? new Date(cp.ProcDate).toLocaleDateString() : '',
+        tooth: log?.ToothNum ? log.ToothNum : '',
+        surface: log?.Surf ? log.Surf : '',
+        code: log?.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || '',
+        description: log?.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || '',
+        fee: cp.FeeBilled ?? 0,
+      };
+    });
+
+    const claimData = {
+      claimNum: claim.ClaimNum,
+      claimFee: claim.ClaimFee ?? 0,
+      insSubNum: claim.InsSubNum?.toString() || 'N/A',
+      patient: claim.patient ? {
+        FName: claim.patient.FName,
+        LName: claim.patient.LName,
+        Birthdate: claim.patient.Birthdate,
+        Gender: claim.patient.Gender,
+      } : null,
+      subscriber: subscriber ? {
+        FName: subscriber.FName,
+        LName: subscriber.LName,
+      } : null,
+      carrier: claim.insplan_claim_PlanNumToinsplan?.CarrierNum
+        ? await prisma.carrier.findUnique({
+            where: { CarrierNum: claim.insplan_claim_PlanNumToinsplan.CarrierNum },
+          })
+        : null,
+      provider: claim.provider_claim_ProvTreatToprovider ? {
+        FName: claim.provider_claim_ProvTreatToprovider.FName,
+        LName: claim.provider_claim_ProvTreatToprovider.LName,
+        ProvNum: claim.provider_claim_ProvTreatToprovider.ProvNum,
+      } : null,
+      procedures,
+    };
+
+    const pdfBytes = await adaPdfService.generateAdaPdf(claimData);
+    return Buffer.from(pdfBytes);
+  }
 }
 
 export const claimService = new ClaimService();

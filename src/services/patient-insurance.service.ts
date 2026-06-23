@@ -473,6 +473,15 @@ export class PatientInsuranceService {
   throw new NotFoundError('Insurance record does not belong to this patient');
 }
 
+    if (updates.insuranceCompanyId) {
+      const insuranceCompany = await prisma.carrier.findUnique({
+        where: { CarrierNum: BigInt(updates.insuranceCompanyId) },
+      });
+      if (!insuranceCompany) {
+        throw new NotFoundError('Insurance company not found');
+      }
+    }
+
     // If changing insurance type, check for conflicts
     if (updates.insuranceType) {
       const existingInsurance = await prisma.patplan.findFirst({

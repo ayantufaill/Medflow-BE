@@ -57,6 +57,18 @@ describe('Reports Section APIs', () => {
         expect(res.body.data[0].pt).toBeDefined();
       }
     });
+
+    it('gets referral production report', async () => {
+      const res = await request(app)
+        .get('/api/reports/financial/referral-production?range=Monthly&date=2026-05-22')
+        .set(authHeader);
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.summary).toBeDefined();
+      expect(res.body.data.detail).toBeDefined();
+      expect(Array.isArray(res.body.data.summary)).toBe(true);
+      expect(typeof res.body.data.detail).toBe('object');
+    });
   });
 
   describe('Clinical Reports', () => {
