@@ -11,6 +11,10 @@ const claimStatusValues = [
   'denied',
   'rejected',
   'cancelled',
+  'error',
+  'validationError',
+  'inProcess',
+  'eobUploaded',
 ];
 
 export const claimIdValidator: ValidationChain[] = [

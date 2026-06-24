@@ -19,7 +19,11 @@ type ClaimStatus =
   | 'accepted'
   | 'denied'
   | 'rejected'
-  | 'cancelled';
+  | 'cancelled'
+  | 'error'
+  | 'validationError'
+  | 'inProcess'
+  | 'eobUploaded';
 
 type ClaimMeta = {
   invoiceId?: string;
@@ -98,6 +102,14 @@ const normalizeClaimStatus = (value?: string | null): ClaimStatus => {
       return 'rejected';
     case 'cancelled':
       return 'cancelled';
+    case 'error':
+      return 'error';
+    case 'validationerror':
+      return 'validationError';
+    case 'inprocess':
+      return 'inProcess';
+    case 'eobuploaded':
+      return 'eobUploaded';
     default:
       return 'draft';
   }
@@ -106,11 +118,13 @@ const normalizeClaimStatus = (value?: string | null): ClaimStatus => {
 const claimStatusToCode = (status?: string | null): string => {
   switch (normalizeClaimStatus(status)) {
     case 'submitted':
+    case 'inProcess':
       return 'S';
     case 'pending':
       return 'P';
     case 'paid':
     case 'accepted':
+    case 'eobUploaded':
       return 'R';
     case 'partial':
     case 'partially_paid':
@@ -118,6 +132,8 @@ const claimStatusToCode = (status?: string | null): string => {
     case 'denied':
       return 'D';
     case 'rejected':
+    case 'error':
+    case 'validationError':
       return 'X';
     case 'cancelled':
       return 'C';
