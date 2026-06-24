@@ -1,6 +1,6 @@
 import { prisma } from '../config/db';
-import { NotFoundError } from '../utils/error.util';
 import { getNextId } from '../utils/opendental-ids.util';
+import { NotFoundError, UnprocessableEntityError, NotImplementedError} from '../utils/error.util';
 
 const parseJson = (value?: string | null): any => {
   if (!value) return {};
@@ -142,6 +142,15 @@ export class ProgressNoteService {
     }
 
     const meta = parseJson(note.Note);
+
+    if (!meta.isProgressNote) {
+    throw new Error('This is not a progress note');
+  }
+
+  // Sign/lock immutability guard — cannot add procedures to a signed note
+  if (meta.status === 'signed') {
+    throw new UnprocessableEntityError('Cannot add procedures to a signed progress note');
+  }
     
     if (!meta.procedures) {
       meta.procedures = [];
@@ -175,6 +184,9 @@ export class ProgressNoteService {
   // 3. Ensure it's a progress note
   if (!meta.isProgressNote) {
     throw new Error('This is not a progress note');
+  }
+  if (meta.status === 'signed') {
+    throw new UnprocessableEntityError('Cannot edit a signed progress note');
   }
 
   // 4. Update only the fields provided
@@ -381,6 +393,78 @@ async signProgressNote(
     isExpanded: true
   };
 }
+
+async exportProgressNoteToPdf(noteId: string): Promise<Buffer> {
+  const note = await prisma.commlog.findUnique({
+    where: { CommlogNum: BigInt(noteId) }
+  });
+
+  if (!note) {
+    throw new NotFoundError('Progress note not found');
+  }
+
+  const meta = parseJson(note.Note);
+
+  if (!meta.isProgressNote) {
+    throw new Error('This is not a progress note');
+  }
+
+  // Guard: only attempt generation if pdf-lib actually loads
+  let pdfLibModule: typeof import('pdf-lib');
+  try {
+    pdfLibModule = await import('pdf-lib');
+  } catch {
+    throw new NotImplementedError(
+      'PDF export is currently unavailable: PDF generation library failed to load'
+    );
+  }
+
+  const { PDFDocument, StandardFonts, rgb } = pdfLibModule;
+
+  const providerName = meta.providerId
+    ? await this.getProviderName(meta.providerId)
+    : 'Unknown Provider';
+
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage([612, 792]);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  let y = 740;
+  const drawLine = (text: string, opts: { bold?: boolean; size?: number } = {}) => {
+    const size = opts.size || 11;
+    page.drawText(text, {
+      x: 50,
+      y,
+      size,
+      font: opts.bold ? boldFont : font,
+      color: rgb(0, 0, 0)
+    });
+    y -= size + 10;
+  };
+
+  drawLine('Progress Note', { bold: true, size: 18 });
+  drawLine(`Note ID: ${noteId}`);
+  drawLine(`Date: ${note.CommDateTime ? new Date(note.CommDateTime).toLocaleString() : 'Unknown'}`);
+  drawLine(`Category: ${meta.category || 'General Notes'}`);
+  drawLine(`Provider: ${providerName}`);
+  drawLine('Description:', { bold: true });
+  drawLine(meta.description || '(no description)');
+
+  if (meta.procedures?.length) {
+    drawLine(`Procedures: ${meta.procedures.join(', ')}`);
+  }
+
+  drawLine(`Status: ${meta.status === 'signed' ? 'Signed' : 'Unsigned'}`, { bold: true });
+  if (meta.status === 'signed') {
+    drawLine(`Signed By: ${meta.signedBy || providerName}`);
+    drawLine(`Signed Date: ${meta.signedDate ? new Date(meta.signedDate).toLocaleString() : ''}`);
+  }
+
+  const pdfBytes = await pdfDoc.save();
+  return Buffer.from(pdfBytes);
+}
+
 }
 
 export const progressNoteService = new ProgressNoteService();

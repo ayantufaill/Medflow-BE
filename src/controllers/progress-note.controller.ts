@@ -133,6 +133,19 @@ signProgressNote = async (req: Request, res: Response, next: NextFunction) => {
     next(error);
   }
 };
+
+exportProgressNote = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const pdfBuffer = await progressNoteService.exportProgressNoteToPdf(id);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="progress-note-${id}.pdf"`);
+    res.status(200).send(pdfBuffer);
+  } catch (error) {
+    next(error);
+  }
+};
 }
 
 export const progressNoteController = new ProgressNoteController();
