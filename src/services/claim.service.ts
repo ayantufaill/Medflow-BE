@@ -2101,6 +2101,62 @@ private mapClaimStatus(status: string | null): string {
     const pdfBytes = await pdfDoc.save();
     return Buffer.from(pdfBytes);
   }
+
+  async uploadAttachments(
+    claimId: string,
+    files: Express.Multer.File[],
+    userId?: string
+  ) {
+    const claim = await this.getClaimRecord(claimId);
+
+    const attachments = [];
+
+    for (const file of files) {
+      // 1. Upload to S3
+      const storagePath = await uploadToS3(file, 'claim-documents');
+
+      // 2. Save to claimattach
+      const claimAttachNum = await getNextId('claimattach', 'ClaimAttachNum');
+      await prisma.claimattach.create({
+        data: {
+          ClaimAttachNum: claimAttachNum,
+          ClaimNum: claim.ClaimNum,
+          DisplayedFileName: file.originalname,
+          ActualFileName: storagePath,
+          ImageReferenceId: 0,
+        },
+      });
+
+      // 3. Save to document for compatibility/consistency with document listings
+      const docNum = await getNextId('document', 'DocNum');
+      const meta = {
+        claimId,
+        documentType: 'claim_attachment',
+        description: null,
+        storagePath,
+        fileSizeInBytes: file.size,
+        mimeType: file.mimetype,
+        uploadedBy: userId ?? null,
+        checksum: crypto.createHash('sha256').update(file.buffer).digest('hex'),
+      };
+
+      const createdDoc = await prisma.document.create({
+        data: {
+          DocNum: docNum,
+          PatNum: claim.PatNum,
+          Description: file.originalname,
+          FileName: storagePath,
+          Note: buildJson(meta),
+          DateCreated: new Date(),
+          UserNum: userId && /^\d+$/.test(userId) ? BigInt(userId) : null,
+        },
+      });
+
+      attachments.push(mapDocument(createdDoc, claimId));
+    }
+
+    return attachments;
+  }
 }
 
 export const claimService = new ClaimService();

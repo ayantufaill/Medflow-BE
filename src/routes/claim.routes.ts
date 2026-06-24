@@ -1075,6 +1075,45 @@ router.post(
 
 /**
  * @swagger
+ * /claims/{claimId}/attachments:
+ *   post:
+ *     summary: Upload multiple attachments for a claim
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: claimId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               attachments:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *     responses:
+ *       201:
+ *         description: Attachments uploaded successfully
+ */
+router.post(
+  '/:claimId/attachments',
+  authenticate,
+  requirePermission('claims.update'),
+  validate(claimIdValidator),
+  uploadDocumentMiddleware.array('attachments'),
+  claimController.uploadAttachments.bind(claimController)
+);
+
+
+/**
+ * @swagger
  * /claims/{claimId}/documents:
  *   get:
  *     summary: Get claim documents
