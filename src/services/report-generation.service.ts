@@ -121,7 +121,7 @@ export class ReportGenerationService {
         return this.getPatientMembershipPlan();
 
       case 'referral-by-patient':
-        return this.getReferralByPatient();
+        return this.getReferralByPatient(startDate, endDate);
 
       case 'online-scheduling-referral':
         return this.getOnlineSchedulingReferral(startDate, endDate);
@@ -1481,15 +1481,40 @@ export class ReportGenerationService {
     ];
   }
 
-  private async getReferralByPatient() {
-    const referrals = await prisma.referral.findMany({
-      include: { patient: true },
-      take: 20
+  private async getReferralByPatient(start?: Date, end?: Date) {
+    const whereClause: any = {};
+    if (start && end) {
+      whereClause.RefDate = {
+        gte: start,
+        lte: end
+      };
+    }
+
+    // Query the relationship table instead of just the referral source
+    const refAttaches = await prisma.refattach.findMany({
+      where: whereClause,
+      include: {
+        patient: true, // The referred patient
+        referral: true // The referral source
+      },
+      take: 50 // Increase limit as needed
     });
-    return referrals.map((r) => ({
-      referred: r.patient ? `${r.patient.FName} ${r.patient.LName}` : `${r.FName ?? ''} ${r.LName ?? ''}`.trim(),
-      referredBy: 'Doctor Referral',
-      date: r.DateTStamp?.toLocaleDateString() || ''
+
+    return refAttaches.map((r) => ({
+      // Name of the referred patient
+      referred: r.patient ? `${r.patient.FName} ${r.patient.LName}`.trim() : '',
+      
+      // Contact info for the referred patient
+      phone: r.patient ? (r.patient.WirelessPhone || r.patient.WkPhone || r.patient.HmPhone || '') : '',
+      email: r.patient?.Email || '',
+      
+      // Name of the referral source (who referred them)
+      referredBy: r.referral 
+        ? (r.referral.NotPerson ? r.referral.BusinessName : `${r.referral.FName || ''} ${r.referral.LName || ''}`.trim()) 
+        : 'Unknown Referral Source',
+        
+      // Date of the referral
+      date: r.RefDate ? r.RefDate.toISOString().split('T')[0] : ''
     }));
   }
 
