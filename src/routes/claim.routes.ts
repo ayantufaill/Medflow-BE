@@ -810,38 +810,6 @@ router.get(
 
 /**
  * @swagger
- * /claims/{claimId}/pdf:
- *   get:
- *     summary: Get generated ADA 2024 claim form PDF
- *     tags: [Claims]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: claimId
- *         required: true
- *         schema: { type: integer }
- *     responses:
- *       200:
- *         description: PDF file binary stream
- *         content:
- *           application/pdf:
- *             schema:
- *               type: string
- *               format: binary
- *       404:
- *         description: Claim not found
- */
-router.get(
-  '/:claimId/pdf',
-  authenticate,
-  requirePermission('claims.read'),
-  validate(claimIdValidator),
-  claimController.getClaimPdf.bind(claimController)
-);
-
-/**
- * @swagger
  * /claims/from-invoice/{invoiceId}:
  *   post:
  *     summary: Create claim from invoice
