@@ -222,6 +222,18 @@ router.post(
  *         description: Forbidden — missing clinical-notes.update permission
  *       404:
  *         description: Progress note not found
+ *       422:
+ *         description: Cannot add procedures to a signed progress note
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: false }
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     message: { type: string, example: "Cannot add procedures to a signed progress note" }
  */
 router.post(
   '/:id/procedures',
@@ -297,6 +309,18 @@ router.post(
  *         description: Forbidden — missing clinical-notes.update permission
  *       404:
  *         description: Progress note not found
+ *       422:
+ *         description: Cannot edit a signed progress note — sign/lock immutability guard
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: false }
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     message: { type: string, example: "Cannot edit a signed progress note" }
  */
 router.put(
   '/:id',
@@ -489,5 +513,55 @@ router.patch(
   authenticate,
   requirePermission('clinical-notes.update'),
   progressNoteController.signProgressNote
+);
+
+/**
+ * @swagger
+ * /progress-notes/{id}/export:
+ *   get:
+ *     summary: Export a progress note as PDF
+ *     description: Generates and returns a PDF representation of the progress note. Returns 501 if PDF generation is unavailable.
+ *     tags: [Progress Notes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *         description: ID of the progress note to export
+ *         example: "12345"
+ *     responses:
+ *       200:
+ *         description: PDF generated successfully
+ *         content:
+ *           application/pdf:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       401:
+ *         description: Unauthorized — missing or invalid token
+ *       403:
+ *         description: Forbidden — missing clinical-notes.read permission
+ *       404:
+ *         description: Progress note not found
+ *       501:
+ *         description: PDF export unavailable — generation library failed to load
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: false }
+ *                 error:
+ *                   type: object
+ *                   properties:
+ *                     message: { type: string, example: "PDF export is currently unavailable: PDF generation library failed to load" }
+ */
+router.get(
+  '/:id/export',
+  authenticate,
+  requirePermission('clinical-notes.read'),
+  progressNoteController.exportProgressNote
 );
 export default router;

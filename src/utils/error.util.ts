@@ -52,3 +52,16 @@ export class ConflictError extends AppError {
   }
 }
 
+export class UnprocessableEntityError extends AppError {
+  constructor(message: string = 'Unprocessable entity') {
+    super(422, message);
+    this.name = 'UnprocessableEntityError';
+  }
+}
+
+export class NotImplementedError extends AppError {
+  constructor(message: string = 'Not implemented') {
+    super(501, message);
+    this.name = 'NotImplementedError';
+  }
+}
