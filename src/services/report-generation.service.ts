@@ -1,4 +1,5 @@
 import { prisma } from '../config/db';
+import { getPatientsMeta } from '../utils/opendental-auth.util';
 
 export class ReportGenerationService {
   /**
@@ -127,7 +128,7 @@ export class ReportGenerationService {
         return this.getOnlineSchedulingReferral(startDate, endDate);
 
       case 'by-flag':
-        return this.getPatientByFlag();
+        return this.getPatientByFlag(query.filterBy, query.includeFlags, query.excludeFlags);
 
       case 'cancelled-appointments':
       case 'no-show-appointments':
@@ -1524,10 +1525,82 @@ export class ReportGenerationService {
     ];
   }
 
-  private async getPatientByFlag() {
-    return [
-      { patient: 'Jane Smith', flag: 'High outstanding balance', severity: 'High' }
-    ];
+  private async getPatientByFlag(
+    filterBy?: string,
+    includeFlagsInput?: string | string[],
+    excludeFlagsInput?: string | string[]
+  ) {
+    const parseFlags = (input: any): string[] => {
+      if (!input) return [];
+      if (Array.isArray(input)) return input.map(f => String(f).trim().toUpperCase()).filter(Boolean);
+      if (typeof input === 'string') {
+        return input.split(',').map(f => f.trim().toUpperCase()).filter(Boolean);
+      }
+      return [];
+    };
+
+    const includeFlags = parseFlags(includeFlagsInput);
+    const excludeFlags = parseFlags(excludeFlagsInput);
+
+    const where: any = {};
+    if (filterBy === 'active') {
+      where.PatStatus = 0;
+    } else if (filterBy === 'inactive') {
+      where.PatStatus = 2;
+    }
+
+    const patients = await prisma.patient.findMany({
+      where,
+      select: {
+        PatNum: true,
+        FName: true,
+        LName: true,
+        appointment: {
+          select: {
+            AptDateTime: true
+          },
+          orderBy: {
+            AptDateTime: 'desc'
+          },
+          take: 1
+        }
+      }
+    });
+
+    if (!patients.length) {
+      return [];
+    }
+
+    const patNums = patients.map(p => p.PatNum);
+    const patientsMeta = await getPatientsMeta(patNums);
+
+    const results = patients.map(p => {
+      const meta = patientsMeta[p.PatNum.toString()] || {};
+      const pFlags: string[] = meta.patientFlags || [];
+
+      // Check inclusion
+      if (includeFlags.length > 0) {
+        const hasIncluded = pFlags.some(f => includeFlags.includes(f.toUpperCase()));
+        if (!hasIncluded) return null;
+      }
+
+      // Check exclusion
+      if (excludeFlags.length > 0) {
+        const hasExcluded = pFlags.some(f => excludeFlags.includes(f.toUpperCase()));
+        if (hasExcluded) return null;
+      }
+
+      const lastAppt = p.appointment?.[0]?.AptDateTime;
+
+      return {
+        number: p.PatNum.toString(),
+        patient: `${p.FName} ${p.LName}`,
+        flags: pFlags.join(', '),
+        lastAppointment: lastAppt ? lastAppt.toLocaleDateString() : ''
+      };
+    }).filter(Boolean);
+
+    return results;
   }
 
   private async getCancelledOrNoShowAppointments(start: Date, end: Date, isNoShow = false) {
