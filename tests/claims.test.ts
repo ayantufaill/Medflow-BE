@@ -306,6 +306,59 @@ describe('Claims Procedures Fallback', () => {
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
+
+  it('generates and retrieves the ADA claim form PDF', async () => {
+    const token = uniqueToken('claim-pdf');
+    const patient = await createPatientRecord(token);
+    
+    const carrierNum = BigInt(Date.now() + 10);
+    const carrier = await prisma.carrier.create({
+      data: {
+        CarrierNum: carrierNum,
+        CarrierName: `Test Carrier ${token}`,
+        Address: '123 Test St',
+        City: 'Test City',
+        State: 'TS',
+        Zip: '12345',
+        ElectID: `ELT-${token.substring(0, 10)}`,
+      },
+    });
+
+    const insPlanNum = BigInt(Date.now() + 20);
+    const insPlan = await prisma.insplan.create({
+      data: {
+        PlanNum: insPlanNum,
+        CarrierNum: carrierNum,
+      },
+    });
+
+    const claimNum = BigInt(Date.now() + 30);
+    const claim = await prisma.claim.create({
+      data: {
+        ClaimNum: claimNum,
+        PatNum: patient.PatNum,
+        PlanNum: insPlanNum,
+        ClaimFee: 150,
+        DateService: new Date(),
+        ClaimType: 'Manual',
+      },
+    });
+
+    const res = await request(app)
+      .get(`/api/claims/${claimNum}/pdf`)
+      .set(authHeader);
+
+    expect(res.status).toBe(200);
+    expect(res.header['content-type']).toBe('application/pdf');
+    expect(res.header['content-disposition']).toContain(`claim_${claimNum}.pdf`);
+    expect(res.body).toBeDefined();
+
+    // Clean up
+    await prisma.claim.delete({ where: { ClaimNum: claimNum } });
+    await prisma.insplan.delete({ where: { PlanNum: insPlanNum } });
+    await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
+    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+  });
 });
 
 

@@ -810,6 +810,44 @@ router.get(
 
 /**
  * @swagger
+ * /claims/{claimId}/pdf:
+ *   get:
+ *     summary: Generate and retrieve the ADA Claim Form PDF
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: claimId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: PDF file buffer
+ *         content:
+ *           application/pdf:
+ *             schema:
+ *               type: string
+ *               format: binary
+ *       400:
+ *         description: Invalid claim ID
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden - missing claims.read permission
+ *       404:
+ *         description: Claim not found
+ */
+router.get(
+  '/:claimId/pdf',
+  authenticate,
+  requirePermission('claims.read'),
+  validate(claimIdValidator),
+  claimController.getClaimPdf.bind(claimController)
+);
+
+/**
+ * @swagger
  * /claims/from-invoice/{invoiceId}:
  *   post:
  *     summary: Create claim from invoice

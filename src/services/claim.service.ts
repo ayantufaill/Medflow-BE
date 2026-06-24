@@ -1,4 +1,7 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import { PDFDocument, rgb } from 'pdf-lib';
 import { prisma } from '../config/db';
 import { BadRequestError, ConflictError, NotFoundError } from '../utils/error.util';
 import { getNextId } from '../utils/opendental-ids.util';
@@ -1965,6 +1968,139 @@ private mapClaimStatus(status: string | null): string {
 
   return this.mapClaimToApi(createdClaim);
 }
+
+  async generateAdaClaimPdf(claimId: string): Promise<Buffer> {
+    const claim = await prisma.claim.findUnique({
+      where: { ClaimNum: BigInt(claimId) },
+      include: {
+        patient: true,
+        insplan_claim_PlanNumToinsplan: {
+          include: {
+            carrier: true,
+          },
+        },
+        claimproc: {
+          include: {
+            procedurelog: {
+              include: {
+                procedurecode_procedurelog_CodeNumToprocedurecode: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!claim) {
+      throw new NotFoundError('Claim not found');
+    }
+
+    const templatePath = path.join(process.cwd(), 'src/assets/templates/ada-claim-template.pdf');
+    const templateBytes = await fs.promises.readFile(templatePath);
+    const pdfDoc = await PDFDocument.load(templateBytes);
+
+    const pages = pdfDoc.getPages();
+    const firstPage = pages[0];
+
+    const drawText = (text: string | null | undefined, x: number, y: number, size = 9) => {
+      if (!text) return;
+      firstPage.drawText(text, {
+        x,
+        y,
+        size,
+        color: rgb(0, 0, 0),
+      });
+    };
+
+    // Fill Carrier Info (Top Right)
+    const insPlan = claim.insplan_claim_PlanNumToinsplan;
+    const carrier = insPlan?.carrier;
+    if (carrier) {
+      drawText(carrier.CarrierName, 345, 715, 10);
+      drawText(carrier.Address, 345, 702, 9);
+      drawText(`${carrier.City || ''}, ${carrier.State || ''} ${carrier.Zip || ''}`, 345, 689, 9);
+    }
+
+    // Fill Patient Info (Left Column)
+    const patient = claim.patient;
+    if (patient) {
+      const patName = `${patient.LName || ''}, ${patient.FName || ''} ${patient.MiddleI || ''}`.trim();
+      drawText(patName, 55, 578, 9);
+      drawText(patient.Address, 55, 550, 9);
+      drawText(`${patient.City || ''}, ${patient.State || ''} ${patient.Zip || ''}`, 55, 536, 9);
+
+      if (patient.Birthdate) {
+        const dob = new Date(patient.Birthdate);
+        const dobStr = `${String(dob.getMonth() + 1).padStart(2, '0')}/${String(dob.getDate()).padStart(2, '0')}/${dob.getFullYear()}`;
+        drawText(dobStr, 235, 522, 9);
+      }
+
+      if (patient.Gender !== null && patient.Gender !== undefined) {
+        const genderVal = patient.Gender;
+        if (genderVal === 0) {
+          drawText('X', 282, 522, 10); // Male checkbox
+        } else if (genderVal === 1) {
+          drawText('X', 310, 522, 10); // Female checkbox
+        }
+      }
+    }
+
+    // Billing dentist/provider info
+    if (claim.ProvTreat) {
+      const treatingProv = await prisma.provider.findUnique({
+        where: { ProvNum: claim.ProvTreat },
+      });
+      if (treatingProv) {
+        const provName = `${treatingProv.LName || ''}, ${treatingProv.FName || ''}`.trim();
+        drawText(provName, 55, 140, 9);
+        drawText(treatingProv.NationalProvID || '', 200, 110, 9);
+      }
+    }
+
+    // Draw procedures
+    const procedures = claim.claimproc || [];
+    let yPos = 395;
+    let totalFee = 0;
+    
+    // Sort procedures by ProcDate
+    const sortedProcs = [...procedures].sort((a, b) => {
+      const dateA = a.procedurelog?.ProcDate ? new Date(a.procedurelog.ProcDate).getTime() : 0;
+      const dateB = b.procedurelog?.ProcDate ? new Date(b.procedurelog.ProcDate).getTime() : 0;
+      return dateA - dateB;
+    });
+
+    for (let i = 0; i < Math.min(sortedProcs.length, 10); i++) {
+      const proc = sortedProcs[i];
+      const log = proc.procedurelog;
+      if (log) {
+        if (log.ProcDate) {
+          const pDate = new Date(log.ProcDate);
+          const pDateStr = `${String(pDate.getMonth() + 1).padStart(2, '0')}/${String(pDate.getDate()).padStart(2, '0')}/${pDate.getFullYear()}`;
+          drawText(pDateStr, 55, yPos, 8);
+        }
+
+        drawText(log.ToothNum || '', 130, yPos, 8);
+        drawText(log.Surf || '', 180, yPos, 8);
+
+        const codeObj = log.procedurecode_procedurelog_CodeNumToprocedurecode;
+        const codeStr = codeObj?.ProcCode || log.OldCode || '';
+        drawText(codeStr, 215, yPos, 8);
+        drawText(codeObj?.Descript || '', 270, yPos, 8);
+
+        const fee = log.ProcFee ?? proc.FeeBilled ?? 0;
+        drawText(fee.toFixed(2), 490, yPos, 8);
+        totalFee += fee;
+      }
+      yPos -= 20;
+    }
+
+    // Total Fee
+    const finalFee = claim.ClaimFee ?? totalFee;
+    drawText(finalFee.toFixed(2), 490, 178, 9);
+
+    const pdfBytes = await pdfDoc.save();
+    return Buffer.from(pdfBytes);
+  }
 }
 
 export const claimService = new ClaimService();

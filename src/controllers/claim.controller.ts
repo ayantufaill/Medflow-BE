@@ -521,6 +521,20 @@ export class ClaimController {
     next(error);
   }
 }
+
+  async getClaimPdf(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { claimId } = req.params;
+      const pdfBuffer = await claimService.generateAdaClaimPdf(claimId);
+      
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="claim_${claimId}.pdf"`);
+      res.send(pdfBuffer);
+    } catch (error) {
+      next(error);
+    }
+  }
 }
+
 
 export const claimController = new ClaimController();
