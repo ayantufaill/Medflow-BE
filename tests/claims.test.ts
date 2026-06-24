@@ -433,6 +433,89 @@ describe('Claims Procedures Fallback', () => {
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
+
+  it('deletes claim attachments from both document and claimattach tables', async () => {
+    const token = uniqueToken('claim-del-attach');
+    const patient = await createPatientRecord(token);
+    
+    const carrierNum = BigInt(Date.now() + 10);
+    await prisma.carrier.create({
+      data: {
+        CarrierNum: carrierNum,
+        CarrierName: `Test Carrier ${token}`,
+        Address: '123 Test St',
+        City: 'Test City',
+        State: 'TS',
+        Zip: '12345',
+        ElectID: `ELT-${token.substring(0, 10)}`,
+      },
+    });
+
+    const insPlanNum = BigInt(Date.now() + 20);
+    await prisma.insplan.create({
+      data: {
+        PlanNum: insPlanNum,
+        CarrierNum: carrierNum,
+      },
+    });
+
+    const claimNum = BigInt(Date.now() + 30);
+    await prisma.claim.create({
+      data: {
+        ClaimNum: claimNum,
+        PatNum: patient.PatNum,
+        PlanNum: insPlanNum,
+        ClaimFee: 150,
+        DateService: new Date(),
+        ClaimType: 'Manual',
+      },
+    });
+
+    // Upload an attachment
+    const uploadRes = await request(app)
+      .post(`/api/claims/${claimNum}/attachments`)
+      .set(authHeader)
+      .attach('attachments', Buffer.from('file contents'), 'doc1.pdf');
+
+    expect(uploadRes.status).toBe(201);
+    const uploadedAttach = uploadRes.body.data.attachments[0];
+    const docId = uploadedAttach.id;
+
+    // Verify it is in both tables
+    const dbClaimAttachesBefore = await prisma.claimattach.findMany({
+      where: { ClaimNum: claimNum },
+    });
+    expect(dbClaimAttachesBefore.length).toBe(1);
+
+    const dbDocumentsBefore = await prisma.document.findMany({
+      where: { DocNum: BigInt(docId) },
+    });
+    expect(dbDocumentsBefore.length).toBe(1);
+
+    // Call DELETE /api/claims/:claimId/documents/:documentId
+    const delRes = await request(app)
+      .delete(`/api/claims/${claimNum}/documents/${docId}`)
+      .set(authHeader);
+
+    expect(delRes.status).toBe(200);
+
+    // Verify it is removed from both tables
+    const dbClaimAttachesAfter = await prisma.claimattach.findMany({
+      where: { ClaimNum: claimNum },
+    });
+    expect(dbClaimAttachesAfter.length).toBe(0);
+
+    const dbDocumentsAfter = await prisma.document.findMany({
+      where: { DocNum: BigInt(docId) },
+    });
+    expect(dbDocumentsAfter.length).toBe(0);
+
+    // Clean up
+    await prisma.claim.delete({ where: { ClaimNum: claimNum } });
+    await prisma.insplan.delete({ where: { PlanNum: insPlanNum } });
+    await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
+    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+  });
 });
 
 

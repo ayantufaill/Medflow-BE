@@ -1175,7 +1175,7 @@ export class ClaimService {
   }
 
   async removeClaimDocument(claimId: string, documentId: string) {
-    await this.getClaimRecord(claimId);
+    const claim = await this.getClaimRecord(claimId);
 
     const doc = await prisma.document.findUnique({
       where: { DocNum: BigInt(documentId) },
@@ -1192,6 +1192,12 @@ export class ClaimService {
 
     await prisma.document.delete({ where: { DocNum: doc.DocNum } });
     if (meta.storagePath) {
+      await prisma.claimattach.deleteMany({
+        where: {
+          ClaimNum: claim.ClaimNum,
+          ActualFileName: String(meta.storagePath)
+        }
+      });
       await deleteFromS3(String(meta.storagePath));
     }
 

@@ -92,6 +92,36 @@ export class TreatmentPlanController {
       next(error);
     }
   };
+
+  reorderTreatmentPlanItems = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const planId = req.params.id;
+      const { items } = req.body;
+      const plan = await treatmentPlanService.reorderTreatmentPlanItems(planId, items);
+      
+      res.status(200).json({
+        success: true,
+        data: { treatmentPlan: plan },
+        message: 'Treatment plan items reordered successfully'
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  printTreatmentPlan = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const planId = req.params.id;
+      const printDetails = await treatmentPlanService.getTreatmentPlanPrintDetails(planId);
+      
+      res.status(200).json({
+        success: true,
+        data: printDetails
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 export const treatmentPlanController = new TreatmentPlanController();
