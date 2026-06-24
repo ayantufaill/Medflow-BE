@@ -1358,9 +1358,11 @@ export class ReportGenerationService {
     const report = plans.map(p => {
       const patientName = p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Patient';
       const email = p.patient?.Email || '';
-      const planNameVal = p.inssub?.insplan?.GroupNum 
-        ? `${p.inssub.insplan.GroupNum} (${p.inssub.insplan.PlanNum.toString()})` 
-        : 'Standard Insurance';
+      const planNameVal = p.inssub?.insplan?.GroupName
+        ? `${p.inssub.insplan.GroupName} (${p.inssub.insplan.PlanNum.toString()})`
+        : p.inssub?.insplan?.GroupNum 
+          ? `${p.inssub.insplan.GroupNum} (${p.inssub.insplan.PlanNum.toString()})` 
+          : 'Standard Insurance';
       const payer = p.inssub?.insplan?.carrier?.CarrierName || 'Standard Insurance';
       const patientNum = p.PatNum ? p.PatNum.toString() : '';
 
