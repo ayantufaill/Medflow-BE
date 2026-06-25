@@ -947,8 +947,11 @@ async getPatientAppointments(patientId: string, limit = 10) {
       throw new NotFoundError('Appointment not found');
     }
 
+    const targetStatus = updates.status !== undefined ? updates.status : mapAppointmentStatusFromDb(appointment.AptStatus);
+    const isInactiveStatus = targetStatus === 'no_show' || targetStatus === 'cancelled';
+
     // If updating date/time, check for conflicts (including buffers and room)
-    if (updates.appointmentDate || updates.startTime || updates.endTime) {
+    if (!isInactiveStatus && (updates.appointmentDate || updates.startTime || updates.endTime)) {
       const appointmentDate = updates.appointmentDate || appointment.AptDateTime || new Date();
       const startTime = updates.startTime || (appointment.AptDateTime ? formatMinutesToTime(
         appointment.AptDateTime.getHours() * 60 + appointment.AptDateTime.getMinutes()
@@ -1020,7 +1023,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
         Pattern: durationMinutes,
         ProcDescript: updates.chiefComplaint ?? undefined,
         Note: updates.notes ?? undefined,
-        Op: updates.roomId !== undefined ? BigInt(updates.roomId) : undefined,
+        Op: updates.roomId !== undefined ? (updates.roomId ? BigInt(updates.roomId) : null) : (isInactiveStatus ? null : undefined),
         AptStatus: updates.status ? mapAppointmentStatusToDb(updates.status) : undefined,
         DateTimeArrived: updates.status === 'checked_in' ? new Date() : undefined,
         DateTimeDismissed: updates.status === 'completed' ? new Date() : undefined,
