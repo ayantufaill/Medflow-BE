@@ -1,4 +1,7 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import { PDFDocument, rgb } from 'pdf-lib';
 import { prisma } from '../config/db';
 import { BadRequestError, ConflictError, NotFoundError } from '../utils/error.util';
 import { getNextId } from '../utils/opendental-ids.util';
@@ -16,7 +19,11 @@ type ClaimStatus =
   | 'accepted'
   | 'denied'
   | 'rejected'
-  | 'cancelled';
+  | 'cancelled'
+  | 'error'
+  | 'validationError'
+  | 'inProcess'
+  | 'eobUploaded';
 
 type ClaimMeta = {
   invoiceId?: string;
@@ -95,6 +102,14 @@ const normalizeClaimStatus = (value?: string | null): ClaimStatus => {
       return 'rejected';
     case 'cancelled':
       return 'cancelled';
+    case 'error':
+      return 'error';
+    case 'validationerror':
+      return 'validationError';
+    case 'inprocess':
+      return 'inProcess';
+    case 'eobuploaded':
+      return 'eobUploaded';
     default:
       return 'draft';
   }
@@ -103,11 +118,13 @@ const normalizeClaimStatus = (value?: string | null): ClaimStatus => {
 const claimStatusToCode = (status?: string | null): string => {
   switch (normalizeClaimStatus(status)) {
     case 'submitted':
+    case 'inProcess':
       return 'S';
     case 'pending':
       return 'P';
     case 'paid':
     case 'accepted':
+    case 'eobUploaded':
       return 'R';
     case 'partial':
     case 'partially_paid':
@@ -115,6 +132,8 @@ const claimStatusToCode = (status?: string | null): string => {
     case 'denied':
       return 'D';
     case 'rejected':
+    case 'error':
+    case 'validationError':
       return 'X';
     case 'cancelled':
       return 'C';
@@ -1172,7 +1191,7 @@ export class ClaimService {
   }
 
   async removeClaimDocument(claimId: string, documentId: string) {
-    await this.getClaimRecord(claimId);
+    const claim = await this.getClaimRecord(claimId);
 
     const doc = await prisma.document.findUnique({
       where: { DocNum: BigInt(documentId) },
@@ -1189,6 +1208,12 @@ export class ClaimService {
 
     await prisma.document.delete({ where: { DocNum: doc.DocNum } });
     if (meta.storagePath) {
+      await prisma.claimattach.deleteMany({
+        where: {
+          ClaimNum: claim.ClaimNum,
+          ActualFileName: String(meta.storagePath)
+        }
+      });
       await deleteFromS3(String(meta.storagePath));
     }
 
@@ -1965,6 +1990,195 @@ private mapClaimStatus(status: string | null): string {
 
   return this.mapClaimToApi(createdClaim);
 }
+
+  async generateAdaClaimPdf(claimId: string): Promise<Buffer> {
+    const claim = await prisma.claim.findUnique({
+      where: { ClaimNum: BigInt(claimId) },
+      include: {
+        patient: true,
+        insplan_claim_PlanNumToinsplan: {
+          include: {
+            carrier: true,
+          },
+        },
+        claimproc: {
+          include: {
+            procedurelog: {
+              include: {
+                procedurecode_procedurelog_CodeNumToprocedurecode: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!claim) {
+      throw new NotFoundError('Claim not found');
+    }
+
+    const templatePath = path.join(process.cwd(), 'src/assets/templates/ada-claim-template.pdf');
+    const templateBytes = await fs.promises.readFile(templatePath);
+    const pdfDoc = await PDFDocument.load(templateBytes);
+
+    const pages = pdfDoc.getPages();
+    const firstPage = pages[0];
+
+    const drawText = (text: string | null | undefined, x: number, y: number, size = 9) => {
+      if (!text) return;
+      firstPage.drawText(text, {
+        x,
+        y,
+        size,
+        color: rgb(0, 0, 0),
+      });
+    };
+
+    // Fill Carrier Info (Top Right)
+    const insPlan = claim.insplan_claim_PlanNumToinsplan;
+    const carrier = insPlan?.carrier;
+    if (carrier) {
+      drawText(carrier.CarrierName, 345, 715, 10);
+      drawText(carrier.Address, 345, 702, 9);
+      drawText(`${carrier.City || ''}, ${carrier.State || ''} ${carrier.Zip || ''}`, 345, 689, 9);
+    }
+
+    // Fill Patient Info (Left Column)
+    const patient = claim.patient;
+    if (patient) {
+      const patName = `${patient.LName || ''}, ${patient.FName || ''} ${patient.MiddleI || ''}`.trim();
+      drawText(patName, 55, 578, 9);
+      drawText(patient.Address, 55, 550, 9);
+      drawText(`${patient.City || ''}, ${patient.State || ''} ${patient.Zip || ''}`, 55, 536, 9);
+
+      if (patient.Birthdate) {
+        const dob = new Date(patient.Birthdate);
+        const dobStr = `${String(dob.getMonth() + 1).padStart(2, '0')}/${String(dob.getDate()).padStart(2, '0')}/${dob.getFullYear()}`;
+        drawText(dobStr, 235, 522, 9);
+      }
+
+      if (patient.Gender !== null && patient.Gender !== undefined) {
+        const genderVal = patient.Gender;
+        if (genderVal === 0) {
+          drawText('X', 282, 522, 10); // Male checkbox
+        } else if (genderVal === 1) {
+          drawText('X', 310, 522, 10); // Female checkbox
+        }
+      }
+    }
+
+    // Billing dentist/provider info
+    if (claim.ProvTreat) {
+      const treatingProv = await prisma.provider.findUnique({
+        where: { ProvNum: claim.ProvTreat },
+      });
+      if (treatingProv) {
+        const provName = `${treatingProv.LName || ''}, ${treatingProv.FName || ''}`.trim();
+        drawText(provName, 55, 140, 9);
+        drawText(treatingProv.NationalProvID || '', 200, 110, 9);
+      }
+    }
+
+    // Draw procedures
+    const procedures = claim.claimproc || [];
+    let yPos = 395;
+    let totalFee = 0;
+    
+    // Sort procedures by ProcDate
+    const sortedProcs = [...procedures].sort((a, b) => {
+      const dateA = a.procedurelog?.ProcDate ? new Date(a.procedurelog.ProcDate).getTime() : 0;
+      const dateB = b.procedurelog?.ProcDate ? new Date(b.procedurelog.ProcDate).getTime() : 0;
+      return dateA - dateB;
+    });
+
+    for (let i = 0; i < Math.min(sortedProcs.length, 10); i++) {
+      const proc = sortedProcs[i];
+      const log = proc.procedurelog;
+      if (log) {
+        if (log.ProcDate) {
+          const pDate = new Date(log.ProcDate);
+          const pDateStr = `${String(pDate.getMonth() + 1).padStart(2, '0')}/${String(pDate.getDate()).padStart(2, '0')}/${pDate.getFullYear()}`;
+          drawText(pDateStr, 55, yPos, 8);
+        }
+
+        drawText(log.ToothNum || '', 130, yPos, 8);
+        drawText(log.Surf || '', 180, yPos, 8);
+
+        const codeObj = log.procedurecode_procedurelog_CodeNumToprocedurecode;
+        const codeStr = codeObj?.ProcCode || log.OldCode || '';
+        drawText(codeStr, 215, yPos, 8);
+        drawText(codeObj?.Descript || '', 270, yPos, 8);
+
+        const fee = log.ProcFee ?? proc.FeeBilled ?? 0;
+        drawText(fee.toFixed(2), 490, yPos, 8);
+        totalFee += fee;
+      }
+      yPos -= 20;
+    }
+
+    // Total Fee
+    const finalFee = claim.ClaimFee ?? totalFee;
+    drawText(finalFee.toFixed(2), 490, 178, 9);
+
+    const pdfBytes = await pdfDoc.save();
+    return Buffer.from(pdfBytes);
+  }
+
+  async uploadAttachments(
+    claimId: string,
+    files: Express.Multer.File[],
+    userId?: string
+  ) {
+    const claim = await this.getClaimRecord(claimId);
+
+    const attachments = [];
+
+    for (const file of files) {
+      // 1. Upload to S3
+      const storagePath = await uploadToS3(file, 'claim-documents');
+
+      // 2. Save to claimattach
+      const claimAttachNum = await getNextId('claimattach', 'ClaimAttachNum');
+      await prisma.claimattach.create({
+        data: {
+          ClaimAttachNum: claimAttachNum,
+          ClaimNum: claim.ClaimNum,
+          DisplayedFileName: file.originalname,
+          ActualFileName: storagePath,
+          ImageReferenceId: 0,
+        },
+      });
+
+      // 3. Save to document for compatibility/consistency with document listings
+      const docNum = await getNextId('document', 'DocNum');
+      const meta = {
+        claimId,
+        documentType: 'claim_attachment',
+        description: null,
+        storagePath,
+        fileSizeInBytes: file.size,
+        mimeType: file.mimetype,
+        uploadedBy: userId ?? null,
+        checksum: crypto.createHash('sha256').update(file.buffer).digest('hex'),
+      };
+
+      const createdDoc = await prisma.document.create({
+        data: {
+          DocNum: docNum,
+          PatNum: claim.PatNum,
+          Description: file.originalname,
+          FileName: storagePath,
+          Note: buildJson(meta),
+          DateCreated: new Date(),
+          UserNum: userId && /^\d+$/.test(userId) ? BigInt(userId) : null,
+        },
+      });
+
+      attachments.push(mapDocument(createdDoc, claimId));
+    }
+
+    return attachments;
+  }
 }
 
 export const claimService = new ClaimService();

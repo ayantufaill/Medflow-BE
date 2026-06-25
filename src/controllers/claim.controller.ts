@@ -521,6 +521,53 @@ export class ClaimController {
     next(error);
   }
 }
+
+  async getClaimPdf(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { claimId } = req.params;
+      const pdfBuffer = await claimService.generateAdaClaimPdf(claimId);
+      
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="claim_${claimId}.pdf"`);
+      res.send(pdfBuffer);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async uploadAttachments(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.userId) {
+        res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+        return;
+      }
+
+      const claimId = req.params.claimId as string;
+      const files = req.files as Express.Multer.File[] | undefined;
+
+      if (!files || files.length === 0) {
+        res.status(400).json({
+          success: false,
+          error: { message: 'No files uploaded' },
+        });
+        return;
+      }
+
+      const attachments = await claimService.uploadAttachments(claimId, files, req.userId);
+
+      res.status(201).json({
+        success: true,
+        data: { attachments },
+        message: 'Attachments uploaded successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
+
 
 export const claimController = new ClaimController();

@@ -159,6 +159,68 @@ export class TreatmentPlanService {
     await prisma.treatplan.delete({ where: { TreatPlanNum: plan.TreatPlanNum } });
     return { message: 'Treatment plan deleted successfully' };
   }
+
+  async reorderTreatmentPlanItems(planId: string, items: any[]) {
+    const plan = await prisma.treatplan.findUnique({
+      where: { TreatPlanNum: BigInt(planId) },
+    });
+    if (!plan) {
+      throw new NotFoundError('Treatment plan not found');
+    }
+
+    const meta = parseJson<PlanMeta>(plan.Note);
+    const nextMeta: PlanMeta = {
+      ...meta,
+      items: items,
+    };
+
+    const updated = await prisma.treatplan.update({
+      where: { TreatPlanNum: plan.TreatPlanNum },
+      data: {
+        Note: buildJson(nextMeta),
+      },
+    });
+
+    return {
+      _id: updated.TreatPlanNum.toString(),
+      patientId: updated.PatNum?.toString() ?? null,
+      title: updated.Heading ?? '',
+      notes: updated.Note ?? null,
+      status: nextMeta.status ?? null,
+      totalAmount: nextMeta.totalAmount ?? null,
+      items: nextMeta.items ?? [],
+      createdAt: updated.DateTP ?? null,
+    };
+  }
+
+  async getTreatmentPlanPrintDetails(planId: string) {
+    const plan = await prisma.treatplan.findUnique({
+      where: { TreatPlanNum: BigInt(planId) },
+      include: {
+        patient_treatplan_PatNumTopatient: true,
+      },
+    });
+    if (!plan) {
+      throw new NotFoundError('Treatment plan not found');
+    }
+
+    const meta = parseJson<PlanMeta>(plan.Note);
+    const pat = plan.patient_treatplan_PatNumTopatient;
+
+    return {
+      _id: plan.TreatPlanNum.toString(),
+      patientId: plan.PatNum?.toString() ?? null,
+      patientName: pat ? `${pat.FName} ${pat.LName}` : 'Unknown Patient',
+      patientBirthdate: pat?.Birthdate ?? null,
+      patientChartNumber: pat?.ChartNumber ?? '',
+      title: plan.Heading ?? '',
+      notes: plan.Note ?? null,
+      status: meta.status ?? null,
+      totalAmount: meta.totalAmount ?? null,
+      items: meta.items ?? [],
+      createdAt: plan.DateTP ?? null,
+    };
+  }
 }
 
 export const treatmentPlanService = new TreatmentPlanService();

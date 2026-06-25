@@ -7,7 +7,8 @@ import {
   getTreatmentPlansValidator,
   treatmentPlanIdValidator,
   createTreatmentPlanValidator,
-  updateTreatmentPlanValidator
+  updateTreatmentPlanValidator,
+  reorderTreatmentPlanValidator
 } from '../validators/treatment-plan.validator';
 
 const router = Router();
@@ -352,4 +353,85 @@ router.delete(
   treatmentPlanController.deleteTreatmentPlan
 );
 
-export default router;
+/**
+ * @swagger
+ * /treatment-plans/{id}/reorder:
+ *   patch:
+ *     summary: Reorder items in a treatment plan
+ *     description: Accepts a sorted array of items and persists the new order to the database.
+ *     tags: [Treatment Plans]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *         description: ID of the treatment plan (TreatPlanNum)
+ *         example: "1"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [items]
+ *             properties:
+ *               items:
+ *                 type: array
+ *                 items: { type: object }
+ *     responses:
+ *       200:
+ *         description: Items reordered successfully
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Treatment plan not found
+ */
+router.patch(
+  '/:id/reorder',
+  authenticate,
+  requirePermission('clinical-notes.update'),
+  validate([...treatmentPlanIdValidator, ...reorderTreatmentPlanValidator]),
+  treatmentPlanController.reorderTreatmentPlanItems
+);
+
+/**
+ * @swagger
+ * /treatment-plans/{id}/print:
+ *   get:
+ *     summary: Get flattened treatment plan layout for printing
+ *     description: Returns a print-preview layout of the treatment plan, flattening metadata and joining patient details.
+ *     tags: [Treatment Plans]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *         description: ID of the treatment plan (TreatPlanNum)
+ *         example: "1"
+ *     responses:
+ *       200:
+ *         description: Print-ready layout returned successfully
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Treatment plan not found
+ */
+router.get(
+  '/:id/print',
+  authenticate,
+  requirePermission('clinical-notes.read'),
+  validate(treatmentPlanIdValidator),
+  treatmentPlanController.printTreatmentPlan
+);
+
+export default router;
