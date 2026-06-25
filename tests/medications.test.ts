@@ -99,4 +99,80 @@ describe('Medications API Search & Autocomplete Endpoints', () => {
     expect(res.status).toBe(404);
     expect(res.body.success).toBe(false);
   });
+
+  describe('POST /api/medications - Create Medication', () => {
+    it('creates a new medication successfully', async () => {
+      const uniqueName = `TestDrug-${Date.now()}`;
+      const res = await request(app)
+        .post('/api/medications')
+        .set(authHeader)
+        .send({
+          name: uniqueName,
+          notes: 'Test notes',
+          rxCui: 99999,
+          isActive: true
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.name).toBe(uniqueName);
+      expect(res.body.data.notes).toBe('Test notes');
+      expect(res.body.data.rxCui).toBe('99999');
+      expect(res.body.data.isActive).toBe(true);
+    });
+
+    it('returns 409 conflict when creating a duplicate medication', async () => {
+      const res = await request(app)
+        .post('/api/medications')
+        .set(authHeader)
+        .send({
+          name: 'Amoxicillin 500mg'
+        });
+
+      expect(res.status).toBe(409);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('returns 400 validation error when name is missing', async () => {
+      const res = await request(app)
+        .post('/api/medications')
+        .set(authHeader)
+        .send({
+          notes: 'No name'
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+    });
+  });
+
+  describe('PATCH /api/medications/:id - Update Medication', () => {
+    it('updates medication name and notes successfully', async () => {
+      const updatedName = `Updated-Amox-${Date.now()}`;
+      const res = await request(app)
+        .patch(`/api/medications/${testMedNum1}`)
+        .set(authHeader)
+        .send({
+          name: updatedName,
+          notes: 'Updated description'
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.name).toBe(updatedName);
+      expect(res.body.data.notes).toBe('Updated description');
+    });
+
+    it('returns 404 for updating unknown medication', async () => {
+      const res = await request(app)
+        .patch('/api/medications/9999999999')
+        .set(authHeader)
+        .send({
+          notes: 'Should fail'
+        });
+
+      expect(res.status).toBe(404);
+      expect(res.body.success).toBe(false);
+    });
+  });
 });
