@@ -17,13 +17,17 @@ type ClaimStatus =
   | 'partial'
   | 'partially_paid'
   | 'accepted'
+  | 'acceptedPaid'
   | 'denied'
   | 'rejected'
   | 'cancelled'
   | 'error'
   | 'validationError'
   | 'inProcess'
-  | 'eobUploaded';
+  | 'eobUploaded'
+  | 'readyForSubmission'
+  | 'manualClaim'
+  | 'acceptedForProcessing';
 
 type ClaimMeta = {
   invoiceId?: string;
@@ -96,6 +100,8 @@ const normalizeClaimStatus = (value?: string | null): ClaimStatus => {
       return 'partially_paid';
     case 'accepted':
       return 'accepted';
+    case 'acceptedpaid':
+      return 'acceptedPaid';
     case 'denied':
       return 'denied';
     case 'rejected':
@@ -110,6 +116,12 @@ const normalizeClaimStatus = (value?: string | null): ClaimStatus => {
       return 'inProcess';
     case 'eobuploaded':
       return 'eobUploaded';
+    case 'readyforsubmission':
+      return 'readyForSubmission';
+    case 'manualclaim':
+      return 'manualClaim';
+    case 'acceptedforprocessing':
+      return 'acceptedForProcessing';
     default:
       return 'draft';
   }
@@ -119,11 +131,15 @@ const claimStatusToCode = (status?: string | null): string => {
   switch (normalizeClaimStatus(status)) {
     case 'submitted':
     case 'inProcess':
+    case 'readyForSubmission':
+    case 'manualClaim':
+    case 'acceptedForProcessing':
       return 'S';
     case 'pending':
       return 'P';
     case 'paid':
     case 'accepted':
+    case 'acceptedPaid':
     case 'eobUploaded':
       return 'R';
     case 'partial':
@@ -550,15 +566,15 @@ export class ClaimService {
     if (filters.tab) {
       const tab = filters.tab.toLowerCase();
       if (tab === 'unsent') {
-        claims = claims.filter((claim) => ['draft', 'readyForSubmission', 'validationError'].includes(claim.status));
+        claims = claims.filter((claim) => ['draft', 'error', 'validationError', 'rejected', 'denied'].includes(claim.status));
       } else if (tab === 'errored') {
-        claims = claims.filter((claim) => ['rejected', 'denied', 'validationError'].includes(claim.status));
+        claims = claims.filter((claim) => ['rejected', 'denied', 'validationError', 'error'].includes(claim.status));
       } else if (tab === 'rejected') {
         claims = claims.filter((claim) => claim.status === 'rejected');
       } else if (tab === 'history') {
         claims = claims.filter((claim) => claim.status !== 'draft');
       } else if (tab === 'outstanding') {
-        claims = claims.filter((claim) => ['submitted', 'pending', 'partial', 'partially_paid'].includes(claim.status));
+        claims = claims.filter((claim) => ['submitted', 'pending', 'partial', 'partially_paid', 'accepted', 'acceptedPaid', 'acceptedForProcessing', 'inProcess', 'eobUploaded'].includes(claim.status));
       }
     }
 
@@ -862,6 +878,7 @@ export class ClaimService {
   async updateClaim(
     claimId: string,
     updates: Partial<{
+      claimFormat: string;
       insuranceCompanyId: string;
       invoiceId: string;
       insuranceType: string;
@@ -900,6 +917,7 @@ export class ClaimService {
       totalAmount: updates.totalAmount ?? currentMeta.totalAmount,
       paidAmount: updates.paidAmount ?? currentMeta.paidAmount,
       patientResponsibility: updates.patientResponsibility ?? currentMeta.patientResponsibility,
+      claimFormat: (updates.claimFormat as any) ?? currentMeta.claimFormat,
       policyNumber: updates.policyNumber ?? currentMeta.policyNumber,
       notes: updates.notes ?? currentMeta.notes,
       submissionDate:
@@ -1255,11 +1273,11 @@ export class ClaimService {
         rejected++;
       }
 
-      if (['submitted', 'pending', 'partial', 'partially_paid'].includes(status)) {
+      if (['submitted', 'pending', 'partial', 'partially_paid', 'accepted', 'acceptedPaid', 'acceptedForProcessing', 'inProcess', 'eobUploaded'].includes(status)) {
         outstanding++;
       }
 
-      if (['submitted', 'pending', 'paid', 'partial', 'partially_paid', 'accepted', 'denied', 'rejected', 'cancelled'].includes(status)) {
+      if (['submitted', 'pending', 'paid', 'partial', 'partially_paid', 'accepted', 'acceptedPaid', 'acceptedForProcessing', 'denied', 'rejected', 'cancelled', 'inProcess', 'eobUploaded'].includes(status)) {
         history++;
       }
     });
@@ -1327,7 +1345,7 @@ export class ClaimService {
       };
     });
 
-    claims = claims.filter(c => ['submitted', 'pending', 'partial', 'partially_paid'].includes(c.status));
+    claims = claims.filter(c => ['submitted', 'pending', 'partial', 'partially_paid', 'accepted', 'acceptedPaid', 'acceptedForProcessing', 'inProcess', 'eobUploaded'].includes(c.status));
 
     if (filters.dateRange) {
       if (filters.dateRange === '0_30') {
