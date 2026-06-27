@@ -8,6 +8,7 @@ const claimStatusValues = [
   'partial',
   'partially_paid',
   'accepted',
+  'acceptedPaid',
   'denied',
   'rejected',
   'cancelled',
@@ -15,6 +16,9 @@ const claimStatusValues = [
   'validationError',
   'inProcess',
   'eobUploaded',
+  'readyForSubmission',
+  'manualClaim',
+  'acceptedForProcessing',
 ];
 
 export const claimIdValidator: ValidationChain[] = [
@@ -53,6 +57,7 @@ export const createClaimFromInvoiceValidator: ValidationChain[] = [
 ];
 
 export const updateClaimValidator: ValidationChain[] = [
+  body('claimFormat').optional().isString().withMessage('claimFormat must be a string'),
   body('insuranceCompanyId').optional().isString().withMessage('insuranceCompanyId must be a string'),
   body('invoiceId').optional().isString().withMessage('invoiceId must be a string'),
   body('insuranceType').optional().isString().withMessage('insuranceType must be a string'),
