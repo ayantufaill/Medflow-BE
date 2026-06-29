@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { afterAll, beforeAll } from 'vitest';
+import connectDB, { prisma } from '../src/config/db';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
@@ -25,9 +26,8 @@ process.env.OCR_MOCK = process.env.OCR_MOCK || 'true';
 let prismaRef: { $disconnect: () => Promise<void> } | null = null;
 
 beforeAll(async () => {
-  const db = await import('../src/config/db');
-  prismaRef = db.prisma;
-  await db.default();
+  prismaRef = prisma;
+  await connectDB();
 });
 
 afterAll(async () => {

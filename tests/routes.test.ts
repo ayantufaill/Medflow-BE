@@ -194,9 +194,10 @@ describe('Route Registration & Middleware', () => {
       expect(res.status).toBe(400);
     });
 
+    // ✅ FIX: use "invalid-id" so the validator fails and returns 400
     it('PATCH /api/lab-cases/:id is registered — validates invalid id', async () => {
       const res = await request(app)
-        .patch('/api/lab-cases/1')
+        .patch('/api/lab-cases/invalid-id')
         .set(authHeader)
         .send({});
 
@@ -206,7 +207,7 @@ describe('Route Registration & Middleware', () => {
 
     it('PATCH /api/lab-cases/:id/status is registered — validates invalid id', async () => {
       const res = await request(app)
-        .patch('/api/lab-cases/1/status')
+        .patch('/api/lab-cases/invalid-id/status')
         .set(authHeader)
         .send({ status: 'completed' });
 
@@ -216,7 +217,7 @@ describe('Route Registration & Middleware', () => {
 
     it('DELETE /api/lab-cases/:id is registered — validates invalid id', async () => {
       const res = await request(app)
-        .delete('/api/lab-cases/1')
+        .delete('/api/lab-cases/invalid-id')
         .set(authHeader);
 
       expect(res.status).not.toBe(404);
