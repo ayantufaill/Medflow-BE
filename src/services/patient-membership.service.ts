@@ -19,13 +19,13 @@ export class PatientMembershipService {
         const payload = JSON.parse(pref.ValueString || '{}');
         return {
           id: pref.UserOdPrefNum.toString(),
-          patientId: pref.Fkey.toString(),
+          patientId: pref.Fkey?.toString() ?? '',
           ...payload,
         };
       } catch {
         return {
           id: pref.UserOdPrefNum.toString(),
-          patientId: pref.Fkey.toString(),
+          patientId: pref.Fkey?.toString() ?? '',
           raw: pref.ValueString,
         };
       }

@@ -167,7 +167,7 @@ async function seedClaimsComplete() {
           },
         });
       }
-      codeNumMap.set(code, procCode.CodeNum);
+      codeNumMap.set(code, procCode.CodeNum!);
     }
 
     // Helper function to create completed procedure logs
