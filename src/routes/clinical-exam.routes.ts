@@ -84,7 +84,12 @@ router.get(
  * /clinical-exams/{examType}/{appointmentId}:
  *   put:
  *     summary: Create or update a specific clinical exam by appointment and type
- *     description: Creates a new exam record if none exists for the appointment, or updates the existing one. Fails with 403 if the exam is already signed and locked. "biomechanical" and "functional" exams are stored as user preference records rather than dedicated tables.
+ *     description: |
+ *       Creates a new exam record if none exists for the appointment, or updates the existing one.
+ *       Fails with 403 if the exam is already signed and locked.
+ *       "biomechanical" and "functional" exams are stored as user preference records rather than dedicated tables.
+ *       The `examData` field shape varies by examType — see the request body examples for periodontal, teeth-structure, and radiographic payloads.
+ *       Maximum examData payload size: 10MB.
  *     tags: [Clinical Exams]
  *     security:
  *       - bearerAuth: []
@@ -121,8 +126,51 @@ router.get(
  *                 example: "1"
  *               examData:
  *                 type: object
- *                 description: Structured exam findings; shape varies depending on examType (e.g. periodontal pocket depths, radiographic findings, TMJ assessment fields, etc.)
- *                 example: { "findings": "No abnormalities detected", "notes": "Patient tolerated exam well" }
+ *                 description: Structured exam findings; shape varies depending on examType
+ *           examples:
+ *             periodontal:
+ *               summary: Periodontal exam with pocket depths, bleeding, recession
+ *               value:
+ *                 patientId: "1"
+ *                 providerId: "1"
+ *                 examData:
+ *                   pocketDepths:
+ *                     "1": { buccal: [3, 2, 3], lingual: [2, 3, 2] }
+ *                     "2": { buccal: [4, 3, 4], lingual: [3, 3, 3] }
+ *                   bleedingOnProbing:
+ *                     "1": { buccal: [false, false, true], lingual: [false, false, false] }
+ *                   recession:
+ *                     "1": { buccal: [0, 0, 1], lingual: [0, 0, 0] }
+ *                   furcation: { "3": 1, "14": 2 }
+ *                   mobility: { "8": 1, "24": 0 }
+ *                   notes: "Generalized moderate periodontitis"
+ *             teeth-structure:
+ *               summary: Teeth structure exam with per-tooth conditions
+ *               value:
+ *                 patientId: "1"
+ *                 providerId: "1"
+ *                 examData:
+ *                   teeth:
+ *                     "3": { condition: "caries", surfaces: ["MO"], severity: "moderate", notes: "Class II MO caries" }
+ *                     "14": { condition: "fracture", surfaces: ["B"], severity: "mild", notes: "Craze line on buccal" }
+ *                     "19": { condition: "restoration", surfaces: ["MOD"], material: "composite", status: "intact" }
+ *                   generalNotes: "Generalized attrition on anterior teeth"
+ *                   wearPattern: "Moderate bruxism-related wear"
+ *             radiographic:
+ *               summary: Radiographic exam with regional findings
+ *               value:
+ *                 patientId: "1"
+ *                 providerId: "1"
+ *                 examData:
+ *                   findings:
+ *                     - region: "maxillary right"
+ *                       toothNumbers: [2, 3, 4]
+ *                       finding: "Periapical radiolucency"
+ *                       severity: "moderate"
+ *                       notes: "3mm radiolucency at apex of #3"
+ *                   boneLoss: { "maxillary right": "mild", "mandibular left": "moderate" }
+ *                   radiographType: "full mouth series"
+ *                   notes: "No significant pathology noted"
  *     responses:
  *       200:
  *         description: Successfully created or updated exam
@@ -135,23 +183,11 @@ router.get(
  *                 data:
  *                   type: object
  *                   properties:
- *                     id: { type: string, example: "1" }
- *                     examType: { type: string, example: "periodontal" }
- *                     patientId: { type: string, example: "1" }
- *                     appointmentId: { type: string, example: "1" }
- *                     providerId: { type: string, example: "1" }
- *                     isSigned: { type: boolean, example: false }
- *                     signedBy: { type: string, nullable: true }
- *                     signedAt: { type: string, format: date-time, nullable: true }
- *                     examData:
- *                       type: object
- *                       description: Structured exam findings; shape varies by examType
- *                     createdAt: { type: string, format: date-time }
- *                     updatedAt: { type: string, format: date-time }
- *                     createdBy: { type: string, example: "1" }
- *                     updatedBy: { type: string, example: "1" }
+ *                     exam:
+ *                       $ref: '#/components/schemas/ClinicalExamRecord'
+ *                 message: { type: string, example: "periodontal exam saved successfully" }
  *       400:
- *         description: Validation error — missing or invalid fields
+ *         description: Validation error — missing or invalid fields, or examData exceeds 10MB
  *       401:
  *         description: Unauthorized — missing or invalid token
  *       403:
@@ -283,8 +319,11 @@ router.delete(
  * @swagger
  * /clinical-exams/history/{examType}/patient/{patientId}:
  *   get:
- *     summary: Fetch chronological list of dates for a patient's exam history by type
- *     description: Returns an array of dates when exams of the given type were created for the patient, sorted in ascending order.
+ *     summary: Fetch chronological list of exam history entries for a patient by type
+ *     description: |
+ *       Returns an array of objects containing the date and associated appointmentId when exams
+ *       of the given type were created for the patient, sorted in ascending chronological order.
+ *       The appointmentId can be used to load the full exam via GET /clinical-exams/{examType}/{appointmentId}.
  *     tags: [Clinical Exams]
  *     security:
  *       - bearerAuth: []
@@ -296,14 +335,16 @@ router.delete(
  *           type: string
  *           enum: [radiographic, tmj, head-neck, tooth-structure, teeth-structure, morphological, periodontal, dentofacial, airway, biomechanical, functional, dentofacial-opinion, periodontal-opinion]
  *         description: Type of clinical exam
+ *         example: "periodontal"
  *       - in: path
  *         name: patientId
  *         required: true
  *         schema: { type: integer }
  *         description: Patient ID
+ *         example: 1
  *     responses:
  *       200:
- *         description: Successfully fetched exam history dates
+ *         description: Successfully fetched exam history
  *         content:
  *           application/json:
  *             schema:
@@ -315,13 +356,22 @@ router.delete(
  *                   properties:
  *                     dates:
  *                       type: array
- *                       items: { type: string, format: date-time }
+ *                       items:
+ *                         $ref: '#/components/schemas/ExamHistoryEntry'
+ *             example:
+ *               success: true
+ *               data:
+ *                 dates:
+ *                   - date: "2026-01-15T10:30:00.000Z"
+ *                     appointmentId: "101"
+ *                   - date: "2026-03-20T14:00:00.000Z"
+ *                     appointmentId: "205"
  *       400:
- *         description: Validation error
+ *         description: Validation error — invalid examType or patientId
  *       401:
- *         description: Unauthorized
+ *         description: Unauthorized — missing or invalid token
  *       403:
- *         description: Forbidden
+ *         description: Forbidden — missing clinical-notes.read permission
  */
 router.get(
   '/history/:examType/patient/:patientId',
