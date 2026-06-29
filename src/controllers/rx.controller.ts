@@ -32,6 +32,19 @@ export class RxController {
       next(error);
     }
   };
+  printPrescription = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+    const result = await rxService.getPrescriptionPrintData(id);
+
+    res.status(200).json({
+      success: true,
+      data: { prescription: result }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 }
 
 export const rxController = new RxController();

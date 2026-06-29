@@ -27,6 +27,7 @@ export class ClaimController {
         claimFormat: req.query.claimFormat as string | undefined,
         showHidden: req.query.showHidden as string | undefined,
         patientName: req.query.patientName as string | undefined,
+        tab: req.query.tab as string | undefined,
       });
 
       res.status(200).json({
@@ -87,6 +88,7 @@ export class ClaimController {
           insuranceCompanyId: req.body.insuranceCompanyId,
           invoiceId: req.body.invoiceId,
           insuranceType: req.body.insuranceType,
+          claimFormat: req.body.claimFormat,
           status: req.body.status,
           claimAmount: req.body.claimAmount,
           submittedAmount: req.body.submittedAmount,
