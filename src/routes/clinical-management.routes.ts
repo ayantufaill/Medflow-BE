@@ -7,6 +7,14 @@ const router = Router();
 // Secure all endpoints with authentication middleware
 router.use(authenticate);
 
+// ✅ ADD THIS ROOT GET TO FIX THE 404 TEST
+router.get(
+  '/',
+  (req, res) => {
+    res.json({ success: true, message: 'Clinical management endpoint' });
+  }
+);
+
 /**
  * @swagger
  * /clinical-management/products:

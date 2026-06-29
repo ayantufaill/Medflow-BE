@@ -267,6 +267,10 @@ router.patch(
   '/:id',
   authenticate,
   requirePermission('clinical-notes.update'),
+  (req, res, next) => {
+    console.log('🔥 PATCH /lab-cases/:id reached!');
+    next();
+  },
   validate([...labCaseIdValidator, ...updateLabCaseValidator]),
   labCaseController.updateLabCase
 );
@@ -302,6 +306,10 @@ router.patch(
   '/:id/status',
   authenticate,
   requirePermission('clinical-notes.update'),
+  (req, res, next) => {
+    console.log('🔥 PATCH /lab-cases/:id/status reached!');
+    next();
+  },
   validate(labCaseIdValidator),
   labCaseController.updateLabCaseStatus
 );
@@ -328,6 +336,10 @@ router.delete(
   '/:id',
   authenticate,
   requirePermission('clinical-notes.delete'),
+  (req, res, next) => {
+    console.log('🔥 DELETE /lab-cases/:id reached!');
+    next();
+  },
   validate(labCaseIdValidator),
   labCaseController.deleteLabCase
 );

@@ -12,8 +12,11 @@ export const getLabCasesValidator = [
   query('endDate').optional().isISO8601().withMessage('Invalid end date'),
 ];
 
+// ✅ Updated: now enforces the ID must be an integer
 export const labCaseIdValidator = [
-  param('id').notEmpty().withMessage('Lab case ID is required'),
+  param('id')
+    .notEmpty().withMessage('Lab case ID is required')
+    .isInt().withMessage('ID must be an integer'), // added this line
 ];
 
 export const createLabCaseValidator = [

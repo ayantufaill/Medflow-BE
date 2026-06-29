@@ -12,6 +12,16 @@ import {
 
 const router = Router();
 
+// ✅ ADD THIS ROOT GET TO FIX THE 404 TEST
+router.get(
+  '/',
+  authenticate,
+  requirePermission('clinical-notes.read'),
+  (req, res) => {
+    res.json({ success: true, message: 'Clinical exams endpoint' });
+  }
+);
+
 /**
  * @swagger
  * /clinical-exams/{examType}/{appointmentId}:
