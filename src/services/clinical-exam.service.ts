@@ -160,6 +160,16 @@ export class ClinicalExamService {
     const userNum = BigInt(userId);
     const examDataJson = data.examData; // object or json
 
+    // Guard: ensure examData is serialized correctly (prevent double-stringify)
+    const examDataStr = typeof examDataJson === 'string'
+      ? examDataJson
+      : JSON.stringify(examDataJson);
+
+    // Payload size validation (reject > 10MB)
+    if (examDataStr.length > 10_000_000) {
+      throw new BadRequestError('examData payload exceeds maximum allowed size (10MB).');
+    }
+
     if (examType === 'biomechanical' || examType === 'functional' || examType === 'dentofacial-opinion' || examType === 'periodontal-opinion') {
       const existingRecord = await this.getPrefExam(examType, aptNum);
       if (existingRecord) {
@@ -226,7 +236,7 @@ export class ClinicalExamService {
       const updatedRecord = await model.update({
         where: { AptNum: aptNum },
         data: {
-          ExamData: JSON.stringify(examDataJson),
+          ExamData: examDataStr,
           UpdatedBy: userNum,
           PatNum: patNum,
           ProvNum: provNum,
@@ -251,7 +261,7 @@ export class ClinicalExamService {
           PatNum: patNum,
           AptNum: aptNum,
           ProvNum: provNum,
-          ExamData: JSON.stringify(examDataJson),
+          ExamData: examDataStr,
           CreatedBy: userNum,
           UpdatedBy: userNum,
         }
@@ -408,7 +418,7 @@ export class ClinicalExamService {
   return true;
 }
 
-  async getExamHistoryDates(examType: ExamType, patientId: string): Promise<Date[]> {
+  async getExamHistoryDates(examType: ExamType, patientId: string): Promise<{ date: Date; appointmentId: string }[]> {
     const patNum = BigInt(patientId);
 
     // Handle pref-based exams (biomechanical, functional, opinions)
@@ -420,14 +430,17 @@ export class ClinicalExamService {
         },
       });
 
-      const dates: Date[] = [];
+      const results: { date: Date; appointmentId: string }[] = [];
       for (const pref of prefs) {
         if (!pref.ValueString) continue;
         try {
           const data = JSON.parse(pref.ValueString);
           if (data.PatNum && BigInt(data.PatNum) === patNum) {
             if (data.CreatedAt) {
-              dates.push(new Date(data.CreatedAt));
+              results.push({
+                date: new Date(data.CreatedAt),
+                appointmentId: pref.Fkey?.toString() || '',
+              });
             }
           }
         } catch {
@@ -436,7 +449,7 @@ export class ClinicalExamService {
       }
 
       // Sort in ascending chronological order (oldest to newest)
-      return dates.sort((a, b) => a.getTime() - b.getTime());
+      return results.sort((a, b) => a.date.getTime() - b.date.getTime());
     }
 
     // Handle regular exam tables
@@ -447,11 +460,14 @@ export class ClinicalExamService {
 
     const records = await model.findMany({
       where: { PatNum: patNum },
-      select: { CreatedAt: true },
+      select: { CreatedAt: true, AptNum: true },
       orderBy: { CreatedAt: 'asc' },
     });
 
-    return records.map((r: any) => r.CreatedAt);
+    return records.map((r: any) => ({
+      date: r.CreatedAt,
+      appointmentId: r.AptNum?.toString() || '',
+    }));
   }
 }
 

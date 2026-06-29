@@ -27,6 +27,31 @@ export class MedicationController {
       next(error);
     }
   }
+
+  async createMedication(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await medicationService.createMedication(req.body);
+      res.status(201).json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateMedication(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const data = await medicationService.updateMedication(id as string, req.body);
+      res.status(200).json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const medicationController = new MedicationController();

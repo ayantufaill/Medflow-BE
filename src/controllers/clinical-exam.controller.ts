@@ -90,11 +90,11 @@ deleteExam = async (req: Request, res: Response, next: NextFunction) => {
       const examType = req.params.examType as ExamType;
       const patientId = req.params.patientId;
 
-      const dates = await clinicalExamService.getExamHistoryDates(examType, patientId);
+      const history = await clinicalExamService.getExamHistoryDates(examType, patientId);
 
       res.status(200).json({
         success: true,
-        data: { dates }
+        data: { dates: history }
       });
     } catch (error) {
       next(error);
