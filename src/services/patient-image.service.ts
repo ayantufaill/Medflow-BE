@@ -35,7 +35,7 @@ export class PatientImageService {
 
   async getImages(patientId: string) {
     const patNum = BigInt(patientId);
-    const record = await prisma.patientimage.findUnique({
+    const record = await prisma.patientImage.findUnique({
       where: { PatNum: patNum },
     });
     return mapImageRecord(record);
@@ -48,7 +48,7 @@ export class PatientImageService {
 
     if (!field) throw new Error(`Invalid imageType: ${imageType}`);
 
-    const existing = await prisma.patientimage.findUnique({
+    const existing = await prisma.patientImage.findUnique({
       where: { PatNum: patNum },
     });
 
@@ -59,12 +59,12 @@ export class PatientImageService {
         fs.unlinkSync(oldPath);
       }
 
-      record = await prisma.patientimage.update({
+      record = await prisma.patientImage.update({
         where: { PatNum: patNum },
         data: { [field]: filePath, UpdatedBy: userNum },
       });
     } else {
-      record = await prisma.patientimage.create({
+      record = await prisma.patientImage.create({
         data: {
           PatNum:    patNum,
           [field]:   filePath,
@@ -84,7 +84,7 @@ export class PatientImageService {
 
     if (!field) throw new Error(`Invalid imageType: ${imageType}`);
 
-    const existing = await prisma.patientimage.findUnique({
+    const existing = await prisma.patientImage.findUnique({
       where: { PatNum: patNum },
     });
 
@@ -95,7 +95,7 @@ export class PatientImageService {
 
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
 
-    const record = await prisma.patientimage.update({
+    const record = await prisma.patientImage.update({
       where: { PatNum: patNum },
       data: { [field]: null, UpdatedBy: BigInt(userId) },
     });
@@ -110,7 +110,7 @@ export class PatientImageService {
 
     if (!field) throw new Error(`Invalid imageType: ${imageType}`);
 
-    const record = await prisma.patientimage.findUnique({
+    const record = await prisma.patientImage.findUnique({
       where: { PatNum: patNum },
       select: { [field]: true, PatNum: true },
     });

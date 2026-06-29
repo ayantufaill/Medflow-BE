@@ -7688,3 +7688,15 @@ model archivedreport {
   ReportData   String   @db.VarChar(Max)
   CreatedBy    BigInt?
 }
+
+model PatientImage {
+  ImageId            BigInt   @id @default(autoincrement())
+  PatNum             BigInt   @unique
+  ProfileImagePath   String?  @db.VarChar(255)
+  XrayImagePath      String?  @db.VarChar(255)
+  TeethCropImagePath String?  @db.VarChar(255)
+  CreatedBy          BigInt?
+  UpdatedBy          BigInt?
+  CreatedAt          DateTime @default(now())
+  UpdatedAt          DateTime @updatedAt
+}
