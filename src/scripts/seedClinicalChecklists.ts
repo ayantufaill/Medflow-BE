@@ -5,7 +5,7 @@ import { prisma } from '../config/db';
 const seedClinicalChecklists = async () => {
   try {
     console.log('Reading seeded checklists JSON...');
-    const jsonPath = path.join('d:', 'Medflow', 'seeded_checklists.json');
+    const jsonPath = path.join(process.cwd(), 'seeded_checklists.json');
     if (!fs.existsSync(jsonPath)) {
       throw new Error(`Seeded checklists file not found at ${jsonPath}`);
     }

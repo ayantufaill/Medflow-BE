@@ -7530,7 +7530,7 @@ model examperiodontal {
   UpdatedBy   BigInt?
   CreatedAt   DateTime    @default(now())
   UpdatedAt   DateTime    @updatedAt
-  ExamData    String?     @db.MediumText
+  ExamData    String?     @db.NVarChar(Max)
   patient     patient     @relation(fields: [PatNum], references: [PatNum])
   appointment appointment @relation(fields: [AptNum], references: [AptNum])
   provider    provider    @relation(fields: [ProvNum], references: [ProvNum])
