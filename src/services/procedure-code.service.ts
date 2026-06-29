@@ -7,7 +7,7 @@ export class ProcedureCodeService {
     });
 
     return codes.map((c) => ({
-      _id: c.CodeNum.toString(),
+      _id: c.CodeNum?.toString() ?? '',
       code: c.ProcCode,
       name: c.Descript,
       abbreviation: c.AbbrDesc,

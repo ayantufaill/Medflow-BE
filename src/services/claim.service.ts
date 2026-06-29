@@ -31,6 +31,8 @@ type ClaimStatus =
 
 type ClaimMeta = {
   invoiceId?: string;
+  treatmentPlanId?: string;
+  procedures?: any[];
   insuranceCompanyId?: string;
   insuranceType?: string;
   status?: ClaimStatus;
@@ -815,6 +817,87 @@ export class ClaimService {
       invoice: invoiceById.get(invoiceId),
       insurance: claimMeta.insuranceCompanyId ? insuranceById.get(claimMeta.insuranceCompanyId) : null,
       procedures,
+    });
+  }
+
+  async createClaimFromTreatmentPlan(
+    planId: string,
+    patientId: string,
+    acceptedItems: any[],
+    insuranceCompanyId: string,
+    insuranceType: string,
+    userId?: string
+  ) {
+    const existing = await prisma.claim.findFirst({
+      where: {
+        ClaimType: { not: 'PreAuth' },
+        Narrative: { contains: `\"treatmentPlanId\":\"${planId}\"` },
+      },
+    });
+
+    if (existing) {
+      throw new ConflictError('Claim already exists for this treatment plan');
+    }
+
+    const status: ClaimStatus = 'draft';
+    const claimAmount = acceptedItems.reduce((sum, item) => sum + (Number(item.fee) || 0), 0);
+    const claimNumber = await this.generateClaimNumber();
+
+    const claimMeta: ClaimMeta = {
+      treatmentPlanId: planId,
+      insuranceCompanyId,
+      insuranceType,
+      status,
+      claimAmount,
+      submittedAmount: claimAmount,
+      totalAmount: claimAmount,
+      paidAmount: 0,
+      patientResponsibility: 0,
+      procedures: acceptedItems.map(item => ({
+        id: item.id || Math.random().toString(36).substr(2, 9),
+        _id: item.id || Math.random().toString(36).substr(2, 9),
+        patientId,
+        code: item.procedureCode || null,
+        name: item.description || item.procedureCode || 'Procedure',
+        description: item.description || item.procedureCode || 'Procedure',
+        tooth: item.tooth || null,
+        surface: item.surface || null,
+        status: item.status || 'C',
+        quantity: item.quantity || 1,
+        fee: item.fee || 0,
+        createdAt: new Date(),
+      })),
+    };
+
+    const claimNum = await getNextId('claim', 'ClaimNum');
+    const created = await prisma.claim.create({
+      data: {
+        ClaimNum: claimNum,
+        PatNum: BigInt(patientId),
+        ClaimType: insuranceType ?? 'Primary',
+        ClaimStatus: claimStatusToCode(status),
+        DateService: new Date(),
+        ClaimFee: claimAmount,
+        InsPayEst: claimAmount,
+        InsPayAmt: 0,
+        DedApplied: 0,
+        PreAuthString: claimNumber,
+        PriorAuthorizationNumber: claimNumber,
+        ClaimIdentifier: claimNumber,
+        Narrative: buildJson(claimMeta as any),
+      },
+      include: { patient: true },
+    });
+
+    await this.createStatusHistoryEntry(created.ClaimNum.toString(), status, 'Claim created from treatment plan', userId);
+
+    const [insuranceById] = await Promise.all([
+      this.buildInsuranceContext(insuranceCompanyId ? [insuranceCompanyId] : []),
+    ]);
+
+    return this.mapClaim(created, claimMeta, {
+      insurance: insuranceCompanyId ? insuranceById.get(insuranceCompanyId) : null,
+      procedures: claimMeta.procedures || [],
     });
   }
 

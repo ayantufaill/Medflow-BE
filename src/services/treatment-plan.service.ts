@@ -1,6 +1,10 @@
 import { prisma } from '../config/db';
-import { NotFoundError } from '../utils/error.util';
+import { NotFoundError, UnprocessableEntityError } from '../utils/error.util';
 import { getNextId } from '../utils/opendental-ids.util';
+import { claimService } from './claim.service';
+import { PatientInsuranceService } from './patient-insurance.service';
+
+const patientInsuranceService = new PatientInsuranceService();
 
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;
@@ -220,6 +224,45 @@ export class TreatmentPlanService {
       items: meta.items ?? [],
       createdAt: plan.DateTP ?? null,
     };
+  }
+
+  async generateClaimFromTreatmentPlan(planId: string, userId?: string) {
+    const plan = await this.getTreatmentPlanById(planId);
+    
+    if (!plan.items || plan.items.length === 0) {
+      throw new UnprocessableEntityError('Treatment plan has no items');
+    }
+
+    const acceptedItems = plan.items.filter((item: any) => item.status === 'A' || item.status === 'accepted');
+    
+    if (acceptedItems.length === 0) {
+      throw new UnprocessableEntityError('No accepted items in treatment plan');
+    }
+
+    if (!plan.patientId) {
+      throw new UnprocessableEntityError('Treatment plan is not associated with a patient');
+    }
+
+    const insurances = await patientInsuranceService.getPatientInsurances(plan.patientId, true);
+    
+    if (insurances.length === 0) {
+      throw new NotFoundError('Patient insurance not found');
+    }
+
+    const primaryInsurance = insurances.find(ins => ins.insuranceType === 'Primary') || insurances[0];
+    
+    if (!primaryInsurance.insuranceCompanyId) {
+       throw new UnprocessableEntityError('Patient primary insurance is missing company details');
+    }
+
+    return claimService.createClaimFromTreatmentPlan(
+      planId,
+      plan.patientId,
+      acceptedItems,
+      primaryInsurance.insuranceCompanyId._id,
+      primaryInsurance.insuranceType || 'Primary',
+      userId
+    );
   }
 }
 
