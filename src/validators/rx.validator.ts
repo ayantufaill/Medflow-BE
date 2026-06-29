@@ -8,7 +8,14 @@ export const getRxValidator = [
 
 export const createRxValidator = [
   body('patientId').notEmpty().withMessage('patientId is required'),
-  body('description').notEmpty().withMessage('description is required'),
+  body('medicationId').optional().isString().withMessage('medicationId must be a string'),
+body('description').optional().isString().withMessage('description must be a string'),
+body().custom((value) => {
+  if (!value.medicationId && !value.description) {
+    throw new Error('Either medicationId or description is required');
+  }
+  return true;
+}),
   body('providerId').optional().isString(),
   body('startDate').optional().isISO8601(),
   body('duration').optional().isString(),
