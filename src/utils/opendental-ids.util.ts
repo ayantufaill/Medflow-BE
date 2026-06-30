@@ -5,5 +5,6 @@ export const getNextId = async (table: string, column: string): Promise<bigint> 
     `SELECT COALESCE(MAX("${column}"), 0) + 1 AS "nextId" FROM "${table}"`
   );
 
-  return rows[0]?.nextId ?? 1n;
+  const id = rows[0]?.nextId;
+  return id ? BigInt(id) : 1n;
 };

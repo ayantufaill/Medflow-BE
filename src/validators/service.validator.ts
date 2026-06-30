@@ -4,9 +4,7 @@ export const serviceIdValidator: ValidationChain[] = [
   param('serviceId')
     .notEmpty()
     .withMessage('Service ID is required')
-    .isString()
-    .withMessage('Service ID must be a string')
-    .isLength({ min: 1 })
+    .isInt({ min: 1 })
     .withMessage('Invalid service ID format'),
 ];
 

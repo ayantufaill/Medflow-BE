@@ -537,10 +537,11 @@ export class UserService {
       });
 
       // Retrieve the starting UserGroupAttachNum
-      const maxRow = await tx.$queryRawUnsafe<{ nextId: bigint }[]>(
+      const maxRow = await tx.$queryRawUnsafe<{ nextId: any }[]>(
         'SELECT COALESCE(MAX("UserGroupAttachNum"), 0) + 1 AS "nextId" FROM "usergroupattach"'
       );
-      let nextAttachId = maxRow[0]?.nextId ?? 1n;
+      const rawId = maxRow[0]?.nextId;
+      let nextAttachId = rawId ? BigInt(rawId) : 1n;
 
       // Add new attachments
       for (const roleId of bigIntRoleIds) {

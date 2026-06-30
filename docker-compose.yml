@@ -1,33 +1,17 @@
 services:
   db:
-    platform: linux/amd64
-    image: mcr.microsoft.com/mssql/server:2022-latest
+    image: postgres:16-alpine
     env_file:
       - .env.docker
-    environment:
-      ACCEPT_EULA: "Y"
     ports:
-      - "1434:1433"
+      - "5432:5432"
     volumes:
-      - mssql_data:/var/opt/mssql
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P $$MSSQL_SA_PASSWORD -C -Q 'SELECT 1' || exit 1"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
       retries: 10
-
-  db-init:
-    platform: linux/amd64
-    image: mcr.microsoft.com/mssql-tools:latest
-    depends_on:
-      db:
-        condition: service_healthy
-    env_file:
-      - .env.docker
-    volumes:
-      - ./opendental_schema_create.sql:/init/opendental_schema_create.sql:ro
-      - ./docker/db-init.sh:/init/db-init.sh:ro
-    command: ["/bin/sh", "/init/db-init.sh"]
 
   seed:
     build:
@@ -38,18 +22,15 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
-    command: ["/bin/sh", "-c", "npx prisma generate --schema prisma/schema.prisma && npm run seed:all"]
+    command: ["/bin/sh", "-c", "npx prisma db push --schema prisma/schema.prisma && npx prisma generate --schema prisma/schema.prisma && npm run seed:all"]
     depends_on:
       db:
         condition: service_healthy
-      db-init:
-        condition: service_completed_successfully
 
   api:
     build:
       context: .
       target: deps
-      network: host
     ports:
       - "5001:5001"
     env_file:
@@ -64,11 +45,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      db-init:
-        condition: service_completed_successfully
       seed:
         condition: service_completed_successfully
 
 volumes:
-  mssql_data:
-  patient-uploads: 
+  postgres_data:
+  patient-uploads:

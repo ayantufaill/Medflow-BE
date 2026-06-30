@@ -579,6 +579,7 @@ router.patch(
   '/:invoiceId/items/:itemId/paid',
   authenticate,
   requirePermission('invoices.update'),
+  validate([...invoiceIdValidator, ...invoiceItemIdValidator]),
   invoiceController.markItemPaid.bind(invoiceController)
 );
 

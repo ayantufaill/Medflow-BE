@@ -188,16 +188,14 @@ export class VitalSignController {
 
   async getNormalRanges(req: Request, res: Response, next: NextFunction) {
     try {
+      const age = req.query.age ? parseInt(req.query.age as string, 10) : undefined;
+      const gender = req.query.gender as string | undefined;
+
+      const ranges = await vitalSignService.getNormalRanges(age, gender);
+
       res.status(200).json({
         success: true,
-        data: {
-          temperature: { min: 95.0, max: 100.4, unit: 'F' },
-          bloodPressureSystolic: { min: 90, max: 120, unit: 'mmHg' },
-          bloodPressureDiastolic: { min: 60, max: 80, unit: 'mmHg' },
-          heartRate: { min: 60, max: 100, unit: 'bpm' },
-          oxygenSaturation: { min: 95, max: 100, unit: '%' },
-          respiratoryRate: { min: 12, max: 20, unit: '/min' },
-        },
+        data: { normalRanges: ranges },
       });
     } catch (error) {
       next(error);
