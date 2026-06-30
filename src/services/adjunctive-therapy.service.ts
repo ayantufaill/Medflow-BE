@@ -45,10 +45,11 @@ export class AdjunctiveTherapyService {
       });
     } else {
       // Direct raw query to get next UserOdPrefNum sequence key
-      const nextIdResult = await prisma.$queryRawUnsafe<[{ nextId: bigint }]>(
+      const nextIdResult = await prisma.$queryRawUnsafe<[{ nextId: any }]>(
         'SELECT COALESCE(MAX("UserOdPrefNum"), 0) + 1 AS "nextId" FROM "userodpref"'
       );
-      const nextId = nextIdResult[0]?.nextId ?? BigInt(1);
+      const rawId = nextIdResult[0]?.nextId;
+      const nextId = rawId ? BigInt(rawId) : 1n;
 
       await prisma.userodpref.create({
         data: {

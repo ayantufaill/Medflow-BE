@@ -413,6 +413,12 @@ export class ServiceService {
     });
 
     if (service.CodeNum) {
+      const logsCount = await prisma.procedurelog.count({
+        where: { CodeNum: service.CodeNum }
+      });
+      if (logsCount > 0) {
+        throw new ConflictError('Cannot delete service: it is used in existing procedure records');
+      }
       await prisma.fee.deleteMany({ where: { CodeNum: service.CodeNum } });
     }
     await prisma.procedurecode.delete({ where: { ProcCode: service.ProcCode } });

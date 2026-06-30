@@ -41,10 +41,11 @@ const buildUserOdPrefWhere = (identity: UserOdPrefIdentity) => ({
 });
 
 const getNextUserOdPrefId = async () => {
-  const nextId = await prisma.$queryRawUnsafe<[{ nextId: bigint }]>(
+  const nextId = await prisma.$queryRawUnsafe<[{ nextId: any }]>(
     'SELECT COALESCE(MAX("UserOdPrefNum"), 0) + 1 AS "nextId" FROM "userodpref"'
   );
-  return nextId[0]?.nextId ?? BigInt(1);
+  const id = nextId[0]?.nextId;
+  return id ? BigInt(id) : 1n;
 };
 
 const upsertUserOdPref = async (identity: UserOdPrefIdentity, valueString: string) => {
