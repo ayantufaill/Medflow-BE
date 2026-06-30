@@ -29,7 +29,11 @@ const seedClaims = async () => {
 
     // 3. Fetch prerequisite provider
     const provider = await prisma.provider.findFirst();
-    const provNum = provider ? provider.ProvNum : BigInt(1);
+    if (!provider) {
+      console.log('No providers found. Please seed providers first.');
+      return;
+    }
+    const provNum = provider.ProvNum;
 
     // 4. Seed insplan (Insurance Plan)
     let insPlan = await prisma.insplan.findFirst();

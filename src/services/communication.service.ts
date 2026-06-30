@@ -4,7 +4,17 @@ import { getNextId } from '../utils/opendental-ids.util';
 
 const getClinicNum = async (): Promise<bigint> => {
   const clinic = await prisma.clinic.findFirst({ orderBy: { ClinicNum: 'asc' } });
-  return clinic ? clinic.ClinicNum : 1n; // fallback
+  if (clinic) return clinic.ClinicNum;
+
+  // No clinic row exists yet — create a default one so clinicpref FK is satisfied.
+  const nextId = await getNextId('clinic', 'ClinicNum');
+  const created = await prisma.clinic.create({
+    data: {
+      ClinicNum: nextId,
+      Description: 'Default Clinic',
+    },
+  });
+  return created.ClinicNum;
 };
 
 export class CommunicationService {
