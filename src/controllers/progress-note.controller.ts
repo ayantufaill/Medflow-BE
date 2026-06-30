@@ -28,6 +28,13 @@ export class ProgressNoteController {
     try {
       const { patientId, category, description, providerId } = req.body;
       
+      if (!patientId) {
+        return res.status(400).json({ success: false, message: 'patientId is required' });
+      }
+      if (!providerId) {
+        return res.status(400).json({ success: false, message: 'providerId is required' });
+      }
+
       const result = await progressNoteService.createProgressNote({
         patientId,
         category,
@@ -116,8 +123,7 @@ signProgressNote = async (req: Request, res: Response, next: NextFunction) => {
     const { id } = req.params;
     const { signedBy } = req.body;
     
-    // JWTPayload has userId, not id
-    const userId = req.user?.userId;
+    const userId = req.userId;
     
     const result = await progressNoteService.signProgressNote(id, {
       signedBy: signedBy || userId?.toString() || 'Unknown',

@@ -37,6 +37,10 @@ export class TreatmentPlanController {
     try {
       const { patientId, title, notes, status, totalAmount, items } = req.body;
       
+      if (!patientId) {
+        return res.status(400).json({ success: false, message: 'patientId is required' });
+      }
+
       const plan = await treatmentPlanService.createTreatmentPlan({
         patientId,
         title,
@@ -127,7 +131,7 @@ export class TreatmentPlanController {
     try {
       const planId = req.params.id;
       // Get the userId from the authenticated user if available
-      const userId = (req as any).user?._id; 
+      const userId = req.userId; 
       
       const claim = await treatmentPlanService.generateClaimFromTreatmentPlan(planId, userId);
       
