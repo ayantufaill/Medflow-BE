@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlserver"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -7154,7 +7154,7 @@ model usertoken {
   UserNum      BigInt
   Token        String @unique @db.VarChar(255)
   TokenType    String @db.VarChar(50)
-  ValueString  String @db.VarChar(Max)
+  ValueString  String
   userod       userod @relation(fields: [UserNum], references: [UserNum], onDelete: Cascade, onUpdate: NoAction, map: "fk_usertoken_UserNum")
 }
 
@@ -7530,7 +7530,7 @@ model examperiodontal {
   UpdatedBy   BigInt?
   CreatedAt   DateTime    @default(now())
   UpdatedAt   DateTime    @updatedAt
-  ExamData    String?     @db.NVarChar(Max)
+  ExamData    String?
   patient     patient     @relation(fields: [PatNum], references: [PatNum])
   appointment appointment @relation(fields: [AptNum], references: [AptNum])
   provider    provider    @relation(fields: [ProvNum], references: [ProvNum])
@@ -7617,8 +7617,8 @@ model clinicalchecklistitem {
   ItemId      BigInt            @id @default(autoincrement())
   ChecklistId BigInt
   Text        String            @db.VarChar(1000)
-  Choices     String            @default("[]") @db.VarChar(Max)
-  Products    String            @default("[]") @db.VarChar(Max)
+  Choices     String            @default("[]")
+  Products    String            @default("[]")
   IsActive    Boolean           @default(true)
   checklist   clinicalchecklist @relation(fields: [ChecklistId], references: [ChecklistId], onDelete: Cascade)
 }
@@ -7636,7 +7636,7 @@ model prescriptiontemplate {
 model clinicalsystemsetting {
   SettingId BigInt @id @default(autoincrement())
   Key       String @unique @db.VarChar(255)
-  Value     String @db.VarChar(Max)
+  Value     String
 }
 
 model clinicalrecareconfig {
@@ -7655,7 +7655,7 @@ model treatmentplanpresentationconfig {
 model informedconsenttemplate {
   TemplateId BigInt  @id @default(autoincrement())
   Name       String  @db.VarChar(255)
-  Content    String  @db.NVarChar(Max)
+  Content    String
   IsActive   Boolean @default(true)
 }
 
@@ -7663,7 +7663,7 @@ model prepostopinstructiontemplate {
   TemplateId BigInt  @id @default(autoincrement())
   Name       String  @db.VarChar(255)
   Type       String  @db.VarChar(50)
-  Content    String  @db.NVarChar(Max)
+  Content    String
   IsActive   Boolean @default(true)
 }
 
@@ -7685,7 +7685,7 @@ model archivedreport {
   ReportId     BigInt   @id @default(autoincrement())
   ReportType   String   @db.VarChar(50)
   SnapshotDate DateTime @default(now())
-  ReportData   String   @db.VarChar(Max)
+  ReportData   String
   CreatedBy    BigInt?
 }
 
