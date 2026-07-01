@@ -217,25 +217,31 @@ export class DepositService {
       }),
     ]);
 
-    const mappedPatientPayments = patientPayments.map((p) => ({
-      id: p.PayNum.toString(),
-      type: 'patient',
-      date: p.PayDate ?? null,
-      amount: p.PayAmt ?? 0,
-      method: p.definition?.ItemName ?? 'Check',
-      checkNum: p.CheckNum ?? '',
-      patientName: p.patient ? `${p.patient.FName ?? ''} ${p.patient.LName ?? ''}`.trim() : 'Unknown Patient',
-    }));
+    const mappedPatientPayments = patientPayments.map((p) => {
+      const meta = parseJson<{ paymentMethod?: string }>(p.PayNote);
+      return {
+        id: p.PayNum.toString(),
+        type: 'patient',
+        date: p.PayDate ?? null,
+        amount: p.PayAmt ?? 0,
+        method: meta.paymentMethod ?? p.definition?.ItemName ?? 'Check',
+        checkNum: p.CheckNum ?? '',
+        patientName: p.patient ? `${p.patient.FName ?? ''} ${p.patient.LName ?? ''}`.trim() : 'Unknown Patient',
+      };
+    });
 
-    const mappedInsurancePayments = insurancePayments.map((cp) => ({
-      id: cp.ClaimPaymentNum.toString(),
-      type: 'insurance',
-      date: cp.CheckDate ?? null,
-      amount: cp.CheckAmt ?? 0,
-      method: cp.definition_claimpayment_PayTypeTodefinition?.ItemName ?? 'Check',
-      checkNum: cp.CheckNum ?? '',
-      carrierName: cp.CarrierName ?? 'Unknown Carrier',
-    }));
+    const mappedInsurancePayments = insurancePayments.map((cp) => {
+      const meta = parseJson<{ paymentMethod?: string }>(cp.Note);
+      return {
+        id: cp.ClaimPaymentNum.toString(),
+        type: 'insurance',
+        date: cp.CheckDate ?? null,
+        amount: cp.CheckAmt ?? 0,
+        method: meta.paymentMethod ?? cp.definition_claimpayment_PayTypeTodefinition?.ItemName ?? 'Check',
+        checkNum: cp.CheckNum ?? '',
+        carrierName: cp.CarrierName ?? 'Unknown Carrier',
+      };
+    });
 
     return {
       patientPayments: mappedPatientPayments,
