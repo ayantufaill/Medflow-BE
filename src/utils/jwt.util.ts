@@ -3,8 +3,12 @@ import type { JWTPayload, AuthTokens } from '../types/auth.types';
 import { prisma } from '../config/db';
 import { getNextId } from './opendental-ids.util';
 
-const JWT_SECRET: string = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
-const JWT_REFRESH_SECRET: string = process.env.JWT_REFRESH_SECRET || 'your-refresh-secret-key-change-in-production';
+const JWT_SECRET: string = process.env.JWT_SECRET as string;
+const JWT_REFRESH_SECRET: string = process.env.JWT_REFRESH_SECRET as string;
+
+if (!JWT_SECRET || !JWT_REFRESH_SECRET) {
+  throw new Error('FATAL ERROR: JWT_SECRET and JWT_REFRESH_SECRET must be defined in environment variables.');
+}
 const JWT_ACCESS_EXPIRES_IN: string = process.env.JWT_ACCESS_EXPIRES_IN || '1d';
 const JWT_REFRESH_EXPIRES_IN: string = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
 

@@ -356,12 +356,16 @@ export class InvoiceService {
       return this.mapStatementToInvoice(row, meta);
     });
 
+    const uniquePatientIds = [...new Set(invoices.map(i => i.patientId).filter(id => id && /^\d+$/.test(id!)))];
+    const patients = uniquePatientIds.length 
+      ? await prisma.patient.findMany({ where: { PatNum: { in: uniquePatientIds.map(id => BigInt(id!)) } } })
+      : [];
+    const patientMap = new Map(patients.map(p => [p.PatNum.toString(), p]));
+
     invoices = await Promise.all(
       invoices.map(async (invoice) => {
-        const [patient, provider, insuranceCompany] = await Promise.all([
-          invoice.patientId && /^\d+$/.test(invoice.patientId)
-            ? prisma.patient.findUnique({ where: { PatNum: BigInt(invoice.patientId) } })
-            : null,
+        const patient = invoice.patientId ? patientMap.get(invoice.patientId) : null;
+        const [provider, insuranceCompany] = await Promise.all([
           this.resolveProvider(invoice.providerId ?? null),
           this.resolveInsuranceCompany(invoice.insuranceCompanyId ?? null),
         ]);
@@ -973,18 +977,20 @@ export class InvoiceService {
       orderBy: { DateSent: 'desc' },
     });
 
+    const patientRow = await prisma.patient.findUnique({ where: { PatNum: BigInt(patientId) } });
+    const mappedPatient = patientRow ? mapPatientToApi(patientRow) : null;
+
     const invoices = await Promise.all(
       invoiceRows.map(async (row) => {
         const meta = parseJson<StatementMeta>(row.NoteBold);
-        const [patient, provider, insuranceCompany, items] = await Promise.all([
-          row.PatNum ? prisma.patient.findUnique({ where: { PatNum: row.PatNum } }) : null,
+        const [provider, insuranceCompany, items] = await Promise.all([
           this.resolveProvider(meta.providerId ?? null),
           this.resolveInsuranceCompany(meta.insuranceCompanyId ?? null),
           this.getInvoiceItems(row.StatementNum),
         ]);
         return {
           ...this.mapStatementToInvoice(row, meta),
-          patient: patient ? mapPatientToApi(patient) : null,
+          patient: mappedPatient,
           provider,
           insuranceCompany,
           lineItems: items,

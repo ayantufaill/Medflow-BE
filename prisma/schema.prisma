@@ -5212,7 +5212,7 @@ model procedurelog {
   UnitQtyType                                           Int?
   StatementNum                                          BigInt?
   IsLocked                                              Int?
-  BillingNote                                           String?           @db.VarChar(255)
+  BillingNote                                           String?           @db.Text
   RepeatChargeNum                                       BigInt?
   SnomedBodySite                                        String?           @db.VarChar(255)
   DiagnosticCode2                                       String?           @db.VarChar(255)

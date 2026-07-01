@@ -121,18 +121,23 @@ export class EstimateService {
     };
   }
 
-  private async enrichEstimate(estimate: any) {
-    const [patient, provider] = await Promise.all([
-      estimate.patientId && /^\d+$/.test(estimate.patientId)
-        ? prisma.patient.findUnique({ where: { PatNum: BigInt(estimate.patientId) } })
-        : null,
-      estimate.providerId && /^\d+$/.test(estimate.providerId)
-        ? prisma.provider.findUnique({
-            where: { ProvNum: BigInt(estimate.providerId) },
-            include: { definition: true },
-          })
-        : null,
-    ]);
+  private async enrichEstimate(estimate: any, prefetchedPatient?: any, prefetchedProvider?: any) {
+    const patientPromise = prefetchedPatient !== undefined 
+      ? Promise.resolve(prefetchedPatient)
+      : (estimate.patientId && /^\d+$/.test(estimate.patientId)
+          ? prisma.patient.findUnique({ where: { PatNum: BigInt(estimate.patientId) } })
+          : Promise.resolve(null));
+
+    const providerPromise = prefetchedProvider !== undefined
+      ? Promise.resolve(prefetchedProvider)
+      : (estimate.providerId && /^\d+$/.test(estimate.providerId)
+          ? prisma.provider.findUnique({
+              where: { ProvNum: BigInt(estimate.providerId) },
+              include: { definition: true },
+            })
+          : Promise.resolve(null));
+
+    const [patient, provider] = await Promise.all([patientPromise, providerPromise]);
 
     return {
       ...estimate,
@@ -187,10 +192,26 @@ export class EstimateService {
       prisma.claim.count({ where }),
     ]);
 
+    const rawEstimates = rows.map((row) => {
+      const meta = parseJson<ClaimMeta>(row.Narrative);
+      return this.mapClaimToEstimate(row, meta);
+    });
+
+    const uniquePatientIds = [...new Set(rawEstimates.map(e => e.patientId).filter(id => id && /^\d+$/.test(id!)))];
+    const patients = uniquePatientIds.length 
+      ? await prisma.patient.findMany({ where: { PatNum: { in: uniquePatientIds.map(id => BigInt(id!)) } } })
+      : [];
+    const patientMap = new Map(patients.map(p => [p.PatNum.toString(), p]));
+
+    const uniqueProviderIds = [...new Set(rawEstimates.map(e => e.providerId).filter(id => id && /^\d+$/.test(id!)))];
+    const providers = uniqueProviderIds.length
+      ? await prisma.provider.findMany({ where: { ProvNum: { in: uniqueProviderIds.map(id => BigInt(id!)) } }, include: { definition: true } })
+      : [];
+    const providerMap = new Map(providers.map(p => [p.ProvNum.toString(), p]));
+
     const estimates = await Promise.all(
-      rows.map(async (row) => {
-        const meta = parseJson<ClaimMeta>(row.Narrative);
-        return this.enrichEstimate(this.mapClaimToEstimate(row, meta));
+      rawEstimates.map(async (est) => {
+        return this.enrichEstimate(est, est.patientId ? patientMap.get(est.patientId) : null, est.providerId ? providerMap.get(est.providerId) : null);
       })
     );
 
