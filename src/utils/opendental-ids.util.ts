@@ -1,10 +1,18 @@
 import { prisma } from '../config/db';
 
 export const getNextId = async (table: string, column: string): Promise<bigint> => {
-  const rows = await prisma.$queryRawUnsafe<{ nextId: bigint }[]>(
-    `SELECT COALESCE(MAX("${column}"), 0) + 1 AS "nextId" FROM "${table}"`
-  );
+  const model = (prisma as any)[table];
+  
+  if (!model) {
+    throw new Error(`Model ${table} does not exist on PrismaClient`);
+  }
 
-  const id = rows[0]?.nextId;
-  return id ? BigInt(id) : 1n;
+  const result = await model.aggregate({
+    _max: {
+      [column]: true,
+    },
+  });
+
+  const maxVal = result._max[column];
+  return maxVal ? BigInt(maxVal) + 1n : 1n;
 };
