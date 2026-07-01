@@ -151,10 +151,14 @@ export class WaitlistService {
     const users = userIds.length
       ? await prisma.userod.findMany({ where: { UserNum: { in: userIds.map((id) => BigInt(id)) } } })
       : [];
+
+    const { getUsersMeta } = await import('../utils/opendental-auth.util');
+    const usersMeta = users.length ? await getUsersMeta(users.map((u) => u.UserNum)) : {};
+
     const usersMap = new Map(
       await Promise.all(
         users.map(async (user) => {
-          const mappedUser = await mapUser(user);
+          const mappedUser = await mapUser(user, usersMeta[user.UserNum.toString()]);
           return [user.UserNum.toString(), {
             _id: mappedUser._id,
             firstName: mappedUser.firstName,

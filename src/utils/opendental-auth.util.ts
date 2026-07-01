@@ -305,6 +305,22 @@ export const getAppointmentMeta = async (aptNum: bigint) => {
   return parseJson<Record<string, any>>(pref?.ValueString);
 };
 
+export const getAppointmentsMeta = async (aptNums: bigint[]): Promise<Record<string, Record<string, any>>> => {
+  const prefs = await prisma.userodpref.findMany({
+    where: {
+      Fkey: { in: aptNums },
+      FkeyType: APPOINTMENT_META_FKEYTYPE,
+    },
+  });
+  const map: Record<string, Record<string, any>> = {};
+  for (const pref of prefs) {
+    if (pref.Fkey) {
+      map[pref.Fkey.toString()] = parseJson<Record<string, any>>(pref.ValueString);
+    }
+  }
+  return map;
+};
+
 export const setAppointmentMeta = async (aptNum: bigint, meta: Record<string, any>) => {
   return upsertUserOdPref(
     { fkey: aptNum, fkeyType: APPOINTMENT_META_FKEYTYPE },
