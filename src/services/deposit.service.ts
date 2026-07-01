@@ -221,10 +221,12 @@ export class DepositService {
       if (!methodStr) return isInsurance ? 'Insurance Check' : 'Patient Check';
       const lower = methodStr.toLowerCase().trim();
       
-      if (lower === 'card' || lower.includes('card') || lower === 'credit' || lower === 'debit') return 'Credit Card';
+      if (lower === 'card' || lower === 'credit_card') return 'Credit Card';
+      if (lower === 'cash') return 'Cash';
       if (lower === 'ach' || lower === 'eft') return 'EFT';
-      if (lower === 'check' || lower.includes('check')) return isInsurance ? 'Insurance Check' : 'Patient Check';
+      if (lower === 'check') return isInsurance ? 'Insurance Check' : 'Patient Check';
       
+      // For older legacy payments that use OpenDental strings like "Visa Card"
       return methodStr;
     };
 
