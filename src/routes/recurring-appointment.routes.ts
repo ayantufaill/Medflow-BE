@@ -16,23 +16,121 @@ const router = Router();
 // All recurring appointment routes require authentication
 router.use(authenticate);
 
-// Get all recurring appointments
+/**
+ * @swagger
+ * /recurring-appointments:
+ *   get:
+ *     summary: Get all recurring appointments
+ *     tags: [Recurring Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: patientId
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: providerId
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: isActive
+ *         schema: { type: boolean }
+ *     responses:
+ *       200:
+ *         description: List of recurring appointments
+ *       401:
+ *         description: Unauthorized
+ */
 router.get(
   '/',
   validate(recurringAppointmentQueryValidator),
   recurringAppointmentController.getAllRecurringAppointments.bind(recurringAppointmentController)
 );
 
-// Get recurring appointment by ID
+/**
+ * @swagger
+ * /recurring-appointments/{recurringAppointmentId}:
+ *   get:
+ *     summary: Get recurring appointment by ID
+ *     tags: [Recurring Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: recurringAppointmentId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Recurring appointment details
+ *       404:
+ *         description: Recurring appointment not found
+ */
 router.get(
   '/:recurringAppointmentId',
   validate(recurringAppointmentIdValidator),
   recurringAppointmentController.getRecurringAppointmentById.bind(recurringAppointmentController)
 );
 
-// Preview recurring appointment series (before creating)
-// Front Desk, Admin can preview recurring appointments
-// Note: patientId is optional for preview
+/**
+ * @swagger
+ * /recurring-appointments/preview:
+ *   post:
+ *     summary: Preview recurring appointment series (before creating)
+ *     tags: [Recurring Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - providerId
+ *               - appointmentTypeId
+ *               - frequency
+ *               - frequencyValue
+ *               - startDate
+ *               - preferredTime
+ *             properties:
+ *               providerId:
+ *                 type: integer
+ *               appointmentTypeId:
+ *                 type: integer
+ *               frequency:
+ *                 type: string
+ *                 enum: [weekly, monthly, quarterly]
+ *               frequencyValue:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 52
+ *               startDate:
+ *                 type: string
+ *                 format: date
+ *               endDate:
+ *                 type: string
+ *                 format: date
+ *               preferredTime:
+ *                 type: string
+ *                 pattern: '^([0-1][0-9]|2[0-3]):[0-5][0-9]$'
+ *               preferredDayOfWeek:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 6
+ *               totalAppointments:
+ *                 type: integer
+ *                 minimum: 1
+ *                 maximum: 100
+ *     responses:
+ *       200:
+ *         description: Preview of recurring appointments
+ */
 router.post(
   '/preview',
   requireRoles('Front Desk', 'Admin'),
@@ -40,12 +138,12 @@ router.post(
     body('providerId')
       .notEmpty()
       .withMessage('Provider ID is required')
-      .isLength({ min: 36, max: 36 })
+      .isInt({ min: 1 })
       .withMessage('Invalid provider ID format'),
     body('appointmentTypeId')
       .notEmpty()
       .withMessage('Appointment type ID is required')
-      .isLength({ min: 36, max: 36 })
+      .isInt({ min: 1 })
       .withMessage('Invalid appointment type ID format'),
     body('frequency')
       .notEmpty()
@@ -83,8 +181,54 @@ router.post(
   recurringAppointmentController.previewRecurringAppointments.bind(recurringAppointmentController)
 );
 
-// Create recurring appointment series
-// Front Desk, Admin can create recurring appointments
+/**
+ * @swagger
+ * /recurring-appointments:
+ *   post:
+ *     summary: Create recurring appointment series
+ *     tags: [Recurring Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - patientId
+ *               - providerId
+ *               - appointmentTypeId
+ *               - frequency
+ *               - frequencyValue
+ *               - startDate
+ *               - preferredTime
+ *             properties:
+ *               patientId:
+ *                 type: integer
+ *               providerId:
+ *                 type: integer
+ *               appointmentTypeId:
+ *                 type: integer
+ *               frequency:
+ *                 type: string
+ *                 enum: [weekly, monthly, quarterly]
+ *               frequencyValue:
+ *                 type: integer
+ *               startDate:
+ *                 type: string
+ *                 format: date
+ *               endDate:
+ *                 type: string
+ *                 format: date
+ *               preferredTime:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Recurring appointment series created
+ */
 router.post(
   '/',
   requireRoles('Front Desk', 'Admin'),
@@ -92,8 +236,44 @@ router.post(
   recurringAppointmentController.createRecurringAppointment.bind(recurringAppointmentController)
 );
 
-// Create recurring appointment with conflict resolution
-// Front Desk, Admin can create recurring appointments with overrides
+/**
+ * @swagger
+ * /recurring-appointments/with-resolution:
+ *   post:
+ *     summary: Create recurring appointment with conflict resolution
+ *     tags: [Recurring Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             allOf:
+ *               - $ref: '#/components/schemas/CreateRecurringAppointmentRequest'
+ *               - type: object
+ *                 properties:
+ *                   appointmentOverrides:
+ *                     type: array
+ *                     items:
+ *                       type: object
+ *                       properties:
+ *                         appointmentNumber:
+ *                           type: integer
+ *                         skip:
+ *                           type: boolean
+ *                         customDate:
+ *                           type: string
+ *                           format: date
+ *                         customStartTime:
+ *                           type: string
+ *                         customEndTime:
+ *                           type: string
+ *     responses:
+ *       201:
+ *         description: Recurring appointment series created with overrides
+ */
 router.post(
   '/with-resolution',
   requireRoles('Front Desk', 'Admin'),
@@ -127,8 +307,34 @@ router.post(
   recurringAppointmentController.createRecurringAppointmentWithResolution.bind(recurringAppointmentController)
 );
 
-// Generate appointments from recurring series
-// Front Desk, Admin can generate appointments
+/**
+ * @swagger
+ * /recurring-appointments/{recurringAppointmentId}/generate:
+ *   post:
+ *     summary: Generate appointments from recurring series
+ *     tags: [Recurring Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: recurringAppointmentId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               endDate:
+ *                 type: string
+ *                 format: date
+ *               totalAppointments:
+ *                 type: integer
+ *     responses:
+ *       200:
+ *         description: Appointments generated
+ */
 router.post(
   '/:recurringAppointmentId/generate',
   requireRoles('Front Desk', 'Admin'),
@@ -136,8 +342,41 @@ router.post(
   recurringAppointmentController.generateAppointments.bind(recurringAppointmentController)
 );
 
-// Update recurring appointment
-// Front Desk, Admin can update recurring appointments
+/**
+ * @swagger
+ * /recurring-appointments/{recurringAppointmentId}:
+ *   put:
+ *     summary: Update recurring appointment series
+ *     tags: [Recurring Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: recurringAppointmentId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               frequency:
+ *                 type: string
+ *                 enum: [weekly, monthly, quarterly]
+ *               frequencyValue:
+ *                 type: integer
+ *               preferredTime:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *               isActive:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Recurring appointment updated
+ */
 router.put(
   '/:recurringAppointmentId',
   requireRoles('Front Desk', 'Admin'),
@@ -145,14 +384,50 @@ router.put(
   recurringAppointmentController.updateRecurringAppointment.bind(recurringAppointmentController)
 );
 
-// Get linked appointments for a recurring appointment
+/**
+ * @swagger
+ * /recurring-appointments/{recurringAppointmentId}/appointments:
+ *   get:
+ *     summary: Get linked appointments for a recurring appointment
+ *     tags: [Recurring Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: recurringAppointmentId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: List of linked appointments
+ */
 router.get(
   '/:recurringAppointmentId/appointments',
   validate(recurringAppointmentIdValidator),
   recurringAppointmentController.getLinkedAppointments.bind(recurringAppointmentController)
 );
 
-// Delete recurring appointment (Admin only)
+/**
+ * @swagger
+ * /recurring-appointments/{recurringAppointmentId}:
+ *   delete:
+ *     summary: Delete recurring appointment series (Admin only)
+ *     tags: [Recurring Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: recurringAppointmentId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Recurring appointment deleted
+ *       403:
+ *         description: Admin only
+ *       404:
+ *         description: Recurring appointment not found
+ */
 router.delete(
   '/:recurringAppointmentId',
   requireRoles('Admin'),

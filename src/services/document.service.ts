@@ -1,46 +1,94 @@
-import { DocumentModel, Document } from '../models/document.model';
-import { PatientModel } from '../models/patient.model';
-import { ClinicalNoteModel } from '../models/clinical-note.model';
-import { NotFoundError, BadRequestError } from '../utils/error.util';
+import { prisma } from '../config/db';
+import { NotFoundError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
-import crypto from 'crypto';
+import { getNextId } from '../utils/opendental-ids.util';
+
+const parseJson = <T>(value?: string | null): T => {
+  if (!value) return {} as T;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? (parsed as T) : ({} as T);
+  } catch {
+    return {} as T;
+  }
+};
+
+const buildJson = (value: Record<string, unknown>) => JSON.stringify(value);
+const toIsoString = (value?: string | Date | null): string | undefined => {
+  if (!value) return undefined;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+};
+
+type DocumentMeta = {
+  appointmentId?: string;
+  clinicalNoteId?: string;
+  documentType?: string;
+  storagePath?: string;
+  fileSizeInBytes?: number;
+  mimeType?: string;
+  description?: string;
+  isConfidential?: boolean;
+  expirationDate?: string;
+  ocrText?: string;
+  uploadedBy?: string;
+  checksum?: string;
+  tags?: string[];
+};
 
 export class DocumentService {
-  async getAllDocuments(
-    page = 1,
-    limit = 10,
-    filters: {
-      patientId?: string;
-      appointmentId?: string;
-      documentType?: string;
-      startDate?: Date;
-      endDate?: Date;
-    } = {}
-  ) {
+  private mapDocumentRow(doc: any) {
+    const meta = parseJson<DocumentMeta>(doc.Note);
+    const storagePath = meta.storagePath ?? doc.FileName ?? null;
+    return {
+      _id: doc.DocNum.toString(),
+      patientId: doc.PatNum?.toString() ?? null,
+      appointmentId: meta.appointmentId ?? null,
+      documentName: doc.Description ?? doc.FileName ?? 'Document',
+      documentType: meta.documentType ?? 'other',
+      storagePath,
+      fileUrl: storagePath,
+      documentUrl: storagePath,
+      fileSizeInBytes: meta.fileSizeInBytes ?? null,
+      mimeType: meta.mimeType ?? null,
+      description: meta.description ?? null,
+      isConfidential: meta.isConfidential ?? false,
+      expirationDate: meta.expirationDate ? new Date(meta.expirationDate) : null,
+      ocrText: meta.ocrText ?? doc.OcrResponseData ?? null,
+      uploadedBy: meta.uploadedBy ?? doc.UserNum?.toString() ?? null,
+      checksum: meta.checksum ?? doc.ChartLetterHash ?? null,
+      tags: meta.tags ?? [],
+      createdAt: doc.DateCreated ?? null,
+    };
+  }
+
+  async getAllDocuments(page = 1, limit = 10, filters: { patientId?: string; appointmentId?: string; documentType?: string } = {}) {
     const skip = (page - 1) * limit;
-    const query: any = {};
+    const where: any = {};
 
-    if (filters.patientId) query.patientId = filters.patientId;
-    if (filters.appointmentId) query.appointmentId = filters.appointmentId;
-    if (filters.documentType) query.documentType = filters.documentType;
+    if (filters.patientId) where.PatNum = BigInt(filters.patientId);
 
-    if (filters.startDate || filters.endDate) {
-      query.createdAt = {};
-      if (filters.startDate) query.createdAt.$gte = filters.startDate;
-      if (filters.endDate) query.createdAt.$lte = filters.endDate;
-    }
-
-    const [documents, total] = await Promise.all([
-      DocumentModel.find(query)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .populate('patientId', 'firstName lastName')
-        .populate('appointmentId', 'appointmentDate')
-        .populate('uploadedBy', 'firstName lastName')
-        .lean(),
-      DocumentModel.countDocuments(query),
+    const [rows, total] = await Promise.all([
+      prisma.document.findMany({
+        where,
+        orderBy: { DateCreated: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.document.count({ where }),
     ]);
+
+    let documents = rows.map((doc) => this.mapDocumentRow(doc));
+
+    if (filters.appointmentId) {
+      documents = documents.filter((doc) => doc.appointmentId === filters.appointmentId);
+    }
+    if (filters.documentType) {
+      documents = documents.filter((doc) => doc.documentType === filters.documentType);
+    }
 
     return {
       documents,
@@ -54,59 +102,29 @@ export class DocumentService {
   }
 
   async getDocumentById(documentId: string) {
-    const document = await DocumentModel.findById(documentId)
-      .populate('patientId', 'firstName lastName dateOfBirth')
-      .populate('appointmentId', 'appointmentDate startTime')
-      .populate('uploadedBy', 'firstName lastName')
-      .lean();
-
-    if (!document) {
+    const doc = await prisma.document.findUnique({
+      where: { DocNum: BigInt(documentId) },
+    });
+    if (!doc) {
       throw new NotFoundError('Document not found');
     }
 
-    return document;
+    return this.mapDocumentRow(doc);
   }
 
   async getDocumentsByPatient(patientId: string, page = 1, limit = 10, documentType?: string) {
-    const skip = (page - 1) * limit;
-
-    const patient = await PatientModel.findById(patientId).lean();
-    if (!patient) {
-      throw new NotFoundError('Patient not found');
-    }
-
-    const query: any = { patientId };
-    if (documentType) query.documentType = documentType;
-
-    const [documents, total] = await Promise.all([
-      DocumentModel.find(query)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .populate('appointmentId', 'appointmentDate startTime')
-        .populate('uploadedBy', 'firstName lastName')
-        .lean(),
-      DocumentModel.countDocuments(query),
-    ]);
-
-    return {
-      documents,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit),
-      },
-    };
+    return this.getAllDocuments(page, limit, { patientId, documentType });
   }
 
   async getDocumentsByAppointment(appointmentId: string) {
-    const documents = await DocumentModel.find({ appointmentId })
-      .sort({ createdAt: -1 })
-      .populate('uploadedBy', 'firstName lastName')
-      .lean();
-
-    return documents;
+    const docs = await prisma.document.findMany();
+    return docs
+      .map((doc) => {
+        const meta = parseJson<DocumentMeta>(doc.Note);
+        return { doc, meta };
+      })
+      .filter((item) => item.meta.appointmentId === appointmentId)
+      .map((item) => this.mapDocumentRow(item.doc));
   }
 
   async createDocument(
@@ -115,167 +133,154 @@ export class DocumentService {
       appointmentId?: string;
       documentName: string;
       documentType: string;
-      storagePath: string;
+      storagePath?: string;
       fileSizeInBytes?: number;
       mimeType?: string;
       description?: string;
       isConfidential?: boolean;
-      expirationDate?: Date;
+      expirationDate?: Date | string;
       ocrText?: string;
+      checksum?: string;
       tags?: string[];
     },
-    userId: string
+    uploadedBy: string
   ) {
-    const patient = await PatientModel.findById(data.patientId).lean();
-    if (!patient) {
-      throw new NotFoundError('Patient not found');
-    }
+    const docNum = await getNextId('document', 'DocNum');
+    const payload: DocumentMeta = {
+      appointmentId: data.appointmentId,
+      documentType: data.documentType,
+      storagePath: data.storagePath,
+      fileSizeInBytes: data.fileSizeInBytes,
+      mimeType: data.mimeType,
+      description: data.description,
+      isConfidential: data.isConfidential,
+      expirationDate: toIsoString(data.expirationDate),
+      ocrText: data.ocrText,
+      uploadedBy,
+      checksum: data.checksum,
+      tags: data.tags ?? [],
+    };
 
-    const checksumInput = data.storagePath 
-      ? data.storagePath + Date.now().toString()
-      : data.documentName + Date.now().toString();
-    
-    const checksum = crypto
-      .createHash('md5')
-      .update(checksumInput)
-      .digest('hex');
-
-    const document = await DocumentModel.create({
-      ...data,
-      uploadedBy: userId,
-      checksum,
+    const doc = await prisma.document.create({
+      data: {
+        DocNum: docNum,
+        PatNum: BigInt(data.patientId),
+        Description: data.documentName,
+        FileName: data.storagePath ?? null,
+        Note: buildJson(payload),
+        DateCreated: new Date(),
+        UserNum: BigInt(uploadedBy),
+        OcrResponseData: data.ocrText ?? null,
+      },
     });
 
-    await logActivity(
-      userId,
-      'created',
-      'documents',
-      String(document._id),
-      undefined,
-      { documentName: data.documentName, documentType: data.documentType },
-      undefined,
-      undefined,
-      'medium'
-    );
+    await logActivity(uploadedBy, 'created', 'documents', doc.DocNum.toString(), undefined, doc);
 
-    return document;
+    return this.mapDocumentRow(doc);
   }
 
   async updateDocument(
     documentId: string,
-    updates: {
-      documentName?: string;
-      description?: string;
-      isConfidential?: boolean;
-      expirationDate?: Date;
-      tags?: string[];
-    },
+    updates: Partial<{
+      documentName: string;
+      documentType: string;
+      storagePath: string;
+      fileSizeInBytes: number;
+      mimeType: string;
+      description: string;
+      isConfidential: boolean;
+      expirationDate: Date | string;
+      ocrText: string;
+      checksum: string;
+      tags: string[];
+    }>,
     userId: string
   ) {
-    const document = await DocumentModel.findById(documentId);
-    if (!document) {
+    const doc = await prisma.document.findUnique({
+      where: { DocNum: BigInt(documentId) },
+    });
+    if (!doc) {
       throw new NotFoundError('Document not found');
     }
 
-    const oldData = document.toObject();
+    const meta = parseJson<DocumentMeta>(doc.Note);
+    const nextMeta: DocumentMeta = {
+      ...meta,
+      documentType: updates.documentType ?? meta.documentType,
+      storagePath: updates.storagePath ?? meta.storagePath,
+      fileSizeInBytes: updates.fileSizeInBytes ?? meta.fileSizeInBytes,
+      mimeType: updates.mimeType ?? meta.mimeType,
+      description: updates.description ?? meta.description,
+      isConfidential: updates.isConfidential ?? meta.isConfidential,
+      expirationDate: toIsoString(updates.expirationDate) ?? meta.expirationDate,
+      ocrText: updates.ocrText ?? meta.ocrText,
+      checksum: updates.checksum ?? meta.checksum,
+      tags: updates.tags ?? meta.tags,
+    };
 
-    Object.assign(document, updates);
+    const updated = await prisma.document.update({
+      where: { DocNum: doc.DocNum },
+      data: {
+        Description: updates.documentName ?? undefined,
+        FileName: updates.storagePath ?? undefined,
+        Note: buildJson(nextMeta),
+        OcrResponseData: updates.ocrText ?? undefined,
+      },
+    });
 
-    await document.save();
+    await logActivity(userId, 'updated', 'documents', documentId, doc, updated);
 
-    await logActivity(
-      userId,
-      'updated',
-      'documents',
-      documentId,
-      oldData,
-      document.toObject(),
-      undefined,
-      undefined,
-      'low'
-    );
-
-    return document;
+    return this.mapDocumentRow(updated);
   }
 
   async deleteDocument(documentId: string, userId: string) {
-    const document = await DocumentModel.findById(documentId);
-    if (!document) {
+    const doc = await prisma.document.findUnique({
+      where: { DocNum: BigInt(documentId) },
+    });
+    if (!doc) {
       throw new NotFoundError('Document not found');
     }
 
-    const oldData = document.toObject();
-
-    await DocumentModel.deleteOne({ _id: documentId });
-
-    await logActivity(
-      userId,
-      'deleted',
-      'documents',
-      documentId,
-      oldData,
-      undefined,
-      undefined,
-      undefined,
-      'medium'
-    );
+    await prisma.document.delete({ where: { DocNum: doc.DocNum } });
+    await logActivity(userId, 'deleted', 'documents', documentId, doc, undefined);
 
     return { message: 'Document deleted successfully' };
   }
 
   async attachDocumentToNote(documentId: string, clinicalNoteId: string, userId: string) {
-    const document = await DocumentModel.findById(documentId);
-    if (!document) {
+    const doc = await prisma.document.findUnique({
+      where: { DocNum: BigInt(documentId) },
+    });
+    if (!doc) {
       throw new NotFoundError('Document not found');
     }
 
-    const clinicalNote = await ClinicalNoteModel.findById(clinicalNoteId);
-    if (!clinicalNote) {
-      throw new NotFoundError('Clinical note not found');
-    }
-
-    if (clinicalNote.isSigned) {
-      throw new BadRequestError('Cannot attach documents to a signed clinical note');
-    }
-
-    const noteObj = clinicalNote.toObject() as any;
-    const attachments = noteObj.attachments || [];
-    
-    const docObj = document.toObject() as any;
-    if (!attachments.includes(docObj.storagePath)) {
-      attachments.push(docObj.storagePath);
-      (clinicalNote as any).attachments = attachments;
-      (clinicalNote as any).lastEditedBy = userId;
-      await clinicalNote.save();
-    }
-
-    await logActivity(
-      userId,
-      'updated',
-      'clinical_notes',
+    const meta = parseJson<DocumentMeta>(doc.Note);
+    const nextMeta: DocumentMeta = {
+      ...meta,
       clinicalNoteId,
-      undefined,
-      undefined,
-      undefined,
-      `Document ${docObj.documentName} attached to note`,
-      'low'
-    );
+    };
 
-    return clinicalNote;
+    const updated = await prisma.document.update({
+      where: { DocNum: doc.DocNum },
+      data: { Note: buildJson(nextMeta) },
+    });
+
+    await logActivity(userId, 'updated', 'documents', documentId, doc, updated);
+
+    return this.mapDocumentRow(updated);
   }
 
   async getDocumentTypes() {
-    return [
-      { value: 'insurance_card', label: 'Insurance Card' },
-      { value: 'id', label: 'ID Document' },
-      { value: 'lab_result', label: 'Lab Result' },
-      { value: 'imaging', label: 'Imaging/X-Ray' },
-      { value: 'consent_form', label: 'Consent Form' },
-      { value: 'treatment_plan', label: 'Treatment Plan' },
-      { value: 'referral', label: 'Referral' },
-      { value: 'prescription', label: 'Prescription' },
-      { value: 'other', label: 'Other' },
-    ];
+    const docs = await prisma.document.findMany({ select: { Note: true } });
+    const types = new Set<string>();
+    for (const doc of docs) {
+      const meta = parseJson<DocumentMeta>(doc.Note);
+      if (meta.documentType) {
+        types.add(meta.documentType);
+      }
+    }
+    return Array.from(types);
   }
 }
 

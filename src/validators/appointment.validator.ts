@@ -4,7 +4,7 @@ export const appointmentIdValidator: ValidationChain[] = [
   param('appointmentId')
     .notEmpty()
     .withMessage('Appointment ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment ID format'),
 ];
 
@@ -12,7 +12,7 @@ export const providerIdValidator: ValidationChain[] = [
   param('providerId')
     .notEmpty()
     .withMessage('Provider ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
 ];
 
@@ -20,16 +20,16 @@ export const createAppointmentValidator: ValidationChain[] = [
   body('patientId')
     .notEmpty()
     .withMessage('Patient ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   body('providerId')
     .notEmpty()
     .withMessage('Provider ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
   body('appointmentTypeId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment type ID format'),
   body('appointmentDate')
     .notEmpty()
@@ -90,12 +90,16 @@ export const createAppointmentValidator: ValidationChain[] = [
     .optional()
     .isObject()
     .withMessage('customFields must be an object'),
+  body('checklists')
+    .optional()
+    .isObject()
+    .withMessage('checklists must be an object'),
 ];
 
 export const updateAppointmentValidator: ValidationChain[] = [
   body('appointmentTypeId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment type ID format'),
   body('appointmentDate')
     .optional()
@@ -115,8 +119,30 @@ export const updateAppointmentValidator: ValidationChain[] = [
     .withMessage('Duration must be at least 5 minutes'),
   body('status')
     .optional()
-    .isIn(['scheduled', 'confirmed', 'checked_in', 'completed', 'cancelled', 'no_show'])
-    .withMessage('Status must be one of: scheduled, confirmed, checked_in, completed, cancelled, no_show'),
+    .isIn([
+      'scheduled',
+      'unconfirmed',
+      'preconfirmed',
+      'confirmed',
+      'arrived',
+      'ready_to_be_seated',
+      'seated',
+      'ready_for_doctor',
+      'in_treatment',
+      'ready_for_checkout',
+      'checked_out_incomplete',
+      'checked_out_complete',
+      'completed',
+      'no_show',
+      'call',
+      'left_message',
+      'running_late',
+      'sent_email_or_text',
+      'late',
+      'cancelled',
+      'rescheduled'
+    ])
+    .withMessage('Invalid appointment status'),
   body('chiefComplaint')
     .optional()
     .trim()
@@ -162,6 +188,10 @@ export const updateAppointmentValidator: ValidationChain[] = [
     .optional()
     .isObject()
     .withMessage('customFields must be an object'),
+  body('checklists')
+    .optional()
+    .isObject()
+    .withMessage('checklists must be an object'),
 ];
 
 export const rescheduleAppointmentValidator: ValidationChain[] = [
@@ -197,15 +227,15 @@ export const appointmentQueryValidator: ValidationChain[] = [
     .withMessage('Page must be a positive integer'),
   query('limit')
     .optional()
-    .isInt({ min: 1, max: 100 })
-    .withMessage('Limit must be between 1 and 100'),
+    .isInt({ min: 1, max: 500 })
+    .withMessage('Limit must be between 1 and 500'),
   query('providerId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
   query('patientId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   query('status')
     .optional()
@@ -221,21 +251,27 @@ export const appointmentQueryValidator: ValidationChain[] = [
     .withMessage('End date must be a valid ISO 8601 date'),
   query('appointmentTypeId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment type ID format'),
+  query('search')
+    .optional()
+    .isString()
+    .withMessage('search must be a string'),
 ];
 
 export const scheduleQueryValidator: ValidationChain[] = [
   query('startDate')
-    .notEmpty()
-    .withMessage('startDate is required')
+    .optional()
     .isISO8601()
     .withMessage('startDate must be a valid ISO 8601 date'),
   query('endDate')
-    .notEmpty()
-    .withMessage('endDate is required')
+    .optional()
     .isISO8601()
     .withMessage('endDate must be a valid ISO 8601 date'),
+  query('date')
+    .optional()
+    .isISO8601()
+    .withMessage('date must be a valid ISO 8601 date'),
   query('view')
     .optional()
     .isIn(['day', 'week', 'month'])
@@ -252,4 +288,147 @@ export const availableSlotsQueryValidator: ValidationChain[] = [
     .optional()
     .isInt({ min: 5 })
     .withMessage('Duration must be at least 5 minutes'),
+];
+
+export const appointmentWorkspaceValidator: ValidationChain[] = [
+  body('referralSource')
+    .optional()
+    .isString()
+    .withMessage('referralSource must be a string'),
+  body('reminderPreferences')
+    .optional()
+    .isObject()
+    .withMessage('reminderPreferences must be an object'),
+  body('participants')
+    .optional()
+    .isArray()
+    .withMessage('participants must be an array'),
+  body('participants.*.providerId')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('participants.providerId must be a numeric ID'),
+  body('participants.*.role')
+    .optional()
+    .isString()
+    .withMessage('participants.role must be a string'),
+  body('participants.*.minutes')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('participants.minutes must be a non-negative integer'),
+  body('notes')
+    .optional()
+    .isArray()
+    .withMessage('notes must be an array'),
+  body('notes.*.message')
+    .optional()
+    .isString()
+    .withMessage('notes.message must be a string'),
+  body('systemEvents')
+    .optional()
+    .isArray()
+    .withMessage('systemEvents must be an array'),
+  body('systemEvents.*.message')
+    .optional()
+    .isString()
+    .withMessage('systemEvents.message must be a string'),
+  body('customFields')
+    .optional()
+    .isObject()
+    .withMessage('customFields must be an object'),
+];
+
+export const appointmentProcedureValidator: ValidationChain[] = [
+  body('code')
+    .optional()
+    .isString()
+    .withMessage('code must be a string'),
+  body('codeNum')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('codeNum must be a numeric ID'),
+  body('description')
+    .notEmpty()
+    .withMessage('description is required')
+    .isString()
+    .withMessage('description must be a string'),
+  body('tooth')
+    .optional()
+    .isString()
+    .withMessage('tooth must be a string'),
+  body('surface')
+    .optional()
+    .isString()
+    .withMessage('surface must be a string'),
+  body('fee')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('fee must be a non-negative number'),
+  body('quantity')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('quantity must be at least 1'),
+  body('status')
+    .optional()
+    .isString()
+    .withMessage('status must be a string'),
+  body('providerId')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('providerId must be a numeric ID'),
+];
+
+export const appointmentTagValidator: ValidationChain[] = [
+  body('tag')
+    .notEmpty()
+    .withMessage('tag is required')
+    .isString()
+    .withMessage('tag must be a string'),
+  body('color')
+    .optional()
+    .isString()
+    .withMessage('color must be a string'),
+];
+
+export const appointmentLabOrderValidator: ValidationChain[] = [
+  body('laboratoryId')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('laboratoryId must be a numeric ID'),
+  body('dueDate')
+    .optional()
+    .isISO8601()
+    .withMessage('dueDate must be a valid ISO 8601 date'),
+  body('instructions')
+    .optional()
+    .isString()
+    .withMessage('instructions must be a string'),
+  body('labFee')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('labFee must be a non-negative number'),
+  body('invoiceNumber')
+    .optional()
+    .isString()
+    .withMessage('invoiceNumber must be a string'),
+];
+
+export const appointmentCommunicationValidator: ValidationChain[] = [
+  body('patientId')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('patientId must be a numeric ID'),
+  body('channel')
+    .notEmpty()
+    .withMessage('channel is required')
+    .isIn(['text', 'email', 'call_note', 'review_request', 'welcome', 'portal_invite', 'quick_payment', 'update_request'])
+    .withMessage('Invalid channel'),
+  body('message')
+    .notEmpty()
+    .withMessage('message is required')
+    .isString()
+    .withMessage('message must be a string'),
+  body('subject')
+    .optional()
+    .isString()
+    .withMessage('subject must be a string'),
 ];

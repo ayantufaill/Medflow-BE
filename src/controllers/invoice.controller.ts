@@ -75,10 +75,13 @@ export class InvoiceController {
       }
 
       const appointmentId = req.params.appointmentId as string;
+      const dueDate = req.body.dueDate
+        ? new Date(req.body.dueDate)
+        : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
       const invoice = await invoiceService.createInvoiceFromAppointment(
         appointmentId,
         {
-          dueDate: new Date(req.body.dueDate),
+          dueDate,
           insuranceCompanyId: req.body.insuranceCompanyId,
           providerId: req.body.providerId,
           notes: req.body.notes,
@@ -241,6 +244,136 @@ export class InvoiceController {
       next(error);
     }
   }
+
+  async getInvoicesByPatient(req: Request, res: Response, next: NextFunction) {
+    try {
+      const patientId = req.params.patientId as string;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const result = await invoiceService.getInvoicesByPatient(patientId, page, limit);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPatientBalance(req: Request, res: Response, next: NextFunction) {
+    try {
+      const patientId = req.params.patientId as string;
+      const result = await invoiceService.getPatientBalance(patientId);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async finalizeInvoice(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const invoiceId = req.params.invoiceId as string;
+      const invoice = await invoiceService.finalizeInvoice(invoiceId, req.userId);
+
+      res.status(200).json({
+        success: true,
+        data: { invoice },
+        message: 'Invoice finalized successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async voidInvoice(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const invoiceId = req.params.invoiceId as string;
+      const reason = req.body.reason as string | undefined;
+      const invoice = await invoiceService.voidInvoice(invoiceId, reason, req.userId);
+
+      res.status(200).json({
+        success: true,
+        data: { invoice },
+        message: 'Invoice voided successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createStandaloneInvoice(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const invoice = await invoiceService.createStandaloneInvoice(req.body, req.userId);
+
+      res.status(201).json({
+        success: true,
+        data: { invoice },
+        message: 'Standalone invoice created successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+  async getPatientCompositeLedger(req: Request, res: Response, next: NextFunction) {
+    try {
+      const patientId = req.params.patientId as string;
+      const result = await invoiceService.getPatientCompositeLedger(patientId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async markItemPaid(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { invoiceId, itemId } = req.params;
+    const { amount } = req.body;
+    
+    if (!amount || Number(amount) <= 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: { message: 'amount must be > 0' } 
+      });
+    }
+    
+    await invoiceService.markItemPaid(invoiceId, itemId, Number(amount));
+    res.json({ 
+      success: true, 
+      message: 'Item payment recorded' 
+    });
+  } catch (error) {
+    next(error);
+  }
+}
 }
 
 export const invoiceController = new InvoiceController();

@@ -1,14 +1,12 @@
-import { SecurityEventModel } from '../models/security-event.model';
-import { AuditLogModel } from '../models/audit-log.model';
 import type { Request } from 'express';
+import { prisma } from '../config/db';
+import { getNextId } from './opendental-ids.util';
 
-/**
- * Utility functions for logging user activities and security events
- */
+const safeStringify = (value: unknown): string =>
+  JSON.stringify(value, (_key, currentValue) =>
+    typeof currentValue === 'bigint' ? currentValue.toString() : currentValue
+  );
 
-/**
- * Get client IP address from request
- */
 export const getClientIp = (req: Request): string => {
   return (
     (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
@@ -18,16 +16,36 @@ export const getClientIp = (req: Request): string => {
   );
 };
 
-/**
- * Get user agent from request
- */
 export const getUserAgent = (req: Request): string => {
   return req.headers['user-agent'] || 'unknown';
 };
 
-/**
- * Log a security event (login, password change, etc.)
- */
+const writeSecurityLog = async (userId: string | null, logText: string, retries = 3) => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const logNum = await getNextId('securitylog', 'SecurityLogNum');
+      await prisma.securitylog.create({
+        data: {
+          SecurityLogNum: logNum,
+          UserNum: userId ? BigInt(userId) : null,
+          LogDateTime: new Date(),
+          LogText: logText,
+        },
+      });
+      return; // Success - exit function
+    } catch (error: any) {
+      if (error.code === 'P2002' && attempt < retries) {
+        // Duplicate key, retry with backoff
+        await new Promise(res => setTimeout(res, Math.random() * 50 * attempt));
+        continue; // Try again
+      }
+      console.error('Error logging activity:', error);
+      break; // Stop trying
+    }
+  }
+};
+
+
 export const logSecurityEvent = async (
   userId: string | null,
   eventType: 'login_success' | 'login_failure' | 'password_change' | 'password_reset' | 'session_end',
@@ -35,24 +53,17 @@ export const logSecurityEvent = async (
   ipAddress?: string,
   riskLevel: 'low' | 'medium' | 'high' = 'low'
 ): Promise<void> => {
-  try {
-    await SecurityEventModel.create({
-      userId: userId || undefined,
-      eventType,
-      description,
-      ipAddress,
-      riskLevel,
-      occurredAt: new Date(),
-    });
-  } catch (error) {
-    // Don't throw - logging should not break the main flow
-    console.error('Error logging security event:', error);
-  }
+  const payload = safeStringify({
+    type: 'security_event',
+    eventType,
+    description,
+    ipAddress,
+    riskLevel,
+    occurredAt: new Date().toISOString(),
+  });
+  await writeSecurityLog(userId, payload);
 };
 
-/**
- * Log user activity (audit log)
- */
 export const logActivity = async (
   userId: string,
   action: 'created' | 'updated' | 'deleted' | 'viewed',
@@ -64,27 +75,21 @@ export const logActivity = async (
   userAgent?: string,
   riskLevel: 'low' | 'medium' | 'high' = 'low'
 ): Promise<void> => {
-  try {
-    await AuditLogModel.create({
-      userId,
-      action,
-      tableName,
-      recordId,
-      oldValues,
-      newValues,
-      ipAddress,
-      userAgent,
-      riskLevel,
-    });
-  } catch (error) {
-    // Don't throw - logging should not break the main flow
-    console.error('Error logging activity:', error);
-  }
+  const payload = safeStringify({
+    type: 'activity',
+    action,
+    tableName,
+    recordId,
+    oldValues,
+    newValues,
+    ipAddress,
+    userAgent,
+    riskLevel,
+    occurredAt: new Date().toISOString(),
+  });
+  await writeSecurityLog(userId, payload);
 };
 
-/**
- * Log activity from Express request
- */
 export const logActivityFromRequest = async (
   req: Request,
   action: 'created' | 'updated' | 'deleted' | 'viewed',
@@ -97,7 +102,7 @@ export const logActivityFromRequest = async (
     return;
   }
 
-  await logActivity(
+  logActivity(
     req.userId,
     action,
     tableName,
@@ -106,6 +111,7 @@ export const logActivityFromRequest = async (
     newValues,
     getClientIp(req),
     getUserAgent(req)
-  );
+  ).catch((err) => {
+    console.error('Audit log failed:', err);
+  });
 };
-

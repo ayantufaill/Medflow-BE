@@ -1,12 +1,13 @@
 import type { Request, Response, NextFunction } from 'express';
 import { verifyAccessToken } from '../utils/jwt.util';
 import { AuthenticationError, AuthorizationError } from '../utils/error.util';
-import { UserModel } from '../models/user.model';
+import { prisma } from '../config/db';
+import { getUserMeta } from '../utils/opendental-auth.util';
 
 export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const authHeader = req.headers.authorization;
-    
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       throw new AuthenticationError('No token provided');
     }
@@ -14,29 +15,30 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
     const token = authHeader.substring(7);
     const decoded = await verifyAccessToken(token);
 
-    // Check if user's token version matches (password might have been changed)
     if (decoded.tokenVersion !== undefined) {
-      const user = await UserModel.findById(decoded.userId).select('tokenVersion isActive');
+      const user = await prisma.userod.findUnique({
+        where: { UserNum: BigInt(decoded.userId) },
+      });
       if (!user) {
         throw new AuthenticationError('User not found');
       }
 
-      if (!user.isActive) {
+      const meta = await getUserMeta(user.UserNum);
+      if (meta.isActive === false || user.IsHidden) {
         throw new AuthenticationError('Account is deactivated');
       }
 
-      // If token version doesn't match, token is invalid (password was changed)
-      if (user.tokenVersion !== decoded.tokenVersion) {
+      if (Number(meta.tokenVersion ?? 0) !== Number(decoded.tokenVersion ?? 0)) {
         throw new AuthenticationError('Token has been invalidated. Please login again.');
       }
     }
-    
+
     req.user = decoded;
     req.userId = decoded.userId;
-    
+
     next();
   } catch (error) {
-    if (error instanceof Error && error.message.includes('token') || error instanceof Error && error.message.includes('Token')) {
+    if (error instanceof Error && (error.message.includes('token') || error.message.includes('Token'))) {
       next(new AuthenticationError(error.message));
     } else {
       next(new AuthenticationError('Invalid token'));
@@ -81,4 +83,3 @@ export const requireAllRoles = (...requiredRoles: string[]) => {
     next();
   };
 };
-

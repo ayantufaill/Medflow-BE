@@ -4,7 +4,7 @@ export const clinicalNoteIdValidator: ValidationChain[] = [
   param('clinicalNoteId')
     .notEmpty()
     .withMessage('Clinical note ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid clinical note ID format'),
 ];
 
@@ -12,7 +12,7 @@ export const patientIdParamValidator: ValidationChain[] = [
   param('patientId')
     .notEmpty()
     .withMessage('Patient ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
 ];
 
@@ -20,7 +20,7 @@ export const appointmentIdParamValidator: ValidationChain[] = [
   param('appointmentId')
     .notEmpty()
     .withMessage('Appointment ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment ID format'),
 ];
 
@@ -28,7 +28,7 @@ export const providerIdParamValidator: ValidationChain[] = [
   param('providerId')
     .notEmpty()
     .withMessage('Provider ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
 ];
 
@@ -36,7 +36,7 @@ export const templateIdParamValidator: ValidationChain[] = [
   param('templateId')
     .notEmpty()
     .withMessage('Template ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid template ID format'),
 ];
 
@@ -44,20 +44,20 @@ export const createClinicalNoteValidator: ValidationChain[] = [
   body('patientId')
     .notEmpty()
     .withMessage('Patient ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   body('appointmentId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment ID format'),
   body('providerId')
     .notEmpty()
     .withMessage('Provider ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
   body('templateId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid template ID format'),
   body('noteType')
     .optional()
@@ -238,16 +238,16 @@ export const createFromTemplateValidator: ValidationChain[] = [
   body('patientId')
     .notEmpty()
     .withMessage('Patient ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   body('appointmentId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment ID format'),
   body('providerId')
     .notEmpty()
     .withMessage('Provider ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
 ];
 
@@ -270,15 +270,15 @@ export const clinicalNoteQueryValidator: ValidationChain[] = [
     .withMessage('Limit must be between 1 and 100'),
   query('patientId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   query('providerId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
   query('appointmentId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment ID format'),
   query('noteType')
     .optional()

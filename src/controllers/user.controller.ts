@@ -213,7 +213,7 @@ export class UserController {
         });
       }
       
-      const result = await userService.removeRole(userId, roleId, req.userId);
+      const result = await userService.removeRole(userId, roleId);
       res.status(200).json({
         success: true,
         data: result,
@@ -234,7 +234,7 @@ export class UserController {
         });
       }
       
-      const result = await userService.deleteUser(userId, req.userId);
+      const result = await userService.deleteUser(userId, req.userId ?? 'system');
       res.status(200).json({
         success: true,
         data: result,
@@ -302,14 +302,7 @@ export class UserController {
         });
       }
       
-      const result = await userService.getUserActivity(
-        userId,
-        page,
-        limit,
-        search || undefined,
-        startDate || undefined,
-        endDate || undefined
-      );
+      const result = await userService.getUserActivity(userId, page, limit);
       res.status(200).json({
         success: true,
         data: result,
@@ -335,14 +328,7 @@ export class UserController {
         });
       }
       
-      const result = await userService.getUserLoginHistory(
-        userId,
-        page,
-        limit,
-        search || undefined,
-        startDate || undefined,
-        endDate || undefined
-      );
+      const result = await userService.getUserLoginHistory(userId, page, limit);
       res.status(200).json({
         success: true,
         data: result,
@@ -354,7 +340,7 @@ export class UserController {
 
   async createUser(req: Request, res: Response, next: NextFunction) {
     try {
-      const { email, firstName, lastName, phone, preferredLanguage, roleIds } = req.body;
+      const { email, firstName, lastName, phone, preferredLanguage, roleIds, roleId } = req.body;
 
       if (!req.userId) {
         return res.status(401).json({
@@ -378,8 +364,16 @@ export class UserController {
       
       if (phone) userData.phone = phone;
       if (preferredLanguage) userData.preferredLanguage = preferredLanguage;
+      const normalizedRoleIds: string[] = [];
+      if (roleId) {
+        normalizedRoleIds.push(roleId);
+      }
       if (roleIds) {
-        userData.roleIds = Array.isArray(roleIds) ? roleIds : [roleIds];
+        normalizedRoleIds.push(...(Array.isArray(roleIds) ? roleIds : [roleIds]));
+      }
+
+      if (normalizedRoleIds.length > 0) {
+        userData.roleIds = Array.from(new Set(normalizedRoleIds.map(String)));
       }
 
       const result = await userService.createUser(
@@ -395,7 +389,36 @@ export class UserController {
       next(error);
     }
   }
+
+  async assignUserRoles(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId } = req.params;
+      const { roleIds } = req.body;
+
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'User ID is required' },
+        });
+      }
+
+      if (!Array.isArray(roleIds)) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'roleIds must be an array of strings' },
+        });
+      }
+
+      await userService.assignUserRoles(userId, roleIds);
+
+      res.status(200).json({
+        success: true,
+        data: { message: 'User roles updated successfully' },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const userController = new UserController();
-

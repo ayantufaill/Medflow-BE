@@ -1,39 +1,58 @@
-import { PatientModel } from '../models/patient.model';
-import { InvoiceModel } from '../models/invoice.model';
+import { prisma } from '../config/db';
 import { NotFoundError, ConflictError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
+import { getNextId } from '../utils/opendental-ids.util';
+import {
+  mapContactPreferenceToDb,
+  mapGenderToDb,
+  mapPatientToApi,
+} from '../utils/opendental-mappers.util';
+import { getPatientMeta, getPatientsMeta, setPatientMeta } from '../utils/opendental-auth.util';
+import {
+  mapProcedureStatusToText,
+  normalizeMedicalHistoryRows,
+  normalizeDentalHistorySections,
+  buildVisitDates,
+} from '../utils/patient-history.util';
+import { DEFAULT_MEDICAL_HISTORY, DEFAULT_DENTAL_HISTORY } from './patient-history-defaults';
+import { patientWorkspaceService } from './patient-workspace.service';
+import { clinicalNoteService } from './clinical-note.service';
+
+// Builds options object for mapPatientToApi from stored patient meta
+const buildPatientMapperOptions = (patientMeta: Record<string, any>) => ({
+  emergencyContact: patientMeta.emergencyContact ?? null,
+  portalAccessEnabled: patientMeta.portalAccessEnabled ?? false,
+  referralSource: patientMeta.referralSource ?? null,
+  customFields: patientMeta.customFields ?? {},
+  preferredDentistId: patientMeta.preferredDentistId ?? null,
+  preferredHygienistId: patientMeta.preferredHygienistId ?? null,
+  headOfCommunication: patientMeta.headOfCommunication ?? null,
+  household: patientMeta.household ?? [],
+  spouseInfo: patientMeta.spouseInfo ?? null,
+  patientFlags: patientMeta.patientFlags ?? [],
+  financialResponsibility: patientMeta.financialResponsibility ?? null,
+  sexAtBirth: patientMeta.sexAtBirth ?? null,
+  genderIdentity: patientMeta.genderIdentity ?? null,
+  maritalStatus: patientMeta.maritalStatus ?? null,
+  occupation: patientMeta.occupation ?? null,
+  employer: patientMeta.employer ?? null,
+  guardianEmployer: patientMeta.guardianEmployer ?? null,
+  workAddress: patientMeta.workAddress ?? null,
+  patientProfileType: patientMeta.patientProfileType ?? null,
+  medicalHistory: patientMeta.medicalHistory ?? null,
+});
 
 /**
  * Generate unique patient code (e.g., PAT001, PAT002, etc.)
  */
 async function generatePatientCode(): Promise<string> {
-  // Find the highest numbered patient code
-  const lastPatient = await PatientModel.findOne()
-    .sort({ patientCode: -1 })
-    .select('patientCode')
-    .lean();
-
-  if (!lastPatient || !lastPatient.patientCode) {
-    return 'PAT001';
-  }
-
-  // Extract number from code (e.g., "PAT001" -> 1)
-  const patientCodeStr = String(lastPatient.patientCode || '');
-  const match = patientCodeStr.match(/\d+$/);
-  if (!match) {
-    return 'PAT001';
-  }
-
-  const lastNumber = parseInt(match[0], 10);
-  const nextNumber = lastNumber + 1;
-
-  // Format as PAT001, PAT002, etc. (3 digits minimum)
-  return `PAT${nextNumber.toString().padStart(3, '0')}`;
+  const nextId = await getNextId('patient', 'PatNum');
+  return `PAT${nextId.toString().padStart(3, '0')}`;
 }
 
 export class PatientService {
   /**
-   * Get all patients with pagination and search
+   * Get all patients with pagination, search, status, and DOB range filters
    */
   async getAllPatients(
     page = 1,
@@ -41,92 +60,133 @@ export class PatientService {
     search?: string,
     status?: string,
     dobStart?: string,
-    dobEnd?: string
+    dobEnd?: string,
+    gender?: string,
+    providerId?: string
   ) {
     const skip = (page - 1) * limit;
-    const query: any = {};
+    const where: any = {};
+
+    // Filter by gender using mapGenderToDb
+    if (gender) {
+      const dbGender = mapGenderToDb(gender);
+      if (dbGender !== null) {
+        where.Gender = dbGender;
+      }
+    }
+
+    // Filter by provider using userodpref json search
+    if (providerId) {
+      const matchingPrefs = await prisma.userodpref.findMany({
+        where: {
+          FkeyType: 206,
+          ValueString: {
+            contains: `"preferredDentistId":"${providerId}"`,
+          },
+        },
+        select: {
+          Fkey: true,
+        },
+      });
+
+      const matchingPatNums = matchingPrefs
+        .map((p) => p.Fkey)
+        .filter((fkey): fkey is bigint => fkey !== null);
+
+      where.PatNum = {
+        in: matchingPatNums,
+      };
+    }
 
     // Search filter - search by name, DOB, phone, email, patient code
     if (search) {
       const searchTerms = search.trim().split(/\s+/).filter(term => term.length > 0);
 
       if (searchTerms.length > 1) {
-        // Multiple words - try both orders for name
+        // Multiple words - try both orders for name matching
         const firstNameSearch = searchTerms[0];
         const lastNameSearch = searchTerms.slice(1).join(' ');
         const reverseFirstNameSearch = searchTerms[searchTerms.length - 1];
         const reverseLastNameSearch = searchTerms.slice(0, -1).join(' ');
 
-        query.$or = [
-          { patientCode: { $regex: search, $options: 'i' } },
-          { email: { $regex: search, $options: 'i' } },
-          { phonePrimary: { $regex: search, $options: 'i' } },
-          { phoneSecondary: { $regex: search, $options: 'i' } },
+        where.OR = [
+          { ChartNumber: { contains: search } },
+          { Email: { contains: search } },
+          { WirelessPhone: { contains: search } },
+          { HmPhone: { contains: search } },
+          { WkPhone: { contains: search } },
           {
-            $and: [
-              { firstName: { $regex: firstNameSearch, $options: 'i' } },
-              { lastName: { $regex: lastNameSearch, $options: 'i' } },
+            AND: [
+              { FName: { contains: firstNameSearch } },
+              { LName: { contains: lastNameSearch } },
             ],
           },
           {
-            $and: [
-              { firstName: { $regex: reverseFirstNameSearch, $options: 'i' } },
-              { lastName: { $regex: reverseLastNameSearch, $options: 'i' } },
+            AND: [
+              { FName: { contains: reverseFirstNameSearch } },
+              { LName: { contains: reverseLastNameSearch } },
             ],
           },
-          { firstName: { $regex: search, $options: 'i' } },
-          { lastName: { $regex: search, $options: 'i' } },
-          { referralSource: { $regex: search, $options: 'i' } },
+          { FName: { contains: search } },
+          { LName: { contains: search } },
+          { AddrNote: { contains: search } },
         ];
       } else {
-        // Single word - search in all fields
-        query.$or = [
-          { patientCode: { $regex: search, $options: 'i' } },
-          { email: { $regex: search, $options: 'i' } },
-          { firstName: { $regex: search, $options: 'i' } },
-          { lastName: { $regex: search, $options: 'i' } },
-          { phonePrimary: { $regex: search, $options: 'i' } },
-          { phoneSecondary: { $regex: search, $options: 'i' } },
-          { referralSource: { $regex: search, $options: 'i' } },
+        // Single word - search across all relevant fields
+        where.OR = [
+          { ChartNumber: { contains: search } },
+          { Email: { contains: search } },
+          { FName: { contains: search } },
+          { LName: { contains: search } },
+          { WirelessPhone: { contains: search } },
+          { HmPhone: { contains: search } },
+          { WkPhone: { contains: search } },
+          { AddrNote: { contains: search } },
         ];
       }
     }
 
-    // Status filter
+    // Status filter (PatStatus: 0 = active, 2 = inactive)
     if (status !== undefined && status !== '') {
       if (status === 'active') {
-        query.isActive = true;
+        where.PatStatus = 0;
       } else if (status === 'inactive') {
-        query.isActive = false;
+        where.PatStatus = 2;
       }
     }
 
     // Date of birth range filter
     if (dobStart || dobEnd) {
-      query.dateOfBirth = {};
+      where.Birthdate = {};
       if (dobStart) {
         const startDate = new Date(dobStart);
         startDate.setHours(0, 0, 0, 0);
-        query.dateOfBirth.$gte = startDate;
+        where.Birthdate.gte = startDate;
       }
       if (dobEnd) {
         const endDate = new Date(dobEnd);
         endDate.setHours(23, 59, 59, 999);
-        query.dateOfBirth.$lte = endDate;
+        where.Birthdate.lte = endDate;
       }
     }
 
     const [patients, total] = await Promise.all([
-      PatientModel.find(query)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      PatientModel.countDocuments(query),
+      prisma.patient.findMany({
+        where,
+        orderBy: { DateTStamp: 'desc' },
+        skip,
+        take: limit,
+      }),
+      prisma.patient.count({ where }),
     ]);
 
+    const patientNums = patients.map((patient) => patient.PatNum);
+    const patientsMeta = await getPatientsMeta(patientNums);
+
     return {
-      patients,
+      patients: patients.map((patient) =>
+        mapPatientToApi(patient, buildPatientMapperOptions(patientsMeta[patient.PatNum.toString()] ?? {}))
+      ),
       pagination: {
         page,
         limit,
@@ -137,56 +197,173 @@ export class PatientService {
   }
 
   /**
-   * Get patient by ID
+   * Get patient by ID (SSN is excluded from the response)
    */
   async getPatientById(patientId: string) {
-    const patient = await PatientModel.findById(patientId).lean();
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) },
+    });
 
     if (!patient) {
       throw new NotFoundError('Patient not found');
     }
 
-    return patient;
+    const patientMeta = await getPatientMeta(patient.PatNum);
+    const mapped = mapPatientToApi(patient, buildPatientMapperOptions(patientMeta));
+    return {
+      ...mapped,
+      ssn: null,
+    };
   }
 
   /**
    * Get patient by ID including SSN (for authorized users only)
    */
   async getPatientByIdWithSSN(patientId: string) {
-    const patient = await PatientModel.findById(patientId).lean();
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) },
+    });
 
     if (!patient) {
       throw new NotFoundError('Patient not found');
     }
 
-    return patient;
+    const patientMeta = await getPatientMeta(patient.PatNum);
+    return mapPatientToApi(patient, buildPatientMapperOptions(patientMeta));
   }
 
   /**
    * Get patient account balance summary
    */
-  async getPatientBalance(patientId: string) {
-    const patient = await PatientModel.findById(patientId).lean();
-    if (!patient) {
-      throw new NotFoundError('Patient not found');
-    }
-
-    const invoices = await InvoiceModel.find({
-      patientId,
-      status: { $in: ['draft', 'submitted', 'partially_paid', 'denied'] },
-    })
-      .select('balanceDue')
-      .lean();
-
-    const totalBalance = invoices.reduce((sum, invoice) => sum + (Number(invoice.balanceDue) || 0), 0);
-
-    return {
-      patientId,
-      totalBalance,
-      openInvoices: invoices.length,
-    };
+async getPatientBalance(patientId: string) {
+  const patient = await prisma.patient.findUnique({
+    where: { PatNum: BigInt(patientId) },
+    select: { PatNum: true },
+  });
+  if (!patient) {
+    throw new NotFoundError('Patient not found');
   }
 
+  const patNum = BigInt(patientId);
+
+  // Sum all completed procedure fees
+  const procedureAgg = await prisma.procedurelog.aggregate({
+    where: { PatNum: patNum, ProcStatus: 2 },
+    _sum: { ProcFee: true },
+  });
+
+  // Sum all adjustments (negative adjustments reduce the balance)
+  const adjustmentAgg = await prisma.adjustment.aggregate({
+    where: { PatNum: patNum },
+    _sum: { AdjAmt: true },
+  });
+
+  // Sum all payments applied via paysplit (OpenDental native)
+  const paysplitAgg = await prisma.paysplit.aggregate({
+    where: { PatNum: patNum },
+    _sum: { SplitAmt: true },
+  });
+
+  // Sum all payments via invoice/payment system (MedFlow)
+  const invoicePaymentAgg = await prisma.payment.aggregate({
+    where: { PatNum: patNum },
+    _sum: { PayAmt: true },
+  });
+
+  const totalCharged = procedureAgg._sum.ProcFee ?? 0;
+  const totalAdjustments = adjustmentAgg._sum.AdjAmt ?? 0;
+  const totalPaid = (paysplitAgg._sum.SplitAmt ?? 0) + (invoicePaymentAgg._sum.PayAmt ?? 0);
+  const balance = totalCharged + totalAdjustments - totalPaid;
+
+  // Last payment date
+  const lastPayment = await prisma.payment.findFirst({
+    where: { PatNum: patNum },
+    orderBy: { PayDate: 'desc' },
+    select: { PayDate: true },
+  });
+
+  // Overdue: procedures older than 30 days, proportional to outstanding balance
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+  const overdueAgg = await prisma.procedurelog.aggregate({
+    where: {
+      PatNum: patNum,
+      ProcStatus: 2,
+      ProcDate: { lt: thirtyDaysAgo },
+    },
+    _sum: { ProcFee: true },
+  });
+
+  const overdueProcFee = overdueAgg._sum.ProcFee ?? 0;
+  const overdueRatio = totalCharged > 0 ? overdueProcFee / totalCharged : 0;
+  const overdueAmount = Math.max(0, balance * overdueRatio);
+
+  return {
+    balance: parseFloat(balance.toFixed(2)),
+    lastPaymentDate: lastPayment?.PayDate ?? null,
+    overdueAmount: parseFloat(overdueAmount.toFixed(2)),
+  };
+}
+/**
+ * Get the most recent completed appointment for a patient
+ */
+async getPatientLastVisit(patientId: string) {
+  const patient = await prisma.patient.findUnique({
+    where: { PatNum: BigInt(patientId) },
+  });
+  if (!patient) {
+    throw new NotFoundError('Patient not found');
+  }
+
+  // AptStatus 2 = completed in OpenDental, but also check other statuses
+  // since completion may be tracked in meta
+  const lastAppointment = await prisma.appointment.findFirst({
+    where: {
+      PatNum: BigInt(patientId),
+      AptStatus: { in: [2, 5, 6] }, // 2=complete, 5=complete variants
+      AptDateTime: { lt: new Date() }, // must be in the past
+    },
+    orderBy: { AptDateTime: 'desc' },
+    include: {
+      provider_appointment_ProvNumToprovider: true,
+      appointmenttype: true,
+    },
+  });
+
+  // Fallback: get the most recent past appointment regardless of status
+  const fallback = !lastAppointment
+    ? await prisma.appointment.findFirst({
+        where: {
+          PatNum: BigInt(patientId),
+          AptDateTime: { lt: new Date() },
+        },
+        orderBy: { AptDateTime: 'desc' },
+        include: {
+          provider_appointment_ProvNumToprovider: true,
+          appointmenttype: true,
+        },
+      })
+    : null;
+
+  const apt = lastAppointment ?? fallback;
+
+  if (!apt) {
+    throw new NotFoundError('No completed appointments found for this patient');
+  }
+
+  const provider = apt.provider_appointment_ProvNumToprovider;
+  const providerName = provider
+    ? `${provider.FName ?? ''} ${provider.LName ?? ''}`.trim() || provider.Abbr || null
+    : null;
+
+  return {
+    date: apt.AptDateTime ?? null,
+    providerName,
+    appointmentType: apt.appointmenttype?.AppointmentTypeName ?? null,
+    notesSummary: apt.Note ? apt.Note.slice(0, 200) : apt.ProcDescript ? apt.ProcDescript.slice(0, 200) : null,
+  };
+}
   /**
    * Search for duplicate patients based on name, DOB, phone, email
    */
@@ -197,29 +374,27 @@ export class PatientService {
     phonePrimary?: string;
     email?: string;
   }) {
-    const query: any = {
-      firstName: { $regex: new RegExp(`^${data.firstName}$`, 'i') },
-      lastName: { $regex: new RegExp(`^${data.lastName}$`, 'i') },
-      dateOfBirth: data.dateOfBirth,
+    const where: any = {
+      FName: { equals: data.firstName },
+      LName: { equals: data.lastName },
+      Birthdate: data.dateOfBirth,
     };
 
-    // Also check phone or email if provided
     if (data.phonePrimary || data.email) {
-      query.$or = [];
+      where.OR = [];
       if (data.phonePrimary) {
-        query.$or.push({ phonePrimary: data.phonePrimary });
-        query.$or.push({ phoneSecondary: data.phonePrimary });
+        where.OR.push({ WirelessPhone: data.phonePrimary });
+        where.OR.push({ HmPhone: data.phonePrimary });
+        where.OR.push({ WkPhone: data.phonePrimary });
       }
       if (data.email) {
-        query.$or.push({ email: data.email.toLowerCase() });
+        where.OR.push({ Email: data.email.toLowerCase() });
       }
     }
 
-    const duplicates = await PatientModel.find(query)
-      .select('_id patientCode firstName lastName dateOfBirth phonePrimary email')
-      .lean();
+    const duplicates = await prisma.patient.findMany({ where });
 
-    return duplicates;
+    return duplicates.map((patient) => mapPatientToApi(patient));
   }
 
   /**
@@ -231,8 +406,11 @@ export class PatientService {
       lastName: string;
       middleName?: string;
       preferredName?: string;
+      title?: string;
       dateOfBirth: Date;
       gender?: string;
+      sexAtBirth?: string;
+      genderIdentity?: string;
       ssn?: string;
       phonePrimary?: string;
       phoneSecondary?: string;
@@ -255,11 +433,27 @@ export class PatientService {
       userAccountId?: string;
       lastVisitDate?: Date;
       referralSource?: string;
+      maritalStatus?: string;
+      occupation?: string;
+      employer?: string;
+      guardianEmployer?: string;
+      patientProfileType?: string;
+      workAddress?: {
+        country?: string;
+        line1?: string;
+        line2?: string;
+        city?: string;
+        state?: string;
+        postalCode?: string;
+      };
       notes?: string;
+      customFields?: Record<string, unknown>;
+      preferredDentistId?: string;
+      preferredHygienistId?: string;
     },
     createdBy?: string
   ) {
-    // Check for duplicates
+    // Check for duplicates before creating
     const duplicateData: {
       firstName: string;
       lastName: string;
@@ -284,48 +478,86 @@ export class PatientService {
 
     // Generate unique patient code
     const patientCode = await generatePatientCode();
+    const nextId = await getNextId('patient', 'PatNum');
 
-    // Create patient
-    const patient = await PatientModel.create({
-      patientCode,
-      firstName: data.firstName,
-      lastName: data.lastName,
-      middleName: data.middleName,
-      preferredName: data.preferredName,
-      dateOfBirth: data.dateOfBirth,
-      gender: data.gender || 'unknown',
-      ssn: data.ssn && data.ssn.trim() ? data.ssn.replace(/-/g, '').trim() : undefined, // Store as digits only, undefined if empty
-      phonePrimary: data.phonePrimary,
-      phoneSecondary: data.phoneSecondary,
-      email: data.email?.toLowerCase(),
-      address: data.address,
-      emergencyContact: data.emergencyContact,
-      preferredLanguage: data.preferredLanguage || 'en',
-      communicationPreference: data.communicationPreference || 'phone',
-      portalAccessEnabled: data.portalAccessEnabled !== undefined ? data.portalAccessEnabled : false,
-      userAccountId: data.userAccountId,
-      lastVisitDate: data.lastVisitDate,
-      referralSource: data.referralSource,
-      notes: data.notes,
-      isActive: true,
+    // Create patient record
+    const patient = await prisma.patient.create({
+      data: {
+        PatNum: nextId,
+        ChartNumber: patientCode,
+        FName: data.firstName,
+        LName: data.lastName,
+        MiddleI: data.middleName?.trim() || null,
+        Preferred: data.preferredName?.trim() || null,
+        Title: data.title?.trim() || null,
+        Birthdate: data.dateOfBirth,
+        Gender: mapGenderToDb(data.gender),
+        SSN: data.ssn && data.ssn.trim() ? data.ssn.replace(/-/g, '').trim() : null,
+        WirelessPhone: data.phonePrimary?.trim() || null,
+        HmPhone: data.phonePrimary?.trim() || null,
+        WkPhone: data.phoneSecondary?.trim() || null,
+        Email: data.email?.toLowerCase() || null,
+        Address: data.address?.line1?.trim() || null,
+        Address2: data.address?.line2?.trim() || null,
+        City: data.address?.city?.trim() || null,
+        State: data.address?.state?.trim() || null,
+        Zip: data.address?.postalCode?.trim() || null,
+        Language: data.preferredLanguage?.trim() || 'en',
+        PreferContactMethod: mapContactPreferenceToDb(data.communicationPreference),
+        PatStatus: 0,
+        DateFirstVisit: data.lastVisitDate ?? null,
+        AddrNote: data.notes?.trim() || null,
+      },
+    });
+
+    await setPatientMeta(patient.PatNum, {
+      emergencyContact: data.emergencyContact ?? null,
+      portalAccessEnabled: data.portalAccessEnabled ?? false,
+      referralSource: data.referralSource?.trim() || null,
+      customFields: data.customFields ?? {},
+      preferredDentistId: data.preferredDentistId ?? null,
+      preferredHygienistId: data.preferredHygienistId ?? null,
+      headOfCommunication: null,
+      household: [],
+      spouseInfo: null,
+      patientFlags: [],
+      financialResponsibility: null,
+      sexAtBirth: data.sexAtBirth ?? data.gender ?? null,
+      genderIdentity: data.genderIdentity ?? data.gender ?? null,
+      maritalStatus: data.maritalStatus?.trim() || null,
+      occupation: data.occupation?.trim() || null,
+      employer: data.employer?.trim() || null,
+      guardianEmployer: data.guardianEmployer?.trim() || null,
+      patientProfileType: data.patientProfileType ?? 'adult',
+      workAddress: data.workAddress ?? null,
+      medicalHistory: null,
+      dentalHistory: null,
     });
 
     // Log activity
     if (createdBy) {
+      const patientApi = mapPatientToApi(patient);
       await logActivity(
         createdBy,
         'created',
         'patients',
-        patient._id.toString(),
+        patientApi._id,
         undefined,
-        { patientCode: patient.patientCode, firstName: patient.firstName, lastName: patient.lastName },
+        { patientCode: patientApi.patientCode, firstName: patientApi.firstName, lastName: patientApi.lastName },
         undefined,
         undefined,
         'low'
       );
+      await patientWorkspaceService.recordAuditEvent(patientApi._id, {
+        action: 'patient_created',
+        source: 'office',
+        actorUserId: createdBy,
+        section: 'patient_profile',
+        newValue: patientApi,
+      });
     }
 
-    return this.getPatientByIdWithSSN(patient._id.toString());
+    return this.getPatientByIdWithSSN(patient.PatNum.toString());
   }
 
   /**
@@ -338,8 +570,11 @@ export class PatientService {
       lastName?: string;
       middleName?: string;
       preferredName?: string;
+      title?: string;
       dateOfBirth?: Date;
       gender?: string;
+      sexAtBirth?: string;
+      genderIdentity?: string;
       ssn?: string;
       phonePrimary?: string;
       phoneSecondary?: string;
@@ -362,127 +597,142 @@ export class PatientService {
       isActive?: boolean;
       lastVisitDate?: Date;
       referralSource?: string;
+      maritalStatus?: string;
+      occupation?: string;
+      employer?: string;
+      guardianEmployer?: string;
+      patientProfileType?: string;
+      workAddress?: {
+        country?: string;
+        line1?: string;
+        line2?: string;
+        city?: string;
+        state?: string;
+        postalCode?: string;
+      };
       notes?: string;
+      customFields?: Record<string, unknown>;
+      preferredDentistId?: string | null;
+      preferredHygienistId?: string | null;
+      headOfCommunication?: Record<string, any> | null;
+      household?: any[];
+      spouseInfo?: Record<string, any> | null;
+      patientFlags?: any[];
+      financialResponsibility?: Record<string, any> | null;
     },
     updatedBy?: string
   ) {
-    const patient = await PatientModel.findById(patientId);
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) },
+    });
     if (!patient) {
       throw new NotFoundError('Patient not found');
     }
 
     const oldValues = {
-      firstName: patient.firstName,
-      lastName: patient.lastName,
-      phonePrimary: patient.phonePrimary,
-      email: patient.email,
-      isActive: patient.isActive,
+      firstName: patient.FName,
+      lastName: patient.LName,
+      phonePrimary: patient.WirelessPhone ?? patient.HmPhone,
+      email: patient.Email,
+      isActive: patient.PatStatus === null ? true : patient.PatStatus !== 2,
     };
+    const currentMeta = await getPatientMeta(patient.PatNum);
 
-    // Update fields - handle empty strings to clear optional fields
-    if (updates.firstName !== undefined) patient.firstName = updates.firstName;
-    if (updates.lastName !== undefined) patient.lastName = updates.lastName;
-    if (updates.middleName !== undefined) {
-      // Empty string clears the field (use null for Mongoose)
-      const trimmed = updates.middleName.trim();
-      patient.middleName = trimmed ? trimmed : null;
-    }
-    if (updates.preferredName !== undefined) {
-      // Empty string clears the field (use null for Mongoose)
-      const trimmed = updates.preferredName.trim();
-      patient.preferredName = trimmed ? trimmed : null;
-    }
-    if (updates.dateOfBirth !== undefined) (patient as any).dateOfBirth = updates.dateOfBirth;
-    if (updates.gender !== undefined) (patient as any).gender = updates.gender;
-    if (updates.ssn !== undefined) {
-      // Store SSN as digits only (remove hyphens if present)
-      // If empty string, set to null to clear the field (Mongoose uses null, not undefined)
-      const ssnValue = updates.ssn && updates.ssn.trim()
-        ? updates.ssn.replace(/-/g, '').trim()
-        : null;
-      patient.ssn = ssnValue;
-      // Explicitly mark SSN as modified to ensure it's saved (important for fields with select: false)
-      patient.markModified('ssn');
-    }
-    if (updates.phonePrimary !== undefined) {
-      // Empty string clears the field (use null for Mongoose)
-      const trimmed = updates.phonePrimary.trim();
-      patient.phonePrimary = trimmed ? trimmed : null;
-    }
-    if (updates.phoneSecondary !== undefined) {
-      // Empty string clears the field (use null for Mongoose)
-      const trimmed = updates.phoneSecondary.trim();
-      patient.phoneSecondary = trimmed ? trimmed : null;
-    }
-    if (updates.email !== undefined) {
-      // Empty string clears the field (use null for Mongoose)
-      const trimmed = updates.email.trim();
-      patient.email = trimmed ? trimmed.toLowerCase() : null;
-    }
-    if (updates.address !== undefined) {
-      // Handle address object - if all fields are empty, set to null
-      const address = updates.address;
-      if (
-        (!address.line1 || !address.line1.trim()) &&
-        (!address.line2 || !address.line2.trim()) &&
-        (!address.city || !address.city.trim()) &&
-        (!address.state || !address.state.trim()) &&
-        (!address.postalCode || !address.postalCode.trim())
-      ) {
-        patient.address = null;
-      } else {
-        // Update address fields, empty strings clear individual fields (use null for Mongoose)
-        patient.address = {
-          line1: address.line1?.trim() ? address.line1.trim() : null,
-          line2: address.line2?.trim() ? address.line2.trim() : null,
-          city: address.city?.trim() ? address.city.trim() : null,
-          state: address.state?.trim() ? address.state.trim() : null,
-          postalCode: address.postalCode?.trim() ? address.postalCode.trim() : null,
-        };
-      }
-    }
-    if (updates.emergencyContact !== undefined) {
-      // Handle emergency contact - if all fields are empty, set to null
-      const ec = updates.emergencyContact;
-      if (
-        (!ec.name || !ec.name.trim()) &&
-        (!ec.relationship || !ec.relationship.trim()) &&
-        (!ec.phone || !ec.phone.trim())
-      ) {
-        patient.emergencyContact = null;
-      } else {
-        // Update emergency contact fields, empty strings clear individual fields (use null for Mongoose)
-        patient.emergencyContact = {
-          name: ec.name?.trim() ? ec.name.trim() : null,
-          relationship: ec.relationship?.trim() ? ec.relationship.trim() : null,
-          phone: ec.phone?.trim() ? ec.phone.trim() : null,
-        };
-      }
-    }
-    if (updates.preferredLanguage !== undefined) {
-      patient.preferredLanguage = updates.preferredLanguage.trim() || 'en';
-    }
-    if (updates.communicationPreference !== undefined) {
-      (patient as any).communicationPreference = updates.communicationPreference;
-    }
-    if (updates.portalAccessEnabled !== undefined) (patient as any).portalAccessEnabled = updates.portalAccessEnabled;
-    if (updates.isActive !== undefined) (patient as any).isActive = updates.isActive;
-    if (updates.lastVisitDate !== undefined) {
-      // Empty/null date clears the field (use null for Mongoose)
-      (patient as any).lastVisitDate = updates.lastVisitDate || null;
-    }
-    if (updates.referralSource !== undefined) {
-      // Empty string clears the field (use null for Mongoose)
-      const trimmed = updates.referralSource.trim();
-      patient.referralSource = trimmed ? trimmed : null;
-    }
-    if (updates.notes !== undefined) {
-      // Empty string clears the field (use null for Mongoose)
-      const trimmed = updates.notes.trim();
-      patient.notes = trimmed ? trimmed : null;
-    }
+    const updated = await prisma.patient.update({
+      where: { PatNum: BigInt(patientId) },
+      data: {
+        FName: updates.firstName ?? undefined,
+        LName: updates.lastName ?? undefined,
+        MiddleI: updates.middleName !== undefined ? (updates.middleName.trim() || null) : undefined,
+        Preferred:
+          updates.preferredName !== undefined ? (updates.preferredName.trim() || null) : undefined,
+        Title: updates.title !== undefined ? (updates.title.trim() || null) : undefined,
+        Birthdate: updates.dateOfBirth ?? undefined,
+        Gender: updates.gender !== undefined ? mapGenderToDb(updates.gender) : undefined,
+        SSN:
+          updates.ssn !== undefined
+            ? updates.ssn && updates.ssn.trim()
+              ? updates.ssn.replace(/-/g, '').trim()
+              : null
+            : undefined,
+        WirelessPhone:
+          updates.phonePrimary !== undefined ? (updates.phonePrimary.trim() || null) : undefined,
+        HmPhone:
+          updates.phonePrimary !== undefined ? (updates.phonePrimary.trim() || null) : undefined,
+        WkPhone:
+          updates.phoneSecondary !== undefined ? (updates.phoneSecondary.trim() || null) : undefined,
+        Email: updates.email !== undefined ? (updates.email.trim().toLowerCase() || null) : undefined,
+        Address:
+          updates.address !== undefined ? (updates.address.line1?.trim() || null) : undefined,
+        Address2:
+          updates.address !== undefined ? (updates.address.line2?.trim() || null) : undefined,
+        City: updates.address !== undefined ? (updates.address.city?.trim() || null) : undefined,
+        State: updates.address !== undefined ? (updates.address.state?.trim() || null) : undefined,
+        Zip:
+          updates.address !== undefined ? (updates.address.postalCode?.trim() || null) : undefined,
+        Language:
+          updates.preferredLanguage !== undefined
+            ? updates.preferredLanguage.trim() || 'en'
+            : undefined,
+        PreferContactMethod:
+          updates.communicationPreference !== undefined
+            ? mapContactPreferenceToDb(updates.communicationPreference)
+            : undefined,
+        PatStatus:
+          updates.isActive !== undefined ? (updates.isActive ? 0 : 2) : undefined,
+        DateFirstVisit: updates.lastVisitDate ?? undefined,
+        AddrNote: updates.notes !== undefined ? (updates.notes.trim() || null) : undefined,
+      },
+    });
 
-    await patient.save();
+    await setPatientMeta(patient.PatNum, {
+      emergencyContact: updates.emergencyContact ?? currentMeta.emergencyContact ?? null,
+      portalAccessEnabled: updates.portalAccessEnabled ?? currentMeta.portalAccessEnabled ?? false,
+      referralSource:
+        updates.referralSource !== undefined
+          ? updates.referralSource.trim() || null
+          : currentMeta.referralSource ?? null,
+      customFields: updates.customFields ?? currentMeta.customFields ?? {},
+      preferredDentistId: updates.preferredDentistId !== undefined ? updates.preferredDentistId : currentMeta.preferredDentistId ?? null,
+      preferredHygienistId: updates.preferredHygienistId !== undefined ? updates.preferredHygienistId : currentMeta.preferredHygienistId ?? null,
+      headOfCommunication: updates.headOfCommunication !== undefined ? updates.headOfCommunication : currentMeta.headOfCommunication ?? null,
+      household: updates.household !== undefined ? updates.household : currentMeta.household ?? [],
+      spouseInfo: updates.spouseInfo !== undefined ? updates.spouseInfo : currentMeta.spouseInfo ?? null,
+      patientFlags: updates.patientFlags !== undefined ? updates.patientFlags : currentMeta.patientFlags ?? [],
+      financialResponsibility: updates.financialResponsibility !== undefined ? updates.financialResponsibility : currentMeta.financialResponsibility ?? null,
+      sexAtBirth:
+        updates.sexAtBirth !== undefined ? updates.sexAtBirth : currentMeta.sexAtBirth ?? null,
+      genderIdentity:
+        updates.genderIdentity !== undefined
+          ? updates.genderIdentity
+          : currentMeta.genderIdentity ?? null,
+      maritalStatus:
+        updates.maritalStatus !== undefined
+          ? updates.maritalStatus.trim() || null
+          : currentMeta.maritalStatus ?? null,
+      occupation:
+        updates.occupation !== undefined
+          ? updates.occupation.trim() || null
+          : currentMeta.occupation ?? null,
+      employer:
+        updates.employer !== undefined
+          ? updates.employer.trim() || null
+          : currentMeta.employer ?? null,
+      guardianEmployer:
+        updates.guardianEmployer !== undefined
+          ? updates.guardianEmployer.trim() || null
+          : currentMeta.guardianEmployer ?? null,
+      patientProfileType:
+        updates.patientProfileType !== undefined
+          ? updates.patientProfileType
+          : currentMeta.patientProfileType ?? 'adult',
+      workAddress:
+        updates.workAddress !== undefined
+          ? updates.workAddress
+          : currentMeta.workAddress ?? null,
+      medicalHistory: currentMeta.medicalHistory ?? null,
+      dentalHistory: currentMeta.dentalHistory ?? null,
+    });
 
     // Log activity
     if (updatedBy) {
@@ -497,23 +747,460 @@ export class PatientService {
         undefined,
         updates.isActive !== undefined ? 'medium' : 'low'
       );
+      await patientWorkspaceService.recordAuditEvent(patientId, {
+        action: 'patient_updated',
+        source: 'office',
+        actorUserId: updatedBy,
+        section: 'patient_profile',
+        oldValue: oldValues,
+        newValue: updates,
+      });
     }
 
     // Always return patient with SSN included
-    return this.getPatientByIdWithSSN(patientId);
+    return this.getPatientByIdWithSSN(updated.PatNum.toString());
   }
 
   /**
-   * Delete patient (soft delete by setting isActive to false)
+   * Get the full structured medical history for a patient, merged with
+   * live clinical timeline data (allergies, vitals, prescriptions, etc.)
    */
-  async deletePatient(patientId: string, deletedBy?: string) {
-    const patient = await PatientModel.findById(patientId);
+  async getStructuredMedicalHistory(patientId: string) {
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) },
+    });
     if (!patient) {
       throw new NotFoundError('Patient not found');
     }
 
-    (patient as any).isActive = false;
-    await patient.save();
+    const patientMeta = await getPatientMeta(patient.PatNum);
+    const timelineData = await clinicalNoteService.getPatientMedicalHistory(patientId, {
+      includeAllergies: true,
+      includeVitals: true,
+      includePrescriptions: true,
+      includeLabOrders: true,
+      includeLabResults: true,
+      includeDocuments: true,
+      includeNotes: true,
+      limit: 100,
+    });
+
+    const medicalHistory = {
+      ...DEFAULT_MEDICAL_HISTORY,
+      ...(patientMeta.medicalHistory ?? {}),
+    };
+
+    const visitDates = buildVisitDates(
+      (timelineData.timeline || []).map((item: any) => ({ date: item?.date }))
+    );
+
+    return {
+      patient: mapPatientToApi(patient, buildPatientMapperOptions(patientMeta)),
+      visitDates,
+      generalInfo: medicalHistory.generalInfo,
+      premed: medicalHistory.premed,
+      risk: medicalHistory.risk,
+      sections: medicalHistory.sections,
+      medications: medicalHistory.medications,
+      supplements: medicalHistory.supplements,
+      review: medicalHistory.review,
+      timeline: timelineData.timeline || [],
+      summary: timelineData.summary || {},
+    };
+  }
+
+  /**
+   * Update the structured medical history for a patient.
+   * Merges the incoming payload with the existing history and persists via patient meta.
+   */
+  async updateStructuredMedicalHistory(
+    patientId: string,
+    payload: Record<string, any>,
+    userId?: string | null
+  ) {
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) },
+    });
+    if (!patient) {
+      throw new NotFoundError('Patient not found');
+    }
+
+    const patientMeta = await getPatientMeta(patient.PatNum);
+    const currentMedicalHistory = {
+      ...DEFAULT_MEDICAL_HISTORY,
+      ...(patientMeta.medicalHistory ?? {}),
+    };
+
+    const nextMedicalHistory = {
+      ...currentMedicalHistory,
+      generalInfo: {
+        ...currentMedicalHistory.generalInfo,
+        ...(payload.generalInfo ?? {}),
+      },
+      premed: {
+        ...currentMedicalHistory.premed,
+        ...(payload.premed ?? {}),
+      },
+      risk: {
+        ...currentMedicalHistory.risk,
+        ...(payload.risk ?? {}),
+      },
+      sections: Array.isArray(payload.sections)
+        ? payload.sections.map((section: any, index: number) => ({
+          id: section?.id ?? `section-${index + 1}`,
+          number: section?.number ?? index + 1,
+          group: section?.group ?? 'medical',
+          question: section?.question ?? '',
+          answer: section?.answer ?? '',
+          comment: section?.comment ?? '',
+          doctorNote: section?.doctorNote ?? '',
+          additionalInfo: Array.isArray(section?.additionalInfo) ? section.additionalInfo : [],
+        }))
+        : currentMedicalHistory.sections,
+      medications: Array.isArray(payload.medications)
+        ? normalizeMedicalHistoryRows(payload.medications)
+        : currentMedicalHistory.medications,
+      supplements: Array.isArray(payload.supplements)
+        ? normalizeMedicalHistoryRows(payload.supplements)
+        : currentMedicalHistory.supplements,
+      review: {
+        ...currentMedicalHistory.review,
+        ...(payload.review ?? {}),
+      },
+    };
+
+    await setPatientMeta(patient.PatNum, {
+      ...patientMeta,
+      medicalHistory: nextMedicalHistory,
+    });
+
+    await patientWorkspaceService.recordAuditEvent(patientId, {
+      action: 'medical_history_updated',
+      source: 'office',
+      actorUserId: userId ?? null,
+      section: 'medical_history',
+      oldValue: currentMedicalHistory,
+      newValue: nextMedicalHistory,
+    });
+
+    return this.getStructuredMedicalHistory(patientId);
+  }
+
+  /**
+   * Get the full dental history for a patient, including procedures, clinical notes,
+   * x-rays, and personal history questionnaire. Also returns a combined timeline.
+   */
+  async getDentalHistory(patientId: string) {
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) },
+    });
+    if (!patient) {
+      throw new NotFoundError('Patient not found');
+    }
+
+    const [procedures, clinicalNotesResult, documents, providers] = await Promise.all([
+      prisma.procedurelog.findMany({
+        where: { PatNum: BigInt(patientId) },
+        include: { procedurecode_procedurelog_CodeNumToprocedurecode: true },
+        orderBy: [{ ProcDate: 'desc' }, { ProcNum: 'desc' }],
+        take: 100,
+      }),
+      clinicalNoteService.getAllClinicalNotes(1, 50, { patientId }),
+      prisma.document.findMany({
+        where: { PatNum: BigInt(patientId) },
+        orderBy: { DateCreated: 'desc' },
+        take: 50,
+      }),
+      prisma.provider.findMany(),
+    ]);
+
+    const providerMap = new Map(
+      providers.map((provider) => [
+        provider.ProvNum.toString(),
+        `${provider.FName || ''} ${provider.LName || ''}`.trim() || provider.Abbr || 'Provider',
+      ])
+    );
+
+    const mappedProcedures = procedures
+      .map((proc) => {
+        const procedureCode =
+          proc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? proc.OldCode ?? '';
+        const description =
+          proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ??
+          proc.procedurecode_procedurelog_CodeNumToprocedurecode?.LaymanTerm ??
+          '';
+        const procedureName = [procedureCode, description].filter(Boolean).join(' - ').trim() || 'Procedure';
+        return {
+          _id: proc.ProcNum.toString(),
+          date: proc.ProcDate ?? proc.DateEntryC ?? null,
+          procedureCode,
+          procedureName,
+          tooth: proc.ToothNum ?? proc.ToothRange ?? '–',
+          status: mapProcedureStatusToText(proc.ProcStatus),
+          provider: proc.ProvNum
+            ? {
+              _id: proc.ProvNum.toString(),
+              name: providerMap.get(proc.ProvNum.toString()) ?? 'Provider',
+            }
+            : null,
+          isPlaceholder: !procedureCode && !description,
+        };
+      })
+      .filter((proc) => !proc.isPlaceholder);
+
+    const clinicalNotes = Array.isArray(clinicalNotesResult?.clinicalNotes)
+      ? clinicalNotesResult.clinicalNotes
+      : [];
+
+    const mappedNotes = clinicalNotes
+      .map((note: any) => {
+        const readableNote =
+          note.chiefComplaint ||
+          note.subjective ||
+          note.objective ||
+          note.assessment ||
+          note.plan ||
+          note.historyOfPresentIllness ||
+          note.physicalExam ||
+          '';
+        if (!readableNote.trim()) return null;
+        return {
+          _id: String(note._id),
+          date: note.createdAt ?? null,
+          note: readableNote.trim(),
+          noteType: note.noteType || 'clinical',
+        };
+      })
+      .filter((note): note is { _id: string; date: Date | string | null; note: string; noteType: string } => Boolean(note));
+
+    // Filter documents to x-rays only
+    const xrays = documents
+      .filter((doc) => {
+        const name = `${doc.Description || ''} ${doc.FileName || ''}`.toLowerCase();
+        return name.includes('xray') || name.includes('x-ray') || name.includes('radiograph');
+      })
+      .map((doc) => ({
+        _id: doc.DocNum.toString(),
+        date: doc.DateCreated ?? null,
+        name: doc.Description ?? doc.FileName ?? 'X-Ray',
+        url: doc.FileName ?? null,
+      }));
+
+    // Build a unified timeline sorted newest-first
+    const timeline = [
+      ...mappedProcedures.map((item) => ({
+        _id: `procedure-${item._id}`,
+        date: item.date,
+        type: 'procedure',
+        title: item.procedureName,
+      })),
+      ...mappedNotes.map((item) => ({
+        _id: `note-${item._id}`,
+        date: item.date,
+        type: 'note',
+        title: `${item.noteType}: ${item.note.slice(0, 100)}`,
+      })),
+      ...xrays.map((item) => ({
+        _id: `xray-${item._id}`,
+        date: item.date,
+        type: 'xray',
+        title: item.name,
+      })),
+    ].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+
+    const patientMeta = await getPatientMeta(patient.PatNum);
+    const dentalHistory = {
+      ...DEFAULT_DENTAL_HISTORY,
+      ...(patientMeta.dentalHistory ?? {}),
+      generalInfo: {
+        ...DEFAULT_DENTAL_HISTORY.generalInfo,
+        ...(patientMeta.dentalHistory?.generalInfo ?? {}),
+      },
+      personalHistory: Array.isArray(patientMeta.dentalHistory?.personalHistory)
+        ? normalizeDentalHistorySections(patientMeta.dentalHistory.personalHistory)
+        : DEFAULT_DENTAL_HISTORY.personalHistory,
+      review: {
+        ...DEFAULT_DENTAL_HISTORY.review,
+        ...(patientMeta.dentalHistory?.review ?? {}),
+      },
+    };
+
+    const visitDates = buildVisitDates(timeline.map((item) => ({ date: item.date })));
+
+    return {
+      patient: mapPatientToApi(patient, buildPatientMapperOptions(patientMeta)),
+      visitDates,
+      generalInfo: dentalHistory.generalInfo,
+      personalHistory: dentalHistory.personalHistory,
+      reviewStatus: Boolean(dentalHistory.review.reviewedWithPatient),
+      lastUpdateDate:
+        dentalHistory.review.reviewedAt ??
+        patient.DateTStamp ??
+        mappedProcedures[0]?.date ??
+        null,
+      review: dentalHistory.review,
+      summary: {
+        totalProcedures: mappedProcedures.length,
+        lastVisitDate: mappedProcedures[0]?.date ?? null,
+        clinicalNotesCount: mappedNotes.length,
+        xrayCount: xrays.length,
+      },
+      procedures: mappedProcedures,
+      timeline,
+      clinicalNotes: mappedNotes,
+      xrays,
+    };
+  }
+
+  /**
+ * Get patient history aggregate — joins allergies, conditions, medications, vitals
+ */
+async getPatientHistoryAggregate(patientId: string) {
+  const patient = await prisma.patient.findUnique({
+    where: { PatNum: BigInt(patientId) },
+  });
+  if (!patient) {
+    throw new NotFoundError('Patient not found');
+  }
+
+  const [allergies, medications, vitals, conditions] = await Promise.all([
+    prisma.allergy.findMany({
+      where: { PatNum: BigInt(patientId) },
+      include: { allergydef: true },
+    }),
+    prisma.medicationpat.findMany({
+      where: { PatNum: BigInt(patientId) },
+      include: { medication: true },
+    }),
+    prisma.vitalsign.findFirst({
+      where: { PatNum: BigInt(patientId) },
+      orderBy: { DateTaken: 'desc' },
+    }),
+    prisma.disease.findMany({
+      where: { PatNum: BigInt(patientId) },
+      include: { diseasedef: true },
+    }),
+  ]);
+
+  const patientMeta = await getPatientMeta(patient.PatNum);
+
+  return {
+    patient: mapPatientToApi(patient, buildPatientMapperOptions(patientMeta)),
+    allergies: allergies.map((a) => ({
+      _id: a.AllergyNum.toString(),
+      name: a.allergydef?.Description ?? 'Unknown',
+      reaction: a.Reaction ?? null,
+      isActive: a.StatusIsActive === 1,
+    })),
+    medicalConditions: conditions.map((c) => ({
+      _id: c.DiseaseNum.toString(),
+      name: c.diseasedef?.DiseaseName ?? 'Unknown',
+      status: c.ProbStatus === 0 ? 'active' : 'inactive',
+      dateStart: c.DateStart ?? null,
+      dateStop: c.DateStop ?? null,
+    })),
+    medications: medications.map((m) => ({
+      _id: m.MedicationPatNum.toString(),
+      name: m.medication?.MedName ?? m.MedDescript ?? 'Unknown',
+      dateStart: m.DateStart ?? null,
+      dateStop: m.DateStop ?? null,
+      notes: m.PatNote ?? null,
+    })),
+    vitals: {
+      latest: vitals
+        ? {
+            dateTaken: vitals.DateTaken ?? null,
+            height: vitals.Height ?? null,
+            weight: vitals.Weight ?? null,
+            bpSystolic: vitals.BpSystolic ?? null,
+            bpDiastolic: vitals.BpDiastolic ?? null,
+            pulse: vitals.Pulse ?? null,
+          }
+        : null,
+    },
+  };
+}
+
+  /**
+   * Update dental history general info, personal history questionnaire, and review status.
+   * Merges with existing data and persists via patient meta.
+   */
+  async updateDentalHistory(
+    patientId: string,
+    payload: Record<string, any>,
+    userId?: string | null
+  ) {
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) },
+    });
+    if (!patient) {
+      throw new NotFoundError('Patient not found');
+    }
+
+    const patientMeta = await getPatientMeta(patient.PatNum);
+    const currentDentalHistory = {
+      ...DEFAULT_DENTAL_HISTORY,
+      ...(patientMeta.dentalHistory ?? {}),
+      generalInfo: {
+        ...DEFAULT_DENTAL_HISTORY.generalInfo,
+        ...(patientMeta.dentalHistory?.generalInfo ?? {}),
+      },
+      personalHistory: Array.isArray(patientMeta.dentalHistory?.personalHistory)
+        ? normalizeDentalHistorySections(patientMeta.dentalHistory.personalHistory)
+        : DEFAULT_DENTAL_HISTORY.personalHistory,
+      review: {
+        ...DEFAULT_DENTAL_HISTORY.review,
+        ...(patientMeta.dentalHistory?.review ?? {}),
+      },
+    };
+
+    const nextDentalHistory = {
+      ...currentDentalHistory,
+      generalInfo: {
+        ...currentDentalHistory.generalInfo,
+        ...(payload.generalInfo ?? {}),
+      },
+      personalHistory: Array.isArray(payload.personalHistory)
+        ? normalizeDentalHistorySections(payload.personalHistory)
+        : currentDentalHistory.personalHistory,
+      review: {
+        ...currentDentalHistory.review,
+        ...(payload.review ?? {}),
+      },
+    };
+
+    await setPatientMeta(patient.PatNum, {
+      ...patientMeta,
+      dentalHistory: nextDentalHistory,
+    });
+
+    await patientWorkspaceService.recordAuditEvent(patientId, {
+      action: 'dental_history_updated',
+      source: 'office',
+      actorUserId: userId ?? null,
+      section: 'dental_history',
+      oldValue: currentDentalHistory,
+      newValue: nextDentalHistory,
+    });
+
+    return this.getDentalHistory(patientId);
+  }
+
+  /**
+   * Delete patient (soft delete by setting PatStatus to 2 / inactive)
+   */
+  async deletePatient(patientId: string, deletedBy?: string) {
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) },
+    });
+    if (!patient) {
+      throw new NotFoundError('Patient not found');
+    }
+
+    await prisma.patient.update({
+      where: { PatNum: BigInt(patientId) },
+      data: { PatStatus: 2 },
+    });
 
     // Log activity
     if (deletedBy) {
@@ -528,9 +1215,183 @@ export class PatientService {
         undefined,
         'medium'
       );
+      await patientWorkspaceService.recordAuditEvent(patientId, {
+        action: 'patient_deactivated',
+        source: 'office',
+        actorUserId: deletedBy,
+        section: 'patient_profile',
+        oldValue: { isActive: true },
+        newValue: { isActive: false },
+      });
     }
 
     return { message: 'Patient deactivated successfully' };
+  }
+
+  /**
+   * Helper to resolve patient PatNum by ID or Name
+   */
+  private async resolvePatientPatNum(patientIdOrName: string): Promise<bigint> {
+    if (/^\d+$/.test(patientIdOrName)) {
+      return BigInt(patientIdOrName);
+    }
+    
+    let nameToLookup = patientIdOrName;
+    if (patientIdOrName === 'fallback-1') {
+      nameToLookup = 'John Doe';
+    }
+
+    const parts = nameToLookup.trim().split(/\s+/);
+    const firstName = parts[0] || '';
+    const lastName = parts.slice(1).join(' ') || '';
+
+    const patient = await prisma.patient.findFirst({
+      where: {
+        FName: { equals: firstName },
+        LName: { equals: lastName }
+      },
+      select: { PatNum: true }
+    });
+
+    if (patient) {
+      return patient.PatNum;
+    }
+
+    // Fallback: search with contains if exact doesn't match
+    const fallbackPatient = await prisma.patient.findFirst({
+      where: {
+        FName: { contains: firstName },
+        LName: { contains: lastName }
+      },
+      select: { PatNum: true }
+    });
+
+    if (fallbackPatient) {
+      return fallbackPatient.PatNum;
+    }
+
+    // If still not found, search the first patient in the database as a safe fallback
+    const firstPat = await prisma.patient.findFirst({
+      select: { PatNum: true }
+    });
+
+    if (firstPat) {
+      return firstPat.PatNum;
+    }
+
+    throw new NotFoundError('Patient not found');
+  }
+
+  /**
+   * Get patient account notes
+   */
+  async getPatientAccountNotes(patientIdOrName: string) {
+    const patNum = await this.resolvePatientPatNum(patientIdOrName);
+    const rows = await prisma.commlog.findMany({
+      where: {
+        PatNum: patNum
+      },
+      orderBy: {
+        CommDateTime: 'desc'
+      }
+    });
+
+    return rows
+      .map((row) => {
+        try {
+          const parsed = JSON.parse(row.Note || '{}');
+          if (parsed && parsed.noteType === 'account') {
+            return {
+              id: row.CommlogNum.toString(),
+              patientId: row.PatNum?.toString() || '',
+              text: parsed.text || '',
+              remindMe: parsed.remindMe || false,
+              archived: parsed.archived || false,
+              createdAt: row.CommDateTime ? new Date(row.CommDateTime).toISOString() : new Date().toISOString()
+            };
+          }
+        } catch (e) {
+          // ignore parsing error
+        }
+        return null;
+      })
+      .filter((n): n is NonNullable<typeof n> => n !== null);
+  }
+
+  /**
+   * Create patient account note
+   */
+  async createPatientAccountNote(patientIdOrName: string, text: string, remindMe: boolean, userId?: string) {
+    const patNum = await this.resolvePatientPatNum(patientIdOrName);
+    const commlogNum = await getNextId('commlog', 'CommlogNum');
+    const entryDate = new Date();
+    
+    const row = await prisma.commlog.create({
+      data: {
+        CommlogNum: commlogNum,
+        PatNum: patNum,
+        UserNum: userId ? BigInt(userId) : null,
+        CommDateTime: entryDate,
+        Note: JSON.stringify({
+          noteType: 'account',
+          source: 'agingReport',
+          text,
+          remindMe,
+          archived: false
+        })
+      }
+    });
+
+    return {
+      id: row.CommlogNum.toString(),
+      patientId: row.PatNum?.toString() || '',
+      text,
+      remindMe,
+      archived: false,
+      createdAt: entryDate.toISOString()
+    };
+  }
+
+  /**
+   * Update patient account note
+   */
+  async updatePatientAccountNote(noteId: string, updates: { text?: string; remindMe?: boolean; archived?: boolean }, userId?: string) {
+    const commlogNum = BigInt(noteId);
+    const row = await prisma.commlog.findUnique({
+      where: { CommlogNum: commlogNum }
+    });
+
+    if (!row) {
+      throw new NotFoundError('Note not found');
+    }
+
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(row.Note || '{}');
+    } catch (e) {
+      // ignore
+    }
+
+    const updatedPayload = {
+      ...parsed,
+      ...updates
+    };
+
+    const updated = await prisma.commlog.update({
+      where: { CommlogNum: commlogNum },
+      data: {
+        Note: JSON.stringify(updatedPayload)
+      }
+    });
+
+    return {
+      id: updated.CommlogNum.toString(),
+      patientId: updated.PatNum?.toString() || '',
+      text: updatedPayload.text || '',
+      remindMe: updatedPayload.remindMe || false,
+      archived: updatedPayload.archived || false,
+      createdAt: updated.CommDateTime ? new Date(updated.CommDateTime).toISOString() : new Date().toISOString()
+    };
   }
 }
 

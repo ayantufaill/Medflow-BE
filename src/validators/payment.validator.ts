@@ -4,21 +4,37 @@ export const paymentIdValidator: ValidationChain[] = [
   param('paymentId')
     .notEmpty()
     .withMessage('Payment ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid payment ID format'),
+];
+
+export const patientIdParamValidator: ValidationChain[] = [
+  param('patientId')
+    .notEmpty()
+    .withMessage('Patient ID is required')
+    .isInt({ min: 1 })
+    .withMessage('Invalid patient ID format'),
+];
+
+export const invoiceIdParamValidator: ValidationChain[] = [
+  param('invoiceId')
+    .notEmpty()
+    .withMessage('Invoice ID is required')
+    .isInt({ min: 1 })
+    .withMessage('Invalid invoice ID format'),
 ];
 
 export const paymentSearchValidator: ValidationChain[] = [
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
   query('limit').optional().isInt({ min: 1 }).withMessage('Limit must be a positive integer'),
-  query('search').optional().isString().trim().withMessage('Search must be a string'),
+  query('search').optional().isString().withMessage('search must be a string'),
   query('patientId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   query('invoiceId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid invoice ID format'),
   query('paymentMethod')
     .optional()
@@ -32,16 +48,16 @@ export const createPaymentValidator: ValidationChain[] = [
   body('invoiceId')
     .notEmpty()
     .withMessage('Invoice ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid invoice ID format'),
   body('patientId')
     .notEmpty()
     .withMessage('Patient ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   body('insuranceCompanyId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid insurance company ID format'),
   body('amount')
     .notEmpty()
@@ -74,11 +90,20 @@ export const applyPaymentValidator: ValidationChain[] = [
   body('invoiceId')
     .notEmpty()
     .withMessage('Invoice ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid invoice ID format'),
   body('amount')
     .notEmpty()
     .withMessage('Amount is required')
     .isFloat({ min: 0.01 })
     .withMessage('Amount must be greater than 0'),
+];
+
+export const voidPaymentValidator: ValidationChain[] = [
+  body('reason')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('reason must be less than 500 characters'),
 ];

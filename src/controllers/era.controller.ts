@@ -2,23 +2,41 @@ import type { Request, Response, NextFunction } from 'express';
 import { eraService } from '../services/era.service';
 
 export class EraController {
+  async importERAFile(req: Request, res: Response, next: NextFunction) {
+    try {
+      const uploadedFile =
+        req.file ?? (Array.isArray(req.files) ? (req.files[0] as Express.Multer.File | undefined) : undefined);
+
+      if (!uploadedFile) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'No file uploaded' },
+        });
+      }
+
+      const result = await eraService.importERAFile(uploadedFile, req.userId);
+
+      res.status(201).json({
+        success: true,
+        data: result,
+        message: 'ERA file imported successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getAllERAs(req: Request, res: Response, next: NextFunction) {
     try {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 10;
-      const filters: Parameters<typeof eraService.getAllERAs>[2] = {};
 
-      const status = req.query.status as string | undefined;
-      const startDate = req.query.startDate as string | undefined;
-      const endDate = req.query.endDate as string | undefined;
-      const search = req.query.search as string | undefined;
-
-      if (status) filters.status = status;
-      if (startDate) filters.startDate = startDate;
-      if (endDate) filters.endDate = endDate;
-      if (search) filters.search = search;
-
-      const result = await eraService.getAllERAs(page, limit, filters);
+      const result = await eraService.getAllERAs(page, limit, {
+        search: req.query.search as string | undefined,
+        status: req.query.status as string | undefined,
+        startDate: req.query.startDate as string | undefined,
+        endDate: req.query.endDate as string | undefined,
+      });
 
       res.status(200).json({
         success: true,
@@ -46,28 +64,11 @@ export class EraController {
   async getERAItems(req: Request, res: Response, next: NextFunction) {
     try {
       const eraId = req.params.eraId as string;
-      const result = await eraService.getERAItems(eraId);
+      const items = await eraService.getERAItems(eraId);
 
       res.status(200).json({
         success: true,
-        data: result,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  async importERAFile(req: Request, res: Response, next: NextFunction) {
-    try {
-      const result = await eraService.importERAFile(
-        req.body || {},
-        req.file,
-        req.userId
-      );
-
-      res.status(201).json({
-        success: true,
-        data: result,
+        data: { items },
       });
     } catch (error) {
       next(error);
@@ -76,12 +77,6 @@ export class EraController {
 
   async autoPostPayments(req: Request, res: Response, next: NextFunction) {
     try {
-      if (!req.userId) {
-        return res.status(401).json({
-          success: false,
-          error: { message: 'User not authenticated' },
-        });
-      }
       const eraId = req.params.eraId as string;
       const result = await eraService.autoPostPayments(eraId, req.userId);
 
@@ -98,17 +93,12 @@ export class EraController {
     try {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 10;
-      const filters: Parameters<typeof eraService.getUnmatchedItems>[2] = {};
 
-      const startDate = req.query.startDate as string | undefined;
-      const endDate = req.query.endDate as string | undefined;
-      const search = req.query.search as string | undefined;
-
-      if (startDate) filters.startDate = startDate;
-      if (endDate) filters.endDate = endDate;
-      if (search) filters.search = search;
-
-      const result = await eraService.getUnmatchedItems(page, limit, filters);
+      const result = await eraService.getUnmatchedItems(page, limit, {
+        search: req.query.search as string | undefined,
+        startDate: req.query.startDate as string | undefined,
+        endDate: req.query.endDate as string | undefined,
+      });
 
       res.status(200).json({
         success: true,
@@ -122,8 +112,11 @@ export class EraController {
   async matchERAItem(req: Request, res: Response, next: NextFunction) {
     try {
       const eraItemId = req.params.eraItemId as string;
-      const { claimId, invoiceId } = req.body || {};
-      const result = await eraService.matchERAItem(eraItemId, claimId, invoiceId);
+      const result = await eraService.matchERAItem(
+        eraItemId,
+        req.body.claimId,
+        req.body.invoiceId
+      );
 
       res.status(200).json({
         success: true,

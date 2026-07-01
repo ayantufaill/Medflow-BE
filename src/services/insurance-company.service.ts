@@ -1,8 +1,107 @@
-import { InsuranceCompanyModel } from '../models/insurance-company.model';
+import { prisma } from '../config/db';
 import { NotFoundError, ConflictError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
+import { getNextId } from '../utils/opendental-ids.util';
+
+const INSURANCE_COMPANY_META_FKEY_TYPE = 214;
+
+type InsuranceCompanyMeta = {
+  email?: string | null;
+  fax?: string | null;
+  website?: string | null;
+  country?: string | null;
+  claimType?: string | null;
+  notes?: string | null;
+  providersOutOfNetwork?: string[] | null;
+};
+
+const parseMeta = (value?: string | null): InsuranceCompanyMeta => {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? (parsed as InsuranceCompanyMeta) : {};
+  } catch {
+    return {};
+  }
+};
 
 export class InsuranceCompanyService {
+  private resolveEmailValue(input: any): string | undefined {
+    if (!input || typeof input !== 'object') return undefined;
+
+    const entries = Object.entries(input as Record<string, unknown>);
+    const match = entries.find(([key]) => key.trim().toLowerCase() === 'email');
+    if (!match) return undefined;
+
+    const value = match[1];
+    if (value === undefined || value === null) return undefined;
+    const normalized = String(value).trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+
+  private async getMetaMap(carrierNums: bigint[]) {
+    if (carrierNums.length === 0) return new Map<string, InsuranceCompanyMeta>();
+    const rows = await prisma.userodpref.findMany({
+      where: {
+        FkeyType: INSURANCE_COMPANY_META_FKEY_TYPE,
+        Fkey: { in: carrierNums },
+      },
+      orderBy: { UserOdPrefNum: 'desc' },
+    });
+
+    const map = new Map<string, InsuranceCompanyMeta>();
+    for (const row of rows) {
+      if (!row.Fkey) continue;
+      const key = row.Fkey.toString();
+      if (map.has(key)) continue;
+      map.set(key, parseMeta(row.ValueString));
+    }
+    return map;
+  }
+
+  private async saveMeta(carrierNum: bigint, meta: InsuranceCompanyMeta) {
+    const existing = await prisma.userodpref.findFirst({
+      where: {
+        FkeyType: INSURANCE_COMPANY_META_FKEY_TYPE,
+        Fkey: carrierNum,
+      },
+      orderBy: { UserOdPrefNum: 'desc' },
+    });
+
+    let currentMeta: InsuranceCompanyMeta = {};
+    if (existing) {
+      currentMeta = parseMeta(existing.ValueString);
+    }
+
+    const valueString = JSON.stringify({
+      email: meta.email !== undefined ? meta.email : (currentMeta.email ?? null),
+      fax: meta.fax !== undefined ? meta.fax : (currentMeta.fax ?? null),
+      website: meta.website !== undefined ? meta.website : (currentMeta.website ?? null),
+      country: meta.country !== undefined ? meta.country : (currentMeta.country ?? null),
+      claimType: meta.claimType !== undefined ? meta.claimType : (currentMeta.claimType ?? null),
+      notes: meta.notes !== undefined ? meta.notes : (currentMeta.notes ?? null),
+      providersOutOfNetwork: meta.providersOutOfNetwork !== undefined ? meta.providersOutOfNetwork : (currentMeta.providersOutOfNetwork ?? null),
+    });
+
+    if (existing) {
+      await prisma.userodpref.update({
+        where: { UserOdPrefNum: existing.UserOdPrefNum },
+        data: { ValueString: valueString },
+      });
+      return;
+    }
+
+    const nextPrefId = await getNextId('userodpref', 'UserOdPrefNum');
+    await prisma.userodpref.create({
+      data: {
+        UserOdPrefNum: nextPrefId,
+        FkeyType: INSURANCE_COMPANY_META_FKEY_TYPE,
+        Fkey: carrierNum,
+        ValueString: valueString,
+      },
+    });
+  }
+
   /**
    * Get all insurance companies with search, pagination, and status filter
    */
@@ -13,34 +112,55 @@ export class InsuranceCompanyService {
     limit?: number;
   } = {}) {
     const { search, isActive, page = 1, limit = 10 } = options;
-    const query: any = {};
+    const where: any = {};
 
     if (isActive !== undefined) {
-      query.isActive = isActive;
+      where.IsHidden = isActive ? 0 : 1;
     }
 
     if (search) {
-      const searchRegex = new RegExp(search, 'i');
-      query.$or = [
-        { name: searchRegex },
-        { payerId: searchRegex },
-        { email: searchRegex },
-        { phone: searchRegex },
+      where.OR = [
+        { CarrierName: { contains: search } },
+        { ElectID: { contains: search } },
+        { Phone: { contains: search } },
       ];
     }
 
     const skip = (page - 1) * limit;
     const [companies, total] = await Promise.all([
-      InsuranceCompanyModel.find(query)
-        .sort({ name: 1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      InsuranceCompanyModel.countDocuments(query),
+      prisma.carrier.findMany({
+        where,
+        orderBy: { CarrierName: 'asc' },
+        skip,
+        take: limit,
+      }),
+      prisma.carrier.count({ where }),
     ]);
+    const metaMap = await this.getMetaMap(companies.map((c) => c.CarrierNum));
 
     return {
-      companies,
+      companies: companies.map((c) => {
+        const meta = metaMap.get(c.CarrierNum.toString());
+        return {
+          _id: c.CarrierNum.toString(),
+          name: c.CarrierName ?? '',
+          payerId: c.ElectID ?? null,
+          phone: c.Phone ?? null,
+          addressLine1: c.Address ?? null,
+          addressLine2: c.Address2 ?? null,
+          city: c.City ?? null,
+          state: c.State ?? null,
+          zipCode: c.Zip ?? null,
+          email: meta?.email ?? c.TIN ?? null,
+          fax: meta?.fax ?? null,
+          website: meta?.website ?? null,
+          country: meta?.country ?? null,
+          claimType: meta?.claimType ?? null,
+          notes: meta?.notes ?? null,
+          providersOutOfNetwork: meta?.providersOutOfNetwork ?? [],
+          isActive: !c.IsHidden,
+        };
+      }),
       pagination: {
         page,
         limit,
@@ -54,13 +174,35 @@ export class InsuranceCompanyService {
    * Get insurance company by ID
    */
   async getInsuranceCompanyById(insuranceCompanyId: string) {
-    const company = await InsuranceCompanyModel.findById(insuranceCompanyId).lean();
+    const company = await prisma.carrier.findUnique({
+      where: { CarrierNum: BigInt(insuranceCompanyId) },
+    });
 
     if (!company) {
       throw new NotFoundError('Insurance company not found');
     }
+    const metaMap = await this.getMetaMap([company.CarrierNum]);
+    const meta = metaMap.get(company.CarrierNum.toString());
 
-    return company;
+    return {
+      _id: company.CarrierNum.toString(),
+      name: company.CarrierName ?? '',
+      payerId: company.ElectID ?? null,
+      phone: company.Phone ?? null,
+      addressLine1: company.Address ?? null,
+      addressLine2: company.Address2 ?? null,
+      city: company.City ?? null,
+      state: company.State ?? null,
+      zipCode: company.Zip ?? null,
+      email: meta?.email ?? company.TIN ?? null,
+      fax: meta?.fax ?? null,
+      website: meta?.website ?? null,
+      country: meta?.country ?? null,
+      claimType: meta?.claimType ?? null,
+      notes: meta?.notes ?? null,
+      providersOutOfNetwork: meta?.providersOutOfNetwork ?? [],
+      isActive: !company.IsHidden,
+    };
   }
 
   /**
@@ -72,17 +214,25 @@ export class InsuranceCompanyService {
       payerId?: string;
       phone?: string;
       addressLine1?: string;
+      addressLine2?: string;
       city?: string;
       state?: string;
       zipCode?: string;
       email?: string;
+      fax?: string;
+      website?: string;
+      country?: string;
+      claimType?: string;
+      notes?: string;
+      providersOutOfNetwork?: string[];
       isActive?: boolean;
     },
     createdBy?: string
   ) {
+    const emailValue = this.resolveEmailValue(data) ?? data.email;
     // Check if company with same name exists
-    const existing = await InsuranceCompanyModel.findOne({
-      name: { $regex: new RegExp(`^${data.name}$`, 'i') },
+    const existing = await prisma.carrier.findFirst({
+      where: { CarrierName: { equals: data.name } },
     });
 
     if (existing) {
@@ -91,8 +241,8 @@ export class InsuranceCompanyService {
 
     // Check if payer ID is unique (if provided)
     if (data.payerId) {
-      const existingPayerId = await InsuranceCompanyModel.findOne({
-        payerId: data.payerId.toUpperCase(),
+      const existingPayerId = await prisma.carrier.findFirst({
+        where: { ElectID: data.payerId.toUpperCase() },
       });
 
       if (existingPayerId) {
@@ -100,16 +250,30 @@ export class InsuranceCompanyService {
       }
     }
 
-    const company = await InsuranceCompanyModel.create({
-      name: data.name,
-      payerId: data.payerId?.toUpperCase(),
-      phone: data.phone,
-      addressLine1: data.addressLine1,
-      city: data.city,
-      state: data.state,
-      zipCode: data.zipCode,
-      email: data.email?.toLowerCase(),
-      isActive: data.isActive !== undefined ? data.isActive : true,
+    const nextId = await getNextId('carrier', 'CarrierNum');
+    const company = await prisma.carrier.create({
+      data: {
+        CarrierNum: nextId,
+        CarrierName: data.name,
+        ElectID: data.payerId?.toUpperCase(),
+        Phone: data.phone ?? null,
+        Address: data.addressLine1 ?? null,
+        Address2: data.addressLine2 ?? null,
+        City: data.city ?? null,
+        State: data.state ?? null,
+        Zip: data.zipCode ?? null,
+        TIN: emailValue ?? null,
+        IsHidden: data.isActive === false ? 1 : 0,
+      },
+    });
+    await this.saveMeta(company.CarrierNum, {
+      email: emailValue ?? null,
+      fax: data.fax ?? null,
+      website: data.website ?? null,
+      country: data.country ?? null,
+      claimType: data.claimType ?? null,
+      notes: data.notes ?? null,
+      providersOutOfNetwork: data.providersOutOfNetwork ?? null,
     });
 
     // Log activity
@@ -118,16 +282,34 @@ export class InsuranceCompanyService {
         createdBy,
         'created',
         'insurance_companies',
-        company._id.toString(),
+        company.CarrierNum.toString(),
         undefined,
-        { name: company.name },
+        { name: company.CarrierName },
         undefined,
         undefined,
         'low'
       );
     }
 
-    return company;
+    return {
+      _id: company.CarrierNum.toString(),
+      name: company.CarrierName ?? '',
+      payerId: company.ElectID ?? null,
+      phone: company.Phone ?? null,
+      addressLine1: company.Address ?? null,
+      addressLine2: company.Address2 ?? null,
+      city: company.City ?? null,
+      state: company.State ?? null,
+      zipCode: company.Zip ?? null,
+      email: emailValue ?? company.TIN ?? null,
+      fax: data.fax ?? null,
+      website: data.website ?? null,
+      country: data.country ?? null,
+      claimType: data.claimType ?? null,
+      notes: data.notes ?? null,
+      providersOutOfNetwork: data.providersOutOfNetwork ?? [],
+      isActive: !company.IsHidden,
+    };
   }
 
   /**
@@ -140,24 +322,36 @@ export class InsuranceCompanyService {
       payerId?: string;
       phone?: string;
       addressLine1?: string;
+      addressLine2?: string;
       city?: string;
       state?: string;
       zipCode?: string;
       email?: string;
+      fax?: string;
+      website?: string;
+      country?: string;
+      claimType?: string;
+      notes?: string;
+      providersOutOfNetwork?: string[];
       isActive?: boolean;
     },
     updatedBy?: string
   ) {
-    const company = await InsuranceCompanyModel.findById(insuranceCompanyId);
+    const emailValue = this.resolveEmailValue(updates) ?? updates.email;
+    const company = await prisma.carrier.findUnique({
+      where: { CarrierNum: BigInt(insuranceCompanyId) },
+    });
     if (!company) {
       throw new NotFoundError('Insurance company not found');
     }
 
     // Check name uniqueness if updating name
-    if (updates.name && updates.name !== company.name) {
-      const existing = await InsuranceCompanyModel.findOne({
-        name: { $regex: new RegExp(`^${updates.name}$`, 'i') },
-        _id: { $ne: insuranceCompanyId },
+    if (updates.name && updates.name !== company.CarrierName) {
+      const existing = await prisma.carrier.findFirst({
+        where: {
+          CarrierName: { equals: updates.name },
+          CarrierNum: { not: BigInt(insuranceCompanyId) },
+        },
       });
 
       if (existing) {
@@ -166,10 +360,12 @@ export class InsuranceCompanyService {
     }
 
     // Check payer ID uniqueness if updating payer ID
-    if (updates.payerId && updates.payerId !== company.payerId) {
-      const existingPayerId = await InsuranceCompanyModel.findOne({
-        payerId: updates.payerId.toUpperCase(),
-        _id: { $ne: insuranceCompanyId },
+    if (updates.payerId && updates.payerId !== company.ElectID) {
+      const existingPayerId = await prisma.carrier.findFirst({
+        where: {
+          ElectID: updates.payerId.toUpperCase(),
+          CarrierNum: { not: BigInt(insuranceCompanyId) },
+        },
       });
 
       if (existingPayerId) {
@@ -178,22 +374,38 @@ export class InsuranceCompanyService {
     }
 
     const oldValues = {
-      name: company.name,
-      isActive: company.isActive,
+      name: company.CarrierName,
+      isActive: !company.IsHidden,
     };
 
-    // Update fields
-    if (updates.name !== undefined) company.name = updates.name;
-    if (updates.payerId !== undefined) company.payerId = updates.payerId.toUpperCase();
-    if (updates.phone !== undefined) company.phone = updates.phone;
-    if (updates.addressLine1 !== undefined) company.addressLine1 = updates.addressLine1;
-    if (updates.city !== undefined) company.city = updates.city;
-    if (updates.state !== undefined) company.state = updates.state;
-    if (updates.zipCode !== undefined) company.zipCode = updates.zipCode;
-    if (updates.email !== undefined) company.email = updates.email?.toLowerCase();
-    if (updates.isActive !== undefined) (company as any).isActive = updates.isActive;
-
-    await company.save();
+    const updated = await prisma.carrier.update({
+      where: { CarrierNum: BigInt(insuranceCompanyId) },
+      data: {
+        CarrierName: updates.name ?? undefined,
+        ElectID: updates.payerId ? updates.payerId.toUpperCase() : undefined,
+        Phone: updates.phone ?? undefined,
+        Address: updates.addressLine1 ?? undefined,
+        Address2: updates.addressLine2 ?? undefined,
+        City: updates.city ?? undefined,
+        State: updates.state ?? undefined,
+        Zip: updates.zipCode ?? undefined,
+        TIN: emailValue ?? undefined,
+        IsHidden: updates.isActive !== undefined ? (updates.isActive ? 0 : 1) : undefined,
+      },
+    });
+    if (emailValue !== undefined || updates.fax !== undefined || updates.website !== undefined || updates.country !== undefined || updates.claimType !== undefined || updates.notes !== undefined || updates.providersOutOfNetwork !== undefined) {
+      await this.saveMeta(updated.CarrierNum, {
+        email: emailValue,
+        fax: updates.fax,
+        website: updates.website,
+        country: updates.country,
+        claimType: updates.claimType,
+        notes: updates.notes,
+        providersOutOfNetwork: updates.providersOutOfNetwork,
+      });
+    }
+    const metaMap = await this.getMetaMap([updated.CarrierNum]);
+    const updatedMeta = metaMap.get(updated.CarrierNum.toString());
 
     // Log activity
     if (updatedBy) {
@@ -210,7 +422,25 @@ export class InsuranceCompanyService {
       );
     }
 
-    return company;
+    return {
+      _id: updated.CarrierNum.toString(),
+      name: updated.CarrierName ?? '',
+      payerId: updated.ElectID ?? null,
+      phone: updated.Phone ?? null,
+      addressLine1: updated.Address ?? null,
+      addressLine2: updated.Address2 ?? null,
+      city: updated.City ?? null,
+      state: updated.State ?? null,
+      zipCode: updated.Zip ?? null,
+      email: updatedMeta?.email ?? updated.TIN ?? null,
+      fax: updatedMeta?.fax ?? null,
+      website: updatedMeta?.website ?? null,
+      country: updatedMeta?.country ?? null,
+      claimType: updatedMeta?.claimType ?? null,
+      notes: updatedMeta?.notes ?? null,
+      providersOutOfNetwork: updatedMeta?.providersOutOfNetwork ?? [],
+      isActive: !updated.IsHidden,
+    };
   }
 
   /**
@@ -218,16 +448,27 @@ export class InsuranceCompanyService {
    */
   async deleteInsuranceCompany(insuranceCompanyId: string, deletedBy?: string) {
     // Find first (so we can log old data before actual deletion)
-    const company = await InsuranceCompanyModel.findById(insuranceCompanyId);
+    const company = await prisma.carrier.findUnique({
+      where: { CarrierNum: BigInt(insuranceCompanyId) },
+    });
     if (!company) {
       throw new NotFoundError('Insurance company not found');
     }
 
     // Capture old values for activity log
-    const oldValues = company.toObject();
+    const oldValues = {
+      _id: company.CarrierNum.toString(),
+      name: company.CarrierName ?? '',
+    };
 
-    // Hard delete
-    await InsuranceCompanyModel.findByIdAndDelete(insuranceCompanyId);
+    // Soft-delete (OpenDental Standard): Mark as hidden to bypass foreign key constraint conflicts
+    await prisma.carrier.update({
+      where: { CarrierNum: BigInt(insuranceCompanyId) },
+      data: {
+        IsHidden: 1,
+        SecDateTEdit: new Date(),
+      },
+    });
 
     // Log activity
     if (deletedBy) {
@@ -237,17 +478,16 @@ export class InsuranceCompanyService {
         'insurance_companies',
         insuranceCompanyId,
         oldValues,
-        null,         // new data = null because record is gone
+        { ...oldValues, isActive: false },
         undefined,
         undefined,
         'high'
       );
     }
 
-    return { message: 'Insurance company deleted permanently' };
+    return { message: 'Insurance company deleted' };
   }
 
 }
 
 export const insuranceCompanyService = new InsuranceCompanyService();
-

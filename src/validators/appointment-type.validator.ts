@@ -4,7 +4,7 @@ export const appointmentTypeIdValidator: ValidationChain[] = [
   param('appointmentTypeId')
     .notEmpty()
     .withMessage('Appointment type ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment type ID format'),
 ];
 

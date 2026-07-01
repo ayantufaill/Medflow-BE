@@ -126,6 +126,7 @@ export const PERMISSIONS = {
 
   // Reports
   REPORTS: {
+    READ: 'reports.read',
     FINANCIAL: 'reports.financial',
     CLINICAL: 'reports.clinical',
     ADMINISTRATIVE: 'reports.administrative',
@@ -151,6 +152,24 @@ export const PERMISSIONS = {
     READ: 'authorizations.read',
     UPDATE: 'authorizations.update',
     DELETE: 'authorizations.delete',
+  },
+
+  // Claims
+  CLAIMS: {
+    CREATE: 'claims.create',
+    READ: 'claims.read',
+    UPDATE: 'claims.update',
+    DELETE: 'claims.delete',
+    PROCESS: 'claims.process',
+  },
+
+  // ERA / EOB
+  ERA: {
+    CREATE: 'era.create',
+    READ: 'era.read',
+    UPDATE: 'era.update',
+    DELETE: 'era.delete',
+    PROCESS: 'era.process',
   },
 
   // Providers
@@ -226,4 +245,3 @@ export const PERMISSION_CATEGORIES = {
   REPORTS: 'Reports',
   SYSTEM: 'System Administration',
 } as const;
-

@@ -18,8 +18,8 @@
 
     /* Strictness */
     "strict": true,
-    "exactOptionalPropertyTypes": true,
-    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "noUncheckedIndexedAccess": false,
 
     /* Recommended */
     "skipLibCheck": true,

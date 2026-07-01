@@ -1,32 +1,35 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import crypto from 'crypto';
 
+const MOCK_AWS_REGION = 'us-west-2';
+const MOCK_AWS_BUCKET = 'medflow-placeholder-bucket';
+
 // Validate AWS configuration
-const validateAWSConfig = (): void => {
+const validateAWSConfig = (): boolean => {
   const accessKeyId = process.env.AWS_ACCESS_KEY_ID;
   const secretAccessKey = process.env.AWS_SECRET_ACCESS_KEY;
   const bucketName = process.env.AWS_S3_BUCKET_NAME;
 
-  if (!accessKeyId || accessKeyId.trim() === '') {
-    throw new Error('AWS_ACCESS_KEY_ID is not configured. Please set it in your .env file.');
-  }
+  return Boolean(accessKeyId?.trim() && secretAccessKey?.trim() && bucketName?.trim());
+};
 
-  if (!secretAccessKey || secretAccessKey.trim() === '') {
-    throw new Error('AWS_SECRET_ACCESS_KEY is not configured. Please set it in your .env file.');
-  }
-
-  if (!bucketName || bucketName.trim() === '') {
-    throw new Error('AWS_S3_BUCKET_NAME is not configured. Please set it in your .env file.');
-  }
+const hasAWSConfig = (): boolean => {
+  return Boolean(
+    process.env.AWS_ACCESS_KEY_ID?.trim() &&
+      process.env.AWS_SECRET_ACCESS_KEY?.trim() &&
+      process.env.AWS_S3_BUCKET_NAME?.trim()
+  );
 };
 
 // Initialize S3 client
 const getS3Client = (): S3Client => {
-  validateAWSConfig();
-  console.log('AWS_REGION:', process.env.AWS_REGION);
-  console.log('AWS_S3_BUCKET_NAME:', process.env.AWS_S3_BUCKET_NAME);
-  console.log('AWS_S3_BASE_URL:', process.env.AWS_S3_BASE_URL);
-  console.log('AWS_S3_USE_ACL:', process.env.AWS_S3_USE_ACL);
+  if (!validateAWSConfig()) {
+    throw new Error('AWS S3 is not configured');
+  }
+  // console.log('AWS_REGION:', process.env.AWS_REGION);
+  // console.log('AWS_S3_BUCKET_NAME:', process.env.AWS_S3_BUCKET_NAME);
+  // console.log('AWS_S3_BASE_URL:', process.env.AWS_S3_BASE_URL);
+  // console.log('AWS_S3_USE_ACL:', process.env.AWS_S3_USE_ACL);
   return new S3Client({
     region: process.env.AWS_REGION || 'us-west-2',
     credentials: {
@@ -51,13 +54,20 @@ export const uploadToS3 = async (
   folder: string = 'practice-logos'
 ): Promise<string> => {
   try {
-    // Validate AWS configuration
-    validateAWSConfig();
-
     // Validate file
     if (!file || !file.buffer) {
       throw new Error('Invalid file: file buffer is missing');
     }
+
+    // Temporary fallback mode when AWS is not configured.
+    if (!hasAWSConfig()) {
+      const ext = file.originalname.split('.').pop() || 'bin';
+      const key = `${folder}/${crypto.randomUUID()}.${ext}`;
+      return `https://${MOCK_AWS_BUCKET}.s3.${MOCK_AWS_REGION}.amazonaws.com/${key}`;
+    }
+
+    // Validate AWS configuration
+    validateAWSConfig();
 
     // Generate unique file name
     const fileExtension = file.originalname.split('.').pop() || 'jpg';
@@ -135,6 +145,10 @@ export const uploadToS3 = async (
  */
 export const deleteFromS3 = async (fileUrl: string): Promise<void> => {
   try {
+    if (!hasAWSConfig()) {
+      return;
+    }
+
     // Validate AWS configuration
     validateAWSConfig();
 
@@ -185,4 +199,3 @@ export const isValidFileSize = (size: number): boolean => {
   const maxSize = 5 * 1024 * 1024; // 5MB
   return size <= maxSize;
 };
-

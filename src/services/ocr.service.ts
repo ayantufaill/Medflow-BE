@@ -7,6 +7,15 @@ export class OCRService {
   private client: ImageAnnotatorClient | null = null;
 
   constructor() {
+    if (process.env.OCR_MOCK === 'true') {
+      const mockText = process.env.OCR_MOCK_TEXT || 'mock text';
+      this.client = {
+        textDetection: async () => [{ textAnnotations: [{ description: mockText }] }],
+      } as unknown as ImageAnnotatorClient;
+      console.log('✅ OCR mock client initialized');
+      return;
+    }
+
     // Initialize Google Cloud Vision client
     // Credentials can be provided via:
     // 1. GOOGLE_APPLICATION_CREDENTIALS environment variable (path to JSON key file)
@@ -87,4 +96,3 @@ export class OCRService {
 
 // Export singleton instance
 export const ocrService = new OCRService();
-

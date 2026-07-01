@@ -6,7 +6,7 @@ export const practiceInfoIdValidator: ValidationChain[] = [
     .withMessage('Practice info ID is required')
     .isString()
     .trim()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid practice info ID format'),
 ];
 
@@ -53,9 +53,7 @@ export const createPracticeInfoValidator: ValidationChain[] = [
     .withMessage('Please provide a valid website URL'),
   body('address')
     .notEmpty()
-    .withMessage('Address is required')
-    .isObject()
-    .withMessage('Address must be an object'),
+    .withMessage('Address is required'),
   body('address.line1')
     .optional()
     .trim()
@@ -106,6 +104,54 @@ export const createPracticeInfoValidator: ValidationChain[] = [
     .withMessage('Please provide a valid billing contact email address')
     .normalizeEmail()
     .toLowerCase(),
+  body('billingOutOfNetwork')
+    .optional()
+    .isIn(['yes', 'no'])
+    .withMessage('Billing Out of Network must be "yes" or "no"'),
+  body('billingAssignmentType')
+    .optional()
+    .isIn(['in-assignment', 'non-assignment'])
+    .withMessage('Billing Assignment Type must be "in-assignment" or "non-assignment"'),
+  body('billingProvider')
+    .optional()
+    .isIn(['default', 'treating', 'business'])
+    .withMessage('Billing Provider must be "default", "treating", or "business"'),
+  body('kioskPassword')
+    .optional()
+    .isString()
+    .withMessage('Kiosk password must be a string'),
+  body('kioskAccounts')
+    .optional()
+    .isArray()
+    .withMessage('Kiosk accounts must be an array'),
+  body('myChartSettings')
+    .optional()
+    .isObject()
+    .withMessage('MyChart settings must be an object'),
+  body('officeTimings')
+    .optional()
+    .isObject()
+    .withMessage('Office timings must be an object'),
+  body('onlineSchedule')
+    .optional()
+    .isObject()
+    .withMessage('Online schedule must be an object'),
+  body('patientFlags')
+    .optional()
+    .isArray()
+    .withMessage('Patient flags must be an array'),
+  body('documentCategories')
+    .optional()
+    .isObject()
+    .withMessage('Document categories must be an object'),
+  body('scheduleConfig')
+    .optional()
+    .isObject()
+    .withMessage('Schedule config must be an object'),
+  body('practiceSettings')
+    .optional()
+    .isObject()
+    .withMessage('Practice settings must be an object'),
 ];
 
 export const updatePracticeInfoValidator: ValidationChain[] = [
@@ -147,9 +193,7 @@ export const updatePracticeInfoValidator: ValidationChain[] = [
     .isURL({ protocols: ['http', 'https'], require_protocol: false })
     .withMessage('Please provide a valid website URL'),
   body('address')
-    .optional()
-    .isObject()
-    .withMessage('Address must be an object'),
+    .optional(),
   body('address.line1')
     .optional()
     .trim()
@@ -200,6 +244,54 @@ export const updatePracticeInfoValidator: ValidationChain[] = [
     .withMessage('Please provide a valid billing contact email address')
     .normalizeEmail()
     .toLowerCase(),
+  body('billingOutOfNetwork')
+    .optional()
+    .isIn(['yes', 'no'])
+    .withMessage('Billing Out of Network must be "yes" or "no"'),
+  body('billingAssignmentType')
+    .optional()
+    .isIn(['in-assignment', 'non-assignment'])
+    .withMessage('Billing Assignment Type must be "in-assignment" or "non-assignment"'),
+  body('billingProvider')
+    .optional()
+    .isIn(['default', 'treating', 'business'])
+    .withMessage('Billing Provider must be "default", "treating", or "business"'),
+  body('kioskPassword')
+    .optional()
+    .isString()
+    .withMessage('Kiosk password must be a string'),
+  body('kioskAccounts')
+    .optional()
+    .isArray()
+    .withMessage('Kiosk accounts must be an array'),
+  body('myChartSettings')
+    .optional()
+    .isObject()
+    .withMessage('MyChart settings must be an object'),
+  body('officeTimings')
+    .optional()
+    .isObject()
+    .withMessage('Office timings must be an object'),
+  body('onlineSchedule')
+    .optional()
+    .isObject()
+    .withMessage('Online schedule must be an object'),
+  body('patientFlags')
+    .optional()
+    .isArray()
+    .withMessage('Patient flags must be an array'),
+  body('documentCategories')
+    .optional()
+    .isObject()
+    .withMessage('Document categories must be an object'),
+  body('scheduleConfig')
+    .optional()
+    .isObject()
+    .withMessage('Schedule config must be an object'),
+  body('practiceSettings')
+    .optional()
+    .isObject()
+    .withMessage('Practice settings must be an object'),
 ];
 
 export const queryValidator: ValidationChain[] = [
@@ -217,4 +309,70 @@ export const queryValidator: ValidationChain[] = [
     .isLength({ min: 1, max: 100 })
     .withMessage('Search query must be between 1 and 100 characters'),
 ];
+
+export const scheduleSupportValidator: ValidationChain[] = [
+  body('name')
+    .trim()
+    .notEmpty()
+    .withMessage('Name is required')
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Name must be between 2 and 100 characters'),
+  body('email')
+    .trim()
+    .notEmpty()
+    .withMessage('Email is required')
+    .isEmail()
+    .withMessage('Please provide a valid email address')
+    .normalizeEmail()
+    .toLowerCase(),
+  body('date')
+    .trim()
+    .notEmpty()
+    .withMessage('Date is required')
+    .matches(/^\d{4}-\d{2}-\d{2}$/)
+    .withMessage('Date must be in YYYY-MM-DD format'),
+  body('timeSlot')
+    .trim()
+    .notEmpty()
+    .withMessage('Time slot is required')
+    .isString(),
+  body('note')
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage('Note must be at most 500 characters'),
+  body('practiceInfoId')
+    .optional()
+    .trim()
+    .isInt({ min: 1 })
+    .withMessage('Invalid practice info ID format'),
+];
+
+export const movePatientValidator: ValidationChain[] = [
+  body('fromPatient')
+    .trim()
+    .notEmpty()
+    .withMessage('Source patient is required'),
+  body('toPatient')
+    .trim()
+    .notEmpty()
+    .withMessage('Destination patient is required'),
+  body('checklist')
+    .notEmpty()
+    .withMessage('Checklist is required')
+    .isObject()
+    .withMessage('Checklist must be an object'),
+];
+
+export const moveProviderValidator: ValidationChain[] = [
+  body('fromProvider')
+    .trim()
+    .notEmpty()
+    .withMessage('Source provider is required'),
+  body('toProvider')
+    .trim()
+    .notEmpty()
+    .withMessage('Destination provider is required'),
+];
+
 

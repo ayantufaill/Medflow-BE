@@ -90,7 +90,7 @@ export class PatientInsuranceController {
         });
       }
 
-      const { patientInsuranceId } = req.params;
+      const { patientId,patientInsuranceId } = req.params;
       
       if (!patientInsuranceId) {
         return res.status(400).json({
@@ -100,9 +100,10 @@ export class PatientInsuranceController {
       }
       
       const insurance = await patientInsuranceService.updatePatientInsurance(
-        patientInsuranceId,
-        req.body,
-        req.userId
+         patientId,
+         patientInsuranceId,
+         req.body,
+         req.userId
       );
       res.status(200).json({
         success: true,
@@ -122,7 +123,7 @@ export class PatientInsuranceController {
         });
       }
 
-      const { patientInsuranceId } = req.params;
+      const { patientId,patientInsuranceId } = req.params;
       
       if (!patientInsuranceId) {
         return res.status(400).json({
@@ -131,7 +132,7 @@ export class PatientInsuranceController {
         });
       }
       
-      const result = await patientInsuranceService.deletePatientInsurance(patientInsuranceId, req.userId);
+      const result = await patientInsuranceService.deletePatientInsurance(patientId,patientInsuranceId, req.userId);
       res.status(200).json({
         success: true,
         data: result,
@@ -140,6 +141,38 @@ export class PatientInsuranceController {
       next(error);
     }
   }
+  async setPrimaryInsurance(req: Request, res: Response, next: NextFunction) {
+  try {
+    if (!req.userId) {
+      return res.status(401).json({
+        success: false,
+        error: { message: 'User not authenticated' },
+      });
+    }
+
+    const { patientId, patientInsuranceId } = req.params;
+
+    if (!patientId || !patientInsuranceId) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Patient ID and insurance ID are required' },
+      });
+    }
+
+    const insurance = await patientInsuranceService.setPrimaryInsurance(
+      patientId,
+      patientInsuranceId
+    );
+
+    res.status(200).json({
+      success: true,
+      data: { insurance },
+      message: 'Insurance set as primary successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+}
 }
 
 export const patientInsuranceController = new PatientInsuranceController();

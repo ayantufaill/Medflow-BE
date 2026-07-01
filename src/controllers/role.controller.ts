@@ -278,6 +278,25 @@ export class RoleController {
       next(error);
     }
   }
+
+  /**
+   * Get permissions matrix
+   */
+  async getPermissionMatrix(req: Request, res: Response, next: NextFunction) {
+    try {
+      const roles = await PermissionService.getAllRoles();
+      const matrix: Record<string, Record<string, boolean>> = {};
+      for (const role of roles) {
+        matrix[role.name] = role.permissions || {};
+      }
+      res.status(200).json({
+        success: true,
+        data: { matrix },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const roleController = new RoleController();

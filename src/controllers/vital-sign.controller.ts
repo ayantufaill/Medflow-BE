@@ -55,7 +55,11 @@ export class VitalSignController {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 10;
 
-      const result = await vitalSignService.getVitalSignsByPatient(patientId, page, limit);
+      const filters: { startDate?: Date; endDate?: Date } = {};
+      if (req.query.startDate) filters.startDate = new Date(req.query.startDate as string);
+      if (req.query.endDate) filters.endDate = new Date(req.query.endDate as string);
+
+      const result = await vitalSignService.getVitalSignsByPatient(patientId, page, limit, filters);
 
       res.status(200).json({
         success: true,
@@ -181,6 +185,23 @@ export class VitalSignController {
       next(error);
     }
   }
+
+  async getNormalRanges(req: Request, res: Response, next: NextFunction) {
+    try {
+      const age = req.query.age ? parseInt(req.query.age as string, 10) : undefined;
+      const gender = req.query.gender as string | undefined;
+
+      const ranges = await vitalSignService.getNormalRanges(age, gender);
+
+      res.status(200).json({
+        success: true,
+        data: { normalRanges: ranges },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const vitalSignController = new VitalSignController();
+

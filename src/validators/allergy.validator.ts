@@ -4,7 +4,7 @@ export const allergyIdValidator: ValidationChain[] = [
   param('id')
     .notEmpty()
     .withMessage('Allergy ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid allergy ID format'),
 ];
 
@@ -12,7 +12,7 @@ export const allergyIdParamValidator: ValidationChain[] = [
   param('allergyId')
     .notEmpty()
     .withMessage('Allergy ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid allergy ID format'),
 ];
 
@@ -20,7 +20,7 @@ export const createAllergyValidator: ValidationChain[] = [
   body('patientId')
     .notEmpty()
     .withMessage('Patient ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   body('allergen')
     .trim()
@@ -41,7 +41,7 @@ export const createAllergyValidator: ValidationChain[] = [
     .withMessage('Severity must be one of: mild, moderate, severe'),
   body('documentedBy')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid documented_by format'),
   body('documentedDate')
     .notEmpty()
@@ -84,7 +84,7 @@ export const createPatientAllergyValidator: ValidationChain[] = [
     .withMessage('Severity must be one of: mild, moderate, severe'),
   body('documentedBy')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid documented_by format'),
   body('documentedDate')
     .notEmpty()
@@ -150,7 +150,7 @@ export const getAllergiesQueryValidator: ValidationChain[] = [
   query('patient_id')
     .notEmpty()
     .withMessage('patient_id is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient_id format'),
 ];
 

@@ -4,7 +4,7 @@ export const waitlistEntryIdValidator: ValidationChain[] = [
   param('waitlistEntryId')
     .notEmpty()
     .withMessage('Waitlist entry ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid waitlist entry ID format'),
 ];
 
@@ -12,17 +12,17 @@ export const createWaitlistEntryValidator: ValidationChain[] = [
   body('patientId')
     .notEmpty()
     .withMessage('Patient ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   body('providerId')
     .notEmpty()
     .withMessage('Provider ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
   body('appointmentTypeId')
     .notEmpty()
     .withMessage('Appointment type ID is required')
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment type ID format'),
   body('preferredDate')
     .optional()
@@ -50,7 +50,7 @@ export const createWaitlistEntryValidator: ValidationChain[] = [
 export const updateWaitlistEntryValidator: ValidationChain[] = [
   body('appointmentTypeId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid appointment type ID format'),
   body('preferredDate')
     .optional()
@@ -90,11 +90,11 @@ export const waitlistQueryValidator: ValidationChain[] = [
     .withMessage('Limit must be between 1 and 100'),
   query('patientId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   query('providerId')
     .optional()
-    .isLength({ min: 36, max: 36 })
+    .isInt({ min: 1 })
     .withMessage('Invalid provider ID format'),
   query('status')
     .optional()

@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:16-alpine
+    env_file:
+      - .env.docker
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  seed:
+    build:
+      context: .
+      target: deps
+    env_file:
+      - .env.docker
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: ["/bin/sh", "-c", "npx prisma db push --schema prisma/schema.prisma && npx prisma generate --schema prisma/schema.prisma && npm run seed:all"]
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      target: deps
+    ports:
+      - "5001:5001"
+    env_file:
+      - .env.docker
+    environment:
+      CHOKIDAR_USEPOLLING: "1"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - patient-uploads:/app/uploads
+    command: ["/bin/sh", "-c", "npx prisma generate --schema prisma/schema.prisma && npm run dev"]
+    depends_on:
+      db:
+        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data:
+  patient-uploads:

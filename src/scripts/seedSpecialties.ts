@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
-import connectDB from '../config/db';
-import { SpecialtyModel } from '../models/specialty.model';
+import connectDB, { prisma } from '../config/db';
+import { getNextId } from '../utils/opendental-ids.util';
 
 dotenv.config();
 
@@ -32,16 +32,25 @@ const seedSpecialties = async () => {
     await connectDB();
 
     for (const specialtyData of defaultSpecialties) {
-      const existingSpecialty = await SpecialtyModel.findOne({ name: specialtyData.name });
+      const existingSpecialty = await prisma.definition.findFirst({
+        where: { ItemName: specialtyData.name },
+      });
 
       if (existingSpecialty) {
         console.log(`Specialty "${specialtyData.name}" already exists, skipping...`);
         continue;
       }
 
-      await SpecialtyModel.create({
-        ...specialtyData,
-        isActive: true,
+      const nextDefNum = await getNextId('definition', 'DefNum');
+      await prisma.definition.create({
+        data: {
+          DefNum: nextDefNum,
+          Category: 0,
+          ItemName: specialtyData.name,
+          ItemOrder: 0,
+          IsHidden: 0,
+          ItemValue: specialtyData.description,
+        },
       });
       console.log(`✓ Created specialty: ${specialtyData.name}`);
     }

@@ -1,24 +1,33 @@
-import { param, query, type ValidationChain } from 'express-validator';
+import { body, param, query, type ValidationChain } from 'express-validator';
+
+const eraStatuses = ['imported', 'processing', 'processed', 'error', 'partial'];
 
 export const eraIdValidator: ValidationChain[] = [
-  param('eraId').notEmpty().withMessage('ERA ID is required'),
+  param('eraId').isString().notEmpty().withMessage('eraId is required'),
 ];
 
 export const eraItemIdValidator: ValidationChain[] = [
-  param('eraItemId').notEmpty().withMessage('ERA item ID is required'),
+  param('eraItemId').isString().notEmpty().withMessage('eraItemId is required'),
 ];
 
-export const eraListValidator: ValidationChain[] = [
-  query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
-  query('limit').optional().isInt({ min: 1 }).withMessage('Limit must be a positive integer'),
-  query('status').optional().isIn(['imported', 'processing', 'processed', 'failed']).withMessage('Invalid status'),
+export const eraSearchValidator: ValidationChain[] = [
+  query('page').optional().isInt({ min: 1 }).withMessage('page must be a positive integer'),
+  query('limit').optional().isInt({ min: 1 }).withMessage('limit must be a positive integer'),
+  query('search').optional().isString().withMessage('search must be a string'),
+  query('status').optional().isIn(eraStatuses).withMessage('Invalid status value'),
   query('startDate').optional().isISO8601().withMessage('startDate must be a valid date'),
   query('endDate').optional().isISO8601().withMessage('endDate must be a valid date'),
 ];
 
-export const unmatchedItemsValidator: ValidationChain[] = [
-  query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
-  query('limit').optional().isInt({ min: 1 }).withMessage('Limit must be a positive integer'),
+export const unmatchedSearchValidator: ValidationChain[] = [
+  query('page').optional().isInt({ min: 1 }).withMessage('page must be a positive integer'),
+  query('limit').optional().isInt({ min: 1 }).withMessage('limit must be a positive integer'),
+  query('search').optional().isString().withMessage('search must be a string'),
   query('startDate').optional().isISO8601().withMessage('startDate must be a valid date'),
   query('endDate').optional().isISO8601().withMessage('endDate must be a valid date'),
+];
+
+export const matchEraItemValidator: ValidationChain[] = [
+  body('claimId').optional({ nullable: true }).isString().withMessage('claimId must be a string'),
+  body('invoiceId').optional({ nullable: true }).isString().withMessage('invoiceId must be a string'),
 ];

@@ -19,7 +19,7 @@ export class AllergyController {
         reaction,
         severity,
         documentedBy: documentedBy || req.userId, // Use provided documentedBy or authenticated user
-        documentedDate: new Date(documentedDate),
+        documentedDate: documentedDate ? new Date(documentedDate) : undefined,
         isActive: req.body.isActive !== undefined ? req.body.isActive : true,
       });
 
@@ -132,6 +132,7 @@ export class AllergyController {
   async getPatientAllergies(req: Request, res: Response, next: NextFunction) {
     try {
       const { patientId } = req.params;
+      const { isActive } = req.query;
       
       if (!patientId) {
         return res.status(400).json({
@@ -140,7 +141,16 @@ export class AllergyController {
         });
       }
       
-      const allergies = await allergyService.getAllergies(patientId);
+      const parsedIsActive =
+        isActive === undefined
+          ? undefined
+          : isActive === 'true'
+            ? true
+            : isActive === 'false'
+              ? false
+              : undefined;
+
+      const allergies = await allergyService.getAllergies(patientId, parsedIsActive);
       
       res.status(200).json({
         success: true,
@@ -177,7 +187,7 @@ export class AllergyController {
         reaction,
         severity,
         documentedBy: req.body.documentedBy || req.userId,
-        documentedDate: new Date(documentedDate),
+        documentedDate: documentedDate ? new Date(documentedDate) : undefined,
         isActive: req.body.isActive !== undefined ? req.body.isActive : true,
       });
 

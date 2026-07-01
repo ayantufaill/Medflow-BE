@@ -73,6 +73,13 @@ export const errorHandler = (
   });
 };
 
+export class UnprocessableEntityError extends AppError {
+  constructor(message: string = 'Unprocessable entity') {
+    super(422, message);
+    this.name = 'UnprocessableEntityError';
+  }
+}
+
 export const notFoundHandler = (req: Request, res: Response) => {
   res.status(404).json({
     success: false,

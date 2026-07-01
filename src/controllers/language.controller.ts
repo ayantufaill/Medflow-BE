@@ -5,6 +5,7 @@ export class LanguageController {
   async getAllLanguages(req: Request, res: Response, next: NextFunction) {
     try {
       const { isActive } = req.query;
+      const search = typeof req.query.search === 'string' ? req.query.search : undefined;
       
       let activeFilter: boolean | undefined;
       if (isActive === 'true') {
@@ -13,7 +14,7 @@ export class LanguageController {
         activeFilter = false;
       }
 
-      const languages = await languageService.getAllLanguages(activeFilter);
+      const languages = await languageService.getAllLanguages(search, activeFilter);
 
       return res.status(200).json({ success: true, data: languages, message: 'Languages retrieved successfully' });
     } catch (error) {

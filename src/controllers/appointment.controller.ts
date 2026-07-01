@@ -82,14 +82,47 @@ export class AppointmentController {
         });
       }
       
-      const startDate = req.query.startDate as string;
-      const endDate = req.query.endDate as string;
       const view = (req.query.view as 'day' | 'week' | 'month') || 'week';
+      const date = req.query.date as string | undefined;
+      let startDate = req.query.startDate as string | undefined;
+      let endDate = req.query.endDate as string | undefined;
+
+      if ((!startDate || !endDate) && date) {
+        const baseDate = new Date(date);
+        if (Number.isNaN(baseDate.getTime())) {
+          return res.status(400).json({
+            success: false,
+            error: { message: 'date must be a valid date' },
+          });
+        }
+
+        const start = new Date(baseDate);
+        const end = new Date(baseDate);
+
+        if (view === 'day') {
+          start.setHours(0, 0, 0, 0);
+          end.setHours(23, 59, 59, 999);
+        } else if (view === 'week') {
+          const day = start.getDay();
+          start.setDate(start.getDate() - day);
+          start.setHours(0, 0, 0, 0);
+          end.setDate(start.getDate() + 6);
+          end.setHours(23, 59, 59, 999);
+        } else {
+          start.setDate(1);
+          start.setHours(0, 0, 0, 0);
+          end.setMonth(end.getMonth() + 1, 0);
+          end.setHours(23, 59, 59, 999);
+        }
+
+        startDate = start.toISOString();
+        endDate = end.toISOString();
+      }
 
       if (!startDate || !endDate) {
         return res.status(400).json({
           success: false,
-          error: { message: 'startDate and endDate are required' },
+          error: { message: 'Provide either date or both startDate and endDate' },
         });
       }
 
@@ -201,6 +234,7 @@ export class AppointmentController {
         copayCollected,
         reminderSent,
         customFields,
+        status,
       } = req.body;
 
       const appointment = await appointmentService.createAppointment(
@@ -221,6 +255,7 @@ export class AppointmentController {
           copayCollected,
           reminderSent,
           customFields,
+          status,
         },
         req.userId
       );
@@ -293,8 +328,8 @@ export class AppointmentController {
 
       const appointment = await appointmentService.cancelAppointment(
         appointmentId,
-        cancellationReason,
-        req.userId
+        req.userId,
+        cancellationReason
       );
 
       res.status(200).json({
@@ -382,6 +417,203 @@ export class AppointmentController {
     }
   }
 
+  async getAppointmentWorkspace(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const result = await appointmentService.getAppointmentWorkspace(appointmentId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateAppointmentWorkspace(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const result = await appointmentService.updateAppointmentWorkspace(
+        appointmentId,
+        req.body,
+        req.userId
+      );
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getAppointmentProcedures(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const result = await appointmentService.getAppointmentProcedures(appointmentId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async addAppointmentProcedure(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const result = await appointmentService.addAppointmentProcedure(
+        appointmentId,
+        req.body,
+        req.userId
+      );
+      res.status(201).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getAppointmentTags(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const result = await appointmentService.getAppointmentTags(appointmentId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async addAppointmentTag(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const result = await appointmentService.addAppointmentTag(appointmentId, req.body, req.userId);
+      res.status(201).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async addAppointmentLabOrder(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const result = await appointmentService.addAppointmentLabOrder(
+        appointmentId,
+        req.body,
+        req.userId
+      );
+      res.status(201).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async checkOutAppointment(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const appointment = await appointmentService.checkOutAppointment(appointmentId, req.userId);
+      res.status(200).json({
+        success: true,
+        data: { appointment },
+        message: 'Patient checked out successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createAppointmentCommunication(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const result = await appointmentService.createAppointmentCommunication(
+        appointmentId,
+        req.body,
+        req.userId
+      );
+      res.status(201).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async deleteAppointment(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.userId) {
@@ -410,6 +642,26 @@ export class AppointmentController {
       next(error);
     }
   }
+
+  async getPatientAppointments(req: Request, res: Response, next: NextFunction) {
+  try {
+    const { patientId } = req.params;
+    if (!patientId) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Patient ID is required' },
+      });
+    }
+    const limit = parseInt(req.query.limit as string) || 10;
+    const result = await appointmentService.getPatientAppointments(patientId, limit);
+    res.status(200).json({
+      success: true,
+      data: result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
 }
 
 export const appointmentController = new AppointmentController();
