@@ -189,28 +189,29 @@ export class InsurancePlanService {
       },
     });
 
-    await Promise.all(
-      (data.benefits || []).map(async (benefit) => {
-        const benefitNum = await getNextId('benefit', 'BenefitNum');
-        await prisma.benefit.create({
-          data: {
-            BenefitNum: benefitNum,
-            PlanNum: planNum,
-            CovCatNum: benefit.covCatNum ? BigInt(benefit.covCatNum) : null,
-            BenefitType: benefit.benefitType ?? null,
-            Percent: benefit.percentage ?? null,
-            MonetaryAmt: benefit.monetaryAmount ?? null,
-            TimePeriod: benefit.timePeriod ?? null,
-            QuantityQualifier: benefit.quantityQualifier ?? null,
-            Quantity: benefit.quantity ?? null,
-            CoverageLevel: benefit.coverageLevel ?? null,
-            CodeNum: benefit.codeNum ? BigInt(benefit.codeNum) : null,
-            ToothRange: benefit.toothRange ?? null,
-            SecDateTEntry: new Date(),
-          },
-        });
-      })
-    );
+    if (data.benefits && data.benefits.length > 0) {
+      let nextBenefitNum = await getNextId('benefit', 'BenefitNum');
+      const benefitsData = data.benefits.map((benefit) => {
+        const currentBenefitNum = nextBenefitNum;
+        nextBenefitNum += 1n;
+        return {
+          BenefitNum: currentBenefitNum,
+          PlanNum: planNum,
+          CovCatNum: benefit.covCatNum ? BigInt(benefit.covCatNum) : null,
+          BenefitType: benefit.benefitType ?? null,
+          Percent: benefit.percentage ?? null,
+          MonetaryAmt: benefit.monetaryAmount ?? null,
+          TimePeriod: benefit.timePeriod ?? null,
+          QuantityQualifier: benefit.quantityQualifier ?? null,
+          Quantity: benefit.quantity ?? null,
+          CoverageLevel: benefit.coverageLevel ?? null,
+          CodeNum: benefit.codeNum ? BigInt(benefit.codeNum) : null,
+          ToothRange: benefit.toothRange ?? null,
+          SecDateTEntry: new Date(),
+        };
+      });
+      await prisma.benefit.createMany({ data: benefitsData });
+    }
 
     return this.getInsurancePlanById(planNum.toString());
   }
