@@ -217,14 +217,26 @@ export class DepositService {
       }),
     ]);
 
+    const mapPaymentMethod = (methodStr: string | undefined | null, isInsurance: boolean): string => {
+      if (!methodStr) return isInsurance ? 'Insurance Check' : 'Patient Check';
+      const lower = methodStr.toLowerCase().trim();
+      
+      if (lower === 'card' || lower.includes('card') || lower === 'credit' || lower === 'debit') return 'Credit Card';
+      if (lower === 'ach' || lower === 'eft') return 'EFT';
+      if (lower === 'check' || lower.includes('check')) return isInsurance ? 'Insurance Check' : 'Patient Check';
+      
+      return methodStr;
+    };
+
     const mappedPatientPayments = patientPayments.map((p) => {
       const meta = parseJson<{ paymentMethod?: string }>(p.PayNote);
+      const rawMethod = meta.paymentMethod ?? p.definition?.ItemName ?? 'Check';
       return {
         id: p.PayNum.toString(),
         type: 'patient',
         date: p.PayDate ?? null,
         amount: p.PayAmt ?? 0,
-        method: meta.paymentMethod ?? p.definition?.ItemName ?? 'Check',
+        method: mapPaymentMethod(rawMethod, false),
         checkNum: p.CheckNum ?? '',
         patientName: p.patient ? `${p.patient.FName ?? ''} ${p.patient.LName ?? ''}`.trim() : 'Unknown Patient',
       };
@@ -232,12 +244,13 @@ export class DepositService {
 
     const mappedInsurancePayments = insurancePayments.map((cp) => {
       const meta = parseJson<{ paymentMethod?: string }>(cp.Note);
+      const rawMethod = meta.paymentMethod ?? cp.definition_claimpayment_PayTypeTodefinition?.ItemName ?? 'Check';
       return {
         id: cp.ClaimPaymentNum.toString(),
         type: 'insurance',
         date: cp.CheckDate ?? null,
         amount: cp.CheckAmt ?? 0,
-        method: meta.paymentMethod ?? cp.definition_claimpayment_PayTypeTodefinition?.ItemName ?? 'Check',
+        method: mapPaymentMethod(rawMethod, true),
         checkNum: cp.CheckNum ?? '',
         carrierName: cp.CarrierName ?? 'Unknown Carrier',
       };
