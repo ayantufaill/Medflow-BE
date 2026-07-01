@@ -20,7 +20,7 @@ const getAllowedOrigins = (): string[] | string => {
 };
 
 export const corsOptions: cors.CorsOptions = {
-  origin: '*',
+  origin: getAllowedOrigins(),
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
