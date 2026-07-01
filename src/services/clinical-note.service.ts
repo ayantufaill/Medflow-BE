@@ -599,7 +599,13 @@ export class ClinicalNoteService {
   }
 
   async getUnsignedNotesByProvider(providerId: string) {
-    const rows = await prisma.commlog.findMany({});
+    const rows = await prisma.commlog.findMany({
+      where: {
+        Note: {
+          contains: `"providerId":"${providerId}"`,
+        },
+      },
+    });
     const notes = rows
       .map((row) => {
         const meta = parseJson<ClinicalNoteMeta>(row.Note);
