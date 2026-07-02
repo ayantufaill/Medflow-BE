@@ -233,6 +233,27 @@ export class PatientService {
   }
 
   /**
+   * Bulk deactivate incomplete patients
+   */
+  async bulkDeletePatients(patientIds: number[], userId: string) {
+    const validIds = patientIds.filter((id) => typeof id === 'number' && id > 0);
+    if (validIds.length === 0) return;
+
+    await prisma.patient.updateMany({
+      where: {
+        PatNum: { in: validIds.map((id) => BigInt(id)) }
+      },
+      data: {
+        PatStatus: 4, // 4 = Deleted in OpenDental
+      }
+    });
+
+    for (const id of validIds) {
+      await logActivity(userId, 'deleted', 'patients', id.toString());
+    }
+  }
+
+  /**
    * Get patient account balance summary
    */
 async getPatientBalance(patientId: string) {

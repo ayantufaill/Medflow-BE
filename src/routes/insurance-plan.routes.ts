@@ -213,6 +213,86 @@ router.delete(
 
 /**
  * @swagger
+ * /insurance-plans/{planId}/benefits:
+ *   post:
+ *     summary: Add a category maximum benefit
+ *     tags: [Insurance Plans]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: planId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       201:
+ *         description: Benefit created
+ */
+router.post(
+  '/:planId/benefits',
+  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  validate(insurancePlanIdValidator),
+  insurancePlanController.createBenefit.bind(insurancePlanController)
+);
+
+/**
+ * @swagger
+ * /insurance-plans/{planId}/benefits/{benefitId}:
+ *   put:
+ *     summary: Update a category maximum benefit
+ *     tags: [Insurance Plans]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: planId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: benefitId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Benefit updated
+ */
+router.put(
+  '/:planId/benefits/:benefitId',
+  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  validate(insurancePlanIdValidator),
+  insurancePlanController.updateBenefit.bind(insurancePlanController)
+);
+
+/**
+ * @swagger
+ * /insurance-plans/{planId}/benefits/{benefitId}:
+ *   delete:
+ *     summary: Delete a category maximum benefit
+ *     tags: [Insurance Plans]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: planId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: benefitId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Benefit deleted
+ */
+router.delete(
+  '/:planId/benefits/:benefitId',
+  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  validate(insurancePlanIdValidator),
+  insurancePlanController.deleteBenefit.bind(insurancePlanController)
+);
+
+/**
+ * @swagger
  * /insurance-plans/patients/{patientId}/coverages:
  *   get:
  *     summary: Get patient insurance coverages

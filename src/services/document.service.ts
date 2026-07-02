@@ -247,6 +247,24 @@ export class DocumentService {
     return { message: 'Document deleted successfully' };
   }
 
+  async unlinkDocument(documentId: string, userId: string) {
+    const doc = await prisma.document.findUnique({
+      where: { DocNum: BigInt(documentId) },
+    });
+    if (!doc) {
+      throw new NotFoundError('Document not found');
+    }
+
+    const updated = await prisma.document.update({
+      where: { DocNum: doc.DocNum },
+      data: { PatNum: null },
+    });
+
+    await logActivity(userId, 'updated', 'documents', documentId, doc, updated);
+
+    return this.mapDocumentRow(updated);
+  }
+
   async attachDocumentToNote(documentId: string, clinicalNoteId: string, userId: string) {
     const doc = await prisma.document.findUnique({
       where: { DocNum: BigInt(documentId) },
