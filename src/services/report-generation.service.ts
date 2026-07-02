@@ -217,12 +217,16 @@ export class ReportGenerationService {
         patplan: {
           orderBy: { Ordinal: 'asc' },
           take: 1,
-          include: {
+          select: {
             inssub: {
-              include: {
+              select: {
                 insplan: {
-                  include: {
-                    carrier: true
+                  select: {
+                    carrier: {
+                      select: {
+                        CarrierName: true
+                      }
+                    }
                   }
                 }
               }
