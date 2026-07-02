@@ -1571,10 +1571,13 @@ export class ReportGenerationService {
       where.PatStatus = 0;
     } else if (filterBy === 'inactive') {
       where.PatStatus = 2;
+    } else if (filterBy === 'all') {
+      where.PatStatus = { in: [0, 2] };
     }
 
     const patients = await prisma.patient.findMany({
       where,
+      take: 200,
       select: {
         PatNum: true,
         FName: true,
