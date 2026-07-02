@@ -1841,6 +1841,7 @@ export class ReportGenerationService {
           contains: '"referralSource"',
         },
       },
+      take: 5000
     });
 
     const patientReferrals = patientPrefs.map(pref => {

@@ -53,7 +53,7 @@ app.get('/', (req: Request, res: Response) => {
 
 app.get('/health', (req: Request, res: Response) => {
   res.json({
-    status: 'healthyyy',
+    status: 'healthy',
     timestamp: new Date().toISOString(),
   });
 });
