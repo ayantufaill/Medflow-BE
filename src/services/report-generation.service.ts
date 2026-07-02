@@ -213,7 +213,22 @@ export class ReportGenerationService {
         FName: true,
         LName: true,
         BalTotal: true,
-        InsEst: true
+        InsEst: true,
+        patplan: {
+          orderBy: { Ordinal: 'asc' },
+          take: 1,
+          include: {
+            inssub: {
+              include: {
+                insplan: {
+                  include: {
+                    carrier: true
+                  }
+                }
+              }
+            }
+          }
+        }
       },
       take: 20
     });
@@ -233,10 +248,14 @@ export class ReportGenerationService {
         };
       });
 
+      const primaryPatPlan = p.patplan?.[0];
+      const insuranceName = primaryPatPlan?.inssub?.insplan?.carrier?.CarrierName ?? null;
+
       return {
         id: p.PatNum.toString(),
         flags: [],
         name: `${p.FName} ${p.LName}`,
+        insuranceName,
         buckets,
         total: balance,
         totalOwings: balance + (patientOnly ? 0 : insEst),
@@ -253,6 +272,7 @@ export class ReportGenerationService {
           id: 'fallback-1',
           flags: [],
           name: 'John Doe',
+          insuranceName: null,
           buckets: {
             '0 - 30 days': { pt: 1904.33, ins: 2000.00 },
             '31 - 60 days': { pt: 0, ins: 0 },
