@@ -104,7 +104,7 @@ export class UserService {
           .map((ur) => ur.usergroup)
           .filter((ug): ug is NonNullable<typeof ug> => ug !== null && ug !== undefined);
         const roles = await Promise.all(
-          roleGroups.map((role) => mapRole(role, roleMetaMap[role.UserGroupNum.toString()]))
+          roleGroups.map((role) => mapRole(role, roleMetaMap[role.UserGroupNum.toString()] ?? {}))
         );
         return { ...sanitizeUser(user), roles };
       })
@@ -151,11 +151,14 @@ export class UserService {
       where: { UserNum: BigInt(userId) },
       include: { usergroup: true },
     });
+    const allRoleNums = userRoles.map(ur => ur.UserGroupNum).filter((num): num is bigint => num !== null && num !== undefined);
+    const roleMetaMap = await getRolesMeta(allRoleNums);
+
     const roles = await Promise.all(
       userRoles
         .map((ur) => ur.usergroup)
-        .filter(Boolean)
-        .map((r) => mapRole(r))
+        .filter((r): r is NonNullable<typeof r> => r !== null && r !== undefined)
+        .map((r) => mapRole(r, roleMetaMap[r.UserGroupNum.toString()] ?? {}))
     );
 
     return { ...sanitizeUser(mapped), roles } as UserWithRoles;

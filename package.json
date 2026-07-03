@@ -24,10 +24,12 @@
     "seed:appointments": "tsx src/scripts/seedAppointments.ts",
     "seed:medications": "tsx src/scripts/seedMedications.ts",
     "seed:claims:clean": "tsx src/scripts/seedClaimsComplete.ts",
+    "seed:operatories": "tsx src/scripts/seedOperatories.ts",
     "docker:seed:patients": "docker exec medflow-be-api-1 npm run seed:patients",
     "docker:seed:providers": "docker exec medflow-be-api-1 npm run seed:providers",
     "docker:seed:assistants": "docker exec medflow-be-api-1 npm run seed:assistants",
     "docker:seed:appointments": "docker exec medflow-be-api-1 npm run seed:appointments",
+    "docker:seed:operatories": "docker exec medflow-be-api-1 npm run seed:operatories",
     "docker:seed:all": "docker exec medflow-be-api-1 npm run seed:all",
     "delete:tooth-services": "tsx src/scripts/deleteToothPlantingServices.ts",
     "schema:map": "node scripts/generateSchemaRelationMap.mjs"

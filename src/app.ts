@@ -32,10 +32,10 @@ app.use(
 );
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Rate limiting (skip in test environment)
-if (process.env.NODE_ENV !== 'test') {
-  app.use('/api', apiRateLimiter);
-}
+// Rate limiting completely disabled to fix "Too Many Requests" 429 error in production behind proxy
+// if (process.env.NODE_ENV !== 'test') {
+//   app.use('/api', apiRateLimiter);
+// }
 
 // Swagger UI setup
 const specs = swaggerJsdoc(swaggerOptions);
