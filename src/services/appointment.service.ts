@@ -147,6 +147,36 @@ async function checkConflicts(
         });
       }
     });
+
+    const year = startOfDay.getFullYear();
+    const month = String(startOfDay.getMonth() + 1).padStart(2, '0');
+    const day = String(startOfDay.getDate()).padStart(2, '0');
+    const schedDate = new Date(`${year}-${month}-${day}T00:00:00.000Z`);
+
+    const blockouts = await prisma.schedule.findMany({
+      where: {
+        SchedDate: schedDate,
+        SchedType: 2, // Blockout
+        scheduleop: {
+          some: { OperatoryNum: BigInt(roomId) }
+        }
+      }
+    });
+
+    // Check each blockout for time overlap
+    blockouts.forEach((block) => {
+      if (!block.StartTime || !block.StopTime) return;
+      // The block times are stored as UTC times on 1970-01-01
+      const blockStart = block.StartTime.getUTCHours() * 60 + block.StartTime.getUTCMinutes();
+      const blockEnd = block.StopTime.getUTCHours() * 60 + block.StopTime.getUTCMinutes();
+      
+      if (!(newEnd <= blockStart || newStart >= blockEnd)) {
+        conflictingAppointments.push({
+          apt: block,
+          conflictType: 'blockout',
+        });
+      }
+    });
   }
 
   return {
@@ -864,7 +894,9 @@ async getPatientAppointments(patientId: string, limit = 10) {
     );
 
     if (conflictCheck.hasConflict) {
-      const conflictType = conflictCheck.conflictType === 'room'
+      const conflictType = conflictCheck.conflictType === 'blockout'
+        ? 'Appointment conflicts with a blocked slot in this room'
+        : conflictCheck.conflictType === 'room'
         ? 'Room is already booked'
         : 'Appointment conflicts with existing appointment';
       throw new ConflictError(conflictType);
@@ -993,7 +1025,9 @@ async getPatientAppointments(patientId: string, limit = 10) {
       );
 
       if (conflictCheck.hasConflict) {
-        const conflictType = conflictCheck.conflictType === 'room'
+        const conflictType = conflictCheck.conflictType === 'blockout'
+          ? 'Appointment conflicts with a blocked slot in this room'
+          : conflictCheck.conflictType === 'room'
           ? 'Room is already booked at this time'
           : 'Updated appointment conflicts with existing appointment';
         throw new ConflictError(conflictType);
@@ -1184,7 +1218,9 @@ async getPatientAppointments(patientId: string, limit = 10) {
     );
 
     if (conflictCheck.hasConflict) {
-      const conflictType = conflictCheck.conflictType === 'room'
+      const conflictType = conflictCheck.conflictType === 'blockout'
+        ? 'Appointment conflicts with a blocked slot in this room'
+        : conflictCheck.conflictType === 'room'
         ? 'Room is already booked at this time'
         : 'Rescheduled appointment conflicts with existing appointment';
       throw new ConflictError(conflictType);
