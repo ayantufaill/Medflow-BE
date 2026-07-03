@@ -24,6 +24,7 @@ const scripts = [
   'src/scripts/seedClaims.ts',
   'src/scripts/seedClinicalChecklists.ts',
   'src/scripts/seedMedications.ts',
+  'src/scripts/seedOperatories.ts',
 ];
 
 for (const script of scripts) {

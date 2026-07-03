@@ -142,7 +142,31 @@ export class PaymentService {
       );
     }
 
-    payments = await Promise.all(payments.map((payment) => this.enrichPayment(payment)));
+    const patientIds = Array.from(
+      new Set(payments.map((p: any) => p.patientId).filter((id): id is string => Boolean(id && /^\d+$/.test(id))))
+    ).map((id) => BigInt(id));
+
+    const invoiceIds = Array.from(
+      new Set(payments.map((p: any) => p.invoiceId).filter((id): id is string => Boolean(id && /^\d+$/.test(id))))
+    ).map((id) => BigInt(id));
+
+    const [patients, invoices] = await Promise.all([
+      patientIds.length ? prisma.patient.findMany({ where: { PatNum: { in: patientIds } } }) : [],
+      invoiceIds.length ? prisma.statement.findMany({ where: { StatementNum: { in: invoiceIds } } }) : [],
+    ]);
+
+    const patientMap = new Map(patients.map((p) => [p.PatNum.toString(), p]));
+    const invoiceMap = new Map(invoices.map((i) => [i.StatementNum.toString(), i]));
+
+    payments = payments.map((payment: any) => ({
+      ...payment,
+      patient: payment.patientId && patientMap.has(payment.patientId)
+        ? mapPatientToApi(patientMap.get(payment.patientId)!)
+        : null,
+      invoice: payment.invoiceId && invoiceMap.has(payment.invoiceId)
+        ? this.mapInvoiceSummary(invoiceMap.get(payment.invoiceId)!)
+        : null,
+    }));
 
     return {
       payments,

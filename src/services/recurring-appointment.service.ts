@@ -4,7 +4,7 @@ import { logActivity } from '../utils/activity-logger.util';
 import { appointmentService } from './appointment.service';
 import { getNextId } from '../utils/opendental-ids.util';
 import { mapAppointmentTypeToApi, mapPatientToApi, mapProviderToApi } from '../utils/opendental-mappers.util';
-import { mapUser } from '../utils/opendental-auth.util';
+import { mapUser, getUsersMeta } from '../utils/opendental-auth.util';
 
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;
@@ -94,25 +94,41 @@ const generateOccurrences = (meta: RecurringMeta, count: number) => {
 };
 
 export class RecurringAppointmentService {
-  private async mapRecurringRow(row: any) {
+  private async mapRecurringRow(
+    row: any,
+    preloaded?: {
+      patientMap: Map<string, any>;
+      providerMap: Map<string, any>;
+      appointmentTypeMap: Map<string, any>;
+      userMap: Map<string, any>;
+    }
+  ) {
     const meta = parseJson<RecurringMeta>(row.Note);
-    const [patient, provider, appointmentType, creatorUser, providerUser] = await Promise.all([
-      meta.patientId ? prisma.patient.findUnique({ where: { PatNum: BigInt(meta.patientId) } }) : null,
-      meta.providerId
-        ? prisma.provider.findUnique({ where: { ProvNum: BigInt(meta.providerId) }, include: { definition: true } })
-        : null,
-      meta.appointmentTypeId
-        ? prisma.appointmenttype.findUnique({ where: { AppointmentTypeNum: BigInt(meta.appointmentTypeId) } })
-        : null,
-      meta.createdBy ? prisma.userod.findUnique({ where: { UserNum: BigInt(meta.createdBy) } }) : null,
-      null as any,
-    ]);
+    let patient, provider, appointmentType, mappedCreator, mappedProviderUser;
 
-    const linkedProviderUser = provider?.CustomID
-      ? await prisma.userod.findUnique({ where: { UserNum: BigInt(provider.CustomID) } })
-      : providerUser;
-    const mappedCreator = creatorUser ? await mapUser(creatorUser) : null;
-    const mappedProviderUser = linkedProviderUser ? await mapUser(linkedProviderUser) : null;
+    if (preloaded) {
+      patient = meta.patientId ? preloaded.patientMap.get(meta.patientId.toString()) : null;
+      provider = meta.providerId ? preloaded.providerMap.get(meta.providerId.toString()) : null;
+      appointmentType = meta.appointmentTypeId ? preloaded.appointmentTypeMap.get(meta.appointmentTypeId.toString()) : null;
+      mappedCreator = meta.createdBy ? preloaded.userMap.get(meta.createdBy.toString()) : null;
+      mappedProviderUser = provider?.CustomID ? preloaded.userMap.get(provider.CustomID.toString()) : null;
+    } else {
+      const results = await Promise.all([
+        meta.patientId ? prisma.patient.findUnique({ where: { PatNum: BigInt(meta.patientId) } }) : null,
+        meta.providerId ? prisma.provider.findUnique({ where: { ProvNum: BigInt(meta.providerId) }, include: { definition: true } }) : null,
+        meta.appointmentTypeId ? prisma.appointmenttype.findUnique({ where: { AppointmentTypeNum: BigInt(meta.appointmentTypeId) } }) : null,
+        meta.createdBy ? prisma.userod.findUnique({ where: { UserNum: BigInt(meta.createdBy) } }) : null,
+      ]);
+      patient = results[0];
+      provider = results[1];
+      appointmentType = results[2];
+      const creatorUser = results[3];
+      const linkedProviderUser = provider?.CustomID
+        ? await prisma.userod.findUnique({ where: { UserNum: BigInt(provider.CustomID) } })
+        : null;
+      mappedCreator = creatorUser ? await mapUser(creatorUser) : null;
+      mappedProviderUser = linkedProviderUser ? await mapUser(linkedProviderUser) : null;
+    }
 
     return {
       _id: row.ScheduleNum.toString(),
@@ -187,7 +203,43 @@ export class RecurringAppointmentService {
       prisma.schedule.count({ where }),
     ]);
 
-    let recurringAppointments = await Promise.all(rows.map((row) => this.mapRecurringRow(row)));
+    const metaList = rows.map((row) => parseJson<RecurringMeta>(row.Note));
+    const patientIds = Array.from(new Set(metaList.map(m => m.patientId).filter(Boolean))).map(id => BigInt(id!));
+    const providerIds = Array.from(new Set(metaList.map(m => m.providerId).filter(Boolean))).map(id => BigInt(id!));
+    const appointmentTypeIds = Array.from(new Set(metaList.map(m => m.appointmentTypeId).filter(Boolean))).map(id => BigInt(id!));
+
+    const [patients, providers, appointmentTypes] = await Promise.all([
+      patientIds.length ? prisma.patient.findMany({ where: { PatNum: { in: patientIds } } }) : [],
+      providerIds.length ? prisma.provider.findMany({ where: { ProvNum: { in: providerIds } }, include: { definition: true } }) : [],
+      appointmentTypeIds.length ? prisma.appointmenttype.findMany({ where: { AppointmentTypeNum: { in: appointmentTypeIds } } }) : [],
+    ]);
+
+    const providerUserIds = Array.from(
+      new Set(providers.map((p) => p.CustomID).filter((id): id is string => Boolean(id)))
+    );
+    const creatorIds = Array.from(
+      new Set(metaList.map(m => m.createdBy).filter((id): id is string => Boolean(id)))
+    );
+    const userIds = Array.from(new Set([...providerUserIds, ...creatorIds]));
+    const users = userIds.length ? await prisma.userod.findMany({ where: { UserNum: { in: userIds.map(id => BigInt(id)) } } }) : [];
+
+    const usersMeta = users.length ? await getUsersMeta(users.map((u) => u.UserNum)) : {};
+    const usersMap = new Map(
+      await Promise.all(
+        users.map(async (user) => {
+          const mappedUser = await mapUser(user, usersMeta[user.UserNum.toString()]);
+          return [user.UserNum.toString(), mappedUser] as const;
+        })
+      )
+    );
+
+    const patientMap = new Map(patients.map((p) => [p.PatNum.toString(), p]));
+    const providerMap = new Map(providers.map((p) => [p.ProvNum.toString(), p]));
+    const appointmentTypeMap = new Map(appointmentTypes.map((a) => [a.AppointmentTypeNum.toString(), a]));
+
+    let recurringAppointments = await Promise.all(
+      rows.map((row) => this.mapRecurringRow(row, { patientMap, providerMap, appointmentTypeMap, userMap: usersMap }))
+    );
 
     if (filters?.patientId) {
       recurringAppointments = recurringAppointments.filter((rec: any) => {

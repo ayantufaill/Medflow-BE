@@ -157,7 +157,7 @@ async function checkConflicts(
 }
 
 export class AppointmentService {
-  private async mapProcedure(proc: any) {
+  private mapProcedure(proc: any) {
     return {
       _id: proc.ProcNum.toString(),
       appointmentId: proc.AptNum?.toString() ?? null,
@@ -1345,7 +1345,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
         participants: meta?.participants ?? [],
         notes: meta?.workspaceNotes ?? [],
         systemEvents: meta?.systemEvents ?? [],
-        procedures: await Promise.all(procedures.map((proc) => this.mapProcedure(proc))),
+        procedures: procedures.map((proc) => this.mapProcedure(proc)),
         labOrders: labOrders.map((labCase) => this.mapLabOrder(labCase)),
       },
     };
@@ -1414,7 +1414,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       orderBy: { ProcNum: 'asc' },
     });
     return {
-      procedures: await Promise.all(procedures.map((proc) => this.mapProcedure(proc))),
+      procedures: procedures.map((proc) => this.mapProcedure(proc)),
     };
   }
 
@@ -1474,7 +1474,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
     });
 
     return {
-      procedure: await this.mapProcedure(procedure),
+      procedure: this.mapProcedure(procedure),
     };
   }
 

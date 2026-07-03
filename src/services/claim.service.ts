@@ -2144,26 +2144,26 @@ private mapClaimStatus(status: string | null): string {
       drawText(`${carrier.City || ''}, ${carrier.State || ''} ${carrier.Zip || ''}`, 345, 689, 9);
     }
 
-    // Fill Patient Info (Left Column)
+    // Fill Patient Info (Right Column, Box 20-22)
     const patient = claim.patient;
     if (patient) {
       const patName = `${patient.LName || ''}, ${patient.FName || ''} ${patient.MiddleI || ''}`.trim();
-      drawText(patName, 55, 578, 9);
-      drawText(patient.Address, 55, 550, 9);
-      drawText(`${patient.City || ''}, ${patient.State || ''} ${patient.Zip || ''}`, 55, 536, 9);
+      drawText(patName, 345, 545, 9);
+      drawText(patient.Address, 345, 532, 9);
+      drawText(`${patient.City || ''}, ${patient.State || ''} ${patient.Zip || ''}`, 345, 519, 9);
 
       if (patient.Birthdate) {
         const dob = new Date(patient.Birthdate);
         const dobStr = `${String(dob.getMonth() + 1).padStart(2, '0')}/${String(dob.getDate()).padStart(2, '0')}/${dob.getFullYear()}`;
-        drawText(dobStr, 235, 522, 9);
+        drawText(dobStr, 345, 488, 9); // Box 21
       }
 
       if (patient.Gender !== null && patient.Gender !== undefined) {
         const genderVal = patient.Gender;
         if (genderVal === 0) {
-          drawText('X', 282, 522, 10); // Male checkbox
+          drawText('X', 435, 488, 10); // Male checkbox
         } else if (genderVal === 1) {
-          drawText('X', 310, 522, 10); // Female checkbox
+          drawText('X', 455, 488, 10); // Female checkbox
         }
       }
     }
