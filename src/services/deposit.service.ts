@@ -217,25 +217,46 @@ export class DepositService {
       }),
     ]);
 
-    const mappedPatientPayments = patientPayments.map((p) => ({
-      id: p.PayNum.toString(),
-      type: 'patient',
-      date: p.PayDate ?? null,
-      amount: p.PayAmt ?? 0,
-      method: p.definition?.ItemName ?? 'Check',
-      checkNum: p.CheckNum ?? '',
-      patientName: p.patient ? `${p.patient.FName ?? ''} ${p.patient.LName ?? ''}`.trim() : 'Unknown Patient',
-    }));
+    const mapPaymentMethod = (methodStr: string | undefined | null, isInsurance: boolean): string => {
+      if (!methodStr) return isInsurance ? 'Insurance Check' : 'Patient Check';
+      const lower = methodStr.toLowerCase().trim();
+      
+      if (lower === 'card' || lower === 'credit_card') return 'Credit Card';
+      if (lower === 'cash') return 'Cash';
+      if (lower === 'ach' || lower === 'eft') return 'EFT';
+      if (lower === 'check') return isInsurance ? 'Insurance Check' : 'Patient Check';
+      
+      // For older legacy payments that use OpenDental strings like "Visa Card"
+      return methodStr;
+    };
 
-    const mappedInsurancePayments = insurancePayments.map((cp) => ({
-      id: cp.ClaimPaymentNum.toString(),
-      type: 'insurance',
-      date: cp.CheckDate ?? null,
-      amount: cp.CheckAmt ?? 0,
-      method: cp.definition_claimpayment_PayTypeTodefinition?.ItemName ?? 'Check',
-      checkNum: cp.CheckNum ?? '',
-      carrierName: cp.CarrierName ?? 'Unknown Carrier',
-    }));
+    const mappedPatientPayments = patientPayments.map((p) => {
+      const meta = parseJson<{ paymentMethod?: string }>(p.PayNote);
+      const rawMethod = meta.paymentMethod ?? p.definition?.ItemName ?? 'Check';
+      return {
+        id: p.PayNum.toString(),
+        type: 'patient',
+        date: p.PayDate ?? null,
+        amount: p.PayAmt ?? 0,
+        method: mapPaymentMethod(rawMethod, false),
+        checkNum: p.CheckNum ?? '',
+        patientName: p.patient ? `${p.patient.FName ?? ''} ${p.patient.LName ?? ''}`.trim() : 'Unknown Patient',
+      };
+    });
+
+    const mappedInsurancePayments = insurancePayments.map((cp) => {
+      const meta = parseJson<{ paymentMethod?: string }>(cp.Note);
+      const rawMethod = meta.paymentMethod ?? cp.definition_claimpayment_PayTypeTodefinition?.ItemName ?? 'Check';
+      return {
+        id: cp.ClaimPaymentNum.toString(),
+        type: 'insurance',
+        date: cp.CheckDate ?? null,
+        amount: cp.CheckAmt ?? 0,
+        method: mapPaymentMethod(rawMethod, true),
+        checkNum: cp.CheckNum ?? '',
+        carrierName: cp.CarrierName ?? 'Unknown Carrier',
+      };
+    });
 
     return {
       patientPayments: mappedPatientPayments,

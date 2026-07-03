@@ -222,6 +222,40 @@ export class AppointmentService {
     return defaultAppointmentType.AppointmentTypeNum.toString();
   }
 
+  private async mapAppointmentsBulk(appointments: any[]) {
+    if (!appointments.length) return [];
+
+    const { getAppointmentsMeta, getProvidersMeta } = await import('../utils/opendental-auth.util');
+    const aptNums = appointments.map(a => a.AptNum);
+    const aptMetaMap = await getAppointmentsMeta(aptNums);
+
+    const provNums = Array.from(new Set(appointments.map(a => a.ProvNum).filter(id => id != null)));
+    const provMetaMap = provNums.length ? await getProvidersMeta(provNums) : {};
+
+    const customIds = Array.from(new Set(appointments.map(a => a.provider_appointment_ProvNumToprovider?.CustomID).filter(id => id != null)));
+    const customUsers = customIds.length ? await prisma.userod.findMany({ where: { UserNum: { in: customIds.map(id => BigInt(id)) } } }) : [];
+    
+    const { getUsersMeta } = await import('../utils/opendental-auth.util');
+    const usersMetaMap = customUsers.length ? await getUsersMeta(customUsers.map(u => u.UserNum)) : {};
+    
+    const mappedUsersMap = new Map();
+    for (const u of customUsers) {
+      mappedUsersMap.set(u.UserNum.toString(), await mapUser(u, usersMetaMap[u.UserNum.toString()]));
+    }
+
+    return Promise.all(
+      appointments.map(apt => this.mapAppointmentWithMeta(apt, {
+        patient: apt.patient,
+        provider: apt.provider_appointment_ProvNumToprovider,
+        appointmentType: apt.appointmenttype,
+        createdBy: apt.userod,
+        preloadedAptMeta: aptMetaMap[apt.AptNum.toString()] ?? {},
+        preloadedProviderMeta: provMetaMap[apt.ProvNum?.toString()] ?? {},
+        preloadedLinkedUser: apt.provider_appointment_ProvNumToprovider?.CustomID ? mappedUsersMap.get(apt.provider_appointment_ProvNumToprovider.CustomID) : null,
+      }))
+    );
+  }
+
   private async mapAppointmentWithMeta(
     appointment: any,
     options?: {
@@ -229,9 +263,12 @@ export class AppointmentService {
       provider?: any;
       appointmentType?: any;
       createdBy?: any;
+      preloadedAptMeta?: any;
+      preloadedProviderMeta?: any;
+      preloadedLinkedUser?: any;
     }
   ) {
-    const meta = await getAppointmentMeta(appointment.AptNum);
+    const meta = options?.preloadedAptMeta ?? await getAppointmentMeta(appointment.AptNum);
     const dbStatus = mapAppointmentStatusFromDb(appointment.AptStatus);
     const resolvedStatus =
       dbStatus === 'completed' || dbStatus === 'cancelled' || dbStatus === 'no_show'
@@ -261,7 +298,7 @@ export class AppointmentService {
     mapped.checklists = meta.checklists ?? { preAppt: {}, checkIn: {}, checkOut: {} };
 
     if (options?.provider) {
-      const providerMeta = await getProviderMeta(options.provider.ProvNum);
+      const providerMeta = options.preloadedProviderMeta ?? await getProviderMeta(options.provider.ProvNum);
       let linkedUser: {
         _id: string;
         firstName?: string | null;
@@ -269,7 +306,14 @@ export class AppointmentService {
         email?: string | null;
       } | null = null;
 
-      if (options.provider.CustomID) {
+      if (options.preloadedLinkedUser) {
+        linkedUser = {
+          _id: options.preloadedLinkedUser._id,
+          firstName: options.preloadedLinkedUser.firstName,
+          lastName: options.preloadedLinkedUser.lastName,
+          email: options.preloadedLinkedUser.email || null,
+        };
+      } else if (options.provider.CustomID) {
         const user = await prisma.userod.findUnique({
           where: { UserNum: BigInt(options.provider.CustomID) },
         });
@@ -398,16 +442,7 @@ export class AppointmentService {
       prisma.appointment.count({ where }),
     ]);
 
-    const mappedAppointments = await Promise.all(
-      appointments.map((apt) =>
-        this.mapAppointmentWithMeta(apt, {
-          patient: apt.patient,
-          provider: apt.provider_appointment_ProvNumToprovider,
-          appointmentType: apt.appointmenttype,
-          createdBy: apt.userod,
-        })
-      )
-    );
+    const mappedAppointments = await this.mapAppointmentsBulk(appointments);
 
     const filteredAppointments = filters?.status
       ? mappedAppointments.filter((apt) => apt.status === filters.status)
@@ -449,16 +484,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
     take: limit,
   });
 
-  const mappedAppointments = await Promise.all(
-    appointments.map((apt) =>
-      this.mapAppointmentWithMeta(apt, {
-        patient: apt.patient,
-        provider: apt.provider_appointment_ProvNumToprovider,
-        appointmentType: apt.appointmenttype,
-        createdBy: apt.userod,
-      })
-    )
-  );
+  const mappedAppointments = await this.mapAppointmentsBulk(appointments);
 
   return {
     appointments: mappedAppointments.map((apt) => ({
@@ -544,14 +570,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
 
     return {
       provider: mapProviderToApi(provider),
-      appointments: await Promise.all(
-        appointments.map((apt) =>
-          this.mapAppointmentWithMeta(apt, {
-            patient: apt.patient,
-            appointmentType: apt.appointmenttype,
-          })
-        )
-      ),
+      appointments: await this.mapAppointmentsBulk(appointments),
       view,
       dateRange: {
         start: startDate,

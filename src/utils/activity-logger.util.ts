@@ -20,28 +20,20 @@ export const getUserAgent = (req: Request): string => {
   return req.headers['user-agent'] || 'unknown';
 };
 
-const writeSecurityLog = async (userId: string | null, logText: string, retries = 3) => {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      const logNum = await getNextId('securitylog', 'SecurityLogNum');
-      await prisma.securitylog.create({
-        data: {
-          SecurityLogNum: logNum,
-          UserNum: userId ? BigInt(userId) : null,
-          LogDateTime: new Date(),
-          LogText: logText,
-        },
-      });
-      return; // Success - exit function
-    } catch (error: any) {
-      if (error.code === 'P2002' && attempt < retries) {
-        // Duplicate key, retry with backoff
-        await new Promise(res => setTimeout(res, Math.random() * 50 * attempt));
-        continue; // Try again
-      }
-      console.error('Error logging activity:', error);
-      break; // Stop trying
-    }
+const writeSecurityLog = async (userId: string | null, logText: string) => {
+  try {
+    const logNum = await getNextId('securitylog', 'SecurityLogNum');
+    await prisma.securitylog.create({
+      data: {
+        SecurityLogNum: logNum,
+        UserNum: userId ? BigInt(userId) : null,
+        LogDateTime: new Date(),
+        LogText: logText,
+      },
+    });
+  } catch (error: any) {
+    console.error(`Failed to write security log. LogText length: ${logText.length}. Error:`, error);
+    throw error;
   }
 };
 
