@@ -265,12 +265,11 @@ export class AuthService {
       throw new NotFoundError('User not found');
     }
 
-    const token = crypto.randomBytes(24).toString('hex');
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
-    await setReset(user.UserNum, token, expiresAt);
+    const token = crypto.randomInt(100000, 1000000).toString(); // 6-digit numeric code
+const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+await setReset(user.UserNum, token, expiresAt);
 
-    await emailService.sendPasswordResetCode(email, token);
-
+await emailService.sendPasswordResetCode(email, token);
     return { message: 'Password reset link sent', email: email.toLowerCase() };
   }
 
