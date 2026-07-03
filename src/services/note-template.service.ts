@@ -2,7 +2,7 @@ import { prisma } from '../config/db';
 import { NotFoundError, ConflictError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
-import { mapUser } from '../utils/opendental-auth.util';
+import { mapUser, getUsersMeta } from '../utils/opendental-auth.util';
 
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;
@@ -27,12 +27,18 @@ type TemplateMeta = {
 };
 
 export class NoteTemplateService {
-  private async mapTemplateRow(row: any) {
+  private async mapTemplateRow(row: any, preloaded?: { userMap: Map<string, any> }) {
     const meta = parseJson<TemplateMeta>(row.MainText);
-    const creatorUser = meta.createdBy
-      ? await prisma.userod.findUnique({ where: { UserNum: BigInt(meta.createdBy) } })
-      : null;
-    const mappedCreator = creatorUser ? await mapUser(creatorUser) : null;
+    let mappedCreator = null;
+
+    if (preloaded) {
+      mappedCreator = meta.createdBy ? preloaded.userMap.get(meta.createdBy.toString()) : null;
+    } else {
+      const creatorUser = meta.createdBy
+        ? await prisma.userod.findUnique({ where: { UserNum: BigInt(meta.createdBy) } })
+        : null;
+      mappedCreator = creatorUser ? await mapUser(creatorUser) : null;
+    }
 
     return {
       _id: row.AutoNoteNum.toString(),
@@ -78,7 +84,25 @@ export class NoteTemplateService {
       prisma.autonote.count({ where }),
     ]);
 
-    let templates = await Promise.all(rows.map((row) => this.mapTemplateRow(row)));
+    const metaList = rows.map((row) => parseJson<TemplateMeta>(row.MainText));
+    const creatorIds = Array.from(
+      new Set(metaList.map(m => m.createdBy).filter((id): id is string => Boolean(id)))
+    );
+    const users = creatorIds.length ? await prisma.userod.findMany({ where: { UserNum: { in: creatorIds.map(id => BigInt(id)) } } }) : [];
+    const usersMeta = users.length ? await getUsersMeta(users.map((u) => u.UserNum)) : {};
+    
+    const userMap = new Map(
+      await Promise.all(
+        users.map(async (user) => {
+          const mappedUser = await mapUser(user, usersMeta[user.UserNum.toString()]);
+          return [user.UserNum.toString(), mappedUser] as const;
+        })
+      )
+    );
+
+    let templates = await Promise.all(
+      rows.map((row) => this.mapTemplateRow(row, { userMap }))
+    );
 
     if (isActive !== undefined) {
       templates = templates.filter((t) => t.isActive === isActive);
