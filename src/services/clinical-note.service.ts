@@ -601,35 +601,22 @@ export class ClinicalNoteService {
   async getUnsignedNotesByProvider(providerId: string) {
     const rows = await prisma.commlog.findMany({
       where: {
-        Note: {
-          contains: `"providerId":"${providerId}"`,
-        },
+        OR: [
+          { Note: { contains: `"providerId":"${providerId}"` } }, // string form
+          { Note: { contains: `"providerId":${providerId}` } },   // number form
+        ],
       },
     });
+
     const notes = rows
       .map((row) => {
         const meta = parseJson<ClinicalNoteMeta>(row.Note);
         return this.mapCommlogToClinicalNote(row, meta);
       })
-      .filter((note: any) => note.providerId === providerId && !note.isSigned);
-  const rows = await prisma.commlog.findMany({
-    where: {
-      OR: [
-        { Note: { contains: `"providerId":"${providerId}"` } }, // string form
-        { Note: { contains: `"providerId":${providerId}` } },   // number form
-      ],
-    },
-  });
+      .filter((note: any) => String(note.providerId) === String(providerId) && !note.isSigned);
 
-  const notes = rows
-    .map((row) => {
-      const meta = parseJson<ClinicalNoteMeta>(row.Note);
-      return this.mapCommlogToClinicalNote(row, meta);
-    })
-    .filter((note: any) => !note.isSigned);
-
-  return notes;
-}
+    return notes;
+  }
 
   async createNoteFromTemplate(
     templateId: string,
