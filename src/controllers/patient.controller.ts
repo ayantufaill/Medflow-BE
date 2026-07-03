@@ -25,6 +25,35 @@ export class PatientController {
     }
   }
 
+  async bulkDeletePatients(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientIds } = req.body;
+      
+      if (!patientIds || !Array.isArray(patientIds) || patientIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'An array of patientIds is required' },
+        });
+      }
+
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      await patientService.bulkDeletePatients(patientIds, req.userId);
+
+      res.status(200).json({
+        success: true,
+        data: { message: 'Patients deactivated successfully' },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getPatientById(req: Request, res: Response, next: NextFunction) {
     try {
       const { patientId } = req.params;

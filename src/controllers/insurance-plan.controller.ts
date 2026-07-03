@@ -105,6 +105,45 @@ export class InsurancePlanController {
       next(error);
     }
   }
+
+  async createBenefit(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { planId } = req.params;
+      if (!planId) {
+        return res.status(400).json({ success: false, error: { message: 'Plan ID is required' } });
+      }
+      const result = await insurancePlanService.createBenefit(planId, req.body);
+      res.status(201).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateBenefit(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { planId, benefitId } = req.params;
+      if (!planId || !benefitId) {
+        return res.status(400).json({ success: false, error: { message: 'Plan ID and Benefit ID are required' } });
+      }
+      const result = await insurancePlanService.updateBenefit(planId, benefitId, req.body);
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deleteBenefit(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { planId, benefitId } = req.params;
+      if (!planId || !benefitId) {
+        return res.status(400).json({ success: false, error: { message: 'Plan ID and Benefit ID are required' } });
+      }
+      await insurancePlanService.deleteBenefit(planId, benefitId);
+      res.status(200).json({ success: true, message: 'Benefit deleted successfully' });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const insurancePlanController = new InsurancePlanController();

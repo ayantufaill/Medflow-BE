@@ -317,7 +317,7 @@ router.post('/', requireRoles('Front Desk', 'Admin'), validate(createAppointment
  *       404:
  *         description: Appointment not found
  */
-router.get('/:appointmentId', validate(appointmentIdValidator), appointmentController.getAppointmentById.bind(appointmentController));
+router.get('/:appointmentId', requireRoles('Admin'), appointmentController.getAppointmentById.bind(appointmentController));
 
 /**
  * @swagger
@@ -712,7 +712,7 @@ router.post('/:appointmentId/check-out', requireRoles('Front Desk', 'Admin', 'Nu
  *       404:
  *         description: Appointment not found
  */
-router.get('/:appointmentId/workspace', validate(appointmentIdValidator), appointmentController.getAppointmentWorkspace.bind(appointmentController));
+router.get('/:appointmentId/workspace', requireRoles('Admin'), appointmentController.getAppointmentWorkspace.bind(appointmentController));
 router.patch('/:appointmentId/workspace', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...appointmentWorkspaceValidator]), appointmentController.updateAppointmentWorkspace.bind(appointmentController));
 
 /**
@@ -871,7 +871,7 @@ router.patch('/:appointmentId/workspace', requireRoles('Front Desk', 'Admin'), v
  *       500:
  *         description: Internal server error
  */
-router.get('/:appointmentId/procedures', validate(appointmentIdValidator), appointmentController.getAppointmentProcedures.bind(appointmentController));
+router.get('/:appointmentId/procedures', requireRoles('Admin'), appointmentController.getAppointmentProcedures.bind(appointmentController));
 router.post('/:appointmentId/procedures', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...appointmentProcedureValidator]), appointmentController.addAppointmentProcedure.bind(appointmentController));
 
 /**
@@ -966,7 +966,7 @@ router.post('/:appointmentId/procedures', requireRoles('Front Desk', 'Admin'), v
  *       409:
  *         description: Conflict - tag already exists
  */
-router.get('/:appointmentId/tags', validate(appointmentIdValidator), appointmentController.getAppointmentTags.bind(appointmentController));
+router.get('/:appointmentId/tags', requireRoles('Admin'), appointmentController.getAppointmentTags.bind(appointmentController));
 router.post('/:appointmentId/tags', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...appointmentTagValidator]), appointmentController.addAppointmentTag.bind(appointmentController));
 
 /**

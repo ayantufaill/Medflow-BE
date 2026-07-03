@@ -213,7 +213,26 @@ export class ReportGenerationService {
         FName: true,
         LName: true,
         BalTotal: true,
-        InsEst: true
+        InsEst: true,
+        patplan: {
+          orderBy: { Ordinal: 'asc' },
+          take: 1,
+          select: {
+            inssub: {
+              select: {
+                insplan: {
+                  select: {
+                    carrier: {
+                      select: {
+                        CarrierName: true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       },
       take: 20
     });
@@ -224,7 +243,7 @@ export class ReportGenerationService {
       const balance = p.BalTotal ?? 0;
       const insEst = p.InsEst ?? 0;
       const buckets: Record<string, { pt: number; ins: number }> = {};
-      
+
       agingBuckets.forEach((bucket, idx) => {
         // Distribute balance in first bucket for demo
         buckets[bucket] = {
@@ -233,10 +252,14 @@ export class ReportGenerationService {
         };
       });
 
+      const primaryPatPlan = p.patplan?.[0];
+      const insuranceName = primaryPatPlan?.inssub?.insplan?.carrier?.CarrierName ?? null;
+
       return {
         id: p.PatNum.toString(),
         flags: [],
         name: `${p.FName} ${p.LName}`,
+        insuranceName,
         buckets,
         total: balance,
         totalOwings: balance + (patientOnly ? 0 : insEst),
@@ -253,6 +276,7 @@ export class ReportGenerationService {
           id: 'fallback-1',
           flags: [],
           name: 'John Doe',
+          insuranceName: 'Blue Cross Blue Shield',
           buckets: {
             '0 - 30 days': { pt: 1904.33, ins: 2000.00 },
             '31 - 60 days': { pt: 0, ins: 0 },
@@ -656,9 +680,9 @@ export class ReportGenerationService {
         ? `${cp.patient.FName ?? ''} ${cp.patient.LName ?? ''}`.trim()
         : 'Unknown Patient';
 
-      const insPay   = cp.InsPayAmt ?? 0;
-      const fee      = cp.FeeBilled ?? 0;
-      const writeOff = cp.WriteOff  ?? 0;
+      const insPay = cp.InsPayAmt ?? 0;
+      const fee = cp.FeeBilled ?? 0;
+      const writeOff = cp.WriteOff ?? 0;
 
       // Init carrier bucket
       if (!carrierMap.has(carrierName)) {
@@ -667,7 +691,7 @@ export class ReportGenerationService {
       const carrierBucket = carrierMap.get(carrierName)!;
       carrierBucket.collection += insPay;
       carrierBucket.production += fee;
-      carrierBucket.writeoff   += writeOff;
+      carrierBucket.writeoff += writeOff;
 
       // Init patient bucket inside carrier
       if (!carrierBucket.patients.has(patientName)) {
@@ -676,7 +700,7 @@ export class ReportGenerationService {
       const patBucket = carrierBucket.patients.get(patientName)!;
       patBucket.collection += insPay;
       patBucket.production += fee;
-      patBucket.writeoff   += writeOff;
+      patBucket.writeoff += writeOff;
     }
 
     const fmt = (n: number) =>
@@ -692,8 +716,8 @@ export class ReportGenerationService {
           writeoff: '$680.00',
           patients: [
             { name: 'Francis Fuller', collection: '$2,200.00', production: '$2,550.00', writeoff: '$350.00' },
-            { name: 'John Doe',       collection: '$1,500.00', production: '$1,700.00', writeoff: '$200.00' },
-            { name: 'Jane Smith',     collection: '$820.00',   production: '$950.00',   writeoff: '$130.00' }
+            { name: 'John Doe', collection: '$1,500.00', production: '$1,700.00', writeoff: '$200.00' },
+            { name: 'Jane Smith', collection: '$820.00', production: '$950.00', writeoff: '$130.00' }
           ]
         },
         {
@@ -703,7 +727,7 @@ export class ReportGenerationService {
           writeoff: '$450.00',
           patients: [
             { name: 'Robert Brown', collection: '$1,500.00', production: '$1,750.00', writeoff: '$250.00' },
-            { name: 'Emily Davis',  collection: '$1,350.00', production: '$1,550.00', writeoff: '$200.00' }
+            { name: 'Emily Davis', collection: '$1,350.00', production: '$1,550.00', writeoff: '$200.00' }
           ]
         },
         {
@@ -713,7 +737,7 @@ export class ReportGenerationService {
           writeoff: '$350.00',
           patients: [
             { name: 'Michael Wilson', collection: '$1,000.00', production: '$1,200.00', writeoff: '$200.00' },
-            { name: 'Sarah Johnson',  collection: '$950.00',   production: '$1,100.00', writeoff: '$150.00' }
+            { name: 'Sarah Johnson', collection: '$950.00', production: '$1,100.00', writeoff: '$150.00' }
           ]
         }
       ];
@@ -723,12 +747,12 @@ export class ReportGenerationService {
       name,
       collection: fmt(data.collection),
       production: fmt(data.production),
-      writeoff:   fmt(data.writeoff),
+      writeoff: fmt(data.writeoff),
       patients: Array.from(data.patients.values()).map(p => ({
-        name:       p.name,
+        name: p.name,
         collection: fmt(p.collection),
         production: fmt(p.production),
-        writeoff:   fmt(p.writeoff)
+        writeoff: fmt(p.writeoff)
       }))
     }));
   }
@@ -758,13 +782,13 @@ export class ReportGenerationService {
       const patMap = new Map<string, { id: string; name: string; ptAmt: number; insAmt: number }>();
 
       for (const ps of paySplits) {
-        const id   = ps.PatNum?.toString() ?? '0';
+        const id = ps.PatNum?.toString() ?? '0';
         const name = ps.patient ? `${ps.patient.FName ?? ''} ${ps.patient.LName ?? ''}`.trim() : 'Unknown Patient';
         if (!patMap.has(id)) patMap.set(id, { id, name, ptAmt: 0, insAmt: 0 });
         patMap.get(id)!.ptAmt += ps.SplitAmt ?? 0;
       }
       for (const cp of claimProcs) {
-        const id   = cp.PatNum?.toString() ?? '0';
+        const id = cp.PatNum?.toString() ?? '0';
         const name = cp.patient ? `${cp.patient.FName ?? ''} ${cp.patient.LName ?? ''}`.trim() : 'Unknown Patient';
         if (!patMap.has(id)) patMap.set(id, { id, name, ptAmt: 0, insAmt: 0 });
         patMap.get(id)!.insAmt += cp.InsPayAmt ?? 0;
@@ -773,17 +797,17 @@ export class ReportGenerationService {
       if (patMap.size === 0) {
         return [
           { id: '101', name: 'Francis Fuller', patientCollection: '$150.00', insuranceCollection: '$470.00', totalCollection: '$620.00' },
-          { id: '102', name: 'Garry Gilmore',  patientCollection: '$120.00', insuranceCollection: '$0.00',   totalCollection: '$120.00' },
-          { id: '103', name: 'Zoe Niblock',    patientCollection: '$80.00',  insuranceCollection: '$200.00', totalCollection: '$280.00' }
+          { id: '102', name: 'Garry Gilmore', patientCollection: '$120.00', insuranceCollection: '$0.00', totalCollection: '$120.00' },
+          { id: '103', name: 'Zoe Niblock', patientCollection: '$80.00', insuranceCollection: '$200.00', totalCollection: '$280.00' }
         ];
       }
 
       return Array.from(patMap.values()).map(p => ({
-        id:                  p.id,
-        name:                p.name,
-        patientCollection:   fmt(p.ptAmt),
+        id: p.id,
+        name: p.name,
+        patientCollection: fmt(p.ptAmt),
         insuranceCollection: fmt(p.insAmt),
-        totalCollection:     fmt(p.ptAmt + p.insAmt)
+        totalCollection: fmt(p.ptAmt + p.insAmt)
       }));
     }
 
@@ -822,9 +846,9 @@ export class ReportGenerationService {
 
     const guarantors = guarantorIds.size > 0
       ? await prisma.patient.findMany({
-          where: { PatNum: { in: Array.from(guarantorIds) } },
-          select: { PatNum: true, FName: true, LName: true }
-        })
+        where: { PatNum: { in: Array.from(guarantorIds) } },
+        select: { PatNum: true, FName: true, LName: true }
+      })
       : [];
 
     const guarantorNameMap = new Map<string, string>();
@@ -844,11 +868,11 @@ export class ReportGenerationService {
     };
 
     for (const ps of paySplits) {
-      const pat          = ps.patient;
-      const guarantorId  = (pat?.Guarantor ?? pat?.PatNum)?.toString() ?? '0';
-      const memberId     = pat?.PatNum?.toString() ?? '0';
-      const memberName   = pat ? `${pat.FName ?? ''} ${pat.LName ?? ''}`.trim() : 'Unknown Patient';
-      const family       = getOrCreateFamily(guarantorId);
+      const pat = ps.patient;
+      const guarantorId = (pat?.Guarantor ?? pat?.PatNum)?.toString() ?? '0';
+      const memberId = pat?.PatNum?.toString() ?? '0';
+      const memberName = pat ? `${pat.FName ?? ''} ${pat.LName ?? ''}`.trim() : 'Unknown Patient';
+      const family = getOrCreateFamily(guarantorId);
 
       if (!family.members.has(memberId)) {
         family.members.set(memberId, { id: memberId, name: memberName, ptAmt: 0, insAmt: 0 });
@@ -857,11 +881,11 @@ export class ReportGenerationService {
     }
 
     for (const cp of claimProcs) {
-      const pat          = cp.patient;
-      const guarantorId  = (pat?.Guarantor ?? pat?.PatNum)?.toString() ?? '0';
-      const memberId     = pat?.PatNum?.toString() ?? '0';
-      const memberName   = pat ? `${pat.FName ?? ''} ${pat.LName ?? ''}`.trim() : 'Unknown Patient';
-      const family       = getOrCreateFamily(guarantorId);
+      const pat = cp.patient;
+      const guarantorId = (pat?.Guarantor ?? pat?.PatNum)?.toString() ?? '0';
+      const memberId = pat?.PatNum?.toString() ?? '0';
+      const memberName = pat ? `${pat.FName ?? ''} ${pat.LName ?? ''}`.trim() : 'Unknown Patient';
+      const family = getOrCreateFamily(guarantorId);
 
       if (!family.members.has(memberId)) {
         family.members.set(memberId, { id: memberId, name: memberName, ptAmt: 0, insAmt: 0 });
@@ -892,8 +916,8 @@ export class ReportGenerationService {
           insuranceCollection: '$0.00',
           totalCollection: '$120.00',
           members: [
-            { id: '298', name: 'Garry Gilmore',  patientCollection: '$80.00',  insuranceCollection: '$0.00', totalCollection: '$80.00' },
-            { id: '299', name: 'Linda Gilmore',  patientCollection: '$40.00',  insuranceCollection: '$0.00', totalCollection: '$40.00' }
+            { id: '298', name: 'Garry Gilmore', patientCollection: '$80.00', insuranceCollection: '$0.00', totalCollection: '$80.00' },
+            { id: '299', name: 'Linda Gilmore', patientCollection: '$40.00', insuranceCollection: '$0.00', totalCollection: '$40.00' }
           ]
         },
         {
@@ -914,27 +938,27 @@ export class ReportGenerationService {
         ? `${guarantorNameMap.get(guarantorId)} Family`
         : 'Family';
 
-      let totalPt  = 0;
+      let totalPt = 0;
       let totalIns = 0;
 
       const members = Array.from(family.members.values()).map(m => {
-        totalPt  += m.ptAmt;
+        totalPt += m.ptAmt;
         totalIns += m.insAmt;
         return {
-          id:                  m.id,
-          name:                m.name,
-          patientCollection:   fmt(m.ptAmt),
+          id: m.id,
+          name: m.name,
+          patientCollection: fmt(m.ptAmt),
           insuranceCollection: fmt(m.insAmt),
-          totalCollection:     fmt(m.ptAmt + m.insAmt)
+          totalCollection: fmt(m.ptAmt + m.insAmt)
         };
       });
 
       return {
-        id:                  guarantorId,
-        name:                familyName,
-        patientCollection:   fmt(totalPt),
+        id: guarantorId,
+        name: familyName,
+        patientCollection: fmt(totalPt),
         insuranceCollection: fmt(totalIns),
-        totalCollection:     fmt(totalPt + totalIns),
+        totalCollection: fmt(totalPt + totalIns),
         members
       };
     });
@@ -963,39 +987,39 @@ export class ReportGenerationService {
     if (plans.length === 0) {
       return [
         {
-          patient:            'Francis Fuller',
-          createdOn:          '09/18/2025',
-          amount:             '$357.87',
-          totalPayments:      6,
-          remainingPayments:  3,
-          remainingBalance:   '$1,073.61',
-          nextDue:            '12/18/2025',
-          missed:             3,
-          lastBilled:         '11/18/2025',
-          lastPayment:        '11/18/2025',
-          type:               'Regular Invoice',
-          status:             'Failed',
+          patient: 'Francis Fuller',
+          createdOn: '09/18/2025',
+          amount: '$357.87',
+          totalPayments: 6,
+          remainingPayments: 3,
+          remainingBalance: '$1,073.61',
+          nextDue: '12/18/2025',
+          missed: 3,
+          lastBilled: '11/18/2025',
+          lastPayment: '11/18/2025',
+          type: 'Regular Invoice',
+          status: 'Failed',
           history: [
-            { amount: '$357.87', status: 'Paid',   created: '09/18/2025', due: '09/18/2025', downPayment: 'No', charged: '09/18/2025', failed: '',           error: '' },
-            { amount: '$357.87', status: 'Paid',   created: '09/18/2025', due: '10/18/2025', downPayment: 'No', charged: '10/18/2025', failed: '',           error: '' },
-            { amount: '$357.87', status: 'Paid',   created: '09/18/2025', due: '11/18/2025', downPayment: 'No', charged: '11/18/2025', failed: '',           error: '' },
-            { amount: '$357.87', status: 'Failed', created: '09/18/2025', due: '12/18/2025', downPayment: 'No', charged: '',           failed: '12/24/2025', error: 'Transaction declined: Insufficient Funds' },
+            { amount: '$357.87', status: 'Paid', created: '09/18/2025', due: '09/18/2025', downPayment: 'No', charged: '09/18/2025', failed: '', error: '' },
+            { amount: '$357.87', status: 'Paid', created: '09/18/2025', due: '10/18/2025', downPayment: 'No', charged: '10/18/2025', failed: '', error: '' },
+            { amount: '$357.87', status: 'Paid', created: '09/18/2025', due: '11/18/2025', downPayment: 'No', charged: '11/18/2025', failed: '', error: '' },
+            { amount: '$357.87', status: 'Failed', created: '09/18/2025', due: '12/18/2025', downPayment: 'No', charged: '', failed: '12/24/2025', error: 'Transaction declined: Insufficient Funds' },
           ]
         },
         {
-          patient:            'Garry Gilmore',
-          createdOn:          '12/15/2025',
-          amount:             '$42.00',
-          totalPayments:      10,
-          remainingPayments:  5,
-          remainingBalance:   '$210.00',
-          nextDue:            '05/24/2026',
-          missed:             0,
-          lastBilled:         '04/24/2026',
-          lastPayment:        '04/24/2026',
-          type:               'Regular Invoice',
-          status:             'Scheduled',
-          history:            []
+          patient: 'Garry Gilmore',
+          createdOn: '12/15/2025',
+          amount: '$42.00',
+          totalPayments: 10,
+          remainingPayments: 5,
+          remainingBalance: '$210.00',
+          nextDue: '05/24/2026',
+          missed: 0,
+          lastBilled: '04/24/2026',
+          lastPayment: '04/24/2026',
+          type: 'Regular Invoice',
+          status: 'Scheduled',
+          history: []
         }
       ];
     }
@@ -1007,7 +1031,7 @@ export class ReportGenerationService {
         ? `${pat.FName ?? ''} ${pat.LName ?? ''}`.trim()
         : 'Unknown Patient';
 
-      const charges      = plan.payplancharge ?? [];
+      const charges = plan.payplancharge ?? [];
       // Only debit-type charges (ChargeType 0 = debit/charge row, 1 = credit/payment row)
       const debitCharges = charges.filter(c => (c.ChargeType ?? 0) === 0);
       const totalPayments = debitCharges.length || plan.NumberOfPayments || 0;
@@ -1018,7 +1042,7 @@ export class ReportGenerationService {
         : Number(plan.PayAmt ?? 0);
 
       // Credit/payment rows represent completed payments
-      const creditCharges     = charges.filter(c => (c.ChargeType ?? 0) === 1);
+      const creditCharges = charges.filter(c => (c.ChargeType ?? 0) === 1);
       const completedPayments = creditCharges.length;
       const remainingPayments = Math.max(0, totalPayments - completedPayments);
 
@@ -1034,7 +1058,7 @@ export class ReportGenerationService {
 
       // Missed = past debit charges not covered by credits
       const pastDue = debitCharges.filter(c => c.ChargeDate && c.ChargeDate < today).length;
-      const missed  = Math.max(0, pastDue - completedPayments);
+      const missed = Math.max(0, pastDue - completedPayments);
 
       // Last billed = latest debit charge date in the past
       const pastDebits = debitCharges.filter(c => c.ChargeDate && c.ChargeDate < today);
@@ -1072,43 +1096,43 @@ export class ReportGenerationService {
 
       // Build history from debit charge rows
       const history = debitCharges.map((c, idx) => {
-        const dueDate    = c.ChargeDate ? (c.ChargeDate as Date).toLocaleDateString() : '';
-        const created    = plan.PayPlanDate ? (plan.PayPlanDate as Date).toLocaleDateString() : dueDate;
-        const isPaid     = idx < completedPayments;
-        const isPast     = c.ChargeDate ? c.ChargeDate < today : false;
-        const isFailed   = isPast && !isPaid;
-        const chargeAmt  = (c.Principal ?? 0) + (c.Interest ?? 0);
+        const dueDate = c.ChargeDate ? (c.ChargeDate as Date).toLocaleDateString() : '';
+        const created = plan.PayPlanDate ? (plan.PayPlanDate as Date).toLocaleDateString() : dueDate;
+        const isPaid = idx < completedPayments;
+        const isPast = c.ChargeDate ? c.ChargeDate < today : false;
+        const isFailed = isPast && !isPaid;
+        const chargeAmt = (c.Principal ?? 0) + (c.Interest ?? 0);
 
         // Match a credit row to this charge by index order
         const matchedCredit = creditCharges[idx];
-        const chargedDate   = isPaid && matchedCredit?.ChargeDate
+        const chargedDate = isPaid && matchedCredit?.ChargeDate
           ? (matchedCredit.ChargeDate as Date).toLocaleDateString()
           : '';
         const failedDate = isFailed ? (c.ChargeDate as Date).toLocaleDateString() : '';
 
         return {
-          id:          c.PayPlanChargeNum ? c.PayPlanChargeNum.toString() : plan.PayPlanNum.toString() + '-' + idx,
+          id: c.PayPlanChargeNum ? c.PayPlanChargeNum.toString() : plan.PayPlanNum.toString() + '-' + idx,
           patientId,
-          patient:     patientName,
-          amount:      fmt(chargeAmt > 0 ? chargeAmt : installmentAmt),
-          status:      isPaid ? 'Paid' : isFailed ? 'Failed' : 'Scheduled',
+          patient: patientName,
+          amount: fmt(chargeAmt > 0 ? chargeAmt : installmentAmt),
+          status: isPaid ? 'Paid' : isFailed ? 'Failed' : 'Scheduled',
           created,
           dueDate,
           downPayment: c.IsDownPayment === 1 ? 'Yes' : 'No',
-          chargedOn:   chargedDate,
-          failedOn:    failedDate,
+          chargedOn: chargedDate,
+          failedOn: failedDate,
           failedAttempts: isFailed ? 1 : 0,
-          error:       isFailed ? 'Transaction declined: Insufficient Funds' : ''
+          error: isFailed ? 'Transaction declined: Insufficient Funds' : ''
         };
       });
 
       return {
-        patient:           patientName,
+        patient: patientName,
         createdOn,
-        amount:            fmt(installmentAmt),
+        amount: fmt(installmentAmt),
         totalPayments,
         remainingPayments,
-        remainingBalance:  fmt(remainingBalance),
+        remainingBalance: fmt(remainingBalance),
         nextDue,
         missed,
         lastBilled,
@@ -1126,17 +1150,17 @@ export class ReportGenerationService {
         if (plan.history && plan.history.length > 0) {
           plan.history.forEach(line => {
             flatLines.push({
-              id:             (line as any).id,
-              patientId:      (line as any).patientId,
-              patient:        line.patient,
-              amount:         line.amount,
-              downPayment:    line.downPayment,
-              dueDate:        line.dueDate,
-              chargedOn:      line.chargedOn,
-              failedOn:       line.failedOn,
+              id: (line as any).id,
+              patientId: (line as any).patientId,
+              patient: line.patient,
+              amount: line.amount,
+              downPayment: line.downPayment,
+              dueDate: line.dueDate,
+              chargedOn: line.chargedOn,
+              failedOn: line.failedOn,
               failedAttempts: (line as any).failedAttempts,
-              status:         line.status,
-              error:          line.error
+              status: line.status,
+              error: line.error
             });
           });
         }
@@ -1361,8 +1385,8 @@ export class ReportGenerationService {
       const email = p.patient?.Email || '';
       const planNameVal = p.inssub?.insplan?.GroupName
         ? `${p.inssub.insplan.GroupName} (${p.inssub.insplan.PlanNum.toString()})`
-        : p.inssub?.insplan?.GroupNum 
-          ? `${p.inssub.insplan.GroupNum} (${p.inssub.insplan.PlanNum.toString()})` 
+        : p.inssub?.insplan?.GroupNum
+          ? `${p.inssub.insplan.GroupNum} (${p.inssub.insplan.PlanNum.toString()})`
           : 'Standard Insurance';
       const payer = p.inssub?.insplan?.carrier?.CarrierName || 'Standard Insurance';
       const patientNum = p.PatNum ? p.PatNum.toString() : '';
@@ -1504,16 +1528,16 @@ export class ReportGenerationService {
     return refAttaches.map((r) => ({
       // Name of the referred patient
       referred: r.patient ? `${r.patient.FName} ${r.patient.LName}`.trim() : '',
-      
+
       // Contact info for the referred patient
       phone: r.patient ? (r.patient.WirelessPhone || r.patient.WkPhone || r.patient.HmPhone || '') : '',
       email: r.patient?.Email || '',
-      
+
       // Name of the referral source (who referred them)
-      referredBy: r.referral 
-        ? (r.referral.NotPerson ? r.referral.BusinessName : `${r.referral.FName || ''} ${r.referral.LName || ''}`.trim()) 
+      referredBy: r.referral
+        ? (r.referral.NotPerson ? r.referral.BusinessName : `${r.referral.FName || ''} ${r.referral.LName || ''}`.trim())
         : 'Unknown Referral Source',
-        
+
       // Date of the referral
       date: r.RefDate ? r.RefDate.toISOString().split('T')[0] : ''
     }));
@@ -1547,10 +1571,13 @@ export class ReportGenerationService {
       where.PatStatus = 0;
     } else if (filterBy === 'inactive') {
       where.PatStatus = 2;
+    } else if (filterBy === 'all') {
+      where.PatStatus = { in: [0, 2] };
     }
 
     const patients = await prisma.patient.findMany({
       where,
+      take: 200,
       select: {
         PatNum: true,
         FName: true,
@@ -1761,13 +1788,13 @@ export class ReportGenerationService {
     const report = instances.map((i, idx) => {
       const dateStr = i.DateTimeLastActive
         ? (i.DateTimeLastActive as Date).toLocaleString('en-US', {
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-          })
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        })
         : '';
 
       return {
@@ -1814,6 +1841,7 @@ export class ReportGenerationService {
           contains: '"referralSource"',
         },
       },
+      take: 5000
     });
 
     const patientReferrals = patientPrefs.map(pref => {

@@ -366,6 +366,33 @@ router.post('/check-duplicates', requireRoles('Receptionist', 'Admin'), validate
  *       403: { description: Forbidden - Admin only }
  *       404: { description: Patient not found }
  */
+/**
+ * @swagger
+ * /patients/bulk-delete:
+ *   post:
+ *     summary: Bulk delete (deactivate) incomplete patients - Admin only
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - patientIds
+ *             properties:
+ *               patientIds:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *     responses:
+ *       200:
+ *         description: Patients deactivated successfully
+ */
+router.post('/bulk-delete', requireRoles('Admin'), patientController.bulkDeletePatients.bind(patientController));
+
 router.get('/:patientId', requireRoles('Receptionist', 'Admin'), validate(patientIdValidator), patientController.getPatientById.bind(patientController));
 router.patch('/:patientId', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...updatePatientValidator]), patientController.updatePatient.bind(patientController));
 router.delete('/:patientId', requireRoles('Admin'), validate(patientIdValidator), patientController.deletePatient.bind(patientController));

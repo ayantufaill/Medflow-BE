@@ -249,6 +249,28 @@ export class DocumentController {
     }
   }
 
+  async unlinkDocument(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const documentId = req.params.documentId as string;
+
+      await documentService.unlinkDocument(documentId, req.userId);
+
+      res.status(200).json({
+        success: true,
+        message: 'Document unlinked from patient successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getDocumentTypes(req: Request, res: Response, next: NextFunction) {
     try {
       const types = await documentService.getDocumentTypes();

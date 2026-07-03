@@ -305,6 +305,33 @@ router.post(
 
 /**
  * @swagger
+ * /documents/{documentId}/unlink:
+ *   post:
+ *     summary: Unlink document from patient
+ *     tags: [Documents]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: documentId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Document unlinked successfully
+ *       404:
+ *         description: Document not found
+ */
+router.post(
+  '/:documentId/unlink',
+  authenticate,
+  requirePermission('documents.update'),
+  validate(documentIdValidator),
+  documentController.unlinkDocument
+);
+
+/**
+ * @swagger
  * /documents/{documentId}:
  *   delete:
  *     summary: Delete document

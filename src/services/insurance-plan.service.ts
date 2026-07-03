@@ -327,6 +327,106 @@ export class InsurancePlanService {
       },
     });
   }
+
+  async createBenefit(
+    planId: string,
+    data: {
+      covCatNum?: string;
+      benefitType?: number;
+      percentage?: number;
+      monetaryAmount?: number;
+      timePeriod?: number;
+      quantityQualifier?: number;
+      quantity?: number;
+      coverageLevel?: number;
+      codeNum?: string;
+      toothRange?: string;
+    }
+  ) {
+    const plan = await prisma.insplan.findUnique({
+      where: { PlanNum: BigInt(planId) },
+    });
+    if (!plan) {
+      throw new NotFoundError('Insurance plan not found');
+    }
+
+    const benefitNum = await getNextId('benefit', 'BenefitNum');
+    await prisma.benefit.create({
+      data: {
+        BenefitNum: benefitNum,
+        PlanNum: BigInt(planId),
+        CovCatNum: data.covCatNum ? BigInt(data.covCatNum) : null,
+        BenefitType: data.benefitType ?? null,
+        Percent: data.percentage ?? null,
+        MonetaryAmt: data.monetaryAmount ?? null,
+        TimePeriod: data.timePeriod ?? null,
+        QuantityQualifier: data.quantityQualifier ?? null,
+        Quantity: data.quantity ?? null,
+        CoverageLevel: data.coverageLevel ?? null,
+        CodeNum: data.codeNum ? BigInt(data.codeNum) : null,
+        ToothRange: data.toothRange ?? null,
+        SecDateTEntry: new Date(),
+      },
+    });
+
+    return this.getInsurancePlanById(planId);
+  }
+
+  async updateBenefit(
+    planId: string,
+    benefitId: string,
+    data: {
+      covCatNum?: string;
+      benefitType?: number;
+      percentage?: number;
+      monetaryAmount?: number;
+      timePeriod?: number;
+      quantityQualifier?: number;
+      quantity?: number;
+      coverageLevel?: number;
+      codeNum?: string;
+      toothRange?: string;
+    }
+  ) {
+    const benefit = await prisma.benefit.findUnique({
+      where: { BenefitNum: BigInt(benefitId) },
+    });
+    if (!benefit || benefit.PlanNum?.toString() !== planId) {
+      throw new NotFoundError('Benefit not found for this plan');
+    }
+
+    await prisma.benefit.update({
+      where: { BenefitNum: BigInt(benefitId) },
+      data: {
+        CovCatNum: data.covCatNum ? BigInt(data.covCatNum) : undefined,
+        BenefitType: data.benefitType ?? undefined,
+        Percent: data.percentage ?? undefined,
+        MonetaryAmt: data.monetaryAmount ?? undefined,
+        TimePeriod: data.timePeriod ?? undefined,
+        QuantityQualifier: data.quantityQualifier ?? undefined,
+        Quantity: data.quantity ?? undefined,
+        CoverageLevel: data.coverageLevel ?? undefined,
+        CodeNum: data.codeNum ? BigInt(data.codeNum) : undefined,
+        ToothRange: data.toothRange ?? undefined,
+        SecDateTEdit: new Date(),
+      },
+    });
+
+    return this.getInsurancePlanById(planId);
+  }
+
+  async deleteBenefit(planId: string, benefitId: string) {
+    const benefit = await prisma.benefit.findUnique({
+      where: { BenefitNum: BigInt(benefitId) },
+    });
+    if (!benefit || benefit.PlanNum?.toString() !== planId) {
+      throw new NotFoundError('Benefit not found for this plan');
+    }
+
+    await prisma.benefit.delete({
+      where: { BenefitNum: BigInt(benefitId) },
+    });
+  }
 }
 
 export const insurancePlanService = new InsurancePlanService();
