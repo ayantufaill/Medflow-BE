@@ -176,6 +176,21 @@ export class PatientService {
         orderBy: { DateTStamp: 'desc' },
         skip,
         take: limit,
+        include: {
+          patplan: {
+            include: {
+              inssub: {
+                include: {
+                  insplan: {
+                    include: {
+                      carrier: true
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
       }),
       prisma.patient.count({ where }),
     ]);
@@ -202,6 +217,21 @@ export class PatientService {
   async getPatientById(patientId: string) {
     const patient = await prisma.patient.findUnique({
       where: { PatNum: BigInt(patientId) },
+      include: {
+        patplan: {
+          include: {
+            inssub: {
+              include: {
+                insplan: {
+                  include: {
+                    carrier: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
     });
 
     if (!patient) {
@@ -222,6 +252,21 @@ export class PatientService {
   async getPatientByIdWithSSN(patientId: string) {
     const patient = await prisma.patient.findUnique({
       where: { PatNum: BigInt(patientId) },
+      include: {
+        patplan: {
+          include: {
+            inssub: {
+              include: {
+                insplan: {
+                  include: {
+                    carrier: true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
     });
 
     if (!patient) {

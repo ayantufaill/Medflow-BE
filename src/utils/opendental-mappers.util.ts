@@ -145,7 +145,7 @@ export const mapServiceToApi = (
 });
 
 export const mapPatientToApi = (
-  row: patient,
+  row: any,
   options?: {
     emergencyContact?: {
       name?: string;
@@ -179,7 +179,11 @@ export const mapPatientToApi = (
     patientProfileType?: string | null;
     medicalHistory?: Record<string, unknown> | null;
   }
-) => ({
+) => {
+  const carrierName = row.patplan?.[0]?.inssub?.insplan?.carrier?.CarrierName;
+  const hasCoverage = !!carrierName;
+
+  return {
   id: row.PatNum.toString(),
   _id: row.PatNum.toString(),
   patientCode: row.ChartNumber ?? `PAT${row.PatNum.toString()}`,
@@ -228,7 +232,12 @@ export const mapPatientToApi = (
   workAddress: options?.workAddress ?? null,
   patientProfileType: options?.patientProfileType ?? 'adult',
   medicalHistory: options?.medicalHistory ?? null,
-});
+  paymentMethod: {
+    paidBy: carrierName || 'Self Pay',
+  },
+  displayedBalance: hasCoverage ? (row.InsEst || 0) : (row.BalTotal || row.EstBalance || 0),
+};
+};
 
 export const mapProviderToApi = (
   row: provider,
