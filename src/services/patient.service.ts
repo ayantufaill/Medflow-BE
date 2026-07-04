@@ -189,6 +189,15 @@ export class PatientService {
                 }
               }
             }
+          },
+          appointment: {
+            where: {
+              AptDateTime: { gt: new Date() }
+            },
+            orderBy: {
+              AptDateTime: 'asc'
+            },
+            take: 1
           }
         },
       }),
@@ -230,6 +239,15 @@ export class PatientService {
               }
             }
           }
+        },
+        appointment: {
+          where: {
+            AptDateTime: { gt: new Date() }
+          },
+          orderBy: {
+            AptDateTime: 'asc'
+          },
+          take: 1
         }
       },
     });
@@ -265,6 +283,15 @@ export class PatientService {
               }
             }
           }
+        },
+        appointment: {
+          where: {
+            AptDateTime: { gt: new Date() }
+          },
+          orderBy: {
+            AptDateTime: 'asc'
+          },
+          take: 1
         }
       },
     });

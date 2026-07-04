@@ -236,6 +236,7 @@ export const mapPatientToApi = (
     paidBy: carrierName || 'Self Pay',
   },
   displayedBalance: hasCoverage ? (row.InsEst || 0) : (row.BalTotal || row.EstBalance || 0),
+  nextAppointmentDate: row.appointment?.[0]?.AptDateTime ?? null,
 };
 };
 
