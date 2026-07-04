@@ -190,14 +190,11 @@ export class PatientService {
               }
             }
           },
-          appointment: {
+          appointment: true,
+          procedurelog: {
             where: {
-              AptDateTime: { gt: new Date() }
-            },
-            orderBy: {
-              AptDateTime: 'asc'
-            },
-            take: 1
+              ProcStatus: { in: [1, 2] }
+            }
           }
         },
       }),
@@ -240,14 +237,11 @@ export class PatientService {
             }
           }
         },
-        appointment: {
+        appointment: true,
+        procedurelog: {
           where: {
-            AptDateTime: { gt: new Date() }
-          },
-          orderBy: {
-            AptDateTime: 'asc'
-          },
-          take: 1
+            ProcStatus: { in: [1, 2] }
+          }
         }
       },
     });
@@ -284,14 +278,11 @@ export class PatientService {
             }
           }
         },
-        appointment: {
+        appointment: true,
+        procedurelog: {
           where: {
-            AptDateTime: { gt: new Date() }
-          },
-          orderBy: {
-            AptDateTime: 'asc'
-          },
-          take: 1
+            ProcStatus: { in: [1, 2] }
+          }
         }
       },
     });

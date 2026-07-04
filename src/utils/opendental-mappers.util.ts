@@ -144,6 +144,44 @@ export const mapServiceToApi = (
   isActive: row.BypassGlobalLock ? false : true,
 });
 
+const calculatePatientStatus = (row: any): string => {
+  if (row.procedurelog?.some((p: any) => p.ProcStatus === 1)) {
+    return 'In treatment';
+  }
+
+  const now = new Date();
+  const hasFutureScheduled = row.appointment?.some((a: any) => a.AptStatus === 1 && new Date(a.AptDateTime) > now);
+  
+  if (!hasFutureScheduled) {
+    const pastCompletedAppts = row.appointment
+      ?.filter((a: any) => a.AptStatus === 2 && new Date(a.AptDateTime) <= now)
+      ?.sort((a: any, b: any) => new Date(b.AptDateTime).getTime() - new Date(a.AptDateTime).getTime());
+      
+    if (pastCompletedAppts && pastCompletedAppts.length > 0) {
+      const mostRecent = new Date(pastCompletedAppts[0].AptDateTime);
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+      
+      if (mostRecent < sixMonthsAgo) {
+        return 'Overdue';
+      }
+    }
+  }
+
+  const hasCompletedProcs = row.procedurelog?.some((p: any) => p.ProcStatus === 2);
+  const isFirstVisitNullOrFuture = !row.DateFirstVisit || new Date(row.DateFirstVisit) >= now;
+  
+  if (!hasCompletedProcs && isFirstVisitNullOrFuture) {
+    return 'New';
+  }
+
+  if (row.PatStatus === 0) {
+    return 'Active';
+  }
+
+  return 'Inactive';
+};
+
 export const mapPatientToApi = (
   row: any,
   options?: {
@@ -182,6 +220,10 @@ export const mapPatientToApi = (
 ) => {
   const carrierName = row.patplan?.[0]?.inssub?.insplan?.carrier?.CarrierName;
   const hasCoverage = !!carrierName;
+  const futureAppts = row.appointment
+    ?.filter((a: any) => new Date(a.AptDateTime) > new Date())
+    ?.sort((a: any, b: any) => new Date(a.AptDateTime).getTime() - new Date(b.AptDateTime).getTime());
+  const nextApptDate = futureAppts?.[0]?.AptDateTime ?? null;
 
   return {
   id: row.PatNum.toString(),
@@ -236,7 +278,8 @@ export const mapPatientToApi = (
     paidBy: carrierName || 'Self Pay',
   },
   displayedBalance: hasCoverage ? (row.InsEst || 0) : (row.BalTotal || row.EstBalance || 0),
-  nextAppointmentDate: row.appointment?.[0]?.AptDateTime ?? null,
+  nextAppointmentDate: nextApptDate,
+  status: calculatePatientStatus(row),
 };
 };
 
