@@ -713,6 +713,41 @@ router.post('/:appointmentId/check-out', requireRoles('Front Desk', 'Admin', 'Nu
  *         description: Appointment not found
  */
 router.get('/:appointmentId/workspace', requireRoles('Admin'), appointmentController.getAppointmentWorkspace.bind(appointmentController));
+/**
+ * @swagger
+ * /appointments/{appointmentId}/workspace:
+ *   patch:
+ *     summary: Patch :appointmentId workspace
+ *     tags: [Appointment]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: appointmentId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.patch('/:appointmentId/workspace', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...appointmentWorkspaceValidator]), appointmentController.updateAppointmentWorkspace.bind(appointmentController));
 
 /**
@@ -872,6 +907,41 @@ router.patch('/:appointmentId/workspace', requireRoles('Front Desk', 'Admin'), v
  *         description: Internal server error
  */
 router.get('/:appointmentId/procedures', requireRoles('Admin'), appointmentController.getAppointmentProcedures.bind(appointmentController));
+/**
+ * @swagger
+ * /appointments/{appointmentId}/procedures:
+ *   post:
+ *     summary: Post :appointmentId procedures
+ *     tags: [Appointment]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: appointmentId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/:appointmentId/procedures', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...appointmentProcedureValidator]), appointmentController.addAppointmentProcedure.bind(appointmentController));
 
 /**
@@ -967,6 +1037,41 @@ router.post('/:appointmentId/procedures', requireRoles('Front Desk', 'Admin'), v
  *         description: Conflict - tag already exists
  */
 router.get('/:appointmentId/tags', requireRoles('Admin'), appointmentController.getAppointmentTags.bind(appointmentController));
+/**
+ * @swagger
+ * /appointments/{appointmentId}/tags:
+ *   post:
+ *     summary: Post :appointmentId tags
+ *     tags: [Appointment]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: appointmentId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/:appointmentId/tags', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...appointmentTagValidator]), appointmentController.addAppointmentTag.bind(appointmentController));
 
 /**

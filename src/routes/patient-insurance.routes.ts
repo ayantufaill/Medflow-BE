@@ -135,6 +135,41 @@ router.use(authenticate);
  *         description: Patient or Insurance company not found
  */
 router.get('/:patientId/insurance', requireRoles('Receptionist', 'Admin'), validate(patientIdValidator), patientInsuranceController.getPatientInsurances.bind(patientInsuranceController));
+/**
+ * @swagger
+ * /patients/{patientId}/insurance:
+ *   post:
+ *     summary: Post :patientId insurance
+ *     tags: [Patient Insurance]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/:patientId/insurance', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...createPatientInsuranceValidator]), patientInsuranceController.createPatientInsurance.bind(patientInsuranceController));
 
 /**
@@ -291,7 +326,79 @@ router.post('/:patientId/insurance', requireRoles('Receptionist', 'Admin'), vali
  *         description: Insurance not found
  */
 router.get('/:patientId/insurance/:patientInsuranceId', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...patientInsuranceIdValidator]), patientInsuranceController.getPatientInsuranceById.bind(patientInsuranceController));
+/**
+ * @swagger
+ * /patients/{patientId}/insurance/{patientInsuranceId}:
+ *   put:
+ *     summary: Put :patientId insurance :patientInsuranceId
+ *     tags: [Patient Insurance]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: path
+ *         name: patientInsuranceId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.put('/:patientId/insurance/:patientInsuranceId', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...patientInsuranceIdValidator, ...updatePatientInsuranceValidator]), patientInsuranceController.updatePatientInsurance.bind(patientInsuranceController));
+/**
+ * @swagger
+ * /patients/{patientId}/insurance/{patientInsuranceId}:
+ *   delete:
+ *     summary: Delete :patientId insurance :patientInsuranceId
+ *     tags: [Patient Insurance]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: path
+ *         name: patientInsuranceId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.delete('/:patientId/insurance/:patientInsuranceId', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...patientInsuranceIdValidator]), patientInsuranceController.deletePatientInsurance.bind(patientInsuranceController));
 
 /**

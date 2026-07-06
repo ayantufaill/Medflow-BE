@@ -182,6 +182,13 @@ export class PatientController {
         });
       }
 
+      if (req.body.dateOfBirth && typeof req.body.dateOfBirth === 'string') {
+        req.body.dateOfBirth = new Date(req.body.dateOfBirth);
+      }
+      if (req.body.lastVisitDate && typeof req.body.lastVisitDate === 'string') {
+        req.body.lastVisitDate = new Date(req.body.lastVisitDate);
+      }
+
       const result = await patientService.createPatient(req.body, req.userId);
       res.status(201).json({
         success: true,
@@ -210,6 +217,13 @@ export class PatientController {
         });
       }
       
+      if (req.body.dateOfBirth && typeof req.body.dateOfBirth === 'string') {
+        req.body.dateOfBirth = new Date(req.body.dateOfBirth);
+      }
+      if (req.body.lastVisitDate && typeof req.body.lastVisitDate === 'string') {
+        req.body.lastVisitDate = new Date(req.body.lastVisitDate);
+      }
+
       const result = await patientService.updatePatient(patientId, req.body, req.userId);
       res.status(200).json({
         success: true,

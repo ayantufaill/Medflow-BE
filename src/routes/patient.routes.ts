@@ -159,6 +159,36 @@ router.use(authenticate);
  *                     message: { type: string, example: "A patient already exists with given details." }
  */
 router.get('/', requireRoles('Receptionist', 'Admin'), validate(patientSearchValidator), patientController.getAllPatients.bind(patientController));
+/**
+ * @swagger
+ * /patients:
+ *   post:
+ *     summary: Post patient
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/', requireRoles('Receptionist', 'Admin'), validate(createPatientValidator), patientController.createPatient.bind(patientController));
 
 /**
@@ -393,12 +423,208 @@ router.post('/check-duplicates', requireRoles('Receptionist', 'Admin'), validate
  */
 router.post('/bulk-delete', requireRoles('Admin'), patientController.bulkDeletePatients.bind(patientController));
 
+/**
+ * @swagger
+ * /patients/{patientId}:
+ *   get:
+ *     summary: Get :patientId
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.get('/:patientId', requireRoles('Receptionist', 'Admin'), validate(patientIdValidator), patientController.getPatientById.bind(patientController));
+/**
+ * @swagger
+ * /patients/{patientId}:
+ *   patch:
+ *     summary: Patch :patientId
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.patch('/:patientId', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...updatePatientValidator]), patientController.updatePatient.bind(patientController));
+/**
+ * @swagger
+ * /patients/{patientId}:
+ *   delete:
+ *     summary: Delete :patientId
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.delete('/:patientId', requireRoles('Admin'), validate(patientIdValidator), patientController.deletePatient.bind(patientController));
 
+/**
+ * @swagger
+ * /patients/{patientId}/account-notes:
+ *   get:
+ *     summary: Get :patientId account-notes
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.get('/:patientId/account-notes', requireRoles('Receptionist', 'Admin', 'Billing Staff'), validate(patientIdValidator), patientController.getPatientAccountNotes.bind(patientController));
+/**
+ * @swagger
+ * /patients/{patientId}/account-notes:
+ *   post:
+ *     summary: Post :patientId account-notes
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/:patientId/account-notes', requireRoles('Receptionist', 'Admin', 'Billing Staff'), validate(patientIdValidator), patientController.createPatientAccountNote.bind(patientController));
+/**
+ * @swagger
+ * /patients/{patientId}/account-notes/{noteId}:
+ *   put:
+ *     summary: Put :patientId account-notes :noteId
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: path
+ *         name: noteId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.put('/:patientId/account-notes/:noteId', requireRoles('Receptionist', 'Admin', 'Billing Staff'), validate(patientIdValidator), patientController.updatePatientAccountNote.bind(patientController));
 
 /**
@@ -536,6 +762,41 @@ router.get('/:patientId/last-visit', requireRoles('Receptionist', 'Admin', 'Doct
  *       404: { description: Patient not found }
  */
 router.get('/:patientId/workspace', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientWorkspace.bind(patientController));
+/**
+ * @swagger
+ * /patients/{patientId}/workspace:
+ *   patch:
+ *     summary: Patch :patientId workspace
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.patch('/:patientId/workspace', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...patientWorkspaceMetaValidator]), patientController.updatePatientWorkspaceMeta.bind(patientController));
 
 /**
@@ -603,6 +864,41 @@ router.patch('/:patientId/workspace', requireRoles('Receptionist', 'Admin'), val
  *       404: { description: Patient not found }
  */
 router.get('/:patientId/medical-history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getStructuredMedicalHistory.bind(patientController));
+/**
+ * @swagger
+ * /patients/{patientId}/medical-history:
+ *   patch:
+ *     summary: Patch :patientId medical-history
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.patch('/:patientId/medical-history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate([...patientIdValidator, ...patientMedicalHistoryValidator]), patientController.updateStructuredMedicalHistory.bind(patientController));
 
 /**
@@ -667,6 +963,41 @@ router.patch('/:patientId/medical-history', requireRoles('Receptionist', 'Admin'
  *       404: { description: Patient not found }
  */
 router.get('/:patientId/dental-history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getDentalHistory.bind(patientController));
+/**
+ * @swagger
+ * /patients/{patientId}/dental-history:
+ *   patch:
+ *     summary: Patch :patientId dental-history
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.patch('/:patientId/dental-history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate([...patientIdValidator, ...patientDentalHistoryValidator]), patientController.updateDentalHistory.bind(patientController));
 
 /**
@@ -824,6 +1155,41 @@ router.get('/:patientId/history', requireRoles('Receptionist', 'Admin', 'Doctor'
  *       404: { description: Patient not found }
  */
 router.get('/:patientId/allergies', validate(patientIdValidator), requireRoles('Receptionist', 'Doctor', 'Admin'), allergyController.getPatientAllergies.bind(allergyController));
+/**
+ * @swagger
+ * /patients/{patientId}/allergies:
+ *   post:
+ *     summary: Post :patientId allergies
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/:patientId/allergies', requireRoles('Receptionist', 'Doctor', 'Admin'), validate([...patientIdValidator, ...createPatientAllergyValidator]), allergyController.createPatientAllergy.bind(allergyController));
 
 /**
@@ -929,7 +1295,79 @@ router.post('/:patientId/allergies', requireRoles('Receptionist', 'Doctor', 'Adm
  *       404: { description: Allergy not found }
  */
 router.get('/:patientId/allergies/:allergyId', requireRoles('Receptionist', 'Doctor', 'Admin'), validate([...patientIdValidator, ...allergyIdParamValidator]), allergyController.getAllergyById.bind(allergyController));
+/**
+ * @swagger
+ * /patients/{patientId}/allergies/{allergyId}:
+ *   put:
+ *     summary: Put :patientId allergies :allergyId
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: path
+ *         name: allergyId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.put('/:patientId/allergies/:allergyId', requireRoles('Receptionist', 'Doctor', 'Admin'), validate([...patientIdValidator, ...allergyIdParamValidator, ...updateAllergyValidator]), allergyController.updatePatientAllergy.bind(allergyController));
+/**
+ * @swagger
+ * /patients/{patientId}/allergies/{allergyId}:
+ *   delete:
+ *     summary: Delete :patientId allergies :allergyId
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: path
+ *         name: allergyId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.delete('/:patientId/allergies/:allergyId', requireRoles('Receptionist', 'Doctor', 'Admin'), validate([...patientIdValidator, ...allergyIdParamValidator]), allergyController.deletePatientAllergy.bind(allergyController));
 
 /**
@@ -961,18 +1399,404 @@ router.delete('/:patientId/allergies/:allergyId', requireRoles('Receptionist', '
  *       404: { description: Patient not found }
  */
 router.get('/:patientId/communications', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientCommunications.bind(patientController));
+/**
+ * @swagger
+ * /patients/{patientId}/communications/send:
+ *   post:
+ *     summary: Post :patientId communications send
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/:patientId/communications/send', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate([...patientIdValidator, ...patientCommunicationValidator]), patientController.createPatientCommunication.bind(patientController));
 
+/**
+ * @swagger
+ * /patients/{patientId}/update-requests:
+ *   get:
+ *     summary: Get :patientId update-requests
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.get('/:patientId/update-requests', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientUpdateRequests.bind(patientController));
+/**
+ * @swagger
+ * /patients/{patientId}/update-requests:
+ *   post:
+ *     summary: Post :patientId update-requests
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/:patientId/update-requests', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...createPatientUpdateRequestValidator]), patientController.createPatientUpdateRequest.bind(patientController));
+/**
+ * @swagger
+ * /patients/{patientId}/reconciliation/{requestId}:
+ *   get:
+ *     summary: Get :patientId reconciliation :requestId
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: path
+ *         name: requestId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.get('/:patientId/reconciliation/:requestId', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate([...patientIdValidator, ...patientRequestIdValidator]), patientController.getPatientReconciliation.bind(patientController));
+/**
+ * @swagger
+ * /patients/{patientId}/reconciliation/{requestId}/apply:
+ *   post:
+ *     summary: Post :patientId reconciliation :requestId apply
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: path
+ *         name: requestId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/:patientId/reconciliation/:requestId/apply', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...patientRequestIdValidator, ...applyPatientReconciliationValidator]), patientController.applyPatientReconciliation.bind(patientController));
+/**
+ * @swagger
+ * /patients/{patientId}/audit-history:
+ *   get:
+ *     summary: Get :patientId audit-history
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.get('/:patientId/audit-history', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientAuditHistory.bind(patientController));
+/**
+ * @swagger
+ * /patients/{patientId}/coverages:
+ *   get:
+ *     summary: Get :patientId coverages
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.get('/:patientId/coverages', requireRoles('Receptionist', 'Admin', 'Billing Staff'), validate(patientIdValidator), insurancePlanController.getPatientCoverages.bind(insurancePlanController));
+/**
+ * @swagger
+ * /patients/{patientId}/coverages:
+ *   post:
+ *     summary: Post :patientId coverages
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/:patientId/coverages', requireRoles('Receptionist', 'Admin', 'Billing Staff'), validate([...patientIdValidator, ...createPatientInsuranceValidator]), insurancePlanController.createPatientCoverage.bind(insurancePlanController));
+/**
+ * @swagger
+ * /patients/{patientId}/reports/summary:
+ *   get:
+ *     summary: Get :patientId reports summary
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.get('/:patientId/reports/summary', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientReportSummary.bind(patientController));
+/**
+ * @swagger
+ * /patients/{patientId}/reports/showcase:
+ *   get:
+ *     summary: Get :patientId reports showcase
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.get('/:patientId/reports/showcase', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientReportShowcase.bind(patientController));
+/**
+ * @swagger
+ * /patients/{patientId}/reports/concerns:
+ *   get:
+ *     summary: Get :patientId reports concerns
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.get('/:patientId/reports/concerns', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientReportConcerns.bind(patientController));
+/**
+ * @swagger
+ * /patients/{patientId}/reports/refresh:
+ *   post:
+ *     summary: Post :patientId reports refresh
+ *     tags: [Patient]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/:patientId/reports/refresh', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.refreshPatientReports.bind(patientController));
 
 export default router;
