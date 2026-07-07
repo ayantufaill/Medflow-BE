@@ -1,13 +1,26 @@
-import Joi from 'joi';
+import { body, ValidationChain } from 'express-validator';
 
-export const createShortlistValidator = Joi.object({
-  patientId: Joi.alternatives().try(Joi.string(), Joi.number()).required().messages({
-    'any.required': 'Patient ID is required',
-  }),
-  providerId: Joi.alternatives().try(Joi.string(), Joi.number()).optional().allow('', null),
-  durationMins: Joi.number().integer().min(1).optional().allow(null),
-  preferredDay: Joi.string().max(255).optional().allow('', null),
-  preferredTime: Joi.string().max(255).optional().allow('', null),
-  procedures: Joi.array().items(Joi.string()).optional().allow(null),
-  notes: Joi.string().optional().allow('', null),
-});
+export const createShortlistValidator: ValidationChain[] = [
+  body('patientId')
+    .notEmpty()
+    .withMessage('Patient ID is required'),
+  body('providerId')
+    .optional({ nullable: true, checkFalsy: true }),
+  body('durationMins')
+    .optional({ nullable: true, checkFalsy: true })
+    .isInt({ min: 1 })
+    .withMessage('Duration must be a positive integer'),
+  body('preferredDay')
+    .optional({ nullable: true, checkFalsy: true })
+    .isString(),
+  body('preferredTime')
+    .optional({ nullable: true, checkFalsy: true })
+    .isString(),
+  body('procedures')
+    .optional({ nullable: true, checkFalsy: true })
+    .isArray()
+    .withMessage('Procedures must be an array'),
+  body('notes')
+    .optional({ nullable: true, checkFalsy: true })
+    .isString(),
+];
