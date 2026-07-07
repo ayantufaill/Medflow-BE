@@ -162,7 +162,7 @@ async function seedClaimsComplete() {
             ProcCode: code,
             Descript: `Procedure ${code}`,
             AbbrDesc: code,
-            TreatArea: 0,
+            TreatArea: 'MOUTH',
             NoBillIns: 0,
           },
         });

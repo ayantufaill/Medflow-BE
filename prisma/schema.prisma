@@ -7,6 +7,15 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum TreatmentArea {
+  MOUTH
+  TOOTH
+  SURFACE
+  QUADRANT
+  SEXTANT
+  ARCH
+}
+
 model account {
   AccountNum         BigInt              @id(map: "PK__account__B9572BDAA2619468")
   Description        String?             @db.VarChar(255)
@@ -5108,11 +5117,11 @@ model procedurecode {
   AbbrDesc                                                          String?            @db.VarChar(50)
   ProcTime                                                          String?            @db.VarChar(24)
   ProcCat                                                           BigInt?
-  TreatArea                                                         Int?
+  TreatArea                                                         TreatmentArea?     @default(MOUTH)
   NoBillIns                                                         Int?
   IsProsth                                                          Int?
   DefaultNote                                                       String?            @db.Text
-  IsHygiene                                                         Int?
+  IsHygiene                                                         Boolean?           @default(false)
   GTypeNum                                                          Int?               @db.SmallInt
   AlternateCode1                                                    String?            @db.VarChar(15)
   MedicalCode                                                       String?            @db.VarChar(15)
