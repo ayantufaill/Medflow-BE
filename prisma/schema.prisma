@@ -7709,3 +7709,16 @@ model PatientImage {
   CreatedAt          DateTime @default(now())
   UpdatedAt          DateTime @updatedAt
 }
+
+model shortlist {
+  ShortlistNum   BigInt   @id @default(autoincrement())
+  PatNum         BigInt
+  ProvNum        BigInt?
+  DurationMins   Int?
+  PreferredDay   String?  @db.VarChar(255)
+  PreferredTime  String?  @db.VarChar(255)
+  Procedures     String?  @db.Text
+  Notes          String?  @db.Text
+  CreatedAt      DateTime @default(now())
+  UpdatedAt      DateTime @updatedAt
+}

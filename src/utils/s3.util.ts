@@ -67,14 +67,15 @@ export const uploadToS3 = async (
       const uniqueFileName = `${crypto.randomUUID()}.${ext}`;
       const key = `${folder}/${uniqueFileName}`;
       
-      // Save locally to /app/uploads/s3-local
-      const uploadPath = path.join('/app/uploads/s3-local', folder);
+      // Save locally to uploads/s3-local
+      const uploadPath = path.join(process.cwd(), 'uploads', 's3-local', folder);
       fs.mkdirSync(uploadPath, { recursive: true });
       const filePath = path.join(uploadPath, uniqueFileName);
       fs.writeFileSync(filePath, file.buffer);
       
-      // Return local URL that maps to the static route
-      return `/uploads/s3-local/${key}`;
+      // Return absolute local URL so frontend router doesn't intercept it
+      const baseUrl = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
+      return `${baseUrl}/uploads/s3-local/${key}`;
     }
 
     // Validate AWS configuration

@@ -8,7 +8,7 @@ export type ImageType = typeof IMAGE_TYPES[number];
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const patientId = req.params.patientId;
-    const uploadPath = path.join('/app/uploads/patients', patientId);
+    const uploadPath = path.join(process.cwd(), 'uploads', 'patients', patientId);
     fs.mkdirSync(uploadPath, { recursive: true });
     cb(null, uploadPath);
   },
