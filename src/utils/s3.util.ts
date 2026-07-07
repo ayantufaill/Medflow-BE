@@ -1,5 +1,7 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 
 const MOCK_AWS_REGION = 'us-west-2';
 const MOCK_AWS_BUCKET = 'medflow-placeholder-bucket';
@@ -62,8 +64,17 @@ export const uploadToS3 = async (
     // Temporary fallback mode when AWS is not configured.
     if (!hasAWSConfig()) {
       const ext = file.originalname.split('.').pop() || 'bin';
-      const key = `${folder}/${crypto.randomUUID()}.${ext}`;
-      return `https://${MOCK_AWS_BUCKET}.s3.${MOCK_AWS_REGION}.amazonaws.com/${key}`;
+      const uniqueFileName = `${crypto.randomUUID()}.${ext}`;
+      const key = `${folder}/${uniqueFileName}`;
+      
+      // Save locally to /app/uploads/s3-local
+      const uploadPath = path.join('/app/uploads/s3-local', folder);
+      fs.mkdirSync(uploadPath, { recursive: true });
+      const filePath = path.join(uploadPath, uniqueFileName);
+      fs.writeFileSync(filePath, file.buffer);
+      
+      // Return local URL that maps to the static route
+      return `/uploads/s3-local/${key}`;
     }
 
     // Validate AWS configuration
@@ -146,6 +157,13 @@ export const uploadToS3 = async (
 export const deleteFromS3 = async (fileUrl: string): Promise<void> => {
   try {
     if (!hasAWSConfig()) {
+      // If it's a local fallback URL, delete the local file
+      if (fileUrl.startsWith('/uploads/s3-local/')) {
+        const localPath = path.join('/app', fileUrl); // maps to /app/uploads/s3-local/...
+        if (fs.existsSync(localPath)) {
+          fs.unlinkSync(localPath);
+        }
+      }
       return;
     }
 
