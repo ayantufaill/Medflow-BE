@@ -140,7 +140,8 @@ export const updateAppointmentValidator: ValidationChain[] = [
       'sent_email_or_text',
       'late',
       'cancelled',
-      'rescheduled'
+      'rescheduled',
+      'pending'
     ])
     .withMessage('Invalid appointment status'),
   body('chiefComplaint')
@@ -239,7 +240,7 @@ export const appointmentQueryValidator: ValidationChain[] = [
     .withMessage('Invalid patient ID format'),
   query('status')
     .optional()
-    .isIn(['scheduled', 'confirmed', 'checked_in', 'completed', 'cancelled', 'no_show'])
+    .isIn(['scheduled', 'confirmed', 'checked_in', 'completed', 'cancelled', 'no_show', 'pending'])
     .withMessage('Invalid status'),
   query('startDate')
     .optional()
