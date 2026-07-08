@@ -357,6 +357,8 @@ export const mapAppointmentStatusFromDb = (status?: number | null): string => {
       return 'no_show';
     case 4:
       return 'cancelled';
+    case 6:
+      return 'pending';
     default:
       return 'scheduled';
   }
@@ -370,6 +372,8 @@ export const mapAppointmentStatusToDb = (status?: string | null): number => {
       return 3;
     case 'cancelled':
       return 4;
+    case 'pending':
+      return 6;
     case 'checked_in':
     case 'confirmed':
     case 'scheduled':
