@@ -7711,14 +7711,18 @@ model PatientImage {
 }
 
 model shortlist {
-  ShortlistNum   BigInt   @id @default(autoincrement())
-  PatNum         BigInt
-  ProvNum        BigInt?
-  DurationMins   Int?
-  PreferredDay   String?  @db.VarChar(255)
-  PreferredTime  String?  @db.VarChar(255)
-  Procedures     String?  @db.Text
-  Notes          String?  @db.Text
-  CreatedAt      DateTime @default(now())
-  UpdatedAt      DateTime @updatedAt
+  ShortlistNum    BigInt   @id @default(autoincrement())
+  PatNum          BigInt
+  PatientName     String?  @db.VarChar(255)
+  AppointmentDate String?  @db.VarChar(255)
+  StartTime       String?  @db.VarChar(255)
+  EndTime         String?  @db.VarChar(255)
+  DurationMins    Int?
+  Status          String?  @db.VarChar(255)
+  Notes           String?  @db.Text
+  ProvNum         BigInt?
+  RoomId          BigInt?
+  CustomFields    Json?
+  CreatedAt       DateTime @default(now())
+  UpdatedAt       DateTime @updatedAt
 }
