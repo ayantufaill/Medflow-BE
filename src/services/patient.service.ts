@@ -53,7 +53,14 @@ async function generatePatientCode(): Promise<string> {
 async function getFamilyMembers(guarantorId: bigint, currentPatNum: bigint) {
   if (!guarantorId || guarantorId <= 0n) return [];
   const members = await prisma.patient.findMany({
-    where: { Guarantor: guarantorId, PatNum: { not: currentPatNum }, PatStatus: { not: 2 } },
+    where: { 
+      OR: [
+        { Guarantor: guarantorId },
+        { PatNum: guarantorId }
+      ],
+      PatNum: { not: currentPatNum }, 
+      PatStatus: { not: 2 } 
+    },
     select: { PatNum: true, FName: true, LName: true, Preferred: true, Birthdate: true, Gender: true, Guarantor: true }
   });
   return members.map(fm => ({
@@ -270,9 +277,8 @@ export class PatientService {
 
     const patientMeta = await getPatientMeta(patient.PatNum);
     const options = buildPatientMapperOptions(patientMeta);
-    if (patient.Guarantor && patient.Guarantor > 0n) {
-      options.household = await getFamilyMembers(patient.Guarantor, patient.PatNum);
-    }
+    const actualGuarantorId = (patient.Guarantor && patient.Guarantor > 0n) ? patient.Guarantor : patient.PatNum;
+    options.household = await getFamilyMembers(actualGuarantorId, patient.PatNum);
     
     const mapped = mapPatientToApi(patient, options);
     return {
@@ -316,9 +322,8 @@ export class PatientService {
 
     const patientMeta = await getPatientMeta(patient.PatNum);
     const options = buildPatientMapperOptions(patientMeta);
-    if (patient.Guarantor && patient.Guarantor > 0n) {
-      options.household = await getFamilyMembers(patient.Guarantor, patient.PatNum);
-    }
+    const actualGuarantorId = (patient.Guarantor && patient.Guarantor > 0n) ? patient.Guarantor : patient.PatNum;
+    options.household = await getFamilyMembers(actualGuarantorId, patient.PatNum);
     
     return mapPatientToApi(patient, options);
   }
