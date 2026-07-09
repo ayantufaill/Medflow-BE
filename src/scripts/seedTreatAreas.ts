@@ -14,6 +14,8 @@ async function main() {
   let updatedCount = 0;
 
   for (const code of codes) {
+    if (code.CodeNum == null || code.ProcCode == null) continue;
+
     let newArea: TreatmentArea = 'MOUTH';
     const procCode = code.ProcCode.toUpperCase();
 
