@@ -92,7 +92,7 @@ async function checkConflicts(
   const providerWhere: any = {
     ProvNum: BigInt(providerId),
     AptDateTime: { gte: startOfDay, lt: endOfDay },
-    AptStatus: { notIn: [3, 4] },
+    AptStatus: { notIn: [3, 4, 6] },
   };
   if (excludeAppointmentId) {
     providerWhere.AptNum = { not: BigInt(excludeAppointmentId) };
@@ -123,7 +123,7 @@ async function checkConflicts(
     const roomWhere: any = {
       Op: BigInt(roomId),
       AptDateTime: { gte: startOfDay, lt: endOfDay },
-      AptStatus: { notIn: [3, 4] },
+      AptStatus: { notIn: [3, 4, 6] },
     };
     if (excludeAppointmentId) {
       roomWhere.AptNum = { not: BigInt(excludeAppointmentId) };
@@ -589,7 +589,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       where: {
         ProvNum: BigInt(providerId),
         AptDateTime: { gte: startDate, lte: endDate },
-        AptStatus: { not: 4 },
+        AptStatus: { notIn: [4, 6] },
       },
       include: {
         patient: true,
@@ -620,7 +620,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
   ) {
     const where: any = {
       AptDateTime: { gte: startDate, lte: endDate },
-      AptStatus: { not: 4 },
+      AptStatus: { notIn: [4, 6] },
     };
 
     if (providerIds && providerIds.length > 0) {
@@ -774,7 +774,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       where: {
         ProvNum: BigInt(providerId),
         AptDateTime: { gte: startOfDay, lt: endOfDay },
-        AptStatus: { notIn: [3, 4] },
+        AptStatus: { notIn: [3, 4, 6] },
       },
       select: { AptDateTime: true, Pattern: true },
     });
@@ -999,7 +999,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
     }
 
     const targetStatus = updates.status !== undefined ? updates.status : mapAppointmentStatusFromDb(appointment.AptStatus);
-    const isInactiveStatus = targetStatus === 'no_show' || targetStatus === 'cancelled';
+    const isInactiveStatus = targetStatus === 'no_show' || targetStatus === 'cancelled' || targetStatus === 'pending';
 
     // If updating date/time, check for conflicts (including buffers and room)
     if (!isInactiveStatus && (updates.appointmentDate || updates.startTime || updates.endTime)) {

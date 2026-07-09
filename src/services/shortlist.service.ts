@@ -3,12 +3,21 @@ import { NotFoundError } from '../utils/error.util';
 
 export class ShortlistService {
   private mapShortlist(item: any) {
+    let parsedCustomFields = item.CustomFields;
+    if (typeof parsedCustomFields === 'string') {
+      try {
+        parsedCustomFields = JSON.parse(parsedCustomFields);
+      } catch (e) {
+        // ignore
+      }
+    }
     return {
       ...item,
       ShortlistNum: item.ShortlistNum.toString(),
       PatNum: item.PatNum.toString(),
       ProvNum: item.ProvNum?.toString(),
-      Procedures: item.Procedures ? JSON.parse(item.Procedures) : [],
+      RoomId: item.RoomId?.toString(),
+      CustomFields: parsedCustomFields || {},
     };
   }
 
@@ -21,17 +30,33 @@ export class ShortlistService {
   }
 
   async createShortlistItem(data: any) {
-    const { patientId, providerId, durationMins, preferredDay, preferredTime, procedures, notes } = data;
+    const { 
+      patientId, 
+      patientName,
+      appointmentDate,
+      startTime,
+      endTime,
+      durationMins, 
+      status,
+      notes,
+      providerId, 
+      roomId,
+      customFields
+    } = data;
     
     const item = await prisma.shortlist.create({
       data: {
         PatNum: BigInt(patientId),
-        ProvNum: providerId ? BigInt(providerId) : null,
+        PatientName: patientName || null,
+        AppointmentDate: appointmentDate || null,
+        StartTime: startTime || null,
+        EndTime: endTime || null,
         DurationMins: durationMins || null,
-        PreferredDay: preferredDay || null,
-        PreferredTime: preferredTime || null,
-        Procedures: procedures ? JSON.stringify(procedures) : null,
-        Notes: notes || null
+        Status: status || null,
+        Notes: notes || null,
+        ProvNum: providerId ? BigInt(providerId) : null,
+        RoomId: roomId ? BigInt(roomId) : null,
+        CustomFields: customFields || null
       }
     });
 
