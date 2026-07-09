@@ -883,6 +883,72 @@ async getPatientLastVisit(patientId: string) {
   }
 
   /**
+   * Add a family member, linking their Guarantor field bidirectionally
+   */
+  async addFamilyMember(patientId: string, memberId: string, updatedBy?: string) {
+    if (patientId === memberId) {
+      throw new ConflictError('Cannot add patient as their own family member');
+    }
+
+    const patient = await prisma.patient.findUnique({ where: { PatNum: BigInt(patientId) } });
+    const member = await prisma.patient.findUnique({ where: { PatNum: BigInt(memberId) } });
+
+    if (!patient || !member) {
+      throw new NotFoundError('Patient not found');
+    }
+
+    // Determine the head of household
+    let headId = patient.PatNum;
+    if (patient.Guarantor && patient.Guarantor > 0n && patient.Guarantor !== patient.PatNum) {
+      headId = patient.Guarantor;
+    } else if (member.Guarantor && member.Guarantor > 0n && member.Guarantor !== member.PatNum) {
+      headId = member.Guarantor;
+    }
+
+    // Update both to have the same Guarantor
+    await prisma.$transaction([
+      prisma.patient.update({
+        where: { PatNum: patient.PatNum },
+        data: { Guarantor: headId }
+      }),
+      prisma.patient.update({
+        where: { PatNum: member.PatNum },
+        data: { Guarantor: headId }
+      })
+    ]);
+
+    if (updatedBy) {
+      await logActivity(updatedBy, 'updated', 'patients', patientId, undefined, { addedFamilyMember: memberId });
+      await logActivity(updatedBy, 'updated', 'patients', memberId, undefined, { addedFamilyMember: patientId });
+    }
+
+    return this.getPatientByIdWithSSN(patientId);
+  }
+
+  /**
+   * Remove a family member
+   */
+  async removeFamilyMember(patientId: string, memberId: string, updatedBy?: string) {
+    const member = await prisma.patient.findUnique({ where: { PatNum: BigInt(memberId) } });
+    if (!member) {
+      throw new NotFoundError('Member patient not found');
+    }
+
+    // Reset member's guarantor to their own PatNum
+    await prisma.patient.update({
+      where: { PatNum: member.PatNum },
+      data: { Guarantor: member.PatNum }
+    });
+
+    if (updatedBy) {
+      await logActivity(updatedBy, 'updated', 'patients', patientId, undefined, { removedFamilyMember: memberId });
+      await logActivity(updatedBy, 'updated', 'patients', memberId, undefined, { removedFamilyMember: patientId });
+    }
+
+    return this.getPatientByIdWithSSN(patientId);
+  }
+
+  /**
    * Get the full structured medical history for a patient, merged with
    * live clinical timeline data (allergies, vitals, prescriptions, etc.)
    */

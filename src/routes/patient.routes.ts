@@ -522,6 +522,56 @@ router.delete('/:patientId', requireRoles('Admin'), validate(patientIdValidator)
 
 /**
  * @swagger
+ * /patients/{patientId}/family-members:
+ *   post:
+ *     summary: Add a family member
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               memberId: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ */
+router.post('/:patientId/family-members', requireRoles('Receptionist', 'Admin'), validate(patientIdValidator), patientController.addFamilyMember.bind(patientController));
+
+/**
+ * @swagger
+ * /patients/{patientId}/family-members/{memberId}:
+ *   delete:
+ *     summary: Remove a family member
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: path
+ *         name: memberId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ */
+router.delete('/:patientId/family-members/:memberId', requireRoles('Receptionist', 'Admin'), validate(patientIdValidator), patientController.removeFamilyMember.bind(patientController));
+
+/**
+ * @swagger
  * /patients/{patientId}/account-notes:
  *   get:
  *     summary: Get :patientId account-notes
