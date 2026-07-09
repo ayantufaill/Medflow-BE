@@ -46,6 +46,36 @@ router.get(
  *         description: Category created
  */
 router.get('/products', clinicalManagementController.getProducts.bind(clinicalManagementController));
+/**
+ * @swagger
+ * /clinical-management/products:
+ *   post:
+ *     summary: Post products
+ *     tags: [Clinical Management]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/products', clinicalManagementController.createProductCategory.bind(clinicalManagementController));
 
 /**
@@ -346,6 +376,35 @@ router.post('/checklists/items/:itemId/product', clinicalManagementController.ad
  *         description: Checklist deleted
  */
 router.put('/checklists/:checklistId', clinicalManagementController.updateChecklist.bind(clinicalManagementController));
+/**
+ * @swagger
+ * /clinical-management/checklists/{checklistId}:
+ *   delete:
+ *     summary: Delete checklists :checklistId
+ *     tags: [Clinical Management]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: checklistId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.delete('/checklists/:checklistId', clinicalManagementController.deleteChecklist.bind(clinicalManagementController));
 
 /**
@@ -402,6 +461,36 @@ router.delete('/checklists/items/:itemId', clinicalManagementController.deleteCh
  *         description: Template created
  */
 router.get('/prescription-templates', clinicalManagementController.getPrescriptionTemplates.bind(clinicalManagementController));
+/**
+ * @swagger
+ * /clinical-management/prescription-templates:
+ *   post:
+ *     summary: Post prescription-templates
+ *     tags: [Clinical Management]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/prescription-templates', clinicalManagementController.createPrescriptionTemplate.bind(clinicalManagementController));
 
 /**
@@ -447,6 +536,35 @@ router.post('/prescription-templates', clinicalManagementController.createPrescr
  *         description: Template deleted
  */
 router.put('/prescription-templates/:templateId', clinicalManagementController.updatePrescriptionTemplate.bind(clinicalManagementController));
+/**
+ * @swagger
+ * /clinical-management/prescription-templates/{templateId}:
+ *   delete:
+ *     summary: Delete prescription-templates :templateId
+ *     tags: [Clinical Management]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: templateId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.delete('/prescription-templates/:templateId', clinicalManagementController.deletePrescriptionTemplate.bind(clinicalManagementController));
 
 // System Settings
@@ -481,6 +599,36 @@ router.delete('/prescription-templates/:templateId', clinicalManagementControlle
  *         description: Setting updated
  */
 router.get('/settings', clinicalManagementController.getSystemSettings.bind(clinicalManagementController));
+/**
+ * @swagger
+ * /clinical-management/settings:
+ *   put:
+ *     summary: Put settings
+ *     tags: [Clinical Management]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.put('/settings', clinicalManagementController.updateSystemSetting.bind(clinicalManagementController));
 
 // Recare Config
@@ -514,6 +662,36 @@ router.put('/settings', clinicalManagementController.updateSystemSetting.bind(cl
  *         description: Config updated
  */
 router.get('/recare-config', clinicalManagementController.getRecareConfig.bind(clinicalManagementController));
+/**
+ * @swagger
+ * /clinical-management/recare-config:
+ *   put:
+ *     summary: Put recare-config
+ *     tags: [Clinical Management]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.put('/recare-config', clinicalManagementController.updateRecareConfig.bind(clinicalManagementController));
 
 // Treatment Plan Presentation Config
@@ -548,6 +726,36 @@ router.put('/recare-config', clinicalManagementController.updateRecareConfig.bin
  *         description: Config updated
  */
 router.get('/treatment-plan-presentations', clinicalManagementController.getTreatmentPlanPresentationConfig.bind(clinicalManagementController));
+/**
+ * @swagger
+ * /clinical-management/treatment-plan-presentations:
+ *   put:
+ *     summary: Put treatment-plan-presentations
+ *     tags: [Clinical Management]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.put('/treatment-plan-presentations', clinicalManagementController.updateTreatmentPlanPresentationConfig.bind(clinicalManagementController));
 
 // Informed Consent Templates
@@ -582,6 +790,36 @@ router.put('/treatment-plan-presentations', clinicalManagementController.updateT
  *         description: Consent template created
  */
 router.get('/consent-templates', clinicalManagementController.getInformedConsents.bind(clinicalManagementController));
+/**
+ * @swagger
+ * /clinical-management/consent-templates:
+ *   post:
+ *     summary: Post consent-templates
+ *     tags: [Clinical Management]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/consent-templates', clinicalManagementController.createInformedConsent.bind(clinicalManagementController));
 
 /**
@@ -624,6 +862,35 @@ router.post('/consent-templates', clinicalManagementController.createInformedCon
  *         description: Consent template deleted
  */
 router.put('/consent-templates/:templateId', clinicalManagementController.updateInformedConsent.bind(clinicalManagementController));
+/**
+ * @swagger
+ * /clinical-management/consent-templates/{templateId}:
+ *   delete:
+ *     summary: Delete consent-templates :templateId
+ *     tags: [Clinical Management]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: templateId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.delete('/consent-templates/:templateId', clinicalManagementController.deleteInformedConsent.bind(clinicalManagementController));
 
 // Pre & Post-Ops Instruction Templates
@@ -659,6 +926,36 @@ router.delete('/consent-templates/:templateId', clinicalManagementController.del
  *         description: Template created
  */
 router.get('/instruction-templates', clinicalManagementController.getPrePostOps.bind(clinicalManagementController));
+/**
+ * @swagger
+ * /clinical-management/instruction-templates:
+ *   post:
+ *     summary: Post instruction-templates
+ *     tags: [Clinical Management]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/instruction-templates', clinicalManagementController.createPrePostOp.bind(clinicalManagementController));
 
 /**
@@ -702,6 +999,35 @@ router.post('/instruction-templates', clinicalManagementController.createPrePost
  *         description: Template deleted
  */
 router.put('/instruction-templates/:templateId', clinicalManagementController.updatePrePostOp.bind(clinicalManagementController));
+/**
+ * @swagger
+ * /clinical-management/instruction-templates/{templateId}:
+ *   delete:
+ *     summary: Delete instruction-templates :templateId
+ *     tags: [Clinical Management]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: templateId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.delete('/instruction-templates/:templateId', clinicalManagementController.deletePrePostOp.bind(clinicalManagementController));
 
 export default router;

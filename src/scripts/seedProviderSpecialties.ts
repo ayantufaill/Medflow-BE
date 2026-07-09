@@ -20,6 +20,8 @@ const seedProviderSpecialties = async () => {
   try {
     await connectDB();
 
+    let toInsert: string[] = [];
+    
     await prisma.$transaction(async (tx) => {
       const existing = await tx.definition.findMany({
         where: {
@@ -30,7 +32,7 @@ const seedProviderSpecialties = async () => {
       });
 
       const existingNames = new Set(existing.map((row) => row.ItemName));
-      const toInsert = providerSpecialties
+      toInsert = providerSpecialties
         .filter((name) => !existingNames.has(name))
         .sort((a, b) => a.localeCompare(b));
 
@@ -38,28 +40,26 @@ const seedProviderSpecialties = async () => {
         console.log('Provider specialties already seeded. Nothing to insert.');
         return;
       }
-
-      const maxDefNum = await tx.definition.aggregate({
-        _max: { DefNum: true },
-      });
-      let nextDefNum = maxDefNum._max.DefNum ?? BigInt(0);
-
-      for (const name of toInsert) {
-        nextDefNum += BigInt(1);
-        await tx.definition.create({
-          data: {
-            DefNum: nextDefNum,
-            Category: PROVIDER_SPECIALTY_CATEGORY,
-            ItemOrder: 0,
-            ItemName: name,
-            ItemValue: null,
-            ItemColor: null,
-            IsHidden: 0,
-          },
-        });
-        console.log(`Created provider specialty: ${name}`);
-      }
     });
+
+    const { getNextId } = await import('../utils/opendental-ids.util.js');
+    
+    // We do insertions sequentially so getNextId stays consistent
+    for (const name of toInsert) {
+      const nextDefNum = await getNextId('definition', 'DefNum');
+      await prisma.definition.create({
+        data: {
+          DefNum: nextDefNum,
+          Category: PROVIDER_SPECIALTY_CATEGORY,
+          ItemOrder: 0,
+          ItemName: name,
+          ItemValue: null,
+          ItemColor: null,
+          IsHidden: 0,
+        },
+      });
+      console.log(`Created provider specialty: ${name}`);
+    }
 
     const seededRows = await prisma.definition.findMany({
       where: {

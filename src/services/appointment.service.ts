@@ -411,10 +411,10 @@ export class AppointmentService {
     if (filters?.startDate || filters?.endDate) {
       where.AptDateTime = {};
       if (filters.startDate) {
-        where.AptDateTime.gte = new Date(filters.startDate);
+        where.AptDateTime.gte = getStartOfDay(new Date(filters.startDate));
       }
       if (filters.endDate) {
-        where.AptDateTime.lte = new Date(filters.endDate);
+        where.AptDateTime.lte = getEndOfDay(new Date(filters.endDate));
       }
     }
 

@@ -17,7 +17,7 @@ const router = Router();
  * /reports/definitions:
  *   get:
  *     summary: Retrieve all saved report definitions
- *     tags: [Reports]
+ *     tags: [Reporting]
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -36,7 +36,7 @@ router.get(
  * /reports/definitions:
  *   post:
  *     summary: Save a new report definition
- *     tags: [Reports]
+ *     tags: [Reporting]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -80,7 +80,7 @@ router.post(
  * /reports/definitions/{reportId}:
  *   delete:
  *     summary: Delete a saved report definition
- *     tags: [Reports]
+ *     tags: [Reporting]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -105,7 +105,7 @@ router.delete(
  * /reports/run:
  *   post:
  *     summary: Execute a dynamic report
- *     tags: [Reports]
+ *     tags: [Reporting]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -152,7 +152,7 @@ import { dashboardMetricsController } from '../controllers/dashboard-metrics.con
  * /reports/dashboard/metrics:
  *   get:
  *     summary: Retrieve dashboard metrics and graph data
- *     tags: [Reports Dashboard]
+ *     tags: [Reporting]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -189,7 +189,7 @@ router.get(
  * /reports/dashboard/goals:
  *   get:
  *     summary: Retrieve dashboard goals settings
- *     tags: [Reports Dashboard]
+ *     tags: [Reporting]
  *     security:
  *       - bearerAuth: []
  *     responses:
@@ -208,7 +208,7 @@ router.get(
  * /reports/dashboard/goals:
  *   put:
  *     summary: Update dashboard goals settings
- *     tags: [Reports Dashboard]
+ *     tags: [Reporting]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -256,7 +256,7 @@ import { reportGenerationController } from '../controllers/report-generation.con
  * /reports/financial/{reportName}:
  *   get:
  *     summary: Retrieve financial report data by name
- *     tags: [Reports Section]
+ *     tags: [Reporting]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -294,7 +294,7 @@ router.get(
  * /reports/clinical/{reportName}:
  *   get:
  *     summary: Retrieve clinical report data by name
- *     tags: [Reports Section]
+ *     tags: [Reporting]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -332,7 +332,7 @@ router.get(
  * /reports/patient/{reportName}:
  *   get:
  *     summary: Retrieve patient report data by name
- *     tags: [Reports Section]
+ *     tags: [Reporting]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -370,7 +370,7 @@ router.get(
  * /reports/others/{reportName}:
  *   get:
  *     summary: Retrieve other system audit/login report data by name
- *     tags: [Reports Section]
+ *     tags: [Reporting]
  *     security:
  *       - bearerAuth: []
  *     parameters:

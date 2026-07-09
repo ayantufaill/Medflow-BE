@@ -16,7 +16,7 @@ const router = Router();
  *   get:
  *     summary: Get all prescriptions
  *     description: Returns a paginated list of prescriptions, optionally filtered by patient. Each prescription includes a joined medication name resolved via RxCui matching against the medication table, falling back to the raw prescribed drug text if no match is found.
- *     tags: [RX (Prescriptions)]
+ *     tags: [Rx]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -96,7 +96,7 @@ router.get(
  *   post:
  *     summary: Create a new prescription
  *     description: Creates a new prescription, linked either to a specific medication via medicationId, or with a free-text description. At least one of medicationId or description is required.
- *     tags: [RX (Prescriptions)]
+ *     tags: [Rx]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -183,7 +183,7 @@ router.post(
  *   get:
  *     summary: Get formatted print data for a prescription
  *     description: Returns a structured JSON payload of a prescription formatted for printing, including patient and provider details and the joined medication name.
- *     tags: [RX (Prescriptions)]
+ *     tags: [Rx]
  *     security:
  *       - bearerAuth: []
  *     parameters:

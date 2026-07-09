@@ -63,7 +63,8 @@ export const createPatientValidator: ValidationChain[] = [
     .notEmpty()
     .withMessage('Date of birth is required')
     .isISO8601()
-    .withMessage('Date of birth must be a valid date'),
+    .withMessage('Date of birth must be a valid date')
+    .toDate(),
   body('gender')
     .optional()
     .isIn(['male', 'female', 'non_binary', 'prefer_not_to_say', 'unknown'])
@@ -319,7 +320,8 @@ export const updatePatientValidator: ValidationChain[] = [
   body('dateOfBirth')
     .optional()
     .isISO8601()
-    .withMessage('Date of birth must be a valid date'),
+    .withMessage('Date of birth must be a valid date')
+    .toDate(),
   body('gender')
     .optional()
     .isIn(['male', 'female', 'non_binary', 'prefer_not_to_say', 'unknown'])
@@ -528,7 +530,8 @@ export const updatePatientValidator: ValidationChain[] = [
   body('lastVisitDate')
     .optional()
     .isISO8601()
-    .withMessage('Last visit date must be a valid date'),
+    .withMessage('Last visit date must be a valid date')
+    .toDate(),
   body('referralSource')
     .optional()
     .trim()

@@ -85,6 +85,36 @@ router.use(authenticate);
  *         description: Forbidden - Admin access required
  */
 router.get('/', validate(providerQueryValidator), providerController.getAllProviders.bind(providerController));
+/**
+ * @swagger
+ * /providers:
+ *   post:
+ *     summary: Post provider
+ *     tags: [Provider]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/', requireRoles('Admin'), validate(createProviderValidator), providerController.createProvider.bind(providerController));
 
 /**
@@ -244,7 +274,71 @@ router.get('/specialties', providerController.getSpecialties.bind(providerContro
  *         description: Internal server error
  */
 router.get('/:providerId', validate(providerIdValidator), providerController.getProviderById.bind(providerController));
+/**
+ * @swagger
+ * /providers/{providerId}:
+ *   put:
+ *     summary: Put :providerId
+ *     tags: [Provider]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: providerId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.put('/:providerId', requireRoles('Admin'), validate([...providerIdValidator, ...updateProviderValidator]), providerController.updateProvider.bind(providerController));
+/**
+ * @swagger
+ * /providers/{providerId}:
+ *   delete:
+ *     summary: Delete :providerId
+ *     tags: [Provider]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: providerId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.delete('/:providerId', requireRoles('Admin'), validate(providerIdValidator), providerController.deleteProvider.bind(providerController));
 
 /**
