@@ -1,0 +1,1 @@
+import { PrismaClient } from '@prisma/client'; const prisma = new PrismaClient(); async function main() { const patients = await prisma.patient.findMany({ where: { LName: { in: ['Davis', 'Jackson'] } }, select: { PatNum: true, FName: true, LName: true, Guarantor: true } }); console.log(patients); } main();

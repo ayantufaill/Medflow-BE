@@ -50,6 +50,24 @@ async function generatePatientCode(): Promise<string> {
   return `PAT${nextId.toString().padStart(3, '0')}`;
 }
 
+async function getFamilyMembers(guarantorId: bigint, currentPatNum: bigint) {
+  if (!guarantorId || guarantorId <= 0n) return [];
+  const members = await prisma.patient.findMany({
+    where: { Guarantor: guarantorId, PatNum: { not: currentPatNum }, PatStatus: { not: 2 } },
+    select: { PatNum: true, FName: true, LName: true, Preferred: true, Birthdate: true, Gender: true, Guarantor: true }
+  });
+  return members.map(fm => ({
+    id: fm.PatNum.toString(),
+    firstName: fm.FName,
+    lastName: fm.LName,
+    preferredName: fm.Preferred,
+    dateOfBirth: fm.Birthdate,
+    gender: fm.Gender === 0 ? 'male' : fm.Gender === 1 ? 'female' : 'unknown',
+    guarantorId: fm.Guarantor?.toString() || null,
+    relationship: fm.PatNum === guarantorId ? 'Guarantor' : (currentPatNum === guarantorId ? 'Dependent' : 'Family Member')
+  }));
+}
+
 export class PatientService {
   /**
    * Get all patients with pagination, search, status, and DOB range filters
@@ -251,7 +269,12 @@ export class PatientService {
     }
 
     const patientMeta = await getPatientMeta(patient.PatNum);
-    const mapped = mapPatientToApi(patient, buildPatientMapperOptions(patientMeta));
+    const options = buildPatientMapperOptions(patientMeta);
+    if (patient.Guarantor && patient.Guarantor > 0n) {
+      options.household = await getFamilyMembers(patient.Guarantor, patient.PatNum);
+    }
+    
+    const mapped = mapPatientToApi(patient, options);
     return {
       ...mapped,
       ssn: null,
@@ -292,7 +315,12 @@ export class PatientService {
     }
 
     const patientMeta = await getPatientMeta(patient.PatNum);
-    return mapPatientToApi(patient, buildPatientMapperOptions(patientMeta));
+    const options = buildPatientMapperOptions(patientMeta);
+    if (patient.Guarantor && patient.Guarantor > 0n) {
+      options.household = await getFamilyMembers(patient.Guarantor, patient.PatNum);
+    }
+    
+    return mapPatientToApi(patient, options);
   }
 
   /**
@@ -534,6 +562,7 @@ async getPatientLastVisit(patientId: string) {
       customFields?: Record<string, unknown>;
       preferredDentistId?: string;
       preferredHygienistId?: string;
+      guarantorId?: string;
     },
     createdBy?: string
   ) {
@@ -591,6 +620,7 @@ async getPatientLastVisit(patientId: string) {
         PatStatus: 0,
         DateFirstVisit: data.lastVisitDate ?? null,
         AddrNote: data.notes?.trim() || null,
+        Guarantor: data.guarantorId ? BigInt(data.guarantorId) : nextId,
       },
     });
 
@@ -703,6 +733,7 @@ async getPatientLastVisit(patientId: string) {
       spouseInfo?: Record<string, any> | null;
       patientFlags?: any[];
       financialResponsibility?: Record<string, any> | null;
+      guarantorId?: string;
     },
     updatedBy?: string
   ) {
@@ -766,6 +797,7 @@ async getPatientLastVisit(patientId: string) {
           updates.isActive !== undefined ? (updates.isActive ? 0 : 2) : undefined,
         DateFirstVisit: updates.lastVisitDate ?? undefined,
         AddrNote: updates.notes !== undefined ? (updates.notes.trim() || null) : undefined,
+        Guarantor: updates.guarantorId !== undefined ? (updates.guarantorId ? BigInt(updates.guarantorId) : BigInt(patientId)) : undefined,
       },
     });
 
