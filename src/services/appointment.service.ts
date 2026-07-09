@@ -1487,6 +1487,29 @@ async getPatientAppointments(patientId: string, limit = 10) {
       });
     }
 
+    let finalTooth = normalizeText(data.tooth);
+    let finalSurface = normalizeText(data.surface);
+
+    if (procedureCode) {
+      const treatArea = procedureCode.TreatArea;
+      if (treatArea === 'MOUTH' || treatArea === 'QUADRANT' || treatArea === 'SEXTANT' || treatArea === 'ARCH') {
+        finalTooth = null;
+        finalSurface = null;
+      } else if (treatArea === 'TOOTH') {
+        finalSurface = null;
+        if (!finalTooth) {
+          throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a tooth number.`);
+        }
+      } else if (treatArea === 'SURFACE') {
+        if (!finalTooth) {
+          throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a tooth number.`);
+        }
+        if (!finalSurface) {
+          throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a surface.`);
+        }
+      }
+    }
+
     const procNum = await getNextId('procedurelog', 'ProcNum');
     const procedure = await prisma.procedurelog.create({
       data: {
@@ -1500,8 +1523,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
         ProvNum: data.providerId ? BigInt(data.providerId) : appointment.ProvNum,
         CodeNum: procedureCode?.CodeNum ?? (data.codeNum ? BigInt(data.codeNum) : null),
         OldCode: data.code ?? procedureCode?.ProcCode ?? null,
-        ToothNum: normalizeText(data.tooth),
-        Surf: normalizeText(data.surface),
+        ToothNum: finalTooth,
+        Surf: finalSurface,
         BillingNote: data.description,
         SecUserNumEntry: BigInt(userId),
         SecDateEntry: new Date(),

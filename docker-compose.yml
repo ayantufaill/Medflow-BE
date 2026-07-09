@@ -22,7 +22,7 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
-    command: ["/bin/sh", "-c", "npx prisma db push --schema prisma/schema.prisma && npx prisma generate --schema prisma/schema.prisma && npm run seed:all"]
+    command: ["/bin/sh", "-c", "npx prisma db push --accept-data-loss --schema prisma/schema.prisma && npx prisma generate --schema prisma/schema.prisma && npm run seed:all"]
     depends_on:
       db:
         condition: service_healthy
@@ -40,7 +40,7 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
-      - patient-uploads:/app/uploads
+      - ./uploads:/app/uploads
     command: ["/bin/sh", "-c", "npx prisma generate --schema prisma/schema.prisma && npm run dev"]
     depends_on:
       db:
