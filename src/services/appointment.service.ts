@@ -894,11 +894,13 @@ async getPatientAppointments(patientId: string, limit = 10) {
     );
 
     if (conflictCheck.hasConflict) {
+      const firstConflict = conflictCheck.conflictingAppointments[0]?.apt;
+      const idStr = firstConflict?.AptNum ? firstConflict.AptNum.toString() : (firstConflict?.ScheduleNum ? firstConflict.ScheduleNum.toString() : 'unknown');
       const conflictType = conflictCheck.conflictType === 'blockout'
-        ? 'Appointment conflicts with a blocked slot in this room'
+        ? `Appointment conflicts with a blocked slot in this room (Blockout ID: ${idStr})`
         : conflictCheck.conflictType === 'room'
-        ? 'Room is already booked'
-        : 'Appointment conflicts with existing appointment';
+        ? `Room is already booked (Conflicting AptNum: ${idStr})`
+        : `Provider already has an appointment booked for this time slot (Conflicting AptNum: ${idStr})`;
       throw new ConflictError(conflictType);
     }
 
@@ -1025,11 +1027,13 @@ async getPatientAppointments(patientId: string, limit = 10) {
       );
 
       if (conflictCheck.hasConflict) {
+        const firstConflict = conflictCheck.conflictingAppointments[0]?.apt;
+        const idStr = firstConflict?.AptNum ? firstConflict.AptNum.toString() : (firstConflict?.ScheduleNum ? firstConflict.ScheduleNum.toString() : 'unknown');
         const conflictType = conflictCheck.conflictType === 'blockout'
-          ? 'Appointment conflicts with a blocked slot in this room'
+          ? `Appointment conflicts with a blocked slot in this room (Blockout ID: ${idStr})`
           : conflictCheck.conflictType === 'room'
-          ? 'Room is already booked at this time'
-          : 'Updated appointment conflicts with existing appointment';
+          ? `Room is already booked at this time (Conflicting AptNum: ${idStr})`
+          : `Updated appointment conflicts with existing appointment (Conflicting AptNum: ${idStr})`;
         throw new ConflictError(conflictType);
       }
     }
