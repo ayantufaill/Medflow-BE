@@ -216,6 +216,9 @@ export const mapPatientToApi = (
     } | null;
     patientProfileType?: string | null;
     medicalHistory?: Record<string, unknown> | null;
+    dentalHistory?: Record<string, unknown> | null;
+    communicationPreference?: string[];
+    assignmentAndRelease?: Record<string, unknown> | null;
   }
 ) => {
   const carrierName = row.patplan?.[0]?.inssub?.insplan?.carrier?.CarrierName;
@@ -252,9 +255,10 @@ export const mapPatientToApi = (
     country: row.Country ?? null,
   },
   emergencyContact: options?.emergencyContact ?? null,
+  assignmentAndRelease: options?.assignmentAndRelease ?? null,
   isActive: row.PatStatus === null ? true : row.PatStatus !== 2,
   preferredLanguage: row.Language ?? 'en',
-  communicationPreference: mapContactPreferenceFromDb(row.PreferContactMethod),
+  communicationPreference: options?.communicationPreference ?? [mapContactPreferenceFromDb(row.PreferContactMethod)],
   portalAccessEnabled: options?.portalAccessEnabled ?? false,
   lastVisitDate: row.DateFirstVisit ?? null,
   referralSource: options?.referralSource ?? null,
@@ -274,6 +278,7 @@ export const mapPatientToApi = (
   workAddress: options?.workAddress ?? null,
   patientProfileType: options?.patientProfileType ?? 'adult',
   medicalHistory: options?.medicalHistory ?? null,
+  dentalHistory: options?.dentalHistory ?? null,
   paymentMethod: {
     paidBy: carrierName || 'Self Pay',
   },

@@ -202,8 +202,11 @@ export const createPatientValidator: ValidationChain[] = [
     .withMessage('Preferred language must be a valid language code'),
   body('communicationPreference')
     .optional()
-    .isIn(['phone', 'email', 'sms', 'portal'])
-    .withMessage('Communication preference must be one of: phone, email, sms, portal'),
+    .isArray()
+    .withMessage('Communication preference must be an array of strings'),
+  body('communicationPreference.*')
+    .isIn(['phone', 'email', 'sms', 'portal', 'voicemail'])
+    .withMessage('Communication preference must be one of: phone, email, sms, portal, voicemail'),
   body('portalAccessEnabled')
     .optional()
     .isBoolean()
@@ -279,9 +282,13 @@ export const createPatientValidator: ValidationChain[] = [
     .isLength({ max: 1000 })
     .withMessage('Notes must be less than 1000 characters'),
   body('customFields')
-    .optional()
+    .optional({ nullable: true })
     .isObject()
     .withMessage('customFields must be an object'),
+  body('assignmentAndRelease')
+    .optional({ nullable: true })
+    .isObject()
+    .withMessage('assignmentAndRelease must be an object'),
   body('preferredDentistId')
     .optional({ nullable: true })
     .isString()
@@ -460,8 +467,11 @@ export const updatePatientValidator: ValidationChain[] = [
     .withMessage('Preferred language must be a valid language code'),
   body('communicationPreference')
     .optional()
-    .isIn(['phone', 'email', 'sms', 'portal'])
-    .withMessage('Communication preference must be one of: phone, email, sms, portal'),
+    .isArray()
+    .withMessage('Communication preference must be an array of strings'),
+  body('communicationPreference.*')
+    .isIn(['phone', 'email', 'sms', 'portal', 'voicemail'])
+    .withMessage('Communication preference must be one of: phone, email, sms, portal, voicemail'),
   body('portalAccessEnabled')
     .optional()
     .isBoolean()
@@ -545,9 +555,13 @@ export const updatePatientValidator: ValidationChain[] = [
     .isLength({ max: 1000 })
     .withMessage('Notes must be less than 1000 characters'),
   body('customFields')
-    .optional()
+    .optional({ nullable: true })
     .isObject()
     .withMessage('customFields must be an object'),
+  body('assignmentAndRelease')
+    .optional({ nullable: true })
+    .isObject()
+    .withMessage('assignmentAndRelease must be an object'),
   body('preferredDentistId')
     .optional({ nullable: true })
     .isString()

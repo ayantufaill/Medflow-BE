@@ -40,6 +40,9 @@ const buildPatientMapperOptions = (patientMeta: Record<string, any>) => ({
   workAddress: patientMeta.workAddress ?? null,
   patientProfileType: patientMeta.patientProfileType ?? null,
   medicalHistory: patientMeta.medicalHistory ?? null,
+  dentalHistory: patientMeta.dentalHistory ?? null,
+  communicationPreference: patientMeta.communicationPreference ?? undefined,
+  assignmentAndRelease: patientMeta.assignmentAndRelease ?? null,
 });
 
 /**
@@ -50,7 +53,7 @@ async function generatePatientCode(): Promise<string> {
   return `PAT${nextId.toString().padStart(3, '0')}`;
 }
 
-async function getFamilyMembers(guarantorId: bigint, currentPatNum: bigint) {
+export async function getFamilyMembers(guarantorId: bigint, currentPatNum: bigint) {
   if (!guarantorId || guarantorId <= 0n) return [];
   const members = await prisma.patient.findMany({
     where: { 
@@ -711,7 +714,7 @@ async getPatientLastVisit(patientId: string) {
         phone?: string;
       };
       preferredLanguage?: string;
-      communicationPreference?: string;
+      communicationPreference?: string[];
       portalAccessEnabled?: boolean;
       isActive?: boolean;
       lastVisitDate?: Date;
@@ -736,6 +739,7 @@ async getPatientLastVisit(patientId: string) {
       headOfCommunication?: Record<string, any> | null;
       household?: any[];
       spouseInfo?: Record<string, any> | null;
+      assignmentAndRelease?: Record<string, any> | null;
       patientFlags?: any[];
       financialResponsibility?: Record<string, any> | null;
       guarantorId?: string;
@@ -796,7 +800,7 @@ async getPatientLastVisit(patientId: string) {
             : undefined,
         PreferContactMethod:
           updates.communicationPreference !== undefined
-            ? mapContactPreferenceToDb(updates.communicationPreference)
+            ? mapContactPreferenceToDb(updates.communicationPreference[0] || 'phone')
             : undefined,
         PatStatus:
           updates.isActive !== undefined ? (updates.isActive ? 0 : 2) : undefined,
@@ -819,6 +823,7 @@ async getPatientLastVisit(patientId: string) {
       headOfCommunication: updates.headOfCommunication !== undefined ? updates.headOfCommunication : currentMeta.headOfCommunication ?? null,
       household: updates.household !== undefined ? updates.household : currentMeta.household ?? [],
       spouseInfo: updates.spouseInfo !== undefined ? updates.spouseInfo : currentMeta.spouseInfo ?? null,
+      assignmentAndRelease: updates.assignmentAndRelease !== undefined ? updates.assignmentAndRelease : currentMeta.assignmentAndRelease ?? null,
       patientFlags: updates.patientFlags !== undefined ? updates.patientFlags : currentMeta.patientFlags ?? [],
       financialResponsibility: updates.financialResponsibility !== undefined ? updates.financialResponsibility : currentMeta.financialResponsibility ?? null,
       sexAtBirth:
@@ -847,6 +852,10 @@ async getPatientLastVisit(patientId: string) {
         updates.patientProfileType !== undefined
           ? updates.patientProfileType
           : currentMeta.patientProfileType ?? 'adult',
+      communicationPreference:
+        updates.communicationPreference !== undefined
+          ? updates.communicationPreference
+          : currentMeta.communicationPreference ?? undefined,
       workAddress:
         updates.workAddress !== undefined
           ? updates.workAddress
@@ -1578,6 +1587,54 @@ async getPatientHistoryAggregate(patientId: string) {
       remindMe: updatedPayload.remindMe || false,
       archived: updatedPayload.archived || false,
       createdAt: updated.CommDateTime ? new Date(updated.CommDateTime).toISOString() : new Date().toISOString()
+    };
+  }
+
+  async getFamilyAppointments(patientId: string) {
+    const { appointmentService } = await import('./appointment.service');
+    const patientObj = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) }
+    });
+    if (!patientObj) throw new NotFoundError('Patient not found');
+
+    const guarantorId = (patientObj.Guarantor && patientObj.Guarantor > 0n) ? patientObj.Guarantor : patientObj.PatNum;
+
+    // Get family members (excluding current patient)
+    const familyMembers = await getFamilyMembers(guarantorId, patientObj.PatNum);
+
+    // Get current patient info in the same format
+    const currentPatientInfo = {
+      id: patientObj.PatNum.toString(),
+      firstName: patientObj.FName,
+      lastName: patientObj.LName,
+      preferredName: patientObj.Preferred,
+      dateOfBirth: patientObj.Birthdate,
+      gender: patientObj.Gender === 0 ? 'male' : patientObj.Gender === 1 ? 'female' : 'unknown',
+      guarantorId: patientObj.Guarantor?.toString() || null,
+      relationship: patientObj.PatNum === guarantorId ? 'Guarantor' : 'Dependent'
+    };
+
+    const allMembers = [currentPatientInfo, ...familyMembers];
+    const memberIds = allMembers.map(m => m.id);
+
+    const rawAppointments = await prisma.appointment.findMany({
+      where: {
+        PatNum: { in: memberIds.map(BigInt) }
+      },
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        appointmenttype: true,
+        userod: true,
+      },
+      orderBy: { AptDateTime: 'desc' }
+    });
+
+    const appointments = await appointmentService.mapAppointmentsBulk(rawAppointments);
+
+    return {
+      familyMembers,
+      appointments
     };
   }
 }

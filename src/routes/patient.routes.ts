@@ -1086,6 +1086,7 @@ router.patch('/:patientId/dental-history', requireRoles('Receptionist', 'Admin',
  *       404: { description: Patient not found }
  */
 router.get('/:patientId/appointments', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), appointmentController.getPatientAppointments.bind(appointmentController));
+router.get('/:patientId/family-appointments', requireRoles('Receptionist', 'Admin', 'Doctor', 'Provider'), validate(patientIdValidator), patientController.getPatientFamilyAppointments.bind(patientController));
 
 /**
  * @swagger

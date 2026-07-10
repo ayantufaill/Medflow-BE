@@ -225,6 +225,20 @@ export class PatientController {
       }
 
       const result = await patientService.updatePatient(patientId, req.body, req.userId);
+
+      // Remove extra large arrays from medical and dental history as they are not required in this response
+      if (result.medicalHistory && typeof result.medicalHistory === 'object') {
+        const mh = result.medicalHistory as Record<string, any>;
+        if ('sections' in mh) delete mh.sections;
+        if ('medications' in mh) delete mh.medications;
+        if ('supplements' in mh) delete mh.supplements;
+      }
+      
+      if (result.dentalHistory && typeof result.dentalHistory === 'object') {
+        const dh = result.dentalHistory as Record<string, any>;
+        if ('sections' in dh) delete dh.sections;
+      }
+
       res.status(200).json({
         success: true,
         data: { patient: result },
@@ -707,6 +721,25 @@ export class PatientController {
       res.status(200).json({
         success: true,
         data: note,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPatientFamilyAppointments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Patient ID is required' },
+        });
+      }
+      const result = await patientService.getFamilyAppointments(patientId);
+      res.status(200).json({
+        success: true,
+        data: result,
       });
     } catch (error) {
       next(error);

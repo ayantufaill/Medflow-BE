@@ -252,7 +252,7 @@ export class AppointmentService {
     return defaultAppointmentType.AppointmentTypeNum.toString();
   }
 
-  private async mapAppointmentsBulk(appointments: any[]) {
+  async mapAppointmentsBulk(appointments: any[]) {
     if (!appointments.length) return [];
 
     const { getAppointmentsMeta, getProvidersMeta } = await import('../utils/opendental-auth.util');
