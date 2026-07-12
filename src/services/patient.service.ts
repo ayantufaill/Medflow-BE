@@ -970,15 +970,12 @@ async getPatientLastVisit(patientId: string) {
     }
 
     const patientMeta = await getPatientMeta(patient.PatNum);
-    const timelineData = await clinicalNoteService.getPatientMedicalHistory(patientId, {
-      includeAllergies: true,
-      includeVitals: true,
-      includePrescriptions: true,
-      includeLabOrders: true,
-      includeLabResults: true,
-      includeDocuments: true,
-      includeNotes: true,
-      limit: 100,
+    const appointments = await prisma.appointment.findMany({
+      where: {
+        PatNum: BigInt(patientId),
+        AptStatus: { not: 6 }, // filter out cancelled
+      },
+      select: { AptDateTime: true },
     });
 
     const medicalHistory = {
@@ -987,11 +984,10 @@ async getPatientLastVisit(patientId: string) {
     };
 
     const visitDates = buildVisitDates(
-      (timelineData.timeline || []).map((item: any) => ({ date: item?.date }))
+      appointments.map((apt) => ({ date: apt.AptDateTime }))
     );
 
     return {
-      patient: mapPatientToApi(patient, buildPatientMapperOptions(patientMeta)),
       visitDates,
       generalInfo: medicalHistory.generalInfo,
       premed: medicalHistory.premed,
@@ -1000,8 +996,6 @@ async getPatientLastVisit(patientId: string) {
       medications: medicalHistory.medications,
       supplements: medicalHistory.supplements,
       review: medicalHistory.review,
-      timeline: timelineData.timeline || [],
-      summary: timelineData.summary || {},
     };
   }
 
@@ -1094,117 +1088,15 @@ async getPatientLastVisit(patientId: string) {
       throw new NotFoundError('Patient not found');
     }
 
-    const [procedures, clinicalNotesResult, documents, providers] = await Promise.all([
-      prisma.procedurelog.findMany({
-        where: { PatNum: BigInt(patientId) },
-        include: { procedurecode_procedurelog_CodeNumToprocedurecode: true },
-        orderBy: [{ ProcDate: 'desc' }, { ProcNum: 'desc' }],
-        take: 100,
-      }),
-      clinicalNoteService.getAllClinicalNotes(1, 50, { patientId }),
-      prisma.document.findMany({
-        where: { PatNum: BigInt(patientId) },
-        orderBy: { DateCreated: 'desc' },
-        take: 50,
-      }),
-      prisma.provider.findMany(),
-    ]);
-
-    const providerMap = new Map(
-      providers.map((provider) => [
-        provider.ProvNum.toString(),
-        `${provider.FName || ''} ${provider.LName || ''}`.trim() || provider.Abbr || 'Provider',
-      ])
-    );
-
-    const mappedProcedures = procedures
-      .map((proc) => {
-        const procedureCode =
-          proc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? proc.OldCode ?? '';
-        const description =
-          proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ??
-          proc.procedurecode_procedurelog_CodeNumToprocedurecode?.LaymanTerm ??
-          '';
-        const procedureName = [procedureCode, description].filter(Boolean).join(' - ').trim() || 'Procedure';
-        return {
-          _id: proc.ProcNum.toString(),
-          date: proc.ProcDate ?? proc.DateEntryC ?? null,
-          procedureCode,
-          procedureName,
-          tooth: proc.ToothNum ?? proc.ToothRange ?? '–',
-          status: mapProcedureStatusToText(proc.ProcStatus),
-          provider: proc.ProvNum
-            ? {
-              _id: proc.ProvNum.toString(),
-              name: providerMap.get(proc.ProvNum.toString()) ?? 'Provider',
-            }
-            : null,
-          isPlaceholder: !procedureCode && !description,
-        };
-      })
-      .filter((proc) => !proc.isPlaceholder);
-
-    const clinicalNotes = Array.isArray(clinicalNotesResult?.clinicalNotes)
-      ? clinicalNotesResult.clinicalNotes
-      : [];
-
-    const mappedNotes = clinicalNotes
-      .map((note: any) => {
-        const readableNote =
-          note.chiefComplaint ||
-          note.subjective ||
-          note.objective ||
-          note.assessment ||
-          note.plan ||
-          note.historyOfPresentIllness ||
-          note.physicalExam ||
-          '';
-        if (!readableNote.trim()) return null;
-        return {
-          _id: String(note._id),
-          date: note.createdAt ?? null,
-          note: readableNote.trim(),
-          noteType: note.noteType || 'clinical',
-        };
-      })
-      .filter((note): note is { _id: string; date: Date | string | null; note: string; noteType: string } => Boolean(note));
-
-    // Filter documents to x-rays only
-    const xrays = documents
-      .filter((doc) => {
-        const name = `${doc.Description || ''} ${doc.FileName || ''}`.toLowerCase();
-        return name.includes('xray') || name.includes('x-ray') || name.includes('radiograph');
-      })
-      .map((doc) => ({
-        _id: doc.DocNum.toString(),
-        date: doc.DateCreated ?? null,
-        name: doc.Description ?? doc.FileName ?? 'X-Ray',
-        url: doc.FileName ?? null,
-      }));
-
-    // Build a unified timeline sorted newest-first
-    const timeline = [
-      ...mappedProcedures.map((item) => ({
-        _id: `procedure-${item._id}`,
-        date: item.date,
-        type: 'procedure',
-        title: item.procedureName,
-      })),
-      ...mappedNotes.map((item) => ({
-        _id: `note-${item._id}`,
-        date: item.date,
-        type: 'note',
-        title: `${item.noteType}: ${item.note.slice(0, 100)}`,
-      })),
-      ...xrays.map((item) => ({
-        _id: `xray-${item._id}`,
-        date: item.date,
-        type: 'xray',
-        title: item.name,
-      })),
-    ].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-
     const patientMeta = await getPatientMeta(patient.PatNum);
+    const appointments = await prisma.appointment.findMany({
+      where: {
+        PatNum: BigInt(patientId),
+        AptStatus: { not: 6 }, // filter out cancelled
+      },
+      select: { AptDateTime: true },
+    });
+
     const dentalHistory = {
       ...DEFAULT_DENTAL_HISTORY,
       ...(patientMeta.dentalHistory ?? {}),
@@ -1221,30 +1113,17 @@ async getPatientLastVisit(patientId: string) {
       },
     };
 
-    const visitDates = buildVisitDates(timeline.map((item) => ({ date: item.date })));
+    const visitDates = buildVisitDates(
+      appointments.map((apt) => ({ date: apt.AptDateTime }))
+    );
 
     return {
-      patient: mapPatientToApi(patient, buildPatientMapperOptions(patientMeta)),
       visitDates,
       generalInfo: dentalHistory.generalInfo,
       personalHistory: dentalHistory.personalHistory,
       reviewStatus: Boolean(dentalHistory.review.reviewedWithPatient),
-      lastUpdateDate:
-        dentalHistory.review.reviewedAt ??
-        patient.DateTStamp ??
-        mappedProcedures[0]?.date ??
-        null,
+      lastUpdateDate: dentalHistory.review.reviewedAt ?? patient.DateTStamp ?? null,
       review: dentalHistory.review,
-      summary: {
-        totalProcedures: mappedProcedures.length,
-        lastVisitDate: mappedProcedures[0]?.date ?? null,
-        clinicalNotesCount: mappedNotes.length,
-        xrayCount: xrays.length,
-      },
-      procedures: mappedProcedures,
-      timeline,
-      clinicalNotes: mappedNotes,
-      xrays,
     };
   }
 
