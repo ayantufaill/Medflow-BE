@@ -144,8 +144,46 @@ export const mapServiceToApi = (
   isActive: row.BypassGlobalLock ? false : true,
 });
 
+const calculatePatientStatus = (row: any): string => {
+  if (row.procedurelog?.some((p: any) => p.ProcStatus === 1)) {
+    return 'In treatment';
+  }
+
+  const now = new Date();
+  const hasFutureScheduled = row.appointment?.some((a: any) => a.AptStatus === 1 && new Date(a.AptDateTime) > now);
+  
+  if (!hasFutureScheduled) {
+    const pastCompletedAppts = row.appointment
+      ?.filter((a: any) => a.AptStatus === 2 && new Date(a.AptDateTime) <= now)
+      ?.sort((a: any, b: any) => new Date(b.AptDateTime).getTime() - new Date(a.AptDateTime).getTime());
+      
+    if (pastCompletedAppts && pastCompletedAppts.length > 0) {
+      const mostRecent = new Date(pastCompletedAppts[0].AptDateTime);
+      const sixMonthsAgo = new Date();
+      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+      
+      if (mostRecent < sixMonthsAgo) {
+        return 'Overdue';
+      }
+    }
+  }
+
+  const hasCompletedProcs = row.procedurelog?.some((p: any) => p.ProcStatus === 2);
+  const isFirstVisitNullOrFuture = !row.DateFirstVisit || new Date(row.DateFirstVisit) >= now;
+  
+  if (!hasCompletedProcs && isFirstVisitNullOrFuture) {
+    return 'New';
+  }
+
+  if (row.PatStatus === 0) {
+    return 'Active';
+  }
+
+  return 'Inactive';
+};
+
 export const mapPatientToApi = (
-  row: patient,
+  row: any,
   options?: {
     emergencyContact?: {
       name?: string;
@@ -178,8 +216,19 @@ export const mapPatientToApi = (
     } | null;
     patientProfileType?: string | null;
     medicalHistory?: Record<string, unknown> | null;
+    dentalHistory?: Record<string, unknown> | null;
+    communicationPreference?: string[];
+    assignmentAndRelease?: Record<string, unknown> | null;
   }
-) => ({
+) => {
+  const carrierName = row.patplan?.[0]?.inssub?.insplan?.carrier?.CarrierName;
+  const hasCoverage = !!carrierName;
+  const futureAppts = row.appointment
+    ?.filter((a: any) => new Date(a.AptDateTime) > new Date())
+    ?.sort((a: any, b: any) => new Date(a.AptDateTime).getTime() - new Date(b.AptDateTime).getTime());
+  const nextApptDate = futureAppts?.[0]?.AptDateTime ?? null;
+
+  return {
   id: row.PatNum.toString(),
   _id: row.PatNum.toString(),
   patientCode: row.ChartNumber ?? `PAT${row.PatNum.toString()}`,
@@ -206,9 +255,10 @@ export const mapPatientToApi = (
     country: row.Country ?? null,
   },
   emergencyContact: options?.emergencyContact ?? null,
+  assignmentAndRelease: options?.assignmentAndRelease ?? null,
   isActive: row.PatStatus === null ? true : row.PatStatus !== 2,
   preferredLanguage: row.Language ?? 'en',
-  communicationPreference: mapContactPreferenceFromDb(row.PreferContactMethod),
+  communicationPreference: options?.communicationPreference ?? [mapContactPreferenceFromDb(row.PreferContactMethod)],
   portalAccessEnabled: options?.portalAccessEnabled ?? false,
   lastVisitDate: row.DateFirstVisit ?? null,
   referralSource: options?.referralSource ?? null,
@@ -228,7 +278,15 @@ export const mapPatientToApi = (
   workAddress: options?.workAddress ?? null,
   patientProfileType: options?.patientProfileType ?? 'adult',
   medicalHistory: options?.medicalHistory ?? null,
-});
+  dentalHistory: options?.dentalHistory ?? null,
+  paymentMethod: {
+    paidBy: carrierName || 'Self Pay',
+  },
+  displayedBalance: hasCoverage ? (row.InsEst || 0) : (row.BalTotal || row.EstBalance || 0),
+  nextAppointmentDate: nextApptDate,
+  status: calculatePatientStatus(row),
+};
+};
 
 export const mapProviderToApi = (
   row: provider,
@@ -304,6 +362,8 @@ export const mapAppointmentStatusFromDb = (status?: number | null): string => {
       return 'no_show';
     case 4:
       return 'cancelled';
+    case 6:
+      return 'pending';
     default:
       return 'scheduled';
   }
@@ -317,6 +377,8 @@ export const mapAppointmentStatusToDb = (status?: string | null): number => {
       return 3;
     case 'cancelled':
       return 4;
+    case 'pending':
+      return 6;
     case 'checked_in':
     case 'confirmed':
     case 'scheduled':

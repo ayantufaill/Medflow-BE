@@ -182,6 +182,13 @@ export class PatientController {
         });
       }
 
+      if (req.body.dateOfBirth && typeof req.body.dateOfBirth === 'string') {
+        req.body.dateOfBirth = new Date(req.body.dateOfBirth);
+      }
+      if (req.body.lastVisitDate && typeof req.body.lastVisitDate === 'string') {
+        req.body.lastVisitDate = new Date(req.body.lastVisitDate);
+      }
+
       const result = await patientService.createPatient(req.body, req.userId);
       res.status(201).json({
         success: true,
@@ -210,7 +217,28 @@ export class PatientController {
         });
       }
       
+      if (req.body.dateOfBirth && typeof req.body.dateOfBirth === 'string') {
+        req.body.dateOfBirth = new Date(req.body.dateOfBirth);
+      }
+      if (req.body.lastVisitDate && typeof req.body.lastVisitDate === 'string') {
+        req.body.lastVisitDate = new Date(req.body.lastVisitDate);
+      }
+
       const result = await patientService.updatePatient(patientId, req.body, req.userId);
+
+      // Remove extra large arrays from medical and dental history as they are not required in this response
+      if (result.medicalHistory && typeof result.medicalHistory === 'object') {
+        const mh = result.medicalHistory as Record<string, any>;
+        if ('sections' in mh) delete mh.sections;
+        if ('medications' in mh) delete mh.medications;
+        if ('supplements' in mh) delete mh.supplements;
+      }
+      
+      if (result.dentalHistory && typeof result.dentalHistory === 'object') {
+        const dh = result.dentalHistory as Record<string, any>;
+        if ('sections' in dh) delete dh.sections;
+      }
+
       res.status(200).json({
         success: true,
         data: { patient: result },
@@ -243,6 +271,33 @@ export class PatientController {
         success: true,
         data: result,
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async addFamilyMember(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      const { memberId } = req.body;
+      if (!patientId || !memberId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID and Member ID are required' } });
+      }
+      const result = await patientService.addFamilyMember(patientId, memberId, req.userId);
+      res.status(200).json({ success: true, data: { patient: result } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async removeFamilyMember(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId, memberId } = req.params;
+      if (!patientId || !memberId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID and Member ID are required' } });
+      }
+      const result = await patientService.removeFamilyMember(patientId, memberId, req.userId);
+      res.status(200).json({ success: true, data: { patient: result } });
     } catch (error) {
       next(error);
     }
@@ -666,6 +721,25 @@ export class PatientController {
       res.status(200).json({
         success: true,
         data: note,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPatientFamilyAppointments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Patient ID is required' },
+        });
+      }
+      const result = await patientService.getFamilyAppointments(patientId);
+      res.status(200).json({
+        success: true,
+        data: result,
       });
     } catch (error) {
       next(error);

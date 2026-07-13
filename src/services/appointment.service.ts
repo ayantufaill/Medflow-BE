@@ -92,7 +92,7 @@ async function checkConflicts(
   const providerWhere: any = {
     ProvNum: BigInt(providerId),
     AptDateTime: { gte: startOfDay, lt: endOfDay },
-    AptStatus: { notIn: [3, 4] },
+    AptStatus: { notIn: [3, 4, 6] },
   };
   if (excludeAppointmentId) {
     providerWhere.AptNum = { not: BigInt(excludeAppointmentId) };
@@ -123,7 +123,7 @@ async function checkConflicts(
     const roomWhere: any = {
       Op: BigInt(roomId),
       AptDateTime: { gte: startOfDay, lt: endOfDay },
-      AptStatus: { notIn: [3, 4] },
+      AptStatus: { notIn: [3, 4, 6] },
     };
     if (excludeAppointmentId) {
       roomWhere.AptNum = { not: BigInt(excludeAppointmentId) };
@@ -144,6 +144,36 @@ async function checkConflicts(
         conflictingAppointments.push({
           apt,
           conflictType: 'room',
+        });
+      }
+    });
+
+    const year = startOfDay.getFullYear();
+    const month = String(startOfDay.getMonth() + 1).padStart(2, '0');
+    const day = String(startOfDay.getDate()).padStart(2, '0');
+    const schedDate = new Date(`${year}-${month}-${day}T00:00:00.000Z`);
+
+    const blockouts = await prisma.schedule.findMany({
+      where: {
+        SchedDate: schedDate,
+        SchedType: 2, // Blockout
+        scheduleop: {
+          some: { OperatoryNum: BigInt(roomId) }
+        }
+      }
+    });
+
+    // Check each blockout for time overlap
+    blockouts.forEach((block) => {
+      if (!block.StartTime || !block.StopTime) return;
+      // The block times are stored as UTC times on 1970-01-01
+      const blockStart = block.StartTime.getUTCHours() * 60 + block.StartTime.getUTCMinutes();
+      const blockEnd = block.StopTime.getUTCHours() * 60 + block.StopTime.getUTCMinutes();
+      
+      if (!(newEnd <= blockStart || newStart >= blockEnd)) {
+        conflictingAppointments.push({
+          apt: block,
+          conflictType: 'blockout',
         });
       }
     });
@@ -222,7 +252,7 @@ export class AppointmentService {
     return defaultAppointmentType.AppointmentTypeNum.toString();
   }
 
-  private async mapAppointmentsBulk(appointments: any[]) {
+  async mapAppointmentsBulk(appointments: any[]) {
     if (!appointments.length) return [];
 
     const { getAppointmentsMeta, getProvidersMeta } = await import('../utils/opendental-auth.util');
@@ -381,10 +411,10 @@ export class AppointmentService {
     if (filters?.startDate || filters?.endDate) {
       where.AptDateTime = {};
       if (filters.startDate) {
-        where.AptDateTime.gte = new Date(filters.startDate);
+        where.AptDateTime.gte = getStartOfDay(new Date(filters.startDate));
       }
       if (filters.endDate) {
-        where.AptDateTime.lte = new Date(filters.endDate);
+        where.AptDateTime.lte = getEndOfDay(new Date(filters.endDate));
       }
     }
 
@@ -559,7 +589,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       where: {
         ProvNum: BigInt(providerId),
         AptDateTime: { gte: startDate, lte: endDate },
-        AptStatus: { not: 4 },
+        AptStatus: { notIn: [4, 6] },
       },
       include: {
         patient: true,
@@ -590,7 +620,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
   ) {
     const where: any = {
       AptDateTime: { gte: startDate, lte: endDate },
-      AptStatus: { not: 4 },
+      AptStatus: { notIn: [4, 6] },
     };
 
     if (providerIds && providerIds.length > 0) {
@@ -744,7 +774,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       where: {
         ProvNum: BigInt(providerId),
         AptDateTime: { gte: startOfDay, lt: endOfDay },
-        AptStatus: { notIn: [3, 4] },
+        AptStatus: { notIn: [3, 4, 6] },
       },
       select: { AptDateTime: true, Pattern: true },
     });
@@ -864,9 +894,11 @@ async getPatientAppointments(patientId: string, limit = 10) {
     );
 
     if (conflictCheck.hasConflict) {
-      const conflictType = conflictCheck.conflictType === 'room'
+      const conflictType = conflictCheck.conflictType === 'blockout'
+        ? 'Appointment conflicts with a blocked slot in this room'
+        : conflictCheck.conflictType === 'room'
         ? 'Room is already booked'
-        : 'Appointment conflicts with existing appointment';
+        : 'Provider already has an appointment booked for this time slot';
       throw new ConflictError(conflictType);
     }
 
@@ -967,7 +999,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
     }
 
     const targetStatus = updates.status !== undefined ? updates.status : mapAppointmentStatusFromDb(appointment.AptStatus);
-    const isInactiveStatus = targetStatus === 'no_show' || targetStatus === 'cancelled';
+    const isInactiveStatus = targetStatus === 'no_show' || targetStatus === 'cancelled' || targetStatus === 'pending';
 
     // If updating date/time, check for conflicts (including buffers and room)
     if (!isInactiveStatus && (updates.appointmentDate || updates.startTime || updates.endTime)) {
@@ -993,7 +1025,9 @@ async getPatientAppointments(patientId: string, limit = 10) {
       );
 
       if (conflictCheck.hasConflict) {
-        const conflictType = conflictCheck.conflictType === 'room'
+        const conflictType = conflictCheck.conflictType === 'blockout'
+          ? 'Appointment conflicts with a blocked slot in this room'
+          : conflictCheck.conflictType === 'room'
           ? 'Room is already booked at this time'
           : 'Updated appointment conflicts with existing appointment';
         throw new ConflictError(conflictType);
@@ -1184,7 +1218,9 @@ async getPatientAppointments(patientId: string, limit = 10) {
     );
 
     if (conflictCheck.hasConflict) {
-      const conflictType = conflictCheck.conflictType === 'room'
+      const conflictType = conflictCheck.conflictType === 'blockout'
+        ? 'Appointment conflicts with a blocked slot in this room'
+        : conflictCheck.conflictType === 'room'
         ? 'Room is already booked at this time'
         : 'Rescheduled appointment conflicts with existing appointment';
       throw new ConflictError(conflictType);
@@ -1451,6 +1487,29 @@ async getPatientAppointments(patientId: string, limit = 10) {
       });
     }
 
+    let finalTooth = normalizeText(data.tooth);
+    let finalSurface = normalizeText(data.surface);
+
+    if (procedureCode) {
+      const treatArea = procedureCode.TreatArea;
+      if (treatArea === 'MOUTH' || treatArea === 'QUADRANT' || treatArea === 'SEXTANT' || treatArea === 'ARCH') {
+        finalTooth = null;
+        finalSurface = null;
+      } else if (treatArea === 'TOOTH') {
+        finalSurface = null;
+        if (!finalTooth) {
+          throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a tooth number.`);
+        }
+      } else if (treatArea === 'SURFACE') {
+        if (!finalTooth) {
+          throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a tooth number.`);
+        }
+        if (!finalSurface) {
+          throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a surface.`);
+        }
+      }
+    }
+
     const procNum = await getNextId('procedurelog', 'ProcNum');
     const procedure = await prisma.procedurelog.create({
       data: {
@@ -1464,8 +1523,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
         ProvNum: data.providerId ? BigInt(data.providerId) : appointment.ProvNum,
         CodeNum: procedureCode?.CodeNum ?? (data.codeNum ? BigInt(data.codeNum) : null),
         OldCode: data.code ?? procedureCode?.ProcCode ?? null,
-        ToothNum: normalizeText(data.tooth),
-        Surf: normalizeText(data.surface),
+        ToothNum: finalTooth,
+        Surf: finalSurface,
         BillingNote: data.description,
         SecUserNumEntry: BigInt(userId),
         SecDateEntry: new Date(),

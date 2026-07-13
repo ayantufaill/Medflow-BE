@@ -63,7 +63,8 @@ export const createPatientValidator: ValidationChain[] = [
     .notEmpty()
     .withMessage('Date of birth is required')
     .isISO8601()
-    .withMessage('Date of birth must be a valid date'),
+    .withMessage('Date of birth must be a valid date')
+    .toDate(),
   body('gender')
     .optional()
     .isIn(['male', 'female', 'non_binary', 'prefer_not_to_say', 'unknown'])
@@ -201,8 +202,11 @@ export const createPatientValidator: ValidationChain[] = [
     .withMessage('Preferred language must be a valid language code'),
   body('communicationPreference')
     .optional()
-    .isIn(['phone', 'email', 'sms', 'portal'])
-    .withMessage('Communication preference must be one of: phone, email, sms, portal'),
+    .isArray()
+    .withMessage('Communication preference must be an array of strings'),
+  body('communicationPreference.*')
+    .isIn(['phone', 'email', 'sms', 'portal', 'voicemail'])
+    .withMessage('Communication preference must be one of: phone, email, sms, portal, voicemail'),
   body('portalAccessEnabled')
     .optional()
     .isBoolean()
@@ -266,6 +270,7 @@ export const createPatientValidator: ValidationChain[] = [
     .isLength({ max: 20 })
     .withMessage('workAddress.postalCode must be less than 20 characters'),
   optionalNumericIdValidator('userAccountId', 'Invalid user account ID format'),
+  optionalNumericIdValidator('guarantorId', 'Invalid guarantor ID format'),
   body('referralSource')
     .optional()
     .trim()
@@ -277,9 +282,13 @@ export const createPatientValidator: ValidationChain[] = [
     .isLength({ max: 1000 })
     .withMessage('Notes must be less than 1000 characters'),
   body('customFields')
-    .optional()
+    .optional({ nullable: true })
     .isObject()
     .withMessage('customFields must be an object'),
+  body('assignmentAndRelease')
+    .optional({ nullable: true })
+    .isObject()
+    .withMessage('assignmentAndRelease must be an object'),
   body('preferredDentistId')
     .optional({ nullable: true })
     .isString()
@@ -319,7 +328,8 @@ export const updatePatientValidator: ValidationChain[] = [
   body('dateOfBirth')
     .optional()
     .isISO8601()
-    .withMessage('Date of birth must be a valid date'),
+    .withMessage('Date of birth must be a valid date')
+    .toDate(),
   body('gender')
     .optional()
     .isIn(['male', 'female', 'non_binary', 'prefer_not_to_say', 'unknown'])
@@ -457,8 +467,11 @@ export const updatePatientValidator: ValidationChain[] = [
     .withMessage('Preferred language must be a valid language code'),
   body('communicationPreference')
     .optional()
-    .isIn(['phone', 'email', 'sms', 'portal'])
-    .withMessage('Communication preference must be one of: phone, email, sms, portal'),
+    .isArray()
+    .withMessage('Communication preference must be an array of strings'),
+  body('communicationPreference.*')
+    .isIn(['phone', 'email', 'sms', 'portal', 'voicemail'])
+    .withMessage('Communication preference must be one of: phone, email, sms, portal, voicemail'),
   body('portalAccessEnabled')
     .optional()
     .isBoolean()
@@ -521,6 +534,7 @@ export const updatePatientValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 20 })
     .withMessage('workAddress.postalCode must be less than 20 characters'),
+  optionalNumericIdValidator('guarantorId', 'Invalid guarantor ID format'),
   body('isActive')
     .optional()
     .isBoolean()
@@ -528,7 +542,8 @@ export const updatePatientValidator: ValidationChain[] = [
   body('lastVisitDate')
     .optional()
     .isISO8601()
-    .withMessage('Last visit date must be a valid date'),
+    .withMessage('Last visit date must be a valid date')
+    .toDate(),
   body('referralSource')
     .optional()
     .trim()
@@ -540,9 +555,13 @@ export const updatePatientValidator: ValidationChain[] = [
     .isLength({ max: 1000 })
     .withMessage('Notes must be less than 1000 characters'),
   body('customFields')
-    .optional()
+    .optional({ nullable: true })
     .isObject()
     .withMessage('customFields must be an object'),
+  body('assignmentAndRelease')
+    .optional({ nullable: true })
+    .isObject()
+    .withMessage('assignmentAndRelease must be an object'),
   body('preferredDentistId')
     .optional({ nullable: true })
     .isString()

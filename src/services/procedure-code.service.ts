@@ -11,6 +11,7 @@ export class ProcedureCodeService {
       code: c.ProcCode,
       name: c.Descript,
       abbreviation: c.AbbrDesc,
+      treatArea: c.TreatArea,
     }));
   }
 }

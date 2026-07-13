@@ -58,6 +58,47 @@ router.get(
   invoiceController.getAllInvoices.bind(invoiceController)
 );
 
+/**
+ * @swagger
+ * /invoices:
+ *   post:
+ *     summary: Create standalone invoice
+ *     tags: [Invoices]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - patientId
+ *               - items
+ *             properties:
+ *               patientId:
+ *                 type: integer
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     code:
+ *                       type: string
+ *                     description:
+ *                       type: string
+ *                     charge:
+ *                       type: number
+ *                     ptPortion:
+ *                       type: number
+ *                     completed:
+ *                       type: boolean
+ *     responses:
+ *       201:
+ *         description: Invoice created
+ *       400:
+ *         description: Validation error
+ */
 router.post(
   '/',
   authenticate,

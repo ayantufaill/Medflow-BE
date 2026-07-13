@@ -47,6 +47,7 @@ const swaggerOptions = {
       { name: 'OCR' },
       { name: 'Patient Referrals' },
       { name: 'Patients' },
+      { name: 'Patient Insurance' },
       { name: 'Payment Plans' },
       { name: 'Payments' },
       { name: 'Permissions' },

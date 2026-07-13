@@ -9,13 +9,13 @@ import { apiRateLimiter } from './middleware/rateLimit.middleware';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import routes from './routes/index';
 import swaggerOptions from './config/swagger';
-
+import path from 'path';
 
 // Initialize Express app
 const app = express();
 app.set('trust proxy', 1);
 
-app.use('/uploads', express.static('/app/uploads'));
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
 // Security Middleware
 app.use(helmet(helmetOptions));

@@ -7,6 +7,15 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum TreatmentArea {
+  MOUTH
+  TOOTH
+  SURFACE
+  QUADRANT
+  SEXTANT
+  ARCH
+}
+
 model account {
   AccountNum         BigInt              @id(map: "PK__account__B9572BDAA2619468")
   Description        String?             @db.VarChar(255)
@@ -5108,11 +5117,11 @@ model procedurecode {
   AbbrDesc                                                          String?            @db.VarChar(50)
   ProcTime                                                          String?            @db.VarChar(24)
   ProcCat                                                           BigInt?
-  TreatArea                                                         Int?
+  TreatArea                                                         TreatmentArea?     @default(MOUTH)
   NoBillIns                                                         Int?
   IsProsth                                                          Int?
   DefaultNote                                                       String?            @db.Text
-  IsHygiene                                                         Int?
+  IsHygiene                                                         Boolean?           @default(false)
   GTypeNum                                                          Int?               @db.SmallInt
   AlternateCode1                                                    String?            @db.VarChar(15)
   MedicalCode                                                       String?            @db.VarChar(15)
@@ -7699,4 +7708,21 @@ model PatientImage {
   UpdatedBy          BigInt?
   CreatedAt          DateTime @default(now())
   UpdatedAt          DateTime @updatedAt
+}
+
+model shortlist {
+  ShortlistNum    BigInt   @id @default(autoincrement())
+  PatNum          BigInt
+  PatientName     String?  @db.VarChar(255)
+  AppointmentDate String?  @db.VarChar(255)
+  StartTime       String?  @db.VarChar(255)
+  EndTime         String?  @db.VarChar(255)
+  DurationMins    Int?
+  Status          String?  @db.VarChar(255)
+  Notes           String?  @db.Text
+  ProvNum         BigInt?
+  RoomId          BigInt?
+  CustomFields    Json?
+  CreatedAt       DateTime @default(now())
+  UpdatedAt       DateTime @updatedAt
 }

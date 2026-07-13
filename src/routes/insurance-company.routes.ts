@@ -198,18 +198,310 @@ router.delete(
 );
 
 // Converted Carriers Matching routes
+/**
+ * @swagger
+ * /insurance-companies/converted/old-payers:
+ *   get:
+ *     summary: Get converted old-payers
+ *     tags: [Insurance Company]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.get('/converted/old-payers', carrierMatchingController.getConvertedOldPayers.bind(carrierMatchingController));
+/**
+ * @swagger
+ * /insurance-companies/converted/oryx-payers:
+ *   get:
+ *     summary: Get converted oryx-payers
+ *     tags: [Insurance Company]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.get('/converted/oryx-payers', carrierMatchingController.getConvertedOryxPayers.bind(carrierMatchingController));
+/**
+ * @swagger
+ * /insurance-companies/converted/matched:
+ *   get:
+ *     summary: Get converted matched
+ *     tags: [Insurance Company]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.get('/converted/matched', carrierMatchingController.getConvertedMatchedPayers.bind(carrierMatchingController));
+/**
+ * @swagger
+ * /insurance-companies/converted/match:
+ *   post:
+ *     summary: Post converted match
+ *     tags: [Insurance Company]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/converted/match', carrierMatchingController.matchConvertedCarrier.bind(carrierMatchingController));
+/**
+ * @swagger
+ * /insurance-companies/converted/match/{oldPayerId}:
+ *   delete:
+ *     summary: Delete converted match :oldPayerId
+ *     tags: [Insurance Company]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: oldPayerId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.delete('/converted/match/:oldPayerId', carrierMatchingController.deleteConvertedMatch.bind(carrierMatchingController));
+/**
+ * @swagger
+ * /insurance-companies/converted/fetch-matches:
+ *   post:
+ *     summary: Post converted fetch-matches
+ *     tags: [Insurance Company]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/converted/fetch-matches', carrierMatchingController.fetchMatches.bind(carrierMatchingController));
 
 // Vyne Carriers Matching routes
+/**
+ * @swagger
+ * /insurance-companies/vyne/office-payers:
+ *   get:
+ *     summary: Get vyne office-payers
+ *     tags: [Insurance Company]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.get('/vyne/office-payers', carrierMatchingController.getVyneOfficePayers.bind(carrierMatchingController));
+/**
+ * @swagger
+ * /insurance-companies/vyne/payers:
+ *   get:
+ *     summary: Get vyne payers
+ *     tags: [Insurance Company]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.get('/vyne/payers', carrierMatchingController.getVynePayers.bind(carrierMatchingController));
+/**
+ * @swagger
+ * /insurance-companies/vyne/matched:
+ *   get:
+ *     summary: Get vyne matched
+ *     tags: [Insurance Company]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.get('/vyne/matched', carrierMatchingController.getVyneMatchedPayers.bind(carrierMatchingController));
+/**
+ * @swagger
+ * /insurance-companies/vyne/match:
+ *   post:
+ *     summary: Post vyne match
+ *     tags: [Insurance Company]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.post('/vyne/match', carrierMatchingController.matchVyneCarrier.bind(carrierMatchingController));
+/**
+ * @swagger
+ * /insurance-companies/vyne/match/{officePayerId}:
+ *   delete:
+ *     summary: Delete vyne match :officePayerId
+ *     tags: [Insurance Company]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: officePayerId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
 router.delete('/vyne/match/:officePayerId', carrierMatchingController.deleteVyneMatch.bind(carrierMatchingController));
 
 export default router;

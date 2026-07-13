@@ -107,8 +107,12 @@ export class ScheduleBlockService {
       if (row.Note) {
         try {
           const parsed = JSON.parse(row.Note);
-          notes = parsed.notes || row.Note;
-          color = parsed.color || color;
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            notes = parsed.notes !== undefined ? String(parsed.notes) : '';
+            color = parsed.color || color;
+          } else {
+            notes = row.Note;
+          }
         } catch {
           notes = row.Note;
         }

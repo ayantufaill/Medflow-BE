@@ -2135,27 +2135,48 @@ private mapClaimStatus(status: string | null): string {
       });
     };
 
-    // Fill Carrier Info (Top Right)
-    const insPlan = claim.insplan_claim_PlanNumToinsplan;
-    const carrier = insPlan?.carrier;
+    // Fill Carrier/Insurance Company Info (Box 3 - DENTAL BENEFIT PLAN INFORMATION)
+    // Try direct claim -> insplan -> carrier first, then fallback through patient's patplan
+    let carrier = claim.insplan_claim_PlanNumToinsplan?.carrier;
+    if (!carrier && claim.PatNum) {
+      const patPlan = await prisma.patplan.findFirst({
+        where: { PatNum: claim.PatNum },
+        orderBy: { Ordinal: 'asc' },
+        include: {
+          inssub: {
+            include: {
+              insplan: {
+                include: {
+                  carrier: true,
+                },
+              },
+            },
+          },
+        },
+      });
+      carrier = patPlan?.inssub?.insplan?.carrier ?? null;
+    }
     if (carrier) {
-      drawText(carrier.CarrierName, 345, 715, 10);
-      drawText(carrier.Address, 345, 702, 9);
-      drawText(`${carrier.City || ''}, ${carrier.State || ''} ${carrier.Zip || ''}`, 345, 689, 9);
+      drawText(carrier.CarrierName, 55, 648, 8);
+      drawText(carrier.Address, 55, 638, 7);
+      const cityStateZip = [carrier.City, carrier.State, carrier.Zip].filter(Boolean).join(', ');
+      if (cityStateZip) {
+        drawText(cityStateZip, 55, 628, 7);
+      }
     }
 
     // Fill Patient Info (Right Column, Box 20-22)
     const patient = claim.patient;
     if (patient) {
       const patName = `${patient.LName || ''}, ${patient.FName || ''} ${patient.MiddleI || ''}`.trim();
-      drawText(patName, 345, 545, 9);
-      drawText(patient.Address, 345, 532, 9);
-      drawText(`${patient.City || ''}, ${patient.State || ''} ${patient.Zip || ''}`, 345, 519, 9);
+      drawText(patName, 360, 545, 9);
+      drawText(patient.Address, 360, 532, 9);
+      drawText(`${patient.City || ''}, ${patient.State || ''} ${patient.Zip || ''}`, 360, 519, 9);
 
       if (patient.Birthdate) {
         const dob = new Date(patient.Birthdate);
         const dobStr = `${String(dob.getMonth() + 1).padStart(2, '0')}/${String(dob.getDate()).padStart(2, '0')}/${dob.getFullYear()}`;
-        drawText(dobStr, 345, 488, 9); // Box 21
+        drawText(dobStr, 360, 488, 9); // Box 21
       }
 
       if (patient.Gender !== null && patient.Gender !== undefined) {
