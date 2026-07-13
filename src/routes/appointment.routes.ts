@@ -317,7 +317,7 @@ router.post('/', requireRoles('Front Desk', 'Admin'), validate(createAppointment
  *       404:
  *         description: Appointment not found
  */
-router.get('/:appointmentId', requireRoles('Admin'), appointmentController.getAppointmentById.bind(appointmentController));
+router.get('/:appointmentId', requireRoles('Admin'), validate(appointmentIdValidator), appointmentController.getAppointmentById.bind(appointmentController));
 
 /**
  * @swagger

@@ -54,21 +54,21 @@ describe('Appointments', () => {
 
   it('validates appointment id', async () => {
     const res = await request(app)
-      .get('/api/appointments/1')
+      .get('/api/appointments/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates provider schedule params', async () => {
     const res = await request(app)
-      .get('/api/appointments/providers/1/schedule')
+      .get('/api/appointments/providers/invalid-id/schedule')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates available slots params', async () => {
     const res = await request(app)
-      .get('/api/appointments/providers/1/available-slots')
+      .get('/api/appointments/providers/invalid-id/available-slots')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
@@ -83,7 +83,7 @@ describe('Appointments', () => {
 
   it('validates update appointment payload', async () => {
     const res = await request(app)
-      .put('/api/appointments/1')
+      .put('/api/appointments/invalid-id')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -91,7 +91,7 @@ describe('Appointments', () => {
 
   it('validates cancel appointment payload', async () => {
     const res = await request(app)
-      .post('/api/appointments/1/cancel')
+      .post('/api/appointments/invalid-id/cancel')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -99,7 +99,7 @@ describe('Appointments', () => {
 
   it('validates reschedule appointment payload', async () => {
     const res = await request(app)
-      .post('/api/appointments/1/reschedule')
+      .post('/api/appointments/invalid-id/reschedule')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -107,14 +107,14 @@ describe('Appointments', () => {
 
   it('validates check-in params', async () => {
     const res = await request(app)
-      .post('/api/appointments/1/check-in')
+      .post('/api/appointments/invalid-id/check-in')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates delete appointment params', async () => {
     const res = await request(app)
-      .delete('/api/appointments/1')
+      .delete('/api/appointments/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });

@@ -48,7 +48,7 @@ describe('Note Templates', () => {
 
   it('validates note template id', async () => {
     const res = await request(app)
-      .get('/api/note-templates/1')
+      .get('/api/note-templates/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
@@ -63,7 +63,7 @@ describe('Note Templates', () => {
 
   it('validates duplicate note template payload', async () => {
     const res = await request(app)
-      .post('/api/note-templates/1/duplicate')
+      .post('/api/note-templates/invalid-id/duplicate')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -71,7 +71,7 @@ describe('Note Templates', () => {
 
   it('validates update note template payload', async () => {
     const res = await request(app)
-      .put('/api/note-templates/1')
+      .put('/api/note-templates/invalid-id')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -79,14 +79,14 @@ describe('Note Templates', () => {
 
   it('validates toggle status params', async () => {
     const res = await request(app)
-      .patch('/api/note-templates/1/status')
+      .patch('/api/note-templates/invalid-id/status')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates delete note template params', async () => {
     const res = await request(app)
-      .delete('/api/note-templates/1')
+      .delete('/api/note-templates/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });

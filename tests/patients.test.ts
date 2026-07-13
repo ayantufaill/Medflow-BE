@@ -57,21 +57,21 @@ describe('Patients', () => {
 
   it('validates patient balance params', async () => {
     const res = await request(app)
-      .get('/api/patients/1/balance')
+      .get('/api/patients/invalid-id/balance')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates get patient params', async () => {
     const res = await request(app)
-      .get('/api/patients/1')
+      .get('/api/patients/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates update patient params', async () => {
     const res = await request(app)
-      .put('/api/patients/1')
+      .patch('/api/patients/invalid-id')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -79,21 +79,21 @@ describe('Patients', () => {
 
   it('validates delete patient params', async () => {
     const res = await request(app)
-      .delete('/api/patients/1')
+      .delete('/api/patients/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates get patient insurance params', async () => {
     const res = await request(app)
-      .get('/api/patients/1/insurance')
+      .get('/api/patients/invalid-id/insurance')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates create patient insurance payload', async () => {
     const res = await request(app)
-      .post('/api/patients/1/insurance')
+      .post('/api/patients/invalid-id/insurance')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -101,14 +101,14 @@ describe('Patients', () => {
 
   it('validates get patient insurance by id params', async () => {
     const res = await request(app)
-      .get('/api/patients/1/insurance/1')
+      .get('/api/patients/invalid-id/insurance/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates update patient insurance params', async () => {
     const res = await request(app)
-      .put('/api/patients/1/insurance/1')
+      .put('/api/patients/invalid-id/insurance/invalid-id')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -116,14 +116,14 @@ describe('Patients', () => {
 
   it('validates delete patient insurance params', async () => {
     const res = await request(app)
-      .delete('/api/patients/1/insurance/1')
+      .delete('/api/patients/invalid-id/insurance/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates get patient allergies params', async () => {
     const res = await request(app)
-      .get('/api/patients/1/allergies')
+      .get('/api/patients/invalid-id/allergies')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
@@ -138,14 +138,14 @@ describe('Patients', () => {
 
   it('validates get patient allergy by id params', async () => {
     const res = await request(app)
-      .get('/api/patients/1/allergies/1')
+      .get('/api/patients/invalid-id/allergies/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates update patient allergy params', async () => {
     const res = await request(app)
-      .put('/api/patients/1/allergies/1')
+      .put('/api/patients/invalid-id/allergies/invalid-id')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -153,7 +153,7 @@ describe('Patients', () => {
 
   it('validates delete patient allergy params', async () => {
     const res = await request(app)
-      .delete('/api/patients/1/allergies/1')
+      .delete('/api/patients/invalid-id/allergies/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });

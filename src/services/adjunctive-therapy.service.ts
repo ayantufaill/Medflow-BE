@@ -1,5 +1,6 @@
 import { prisma } from '../config/db';
 import { NotFoundError } from '../utils/error.util';
+import { getNextId } from '../utils/opendental-ids.util';
 
 // OpenDental userodpref.FkeyType tinyint range
 const ADJUNCTIVE_THERAPY_FKEYTYPE = 213;
@@ -44,12 +45,7 @@ export class AdjunctiveTherapyService {
         data: { ValueString: stringValue },
       });
     } else {
-      // Direct raw query to get next UserOdPrefNum sequence key
-      const nextIdResult = await prisma.$queryRawUnsafe<[{ nextId: any }]>(
-        'SELECT COALESCE(MAX("UserOdPrefNum"), 0) + 1 AS "nextId" FROM "userodpref"'
-      );
-      const rawId = nextIdResult[0]?.nextId;
-      const nextId = rawId ? BigInt(rawId) : 1n;
+      const nextId = await getNextId('userodpref', 'UserOdPrefNum');
 
       await prisma.userodpref.create({
         data: {

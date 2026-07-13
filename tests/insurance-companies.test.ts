@@ -34,7 +34,7 @@ describe('Insurance Companies', () => {
 
   it('validates insurance company id', async () => {
     const res = await request(app)
-      .get('/api/insurance-companies/1')
+      .get('/api/insurance-companies/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
@@ -49,7 +49,7 @@ describe('Insurance Companies', () => {
 
   it('validates update insurance company payload', async () => {
     const res = await request(app)
-      .put('/api/insurance-companies/1')
+      .put('/api/insurance-companies/invalid-id')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -57,7 +57,7 @@ describe('Insurance Companies', () => {
 
   it('validates delete insurance company params', async () => {
     const res = await request(app)
-      .delete('/api/insurance-companies/1')
+      .delete('/api/insurance-companies/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });

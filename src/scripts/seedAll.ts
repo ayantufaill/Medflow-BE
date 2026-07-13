@@ -28,8 +28,12 @@ const scripts = [
 ];
 
 for (const script of scripts) {
-  const result = spawnSync(bin, [script], { stdio: 'inherit' });
+  console.log(`Running seed script: ${script}...`);
+  const result = spawnSync(bin, [script], { stdio: ['inherit', 'pipe', 'pipe'], shell: true });
   if (result.status !== 0) {
+    console.error(`Script ${script} failed with status ${result.status}`);
+    console.error(result.stderr?.toString());
+    console.error(result.stdout?.toString());
     process.exit(result.status ?? 1);
   }
 }

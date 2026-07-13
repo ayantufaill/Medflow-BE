@@ -5,29 +5,94 @@ const seedClaims = async () => {
   try {
     console.log('Seeding Claim Management tables...');
 
-    // 1. Fetch prerequisite patient
-    const patient = await prisma.patient.findFirst();
+    // Helper to seed patient insurance
+    const seedPatientInsurance = async (pat: any, carrierName: string, subscriberId: string, groupName: string) => {
+      let carrier = await prisma.carrier.findFirst({
+        where: { CarrierName: carrierName },
+      });
+      if (!carrier) {
+        const carrierNum = await getNextId('carrier', 'CarrierNum');
+        carrier = await prisma.carrier.create({
+          data: {
+            CarrierNum: carrierNum,
+            CarrierName: carrierName,
+            Phone: '800-555-1212',
+            IsHidden: 0,
+          },
+        });
+        console.log(`Created carrier: ${carrier.CarrierName}`);
+      }
+
+      let insPlan = await prisma.insplan.findFirst({
+        where: { CarrierNum: carrier.CarrierNum, GroupName: groupName },
+      });
+      if (!insPlan) {
+        const planNum = await getNextId('insplan', 'PlanNum');
+        insPlan = await prisma.insplan.create({
+          data: {
+            PlanNum: planNum,
+            CarrierNum: carrier.CarrierNum,
+            GroupName: groupName,
+            GroupNum: 'GRP-' + Math.floor(Math.random() * 10000),
+            PlanType: 'p',
+          },
+        });
+        console.log(`Created insurance plan for ${carrierName}`);
+      }
+
+      let insSub = await prisma.inssub.findFirst({
+        where: { PlanNum: insPlan.PlanNum, Subscriber: pat.PatNum },
+      });
+      if (!insSub) {
+        const subNum = await getNextId('inssub', 'InsSubNum');
+        insSub = await prisma.inssub.create({
+          data: {
+            InsSubNum: subNum,
+            PlanNum: insPlan.PlanNum,
+            Subscriber: pat.PatNum,
+            SubscriberID: subscriberId,
+          },
+        });
+        console.log(`Created subscriber for ${pat.FName} linked to ${carrierName}`);
+      }
+
+      let patPlan = await prisma.patplan.findFirst({
+        where: { PatNum: pat.PatNum, InsSubNum: insSub.InsSubNum },
+      });
+      if (!patPlan) {
+        const patPlanNum = await getNextId('patplan', 'PatPlanNum');
+        patPlan = await prisma.patplan.create({
+          data: {
+            PatPlanNum: patPlanNum,
+            PatNum: pat.PatNum,
+            InsSubNum: insSub.InsSubNum,
+            Ordinal: 1, // Primary
+            Relationship: 0, // Self
+          },
+        });
+        console.log(`Created patient plan association for ${pat.FName}`);
+      }
+
+      return { insPlan, insSub, patPlan };
+    };
+
+    // 1. Fetch prerequisite patients
+    const patient = await prisma.patient.findFirst({
+      orderBy: { PatNum: 'asc' }
+    });
     if (!patient) {
       console.log('No patients found. Please seed patients first.');
       return;
     }
 
-    // 2. Fetch prerequisite carrier
-    let carrier = await prisma.carrier.findFirst();
-    if (!carrier) {
-      const carrierNum = await getNextId('carrier', 'CarrierNum');
-      carrier = await prisma.carrier.create({
-        data: {
-          CarrierNum: carrierNum,
-          CarrierName: 'Delta Dental PPO',
-          Phone: '800-555-1212',
-          IsHidden: 0,
-        },
-      });
-      console.log(`Created carrier: ${carrier.CarrierName}`);
-    }
+    const maria = await prisma.patient.findFirst({
+      where: { FName: 'Maria', LName: 'Gonzalez' },
+    });
+    const patricia = await prisma.patient.findFirst({
+      where: { FName: 'Patricia', LName: 'Williams' },
+    });
 
-    // 3. Fetch prerequisite provider
+    // 2. Fetch prerequisite provider
     const provider = await prisma.provider.findFirst();
     if (!provider) {
       console.log('No providers found. Please seed providers first.');
@@ -35,51 +100,15 @@ const seedClaims = async () => {
     }
     const provNum = provider.ProvNum;
 
-    // 4. Seed insplan (Insurance Plan)
-    let insPlan = await prisma.insplan.findFirst();
-    if (!insPlan) {
-      const planNum = await getNextId('insplan', 'PlanNum');
-      insPlan = await prisma.insplan.create({
-        data: {
-          PlanNum: planNum,
-          CarrierNum: carrier.CarrierNum,
-          GroupName: 'Delta Premier Group',
-          GroupNum: 'DPG-7728',
-          PlanType: 'p',
-        },
-      });
-      console.log('Created insurance plan (insplan)');
-    }
+    // 3. Seed primary patient insurance
+    const { insPlan, insSub, patPlan } = await seedPatientInsurance(patient, 'Delta Dental PPO', 'SUB-5544321', 'Delta Premier Group');
 
-    // 5. Seed inssub (Insurance Subscriber)
-    let insSub = await prisma.inssub.findFirst();
-    if (!insSub) {
-      const subNum = await getNextId('inssub', 'InsSubNum');
-      insSub = await prisma.inssub.create({
-        data: {
-          InsSubNum: subNum,
-          PlanNum: insPlan.PlanNum,
-          Subscriber: patient.PatNum,
-          SubscriberID: 'SUB-5544321',
-        },
-      });
-      console.log('Created insurance subscriber (inssub)');
+    // 4. Seed other patients insurance
+    if (maria) {
+      await seedPatientInsurance(maria, 'Delta Dental PPO', 'SUB-99887766', 'Delta Premier Group');
     }
-
-    // 6. Seed patplan (Patient Insurance Plan Mapping)
-    let patPlan = await prisma.patplan.findFirst();
-    if (!patPlan) {
-      const patPlanNum = await getNextId('patplan', 'PatPlanNum');
-      patPlan = await prisma.patplan.create({
-        data: {
-          PatPlanNum: patPlanNum,
-          PatNum: patient.PatNum,
-          InsSubNum: insSub.InsSubNum,
-          Ordinal: 1, // Primary
-          Relationship: 0, // Self
-        },
-      });
-      console.log('Created patient plan association (patplan)');
+    if (patricia) {
+      await seedPatientInsurance(patricia, 'MetLife Test Dental', 'SUB-88776655', 'MetLife Premium');
     }
 
     // 7. Seed claim (Insurance Claims)

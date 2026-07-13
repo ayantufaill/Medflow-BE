@@ -83,6 +83,21 @@ export class PatientWorkspaceService {
   private async requirePatient(patientId: string) {
     const patient = await prisma.patient.findUnique({
       where: { PatNum: BigInt(patientId) },
+      include: {
+        patplan: {
+          include: {
+            inssub: {
+              include: {
+                insplan: {
+                  include: {
+                    carrier: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     });
     if (!patient) {
       throw new NotFoundError('Patient not found');
@@ -135,6 +150,8 @@ export class PatientWorkspaceService {
   async getPatientWorkspace(patientId: string) {
     const patient = await this.requirePatient(patientId);
     const patientMeta = await getPatientMeta(patient.PatNum);
+    const actualGuarantorId = (patient.Guarantor && patient.Guarantor > 0n) ? patient.Guarantor : patient.PatNum;
+    const household = await getFamilyMembers(actualGuarantorId, patient.PatNum);
     return mapPatientToApi(patient, {
       emergencyContact: patientMeta.emergencyContact ?? null,
       portalAccessEnabled: patientMeta.portalAccessEnabled ?? false,
@@ -143,10 +160,7 @@ export class PatientWorkspaceService {
       preferredDentistId: patientMeta.preferredDentistId ?? null,
       preferredHygienistId: patientMeta.preferredHygienistId ?? null,
       headOfCommunication: patientMeta.headOfCommunication ?? null,
-      household: await getFamilyMembers(
-        (patient.Guarantor && patient.Guarantor > 0n) ? patient.Guarantor : patient.PatNum,
-        patient.PatNum
-      ),
+      household: household,
       spouseInfo: patientMeta.spouseInfo ?? null,
       patientFlags: patientMeta.patientFlags ?? [],
       financialResponsibility: patientMeta.financialResponsibility ?? null,
@@ -443,7 +457,7 @@ export class PatientWorkspaceService {
         preferredDentistId: patientMeta.preferredDentistId ?? null,
         preferredHygienistId: patientMeta.preferredHygienistId ?? null,
         headOfCommunication: patientMeta.headOfCommunication ?? null,
-        household: patientMeta.household ?? [],
+        household: await getFamilyMembers((patient.Guarantor && patient.Guarantor > 0n) ? patient.Guarantor : patient.PatNum, patient.PatNum),
         spouseInfo: patientMeta.spouseInfo ?? null,
         patientFlags: patientMeta.patientFlags ?? [],
         financialResponsibility: patientMeta.financialResponsibility ?? null,
