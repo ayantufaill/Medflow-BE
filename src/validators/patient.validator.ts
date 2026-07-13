@@ -267,6 +267,7 @@ export const createPatientValidator: ValidationChain[] = [
     .isLength({ max: 20 })
     .withMessage('workAddress.postalCode must be less than 20 characters'),
   optionalNumericIdValidator('userAccountId', 'Invalid user account ID format'),
+  optionalNumericIdValidator('guarantorId', 'Invalid guarantor ID format'),
   body('referralSource')
     .optional()
     .trim()
@@ -523,6 +524,7 @@ export const updatePatientValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 20 })
     .withMessage('workAddress.postalCode must be less than 20 characters'),
+  optionalNumericIdValidator('guarantorId', 'Invalid guarantor ID format'),
   body('isActive')
     .optional()
     .isBoolean()

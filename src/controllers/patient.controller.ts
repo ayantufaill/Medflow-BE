@@ -262,6 +262,33 @@ export class PatientController {
     }
   }
 
+  async addFamilyMember(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      const { memberId } = req.body;
+      if (!patientId || !memberId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID and Member ID are required' } });
+      }
+      const result = await patientService.addFamilyMember(patientId, memberId, req.userId);
+      res.status(200).json({ success: true, data: { patient: result } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async removeFamilyMember(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId, memberId } = req.params;
+      if (!patientId || !memberId) {
+        return res.status(400).json({ success: false, error: { message: 'Patient ID and Member ID are required' } });
+      }
+      const result = await patientService.removeFamilyMember(patientId, memberId, req.userId);
+      res.status(200).json({ success: true, data: { patient: result } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getPatientWorkspace(req: Request, res: Response, next: NextFunction) {
     try {
       const { patientId } = req.params;

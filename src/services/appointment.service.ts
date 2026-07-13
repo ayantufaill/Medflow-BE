@@ -898,7 +898,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
         ? 'Appointment conflicts with a blocked slot in this room'
         : conflictCheck.conflictType === 'room'
         ? 'Room is already booked'
-        : 'Appointment conflicts with existing appointment';
+        : 'Provider already has an appointment booked for this time slot';
       throw new ConflictError(conflictType);
     }
 

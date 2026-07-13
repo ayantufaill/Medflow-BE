@@ -1,0 +1,1 @@
+import { PrismaClient } from '@prisma/client'; const prisma = new PrismaClient(); async function main() { const p = await prisma.patient.findUnique({ where: { PatNum: 6n } }); console.log(p); } main();

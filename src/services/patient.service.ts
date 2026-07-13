@@ -50,6 +50,31 @@ async function generatePatientCode(): Promise<string> {
   return `PAT${nextId.toString().padStart(3, '0')}`;
 }
 
+async function getFamilyMembers(guarantorId: bigint, currentPatNum: bigint) {
+  if (!guarantorId || guarantorId <= 0n) return [];
+  const members = await prisma.patient.findMany({
+    where: { 
+      OR: [
+        { Guarantor: guarantorId },
+        { PatNum: guarantorId }
+      ],
+      PatNum: { not: currentPatNum }, 
+      PatStatus: { not: 2 } 
+    },
+    select: { PatNum: true, FName: true, LName: true, Preferred: true, Birthdate: true, Gender: true, Guarantor: true }
+  });
+  return members.map(fm => ({
+    id: fm.PatNum.toString(),
+    firstName: fm.FName,
+    lastName: fm.LName,
+    preferredName: fm.Preferred,
+    dateOfBirth: fm.Birthdate,
+    gender: fm.Gender === 0 ? 'male' : fm.Gender === 1 ? 'female' : 'unknown',
+    guarantorId: fm.Guarantor?.toString() || null,
+    relationship: fm.PatNum === guarantorId ? 'Guarantor' : (currentPatNum === guarantorId ? 'Dependent' : 'Family Member')
+  }));
+}
+
 export class PatientService {
   /**
    * Get all patients with pagination, search, status, and DOB range filters
@@ -251,7 +276,11 @@ export class PatientService {
     }
 
     const patientMeta = await getPatientMeta(patient.PatNum);
-    const mapped = mapPatientToApi(patient, buildPatientMapperOptions(patientMeta));
+    const options = buildPatientMapperOptions(patientMeta);
+    const actualGuarantorId = (patient.Guarantor && patient.Guarantor > 0n) ? patient.Guarantor : patient.PatNum;
+    options.household = await getFamilyMembers(actualGuarantorId, patient.PatNum);
+    
+    const mapped = mapPatientToApi(patient, options);
     return {
       ...mapped,
       ssn: null,
@@ -292,7 +321,11 @@ export class PatientService {
     }
 
     const patientMeta = await getPatientMeta(patient.PatNum);
-    return mapPatientToApi(patient, buildPatientMapperOptions(patientMeta));
+    const options = buildPatientMapperOptions(patientMeta);
+    const actualGuarantorId = (patient.Guarantor && patient.Guarantor > 0n) ? patient.Guarantor : patient.PatNum;
+    options.household = await getFamilyMembers(actualGuarantorId, patient.PatNum);
+    
+    return mapPatientToApi(patient, options);
   }
 
   /**
@@ -534,6 +567,7 @@ async getPatientLastVisit(patientId: string) {
       customFields?: Record<string, unknown>;
       preferredDentistId?: string;
       preferredHygienistId?: string;
+      guarantorId?: string;
     },
     createdBy?: string
   ) {
@@ -591,6 +625,7 @@ async getPatientLastVisit(patientId: string) {
         PatStatus: 0,
         DateFirstVisit: data.lastVisitDate ?? null,
         AddrNote: data.notes?.trim() || null,
+        Guarantor: data.guarantorId ? BigInt(data.guarantorId) : nextId,
       },
     });
 
@@ -703,6 +738,7 @@ async getPatientLastVisit(patientId: string) {
       spouseInfo?: Record<string, any> | null;
       patientFlags?: any[];
       financialResponsibility?: Record<string, any> | null;
+      guarantorId?: string;
     },
     updatedBy?: string
   ) {
@@ -766,6 +802,7 @@ async getPatientLastVisit(patientId: string) {
           updates.isActive !== undefined ? (updates.isActive ? 0 : 2) : undefined,
         DateFirstVisit: updates.lastVisitDate ?? undefined,
         AddrNote: updates.notes !== undefined ? (updates.notes.trim() || null) : undefined,
+        Guarantor: updates.guarantorId !== undefined ? (updates.guarantorId ? BigInt(updates.guarantorId) : BigInt(patientId)) : undefined,
       },
     });
 
@@ -843,6 +880,72 @@ async getPatientLastVisit(patientId: string) {
 
     // Always return patient with SSN included
     return this.getPatientByIdWithSSN(updated.PatNum.toString());
+  }
+
+  /**
+   * Add a family member, linking their Guarantor field bidirectionally
+   */
+  async addFamilyMember(patientId: string, memberId: string, updatedBy?: string) {
+    if (patientId === memberId) {
+      throw new ConflictError('Cannot add patient as their own family member');
+    }
+
+    const patient = await prisma.patient.findUnique({ where: { PatNum: BigInt(patientId) } });
+    const member = await prisma.patient.findUnique({ where: { PatNum: BigInt(memberId) } });
+
+    if (!patient || !member) {
+      throw new NotFoundError('Patient not found');
+    }
+
+    // Determine the head of household
+    let headId = patient.PatNum;
+    if (patient.Guarantor && patient.Guarantor > 0n && patient.Guarantor !== patient.PatNum) {
+      headId = patient.Guarantor;
+    } else if (member.Guarantor && member.Guarantor > 0n && member.Guarantor !== member.PatNum) {
+      headId = member.Guarantor;
+    }
+
+    // Update both to have the same Guarantor
+    await prisma.$transaction([
+      prisma.patient.update({
+        where: { PatNum: patient.PatNum },
+        data: { Guarantor: headId }
+      }),
+      prisma.patient.update({
+        where: { PatNum: member.PatNum },
+        data: { Guarantor: headId }
+      })
+    ]);
+
+    if (updatedBy) {
+      await logActivity(updatedBy, 'updated', 'patients', patientId, undefined, { addedFamilyMember: memberId });
+      await logActivity(updatedBy, 'updated', 'patients', memberId, undefined, { addedFamilyMember: patientId });
+    }
+
+    return this.getPatientByIdWithSSN(patientId);
+  }
+
+  /**
+   * Remove a family member
+   */
+  async removeFamilyMember(patientId: string, memberId: string, updatedBy?: string) {
+    const member = await prisma.patient.findUnique({ where: { PatNum: BigInt(memberId) } });
+    if (!member) {
+      throw new NotFoundError('Member patient not found');
+    }
+
+    // Reset member's guarantor to their own PatNum
+    await prisma.patient.update({
+      where: { PatNum: member.PatNum },
+      data: { Guarantor: member.PatNum }
+    });
+
+    if (updatedBy) {
+      await logActivity(updatedBy, 'updated', 'patients', patientId, undefined, { removedFamilyMember: memberId });
+      await logActivity(updatedBy, 'updated', 'patients', memberId, undefined, { removedFamilyMember: patientId });
+    }
+
+    return this.getPatientByIdWithSSN(patientId);
   }
 
   /**
