@@ -11,6 +11,17 @@ import {
 import { getPatientInsuranceMeta, setPatientInsuranceMeta, getPatientInsurancesMeta } from '../utils/opendental-auth.util';
 import { claimService } from './claim.service';
 
+const safeBigInt = (val: any): bigint => {
+  if (val === undefined || val === null || val === '') return 0n;
+  const str = String(val).trim();
+  if (str === 'null' || str === 'undefined' || str === 'none' || str === 'None') return 0n;
+  try {
+    return BigInt(str);
+  } catch (e) {
+    return 0n;
+  }
+};
+
 export class PatientInsuranceService {
   /**
    * Get all insurances for a patient
@@ -502,7 +513,7 @@ export class PatientInsuranceService {
           PatNum: patplan.PatNum ?? undefined,
           Ordinal: mapInsuranceTypeToOrdinal(updates.insuranceType),
           IsPending: 0,
-          PatPlanNum: { not: BigInt(patientInsuranceId) },
+          PatPlanNum: { not: safeBigInt(patientInsuranceId) },
         },
       });
 
@@ -535,17 +546,17 @@ export class PatientInsuranceService {
       await prisma.insplan.update({
         where: { PlanNum: patplan.inssub.insplan.PlanNum },
         data: {
-          CarrierNum: updates.insuranceCompanyId ? BigInt(updates.insuranceCompanyId) : undefined,
+          CarrierNum: updates.insuranceCompanyId ? safeBigInt(updates.insuranceCompanyId) : undefined,
           GroupNum: updates.groupNumber ?? undefined,
           GroupName: updates.groupName ?? undefined,
           PlanNote: updates.notes ?? undefined,
-          FeeSched: updates.planFeeGuide !== undefined ? (updates.planFeeGuide ? BigInt(updates.planFeeGuide) : 0n) : undefined,
+          FeeSched: updates.planFeeGuide !== undefined ? (updates.planFeeGuide ? safeBigInt(updates.planFeeGuide) : 0n) : undefined,
         },
       });
     }
 
     if (updates.payerId !== undefined) {
-      const carrierId = updates.insuranceCompanyId ? BigInt(updates.insuranceCompanyId) : patplan.inssub?.insplan?.CarrierNum;
+      const carrierId = updates.insuranceCompanyId ? safeBigInt(updates.insuranceCompanyId) : patplan.inssub?.insplan?.CarrierNum;
       if (carrierId) {
         await prisma.carrier.update({
           where: { CarrierNum: carrierId },
@@ -554,7 +565,7 @@ export class PatientInsuranceService {
       }
     }
     await prisma.patplan.update({
-      where: { PatPlanNum: BigInt(patientInsuranceId) },
+      where: { PatPlanNum: safeBigInt(patientInsuranceId) },
       data: {
         Ordinal: updates.insuranceType ? mapInsuranceTypeToOrdinal(updates.insuranceType) : undefined,
         IsPending: updates.isActive !== undefined ? (updates.isActive ? 0 : 1) : undefined,
