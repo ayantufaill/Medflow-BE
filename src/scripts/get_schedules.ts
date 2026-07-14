@@ -1,8 +1,14 @@
 import { prisma } from '../config/db';
 
 async function check() {
-  const schedules = await prisma.feesched.findMany();
-  console.log('Schedules:', schedules);
+  const prefs = await prisma.userodpref.findMany({
+    where: { FkeyType: 207 }
+  });
+  console.log('Prefs:', prefs.map(p => ({
+    Fkey: p.Fkey.toString(),
+    FkeyType: p.FkeyType,
+    ValueString: p.ValueString
+  })));
 }
 
 check()

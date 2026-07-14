@@ -63,6 +63,49 @@ export class ShortlistService {
     return this.mapShortlist(item);
   }
 
+  async updateShortlistItem(id: string, data: any) {
+    const existing = await prisma.shortlist.findUnique({
+      where: { ShortlistNum: BigInt(id) }
+    });
+
+    if (!existing) {
+      throw new NotFoundError('Shortlist item not found');
+    }
+
+    const { 
+      patientId, 
+      patientName,
+      appointmentDate,
+      startTime,
+      endTime,
+      durationMins, 
+      status,
+      notes,
+      providerId, 
+      roomId,
+      customFields
+    } = data;
+
+    const item = await prisma.shortlist.update({
+      where: { ShortlistNum: BigInt(id) },
+      data: {
+        PatNum: patientId ? BigInt(patientId) : undefined,
+        PatientName: patientName !== undefined ? patientName : undefined,
+        AppointmentDate: appointmentDate !== undefined ? appointmentDate : undefined,
+        StartTime: startTime !== undefined ? startTime : undefined,
+        EndTime: endTime !== undefined ? endTime : undefined,
+        DurationMins: durationMins !== undefined ? durationMins : undefined,
+        Status: status !== undefined ? status : undefined,
+        Notes: notes !== undefined ? notes : undefined,
+        ProvNum: providerId !== undefined ? (providerId ? BigInt(providerId) : null) : undefined,
+        RoomId: roomId !== undefined ? (roomId ? BigInt(roomId) : null) : undefined,
+        CustomFields: customFields !== undefined ? customFields : undefined
+      }
+    });
+
+    return this.mapShortlist(item);
+  }
+
   async deleteShortlistItem(id: string) {
     const existing = await prisma.shortlist.findUnique({
       where: { ShortlistNum: BigInt(id) }

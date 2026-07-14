@@ -115,7 +115,9 @@ export class PatientInsuranceService {
         coverageLimits: meta?.coverageLimits ?? null,
         coverageCategoryTable: meta?.coverageCategoryTable ?? [],
         coverageBookData: meta?.coverageBookData ?? [],
-        planFeeGuide: meta?.planFeeGuide ?? null,
+        planFeeGuide: (patplan.inssub?.insplan?.FeeSched && patplan.inssub.insplan.FeeSched !== 0n)
+          ? patplan.inssub.insplan.FeeSched.toString()
+          : (meta?.planFeeGuide ? String(meta.planFeeGuide) : null),
         coverageType: meta?.coverageType ?? null,
         subscriberSsn: meta?.subscriberSsn ?? null,
         renewalMonth: meta?.renewalMonth ?? null,
@@ -212,7 +214,9 @@ export class PatientInsuranceService {
       coverageLimits: insuranceMeta.coverageLimits ?? null,
       coverageCategoryTable: insuranceMeta.coverageCategoryTable ?? [],
       coverageBookData: insuranceMeta.coverageBookData ?? [],
-      planFeeGuide: insuranceMeta.planFeeGuide ?? null,
+      planFeeGuide: (patplan.inssub?.insplan?.FeeSched && patplan.inssub.insplan.FeeSched !== 0n)
+        ? patplan.inssub.insplan.FeeSched.toString()
+        : (insuranceMeta.planFeeGuide ? String(insuranceMeta.planFeeGuide) : null),
       coverageType: insuranceMeta.coverageType ?? null,
       subscriberSsn: insuranceMeta.subscriberSsn ?? null,
       renewalMonth: insuranceMeta.renewalMonth ?? null,
@@ -535,6 +539,7 @@ export class PatientInsuranceService {
           GroupNum: updates.groupNumber ?? undefined,
           GroupName: updates.groupName ?? undefined,
           PlanNote: updates.notes ?? undefined,
+          FeeSched: updates.planFeeGuide !== undefined ? (updates.planFeeGuide ? BigInt(updates.planFeeGuide) : 0n) : undefined,
         },
       });
     }

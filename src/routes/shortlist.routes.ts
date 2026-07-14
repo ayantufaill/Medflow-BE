@@ -58,6 +58,30 @@ router.post('/', validate(createShortlistValidator), shortlistController.createS
 /**
  * @swagger
  * /api/shortlist/{id}:
+ *   put:
+ *     summary: Update an item in the shortlist
+ *     tags: [Shortlist]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Shortlist item updated
+ */
+router.put('/:id', validate(createShortlistValidator), shortlistController.updateShortlistItem);
+
+/**
+ * @swagger
+ * /api/shortlist/{id}:
  *   delete:
  *     summary: Remove an item from the shortlist
  *     tags: [Shortlist]
