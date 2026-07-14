@@ -480,7 +480,7 @@ export const mapAppointmentToApi = (
     endTime,
     durationMinutes,
     appointmentType: 'consultation',
-    roomId: row.Op?.toString() ?? null,
+    roomId: row.Op?.toString() ?? '1',
     createdBy: options?.createdBy ? mapUserToApi(options.createdBy) : row.SecUserNumEntry?.toString() ?? null,
     status: mapAppointmentStatusFromDb(row.AptStatus),
     chiefComplaint: row.ProcDescript ?? null,

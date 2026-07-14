@@ -918,6 +918,17 @@ async getPatientAppointments(patientId: string, limit = 10) {
     const aptDateTime = toDateTime(appointmentDateObj, data.startTime);
     const durationMinutes = data.durationMinutes || 30;
 
+    let opId: bigint;
+    if (data.roomId) {
+      opId = BigInt(data.roomId);
+    } else {
+      const defaultOp = await prisma.operatory.findFirst({
+        where: { IsHidden: 0 },
+        orderBy: { ItemOrder: 'asc' },
+      });
+      opId = defaultOp?.OperatoryNum ?? BigInt(1);
+    }
+
     const appointment = await prisma.appointment.create({
       data: {
         AptNum: nextId,
@@ -928,7 +939,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
         Pattern: String(durationMinutes),
         ProcDescript: data.chiefComplaint ?? null,
         Note: data.notes ?? null,
-        Op: data.roomId ? BigInt(data.roomId) : null,
+        Op: opId,
         AptStatus: mapAppointmentStatusToDb(data.status ?? 'scheduled'),
         DateTimeArrived: null,
         DateTimeDismissed: null,
@@ -1074,6 +1085,21 @@ async getPatientAppointments(patientId: string, limit = 10) {
     const durationMinutes =
       updates.durationMinutes !== undefined ? String(updates.durationMinutes) : undefined;
 
+    let opId: bigint | null | undefined = undefined;
+    if (updates.roomId !== undefined) {
+      if (updates.roomId) {
+        opId = BigInt(updates.roomId);
+      } else {
+        const defaultOp = await prisma.operatory.findFirst({
+          where: { IsHidden: 0 },
+          orderBy: { ItemOrder: 'asc' },
+        });
+        opId = defaultOp?.OperatoryNum ?? BigInt(1);
+      }
+    } else if (isInactiveStatus) {
+      opId = null;
+    }
+
     const updated = await prisma.appointment.update({
       where: { AptNum: BigInt(appointmentId) },
       data: {
@@ -1083,7 +1109,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
         Pattern: durationMinutes,
         ProcDescript: updates.chiefComplaint ?? undefined,
         Note: updates.notes ?? undefined,
-        Op: updates.roomId !== undefined ? (updates.roomId ? BigInt(updates.roomId) : null) : (isInactiveStatus ? null : undefined),
+        Op: opId,
         AptStatus: updates.status ? mapAppointmentStatusToDb(updates.status) : undefined,
         DateTimeArrived: updates.status === 'checked_in' ? new Date() : undefined,
         DateTimeDismissed: updates.status === 'completed' ? new Date() : undefined,
