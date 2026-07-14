@@ -496,6 +496,8 @@ export const mapAppointmentToApi = (
     checkInAt: options?.checkInAt ?? row.DateTimeArrived ?? null,
     completedAt: options?.completedAt ?? row.DateTimeDismissed ?? null,
     parentAppointmentId: row.NextAptNum?.toString() ?? null,
+    createdAt: row.SecDateTEntry ?? null,
+    updatedAt: row.DateTStamp ?? null,
     patient: undefined,
     provider: undefined,
     appointmentTypeData: undefined,

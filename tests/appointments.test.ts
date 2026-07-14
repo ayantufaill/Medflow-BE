@@ -152,5 +152,7 @@ describe('Appointments', () => {
     const createdAppt = items.find((item: any) => item._id === AptNum.toString());
     expect(createdAppt).toBeDefined();
     expect(createdAppt.roomId).toBe(room.OperatoryNum.toString());
+    expect(createdAppt).toHaveProperty('createdAt');
+    expect(createdAppt).toHaveProperty('updatedAt');
   });
 });
