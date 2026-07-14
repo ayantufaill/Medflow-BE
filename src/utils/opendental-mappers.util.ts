@@ -14,7 +14,7 @@ const formatTime = (date: Date): string => {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 };
 
-const parseDurationMinutes = (pattern?: string | null): number => {
+export const parseDurationMinutes = (pattern?: string | null): number => {
   if (!pattern) return 30;
   const parsed = Number.parseInt(pattern, 10);
   return Number.isFinite(parsed) ? parsed : 30;
