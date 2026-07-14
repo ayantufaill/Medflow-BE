@@ -5,7 +5,7 @@ async function check() {
     where: { FkeyType: 207 }
   });
   console.log('Prefs:', prefs.map(p => ({
-    Fkey: p.Fkey.toString(),
+    Fkey: p.Fkey?.toString() ?? null,
     FkeyType: p.FkeyType,
     ValueString: p.ValueString
   })));

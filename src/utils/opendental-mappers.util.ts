@@ -232,7 +232,6 @@ export const mapPatientToApi = (
   id: row.PatNum.toString(),
   _id: row.PatNum.toString(),
   patientCode: row.ChartNumber ?? `PAT${row.PatNum.toString()}`,
-  userAccountId: null,
   title: row.Title ?? null,
   firstName: row.FName ?? '',
   middleName: row.MiddleI ?? null,

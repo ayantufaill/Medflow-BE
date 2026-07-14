@@ -550,7 +550,6 @@ async getPatientLastVisit(patientId: string) {
       preferredLanguage?: string;
       communicationPreference?: string;
       portalAccessEnabled?: boolean;
-      userAccountId?: string;
       lastVisitDate?: Date;
       referralSource?: string;
       maritalStatus?: string;
