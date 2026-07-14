@@ -1,12 +1,14 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import app from '../src/app';
+import { prisma } from '../src/config/db';
 import { getAdminAuthHeader } from './helpers/auth';
 import { uniqueToken } from './helpers/unique';
 import {
   createAppointmentRecord,
   createPatientRecord,
   createProviderRecord,
+  createRoomRecord,
 } from './helpers/fixtures';
 
 describe('Appointments', () => {
@@ -117,5 +119,38 @@ describe('Appointments', () => {
       .delete('/api/appointments/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
+  });
+
+  it('gets patient appointments with roomId', async () => {
+    const token = uniqueToken('appt-room');
+    const patient = await createPatientRecord(token);
+    const provider = await createProviderRecord(token);
+    const room = await createRoomRecord(token);
+    
+    const AptNum = BigInt(Math.floor(1000000 + Math.random() * 9000000));
+    await prisma.appointment.create({
+      data: {
+        AptNum,
+        PatNum: patient.PatNum,
+        ProvNum: provider.ProvNum,
+        AptDateTime: new Date(),
+        Pattern: '30',
+        ProcDescript: `Complaint ${token}`,
+        Note: `Note ${token}`,
+        AptStatus: 0,
+        Op: room.OperatoryNum,
+      },
+    });
+
+    const res = await request(app)
+      .get(`/api/patients/${patient.PatNum}/appointments`)
+      .set(authHeader);
+    expect(res.status).toBe(200);
+    const items = res.body?.data?.appointments ?? [];
+    expect(items.length).toBeGreaterThan(0);
+    
+    const createdAppt = items.find((item: any) => item._id === AptNum.toString());
+    expect(createdAppt).toBeDefined();
+    expect(createdAppt.roomId).toBe(room.OperatoryNum.toString());
   });
 });

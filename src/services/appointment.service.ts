@@ -523,6 +523,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       startTime: apt.startTime,
       endTime: apt.endTime,
       status: apt.status,
+      roomId: apt.roomId,
       appointmentType: apt.appointmentTypeId
         ? {
             _id: apt.appointmentTypeId?._id ?? null,
