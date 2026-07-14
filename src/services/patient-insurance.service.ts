@@ -234,6 +234,7 @@ export class PatientInsuranceService {
     patientId: string,
     data: {
       insuranceCompanyId: string;
+      payerId?: string;
       policyNumber: string;
       groupNumber?: string;
       groupName?: string;
@@ -322,6 +323,13 @@ export class PatientInsuranceService {
     const planNum = await getNextId('insplan', 'PlanNum');
     const insSubNum = await getNextId('inssub', 'InsSubNum');
     const patPlanNum = await getNextId('patplan', 'PatPlanNum');
+
+    if (data.payerId !== undefined) {
+      await prisma.carrier.update({
+        where: { CarrierNum: BigInt(data.insuranceCompanyId) },
+        data: { ElectID: data.payerId || null },
+      });
+    }
 
     await prisma.insplan.create({
       data: {
@@ -425,6 +433,7 @@ export class PatientInsuranceService {
     patientInsuranceId: string,
     updates: {
       insuranceCompanyId?: string;
+      payerId?: string;
       policyNumber?: string;
       groupNumber?: string;
       groupName?: string;
@@ -528,6 +537,16 @@ export class PatientInsuranceService {
           PlanNote: updates.notes ?? undefined,
         },
       });
+    }
+
+    if (updates.payerId !== undefined) {
+      const carrierId = updates.insuranceCompanyId ? BigInt(updates.insuranceCompanyId) : patplan.inssub?.insplan?.CarrierNum;
+      if (carrierId) {
+        await prisma.carrier.update({
+          where: { CarrierNum: carrierId },
+          data: { ElectID: updates.payerId || null },
+        });
+      }
     }
     await prisma.patplan.update({
       where: { PatPlanNum: BigInt(patientInsuranceId) },

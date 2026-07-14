@@ -154,5 +154,9 @@ describe('Appointments', () => {
     expect(createdAppt.roomId).toBe(room.OperatoryNum.toString());
     expect(createdAppt).toHaveProperty('createdAt');
     expect(createdAppt).toHaveProperty('updatedAt');
+    expect(createdAppt).toHaveProperty('customFields');
+    expect(createdAppt).toHaveProperty('tags');
+    expect(createdAppt).toHaveProperty('procedures');
+    expect(createdAppt).toHaveProperty('visitType');
   });
 });
