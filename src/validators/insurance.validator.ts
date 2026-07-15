@@ -590,3 +590,16 @@ export const updateAllergyValidator: ValidationChain[] = [
     .withMessage('isActive must be a boolean'),
 ];
 
+export const reorderInsurancesValidator: ValidationChain[] = [
+  body('insuranceIds')
+    .isArray({ min: 1 })
+    .withMessage('insuranceIds must be a non-empty array of strings'),
+  body('insuranceIds.*')
+    .isString()
+    .withMessage('Each insuranceId must be a string')
+    .custom((value) => {
+      return typeof value === 'string' && /^\d+$/.test(value.trim());
+    })
+    .withMessage('Each insuranceId must be a valid numeric ID string'),
+];
+

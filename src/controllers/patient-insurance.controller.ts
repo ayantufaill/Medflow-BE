@@ -173,6 +173,40 @@ export class PatientInsuranceController {
     next(error);
   }
 }
+
+  async reorderPatientInsurances(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const { patientId } = req.params;
+      const { insuranceIds } = req.body;
+
+      if (!patientId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Patient ID is required' },
+        });
+      }
+
+      const insurances = await patientInsuranceService.reorderInsurances(
+        patientId,
+        insuranceIds
+      );
+
+      res.status(200).json({
+        success: true,
+        data: { insurances },
+        message: 'Insurances reordered successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const patientInsuranceController = new PatientInsuranceController();

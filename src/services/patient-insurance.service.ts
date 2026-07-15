@@ -706,6 +706,45 @@ async setPrimaryInsurance(patientId: string, patientInsuranceId: string) {
   return this.getPatientInsuranceById(patientInsuranceId);
 }
 
+  /**
+   * Reorder patient insurances atomically
+   */
+  async reorderInsurances(patientId: string, orderedInsuranceIds: string[]) {
+    const bigIntIds = orderedInsuranceIds.map((id) => BigInt(id));
+    const patplans = await prisma.patplan.findMany({
+      where: {
+        PatPlanNum: { in: bigIntIds },
+        PatNum: BigInt(patientId),
+      },
+    });
+
+    if (patplans.length !== orderedInsuranceIds.length) {
+      throw new NotFoundError(
+        'One or more insurance records not found or do not belong to this patient'
+      );
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Step A: Set to temporary high ordinals to prevent constraint errors
+      for (let i = 0; i < patplans.length; i++) {
+        await tx.patplan.update({
+          where: { PatPlanNum: patplans[i].PatPlanNum },
+          data: { Ordinal: 10 + i },
+        });
+      }
+
+      // Step B: Set to final ordinals based on the payload order (1, 2, 3...)
+      for (let i = 0; i < orderedInsuranceIds.length; i++) {
+        const id = BigInt(orderedInsuranceIds[i]);
+        await tx.patplan.update({
+          where: { PatPlanNum: id },
+          data: { Ordinal: i + 1 },
+        });
+      }
+    });
+
+    return this.getPatientInsurances(patientId);
+  }
 }
 
 export const patientInsuranceService = new PatientInsuranceService();
