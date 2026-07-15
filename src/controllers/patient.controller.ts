@@ -14,8 +14,10 @@ export class PatientController {
       const dobEnd = req.query.dobEnd as string | undefined;
       const gender = req.query.gender as string | undefined;
       const providerId = req.query.providerId as string | undefined;
+      const sortBy = req.query.sortBy as string | undefined;
+      const sortOrder = req.query.sortOrder as string | undefined;
 
-      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId);
+      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder);
       res.status(200).json({
         success: true,
         data: result,
@@ -134,8 +136,10 @@ export class PatientController {
       const dobEnd = req.query.dobEnd as string | undefined;
       const gender = req.query.gender as string | undefined;
       const providerId = req.query.providerId as string | undefined;
+      const sortBy = req.query.sortBy as string | undefined;
+      const sortOrder = req.query.sortOrder as string | undefined;
 
-      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId);
+      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder);
       res.status(200).json({
         success: true,
         data: result,

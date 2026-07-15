@@ -783,4 +783,12 @@ export const patientSearchValidator: ValidationChain[] = [
     .optional()
     .isISO8601()
     .withMessage('dobEnd must be a valid ISO 8601 date'),
+  query('sortBy')
+    .optional()
+    .isString()
+    .withMessage('sortBy must be a string'),
+  query('sortOrder')
+    .optional()
+    .isIn(['asc', 'desc'])
+    .withMessage('sortOrder must be asc or desc'),
 ];

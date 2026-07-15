@@ -90,7 +90,9 @@ export class PatientService {
     dobStart?: string,
     dobEnd?: string,
     gender?: string,
-    providerId?: string
+    providerId?: string,
+    sortBy?: string,
+    sortOrder?: string
   ) {
     const skip = (page - 1) * limit;
     const where: any = {};
@@ -201,7 +203,12 @@ export class PatientService {
     const [patients, total] = await Promise.all([
       prisma.patient.findMany({
         where,
-        orderBy: { DateTStamp: 'desc' },
+        orderBy: sortBy === 'name'
+          ? [
+              { LName: sortOrder === 'desc' ? 'desc' : 'asc' },
+              { FName: sortOrder === 'desc' ? 'desc' : 'asc' }
+            ]
+          : { DateTStamp: 'desc' },
         skip,
         take: limit,
         include: {

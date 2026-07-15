@@ -157,4 +157,51 @@ describe('Patients', () => {
       .set(authHeader);
     expect(res.status).toBe(400);
   });
+
+  it('gets patients sorted alphabetically by name', async () => {
+    // Create patients with distinct first names (same LName: User)
+    const suffix = uniqueToken('sort');
+    const patA = await createPatientRecord(`A_${suffix}`);
+    const patB = await createPatientRecord(`B_${suffix}`);
+    const patC = await createPatientRecord(`C_${suffix}`);
+
+    // Fetch sorted by name asc
+    const resAsc = await request(app)
+      .get(`/api/patients?sortBy=name&sortOrder=asc&limit=100`)
+      .set(authHeader);
+    expect(resAsc.status).toBe(200);
+    const patientsAsc = resAsc.body?.data?.patients ?? [];
+    
+    // Find the positions of our created patients in the returned list
+    const indexA_asc = patientsAsc.findIndex((p: any) => p.firstName === patA.FName);
+    const indexB_asc = patientsAsc.findIndex((p: any) => p.firstName === patB.FName);
+    const indexC_asc = patientsAsc.findIndex((p: any) => p.firstName === patC.FName);
+
+    expect(indexA_asc).toBeGreaterThan(-1);
+    expect(indexB_asc).toBeGreaterThan(-1);
+    expect(indexC_asc).toBeGreaterThan(-1);
+
+    // Verify Ascending order: patA < patB < patC
+    expect(indexA_asc).toBeLessThan(indexB_asc);
+    expect(indexB_asc).toBeLessThan(indexC_asc);
+
+    // Fetch sorted by name desc
+    const resDesc = await request(app)
+      .get(`/api/patients?sortBy=name&sortOrder=desc&limit=100`)
+      .set(authHeader);
+    expect(resDesc.status).toBe(200);
+    const patientsDesc = resDesc.body?.data?.patients ?? [];
+
+    const indexA_desc = patientsDesc.findIndex((p: any) => p.firstName === patA.FName);
+    const indexB_desc = patientsDesc.findIndex((p: any) => p.firstName === patB.FName);
+    const indexC_desc = patientsDesc.findIndex((p: any) => p.firstName === patC.FName);
+
+    expect(indexA_desc).toBeGreaterThan(-1);
+    expect(indexB_desc).toBeGreaterThan(-1);
+    expect(indexC_desc).toBeGreaterThan(-1);
+
+    // Verify Descending order: patC < patB < patA (in indices, meaning patC comes first)
+    expect(indexC_desc).toBeLessThan(indexB_desc);
+    expect(indexB_desc).toBeLessThan(indexA_desc);
+  });
 });
