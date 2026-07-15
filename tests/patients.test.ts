@@ -22,7 +22,7 @@ describe('Patients', () => {
   it('creates a patient and finds it via search', async () => {
     const token = uniqueToken('patient');
     const created = await createPatientRecord(token);
-    const firstName = created.FName;
+    const firstName = created.FName || '';
 
     const searchRes = await request(app)
       .get(`/api/patients?search=${encodeURIComponent(firstName)}`)
@@ -35,7 +35,7 @@ describe('Patients', () => {
   it('finds a patient via case-insensitive search', async () => {
     const token = uniqueToken('case');
     const created = await createPatientRecord(token);
-    const firstName = created.FName;
+    const firstName = created.FName || '';
 
     // Search with lowercase
     const searchResLower = await request(app)

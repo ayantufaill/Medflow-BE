@@ -237,11 +237,6 @@ export class PatientController {
         if ('medications' in mh) delete mh.medications;
         if ('supplements' in mh) delete mh.supplements;
       }
-      
-      if (result.dentalHistory && typeof result.dentalHistory === 'object') {
-        const dh = result.dentalHistory as Record<string, any>;
-        if ('sections' in dh) delete dh.sections;
-      }
 
       res.status(200).json({
         success: true,

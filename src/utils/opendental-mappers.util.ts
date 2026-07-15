@@ -251,7 +251,7 @@ export const mapPatientToApi = (
     city: row.City ?? null,
     state: row.State ?? null,
     postalCode: row.Zip ?? null,
-    country: row.Country ?? null,
+    country: row.Country || 'United States',
   },
   emergencyContact: options?.emergencyContact ?? null,
   assignmentAndRelease: options?.assignmentAndRelease ?? null,
@@ -277,7 +277,6 @@ export const mapPatientToApi = (
   workAddress: options?.workAddress ?? null,
   patientProfileType: options?.patientProfileType ?? 'adult',
   medicalHistory: options?.medicalHistory ?? null,
-  dentalHistory: options?.dentalHistory ?? null,
   paymentMethod: {
     paidBy: carrierName || 'Self Pay',
   },
