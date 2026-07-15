@@ -211,7 +211,9 @@ export class ProviderService {
    */
   async createProvider(
     data: {
-      userId: string;
+      userId?: string;
+      firstName: string;
+      lastName: string;
       npiNumber: string;
       licenseNumber?: string;
       specialty?: string[] | string;
@@ -231,11 +233,13 @@ export class ProviderService {
     createdBy: string
   ) {
     // Check if provider already exists for this user
-    const existingProvider = await prisma.provider.findFirst({
-      where: { CustomID: data.userId },
-    });
-    if (existingProvider) {
-      throw new ConflictError('Provider profile already exists for this user');
+    if (data.userId) {
+      const existingProvider = await prisma.provider.findFirst({
+        where: { CustomID: data.userId },
+      });
+      if (existingProvider) {
+        throw new ConflictError('Provider profile already exists for this user');
+      }
     }
 
     // Check if NPI number is already in use
@@ -245,17 +249,6 @@ export class ProviderService {
     if (existingNPI) {
       throw new ConflictError('NPI number already in use');
     }
-
-    const linkedUser = await prisma.userod.findUnique({
-      where: { UserNum: BigInt(data.userId) },
-    });
-
-    const mappedLinkedUser = linkedUser ? await mapUser(linkedUser) : null;
-    const providerFirstName =
-      mappedLinkedUser?.firstName?.trim() ||
-      linkedUser?.UserName?.split('@')[0]?.trim() ||
-      'Provider';
-    const providerLastName = mappedLinkedUser?.lastName?.trim() || '';
 
     // Generate provider code
     const providerCode = await generateProviderCode();
@@ -274,14 +267,14 @@ export class ProviderService {
       data: {
         ProvNum: nextId,
         Abbr: providerCode,
-        FName: providerFirstName,
-        LName: providerLastName,
+        FName: data.firstName,
+        LName: data.lastName,
         NationalProvID: data.npiNumber,
         StateLicense: data.licenseNumber ?? null,
         Specialty: specialtyDefNum,
         Suffix: data.title ?? 'MD',
         IsHidden: 0,
-        CustomID: data.userId,
+        CustomID: data.userId || null,
       },
     });
 

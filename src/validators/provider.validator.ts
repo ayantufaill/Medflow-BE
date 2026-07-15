@@ -10,10 +10,21 @@ export const providerIdValidator: ValidationChain[] = [
 
 export const createProviderValidator: ValidationChain[] = [
   body('userId')
-    .notEmpty()
-    .withMessage('User ID is required')
+    .optional({ values: 'falsy' })
     .isInt({ min: 1 })
     .withMessage('Invalid user ID format'),
+  body('firstName')
+    .trim()
+    .notEmpty()
+    .withMessage('First name is required')
+    .isLength({ max: 50 })
+    .withMessage('First name must be less than 50 characters'),
+  body('lastName')
+    .trim()
+    .notEmpty()
+    .withMessage('Last name is required')
+    .isLength({ max: 50 })
+    .withMessage('Last name must be less than 50 characters'),
   body('npiNumber')
     .notEmpty()
     .withMessage('NPI number is required')
