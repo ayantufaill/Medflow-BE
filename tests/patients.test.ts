@@ -32,6 +32,28 @@ describe('Patients', () => {
     expect(items.some((item: any) => item.firstName === firstName)).toBe(true);
   });
 
+  it('finds a patient via case-insensitive search', async () => {
+    const token = uniqueToken('case');
+    const created = await createPatientRecord(token);
+    const firstName = created.FName;
+
+    // Search with lowercase
+    const searchResLower = await request(app)
+      .get(`/api/patients?search=${encodeURIComponent(firstName.toLowerCase())}`)
+      .set(authHeader);
+    expect(searchResLower.status).toBe(200);
+    const itemsLower = searchResLower.body?.data?.patients ?? [];
+    expect(itemsLower.some((item: any) => item.firstName === firstName)).toBe(true);
+
+    // Search with uppercase
+    const searchResUpper = await request(app)
+      .get(`/api/patients?search=${encodeURIComponent(firstName.toUpperCase())}`)
+      .set(authHeader);
+    expect(searchResUpper.status).toBe(200);
+    const itemsUpper = searchResUpper.body?.data?.patients ?? [];
+    expect(itemsUpper.some((item: any) => item.firstName === firstName)).toBe(true);
+  });
+
   it('searches patients', async () => {
     const res = await request(app)
       .get('/api/patients/search')

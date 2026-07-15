@@ -140,38 +140,38 @@ export class PatientService {
         const reverseLastNameSearch = searchTerms.slice(0, -1).join(' ');
 
         where.OR = [
-          { ChartNumber: { contains: search } },
-          { Email: { contains: search } },
-          { WirelessPhone: { contains: search } },
-          { HmPhone: { contains: search } },
-          { WkPhone: { contains: search } },
+          { ChartNumber: { contains: search, mode: 'insensitive' } },
+          { Email: { contains: search, mode: 'insensitive' } },
+          { WirelessPhone: { contains: search, mode: 'insensitive' } },
+          { HmPhone: { contains: search, mode: 'insensitive' } },
+          { WkPhone: { contains: search, mode: 'insensitive' } },
           {
             AND: [
-              { FName: { contains: firstNameSearch } },
-              { LName: { contains: lastNameSearch } },
+              { FName: { contains: firstNameSearch, mode: 'insensitive' } },
+              { LName: { contains: lastNameSearch, mode: 'insensitive' } },
             ],
           },
           {
             AND: [
-              { FName: { contains: reverseFirstNameSearch } },
-              { LName: { contains: reverseLastNameSearch } },
+              { FName: { contains: reverseFirstNameSearch, mode: 'insensitive' } },
+              { LName: { contains: reverseLastNameSearch, mode: 'insensitive' } },
             ],
           },
-          { FName: { contains: search } },
-          { LName: { contains: search } },
-          { AddrNote: { contains: search } },
+          { FName: { contains: search, mode: 'insensitive' } },
+          { LName: { contains: search, mode: 'insensitive' } },
+          { AddrNote: { contains: search, mode: 'insensitive' } },
         ];
       } else {
         // Single word - search across all relevant fields
         where.OR = [
-          { ChartNumber: { contains: search } },
-          { Email: { contains: search } },
-          { FName: { contains: search } },
-          { LName: { contains: search } },
-          { WirelessPhone: { contains: search } },
-          { HmPhone: { contains: search } },
-          { WkPhone: { contains: search } },
-          { AddrNote: { contains: search } },
+          { ChartNumber: { contains: search, mode: 'insensitive' } },
+          { Email: { contains: search, mode: 'insensitive' } },
+          { FName: { contains: search, mode: 'insensitive' } },
+          { LName: { contains: search, mode: 'insensitive' } },
+          { WirelessPhone: { contains: search, mode: 'insensitive' } },
+          { HmPhone: { contains: search, mode: 'insensitive' } },
+          { WkPhone: { contains: search, mode: 'insensitive' } },
+          { AddrNote: { contains: search, mode: 'insensitive' } },
         ];
       }
     }
