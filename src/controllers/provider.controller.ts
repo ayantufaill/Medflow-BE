@@ -72,6 +72,8 @@ export class ProviderController {
 
       const {
         userId,
+        firstName,
+        lastName,
         npiNumber,
         licenseNumber,
         specialty,
@@ -87,6 +89,8 @@ export class ProviderController {
       const provider = await providerService.createProvider(
         {
           userId,
+          firstName,
+          lastName,
           npiNumber,
           licenseNumber,
           specialty,

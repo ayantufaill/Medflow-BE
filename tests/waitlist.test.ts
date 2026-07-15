@@ -19,7 +19,7 @@ describe('Waitlist', () => {
 
   it('validates waitlist entry id', async () => {
     const res = await request(app)
-      .get('/api/waitlist/1')
+      .get('/api/waitlist/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
@@ -34,7 +34,7 @@ describe('Waitlist', () => {
 
   it('validates update waitlist payload', async () => {
     const res = await request(app)
-      .put('/api/waitlist/1')
+      .put('/api/waitlist/invalid-id')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -42,21 +42,21 @@ describe('Waitlist', () => {
 
   it('validates mark called params', async () => {
     const res = await request(app)
-      .post('/api/waitlist/1/called')
+      .post('/api/waitlist/invalid-id/called')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates mark scheduled params', async () => {
     const res = await request(app)
-      .post('/api/waitlist/1/scheduled')
+      .post('/api/waitlist/invalid-id/scheduled')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates convert to appointment payload', async () => {
     const res = await request(app)
-      .post('/api/waitlist/1/convert-to-appointment')
+      .post('/api/waitlist/invalid-id/convert-to-appointment')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -64,7 +64,7 @@ describe('Waitlist', () => {
 
   it('validates delete waitlist params', async () => {
     const res = await request(app)
-      .delete('/api/waitlist/1')
+      .delete('/api/waitlist/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });

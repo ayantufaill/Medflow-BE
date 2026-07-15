@@ -1,7 +1,8 @@
 import { prisma } from '../config/db';
-import { NotFoundError } from '../utils/error.util';
+import { NotFoundError, BadRequestError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
+import { parseDurationMinutes } from '../utils/opendental-mappers.util';
 
 export class ScheduleBlockService {
   /**
@@ -18,6 +19,39 @@ export class ScheduleBlockService {
     },
     createdBy: string
   ) {
+    // Overlap validation check
+    const startOfDay = new Date(`${data.date}T00:00:00.000Z`);
+    const endOfDay = new Date(`${data.date}T23:59:59.999Z`);
+    const blockStart = new Date(`${data.date}T${data.startTime}:00.000Z`);
+    const blockEnd = new Date(`${data.date}T${data.endTime}:00.000Z`);
+
+    const appointments = await prisma.appointment.findMany({
+      where: {
+        Op: BigInt(data.roomId),
+        AptDateTime: {
+          gte: startOfDay,
+          lte: endOfDay,
+        },
+      },
+    });
+
+    const activeAppts = appointments.filter(
+      (appt) => appt.AptStatus !== null && appt.AptStatus !== 3 && appt.AptStatus !== 6
+    );
+
+    for (const appt of activeAppts) {
+      if (!appt.AptDateTime) continue;
+
+      const apptStart = appt.AptDateTime;
+      const duration = parseDurationMinutes(appt.Pattern);
+      const apptEnd = new Date(apptStart.getTime() + duration * 60 * 1000);
+
+      // Overlap occurs if: BlockStart < ApptEnd AND BlockEnd > ApptStart
+      if (blockStart < apptEnd && blockEnd > apptStart) {
+        throw new BadRequestError('Cannot create block slot: Overlaps with an existing appointment');
+      }
+    }
+
     const scheduleNum = await getNextId('schedule', 'ScheduleNum');
     const scheduleOpNum = await getNextId('scheduleop', 'ScheduleOpNum');
 

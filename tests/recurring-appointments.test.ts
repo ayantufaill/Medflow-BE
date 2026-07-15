@@ -19,7 +19,7 @@ describe('Recurring Appointments', () => {
 
   it('validates recurring appointment id', async () => {
     const res = await request(app)
-      .get('/api/recurring-appointments/1')
+      .get('/api/recurring-appointments/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
@@ -50,7 +50,7 @@ describe('Recurring Appointments', () => {
 
   it('validates generate params', async () => {
     const res = await request(app)
-      .post('/api/recurring-appointments/1/generate')
+      .post('/api/recurring-appointments/invalid-id/generate')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -58,7 +58,7 @@ describe('Recurring Appointments', () => {
 
   it('validates update payload', async () => {
     const res = await request(app)
-      .put('/api/recurring-appointments/1')
+      .put('/api/recurring-appointments/invalid-id')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -66,14 +66,14 @@ describe('Recurring Appointments', () => {
 
   it('validates linked appointments params', async () => {
     const res = await request(app)
-      .get('/api/recurring-appointments/1/appointments')
+      .get('/api/recurring-appointments/invalid-id/appointments')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates delete params', async () => {
     const res = await request(app)
-      .delete('/api/recurring-appointments/1')
+      .delete('/api/recurring-appointments/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });

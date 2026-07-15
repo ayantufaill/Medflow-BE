@@ -11,6 +11,17 @@ import {
 import { getPatientInsuranceMeta, setPatientInsuranceMeta, getPatientInsurancesMeta } from '../utils/opendental-auth.util';
 import { claimService } from './claim.service';
 
+const safeBigInt = (val: any): bigint => {
+  if (val === undefined || val === null || val === '') return 0n;
+  const str = String(val).trim();
+  if (str === 'null' || str === 'undefined' || str === 'none' || str === 'None') return 0n;
+  try {
+    return BigInt(str);
+  } catch (e) {
+    return 0n;
+  }
+};
+
 export class PatientInsuranceService {
   /**
    * Get all insurances for a patient
@@ -115,7 +126,9 @@ export class PatientInsuranceService {
         coverageLimits: meta?.coverageLimits ?? null,
         coverageCategoryTable: meta?.coverageCategoryTable ?? [],
         coverageBookData: meta?.coverageBookData ?? [],
-        planFeeGuide: meta?.planFeeGuide ?? null,
+        planFeeGuide: (patplan.inssub?.insplan?.FeeSched && patplan.inssub.insplan.FeeSched !== 0n)
+          ? patplan.inssub.insplan.FeeSched.toString()
+          : (meta?.planFeeGuide ? String(meta.planFeeGuide) : null),
         coverageType: meta?.coverageType ?? null,
         subscriberSsn: meta?.subscriberSsn ?? null,
         renewalMonth: meta?.renewalMonth ?? null,
@@ -212,7 +225,9 @@ export class PatientInsuranceService {
       coverageLimits: insuranceMeta.coverageLimits ?? null,
       coverageCategoryTable: insuranceMeta.coverageCategoryTable ?? [],
       coverageBookData: insuranceMeta.coverageBookData ?? [],
-      planFeeGuide: insuranceMeta.planFeeGuide ?? null,
+      planFeeGuide: (patplan.inssub?.insplan?.FeeSched && patplan.inssub.insplan.FeeSched !== 0n)
+        ? patplan.inssub.insplan.FeeSched.toString()
+        : (insuranceMeta.planFeeGuide ? String(insuranceMeta.planFeeGuide) : null),
       coverageType: insuranceMeta.coverageType ?? null,
       subscriberSsn: insuranceMeta.subscriberSsn ?? null,
       renewalMonth: insuranceMeta.renewalMonth ?? null,
@@ -234,6 +249,7 @@ export class PatientInsuranceService {
     patientId: string,
     data: {
       insuranceCompanyId: string;
+      payerId?: string;
       policyNumber: string;
       groupNumber?: string;
       groupName?: string;
@@ -322,6 +338,13 @@ export class PatientInsuranceService {
     const planNum = await getNextId('insplan', 'PlanNum');
     const insSubNum = await getNextId('inssub', 'InsSubNum');
     const patPlanNum = await getNextId('patplan', 'PatPlanNum');
+
+    if (data.payerId !== undefined) {
+      await prisma.carrier.update({
+        where: { CarrierNum: BigInt(data.insuranceCompanyId) },
+        data: { ElectID: data.payerId || null },
+      });
+    }
 
     await prisma.insplan.create({
       data: {
@@ -425,6 +448,7 @@ export class PatientInsuranceService {
     patientInsuranceId: string,
     updates: {
       insuranceCompanyId?: string;
+      payerId?: string;
       policyNumber?: string;
       groupNumber?: string;
       groupName?: string;
@@ -489,7 +513,7 @@ export class PatientInsuranceService {
           PatNum: patplan.PatNum ?? undefined,
           Ordinal: mapInsuranceTypeToOrdinal(updates.insuranceType),
           IsPending: 0,
-          PatPlanNum: { not: BigInt(patientInsuranceId) },
+          PatPlanNum: { not: safeBigInt(patientInsuranceId) },
         },
       });
 
@@ -522,15 +546,26 @@ export class PatientInsuranceService {
       await prisma.insplan.update({
         where: { PlanNum: patplan.inssub.insplan.PlanNum },
         data: {
-          CarrierNum: updates.insuranceCompanyId ? BigInt(updates.insuranceCompanyId) : undefined,
+          CarrierNum: updates.insuranceCompanyId ? safeBigInt(updates.insuranceCompanyId) : undefined,
           GroupNum: updates.groupNumber ?? undefined,
           GroupName: updates.groupName ?? undefined,
           PlanNote: updates.notes ?? undefined,
+          FeeSched: updates.planFeeGuide !== undefined ? (updates.planFeeGuide ? safeBigInt(updates.planFeeGuide) : 0n) : undefined,
         },
       });
     }
+
+    if (updates.payerId !== undefined) {
+      const carrierId = updates.insuranceCompanyId ? safeBigInt(updates.insuranceCompanyId) : patplan.inssub?.insplan?.CarrierNum;
+      if (carrierId) {
+        await prisma.carrier.update({
+          where: { CarrierNum: carrierId },
+          data: { ElectID: updates.payerId || null },
+        });
+      }
+    }
     await prisma.patplan.update({
-      where: { PatPlanNum: BigInt(patientInsuranceId) },
+      where: { PatPlanNum: safeBigInt(patientInsuranceId) },
       data: {
         Ordinal: updates.insuranceType ? mapInsuranceTypeToOrdinal(updates.insuranceType) : undefined,
         IsPending: updates.isActive !== undefined ? (updates.isActive ? 0 : 1) : undefined,
@@ -671,6 +706,45 @@ async setPrimaryInsurance(patientId: string, patientInsuranceId: string) {
   return this.getPatientInsuranceById(patientInsuranceId);
 }
 
+  /**
+   * Reorder patient insurances atomically
+   */
+  async reorderInsurances(patientId: string, orderedInsuranceIds: string[]) {
+    const bigIntIds = orderedInsuranceIds.map((id) => BigInt(id));
+    const patplans = await prisma.patplan.findMany({
+      where: {
+        PatPlanNum: { in: bigIntIds },
+        PatNum: BigInt(patientId),
+      },
+    });
+
+    if (patplans.length !== orderedInsuranceIds.length) {
+      throw new NotFoundError(
+        'One or more insurance records not found or do not belong to this patient'
+      );
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Step A: Set to temporary high ordinals to prevent constraint errors
+      for (let i = 0; i < patplans.length; i++) {
+        await tx.patplan.update({
+          where: { PatPlanNum: patplans[i].PatPlanNum },
+          data: { Ordinal: 10 + i },
+        });
+      }
+
+      // Step B: Set to final ordinals based on the payload order (1, 2, 3...)
+      for (let i = 0; i < orderedInsuranceIds.length; i++) {
+        const id = BigInt(orderedInsuranceIds[i]);
+        await tx.patplan.update({
+          where: { PatPlanNum: id },
+          data: { Ordinal: i + 1 },
+        });
+      }
+    });
+
+    return this.getPatientInsurances(patientId);
+  }
 }
 
 export const patientInsuranceService = new PatientInsuranceService();

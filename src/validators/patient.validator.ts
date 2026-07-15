@@ -269,7 +269,6 @@ export const createPatientValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 20 })
     .withMessage('workAddress.postalCode must be less than 20 characters'),
-  optionalNumericIdValidator('userAccountId', 'Invalid user account ID format'),
   optionalNumericIdValidator('guarantorId', 'Invalid guarantor ID format'),
   body('referralSource')
     .optional()
@@ -721,6 +720,7 @@ export const patientMedicalHistoryValidator: ValidationChain[] = [
   body('sections.*.answer').optional().isString().withMessage('section answer must be a string'),
   body('sections.*.comment').optional().isString().withMessage('section comment must be a string'),
   body('sections.*.doctorNote').optional().isString().withMessage('section doctorNote must be a string'),
+  body('sections.*.severity').optional({ values: 'null' }).isIn(['low', 'moderate', 'high', '']).withMessage('section severity must be one of: low, moderate, high, or empty'),
   body('sections.*.additionalInfo').optional().isArray().withMessage('section additionalInfo must be an array'),
   body('medications').optional().isArray().withMessage('medications must be an array'),
   body('medications.*.drug').optional().isString().withMessage('medication drug must be a string'),
@@ -784,4 +784,12 @@ export const patientSearchValidator: ValidationChain[] = [
     .optional()
     .isISO8601()
     .withMessage('dobEnd must be a valid ISO 8601 date'),
+  query('sortBy')
+    .optional()
+    .isString()
+    .withMessage('sortBy must be a string'),
+  query('sortOrder')
+    .optional()
+    .isIn(['asc', 'desc'])
+    .withMessage('sortOrder must be asc or desc'),
 ];

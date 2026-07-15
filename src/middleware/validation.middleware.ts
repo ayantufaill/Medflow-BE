@@ -21,9 +21,7 @@ export const validate = (validations: ValidationChain[]) => {
       // Create a more descriptive error message
       const errorMessages: string[] = [];
       Object.entries(errorMap).forEach(([field, messages]) => {
-        const fieldName = field.replace(/([A-Z])/g, ' $1').replace(/\./g, ' ').trim();
-        const capitalizedField = fieldName.charAt(0).toUpperCase() + fieldName.slice(1);
-        errorMessages.push(`${capitalizedField}: ${messages[0]}`);
+        errorMessages.push(messages[0]);
       });
 
       const errorMessage = errorMessages.length > 0 

@@ -12,6 +12,7 @@ describe('Payments', () => {
     authHeader = await getAdminAuthHeader();
   });
 
+
   it('gets all payments', async () => {
     const res = await request(app)
       .get('/api/payments')
@@ -39,7 +40,7 @@ describe('Payments', () => {
 
   it('validates payment id', async () => {
     const res = await request(app)
-      .get('/api/payments/1')
+      .get('/api/payments/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
@@ -54,7 +55,7 @@ describe('Payments', () => {
 
   it('validates apply payment payload', async () => {
     const res = await request(app)
-      .post('/api/payments/1/apply')
+      .post('/api/payments/invalid-id/apply')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);

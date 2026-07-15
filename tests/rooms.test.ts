@@ -34,7 +34,7 @@ describe('Rooms', () => {
 
   it('validates room id', async () => {
     const res = await request(app)
-      .get('/api/rooms/1')
+      .get('/api/rooms/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
@@ -49,7 +49,7 @@ describe('Rooms', () => {
 
   it('validates update room payload', async () => {
     const res = await request(app)
-      .put('/api/rooms/1')
+      .put('/api/rooms/invalid-id')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -57,7 +57,7 @@ describe('Rooms', () => {
 
   it('validates delete room params', async () => {
     const res = await request(app)
-      .delete('/api/rooms/1')
+      .delete('/api/rooms/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });

@@ -19,35 +19,35 @@ describe('Clinical Notes', () => {
 
   it('validates patient clinical notes params', async () => {
     const res = await request(app)
-      .get('/api/clinical-notes/patient/1')
+      .get('/api/clinical-notes/patient/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates patient medical history params', async () => {
     const res = await request(app)
-      .get('/api/clinical-notes/patient/1/medical-history')
+      .get('/api/clinical-notes/patient/invalid-id/medical-history')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates appointment clinical note params', async () => {
     const res = await request(app)
-      .get('/api/clinical-notes/appointment/1')
+      .get('/api/clinical-notes/appointment/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates unsigned notes params', async () => {
     const res = await request(app)
-      .get('/api/clinical-notes/unsigned/1')
+      .get('/api/clinical-notes/unsigned/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates clinical note id', async () => {
     const res = await request(app)
-      .get('/api/clinical-notes/1')
+      .get('/api/clinical-notes/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
@@ -62,7 +62,7 @@ describe('Clinical Notes', () => {
 
   it('validates create from template payload', async () => {
     const res = await request(app)
-      .post('/api/clinical-notes/from-template/1')
+      .post('/api/clinical-notes/from-template/invalid-id')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -70,7 +70,7 @@ describe('Clinical Notes', () => {
 
   it('validates update clinical note payload', async () => {
     const res = await request(app)
-      .put('/api/clinical-notes/1')
+      .put('/api/clinical-notes/invalid-id')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -78,7 +78,7 @@ describe('Clinical Notes', () => {
 
   it('validates save draft payload', async () => {
     const res = await request(app)
-      .put('/api/clinical-notes/1/draft')
+      .put('/api/clinical-notes/invalid-id/draft')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -86,14 +86,14 @@ describe('Clinical Notes', () => {
 
   it('validates sign clinical note params', async () => {
     const res = await request(app)
-      .post('/api/clinical-notes/1/sign')
+      .post('/api/clinical-notes/invalid-id/sign')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates add attachment payload', async () => {
     const res = await request(app)
-      .post('/api/clinical-notes/1/attachments')
+      .post('/api/clinical-notes/invalid-id/attachments')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -101,7 +101,7 @@ describe('Clinical Notes', () => {
 
   it('validates remove attachment payload', async () => {
     const res = await request(app)
-      .delete('/api/clinical-notes/1/attachments')
+      .delete('/api/clinical-notes/invalid-id/attachments')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -109,7 +109,7 @@ describe('Clinical Notes', () => {
 
   it('validates delete clinical note params', async () => {
     const res = await request(app)
-      .delete('/api/clinical-notes/1')
+      .delete('/api/clinical-notes/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });

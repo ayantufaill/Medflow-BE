@@ -61,10 +61,10 @@ export const createAppointmentValidator: ValidationChain[] = [
     .isLength({ max: 1000 })
     .withMessage('Notes must be less than 1000 characters'),
   body('roomId')
-    .optional()
-    .trim()
-    .isLength({ max: 100 })
-    .withMessage('Room ID must be less than 100 characters'),
+    .notEmpty()
+    .withMessage('Please select an operatory first')
+    .isInt({ min: 1 })
+    .withMessage('Invalid operatory ID format'),
   body('requiresInterpreter')
     .optional()
     .isBoolean()

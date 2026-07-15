@@ -23,6 +23,14 @@ describe('Adjunctive Therapy Management APIs', () => {
       });
       testPatientId = newPat.PatNum;
     }
+
+    // Clean up any existing adjunctive therapy preferences for the test patient
+    await prisma.userodpref.deleteMany({
+      where: {
+        Fkey: testPatientId,
+        FkeyType: 213, // ADJUNCTIVE_THERAPY_FKEYTYPE
+      },
+    });
   });
 
   it('GET /patients/:patientId/adjunctive-therapy - returns default empty structure when none exists', async () => {
