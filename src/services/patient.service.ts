@@ -205,8 +205,8 @@ export class PatientService {
         where,
         orderBy: sortBy === 'name'
           ? [
-              { LName: sortOrder === 'desc' ? 'desc' : 'asc' },
-              { FName: sortOrder === 'desc' ? 'desc' : 'asc' }
+              { FName: sortOrder === 'desc' ? 'desc' : 'asc' },
+              { LName: sortOrder === 'desc' ? 'desc' : 'asc' }
             ]
           : { DateTStamp: 'desc' },
         skip,
