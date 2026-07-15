@@ -208,7 +208,10 @@ export class PatientService {
               { FName: sortOrder === 'desc' ? 'desc' : 'asc' },
               { LName: sortOrder === 'desc' ? 'desc' : 'asc' }
             ]
-          : { DateTStamp: 'desc' },
+          : [
+              { DateTStamp: 'desc' },
+              { PatNum: 'asc' }
+            ],
         skip,
         take: limit,
         include: {

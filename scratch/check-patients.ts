@@ -1,23 +1,22 @@
 import { prisma } from '../src/config/db';
 
 async function main() {
-  const count = await prisma.patient.count();
-  console.log(`Total patients in database: ${count}`);
-
   const patients = await prisma.patient.findMany({
     select: {
       PatNum: true,
       FName: true,
-      LName: true
+      LName: true,
+      DateTStamp: true,
+      PatStatus: true
     },
     orderBy: {
-      PatNum: 'asc'
+      DateTStamp: 'desc'
     }
   });
 
-  console.log('List of patients:');
+  console.log('List of patients sorted by DateTStamp desc:');
   patients.forEach((p) => {
-    console.log(`PatNum: ${p.PatNum.toString()} - Name: ${p.FName} ${p.LName}`);
+    console.log(`PatNum: ${p.PatNum.toString()} | Name: ${p.FName} ${p.LName} | DateTStamp: ${p.DateTStamp?.toISOString() ?? 'null'} | Status: ${p.PatStatus}`);
   });
 }
 
