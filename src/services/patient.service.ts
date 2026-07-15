@@ -1053,6 +1053,7 @@ async getPatientLastVisit(patientId: string) {
           answer: section?.answer ?? '',
           comment: section?.comment ?? '',
           doctorNote: section?.doctorNote ?? '',
+          severity: section?.severity ?? '',
           additionalInfo: Array.isArray(section?.additionalInfo) ? section.additionalInfo : [],
         }))
         : currentMedicalHistory.sections,

@@ -720,6 +720,7 @@ export const patientMedicalHistoryValidator: ValidationChain[] = [
   body('sections.*.answer').optional().isString().withMessage('section answer must be a string'),
   body('sections.*.comment').optional().isString().withMessage('section comment must be a string'),
   body('sections.*.doctorNote').optional().isString().withMessage('section doctorNote must be a string'),
+  body('sections.*.severity').optional({ values: 'null' }).isIn(['low', 'moderate', 'high', '']).withMessage('section severity must be one of: low, moderate, high, or empty'),
   body('sections.*.additionalInfo').optional().isArray().withMessage('section additionalInfo must be an array'),
   body('medications').optional().isArray().withMessage('medications must be an array'),
   body('medications.*.drug').optional().isString().withMessage('medication drug must be a string'),
