@@ -159,4 +159,49 @@ describe('Appointments', () => {
     expect(createdAppt).toHaveProperty('procedures');
     expect(createdAppt).toHaveProperty('visitType');
   });
+
+  it('fails to create an appointment without a roomId', async () => {
+    const token = uniqueToken('appt-err');
+    const patient = await createPatientRecord(token);
+    const provider = await createProviderRecord(token);
+
+    const res = await request(app)
+      .post('/api/appointments')
+      .set(authHeader)
+      .send({
+        patientId: patient.PatNum.toString(),
+        providerId: provider.ProvNum.toString(),
+        appointmentDate: '2026-08-01',
+        startTime: '09:00',
+        endTime: '09:30',
+        durationMinutes: 30,
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('Please select an operatory first');
+  });
+
+  it('successfully creates an appointment when roomId is provided', async () => {
+    const token = uniqueToken('appt-ok');
+    const patient = await createPatientRecord(token);
+    const provider = await createProviderRecord(token);
+    const room = await createRoomRecord(token);
+
+    const res = await request(app)
+      .post('/api/appointments')
+      .set(authHeader)
+      .send({
+        patientId: patient.PatNum.toString(),
+        providerId: provider.ProvNum.toString(),
+        appointmentDate: '2026-08-01',
+        startTime: '09:00',
+        endTime: '09:30',
+        durationMinutes: 30,
+        roomId: room.OperatoryNum.toString(),
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.appointment.roomId).toBe(room.OperatoryNum.toString());
+  });
 });

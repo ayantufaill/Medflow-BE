@@ -97,6 +97,12 @@ export class PatientWorkspaceService {
             },
           },
         },
+        appointment: true,
+        procedurelog: {
+          where: {
+            ProcStatus: { in: [1, 2] },
+          },
+        },
       },
     });
     if (!patient) {

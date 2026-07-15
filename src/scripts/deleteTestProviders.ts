@@ -4,10 +4,8 @@ async function deleteTestProviders() {
   console.log('Finding test providers...');
   const testProviders = await prisma.provider.findMany();
   
-  const toDelete = testProviders.filter(prov => {
-    const fullName = `${prov.FName || ''} ${prov.LName || ''}`.trim().toLowerCase();
-    return fullName.startsWith('test providerappt') || fullName.startsWith('detail testprovider');
-  });
+  const realProvNums = [2n, 4n, 6n, 8n, 10n, 12n, 14n, 16n, 18n, 20n];
+  const toDelete = testProviders.filter(prov => !realProvNums.includes(prov.ProvNum));
 
   console.log(`Found ${toDelete.length} test providers to delete.`);
   for (const prov of toDelete) {
