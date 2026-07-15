@@ -60,7 +60,7 @@ const toDateTime = (date: Date, time: string): Date => {
   const hours = Number(hoursStr ?? 0);
   const minutes = Number(minutesStr ?? 0);
   const dt = new Date(date);
-  dt.setHours(hours, minutes, 0, 0);
+  dt.setUTCHours(hours, minutes, 0, 0);
   return dt;
 };
 
