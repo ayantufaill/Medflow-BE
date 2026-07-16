@@ -752,6 +752,7 @@ export const patientDentalHistoryValidator: ValidationChain[] = [
   body('personalHistory.*.scale').optional().isString().withMessage('personalHistory scale must be a string'),
   body('personalHistory.*.note').optional().isString().withMessage('personalHistory note must be a string'),
   body('personalHistory.*.additionalInfo').optional().isString().withMessage('personalHistory additionalInfo must be a string'),
+  body('personalHistory.*.comment').optional().isString().withMessage('personalHistory comment must be a string'),
   body('review').optional().isObject().withMessage('review must be an object'),
   body('review.reviewedWithPatient').optional().isBoolean().withMessage('review.reviewedWithPatient must be a boolean'),
   body('review.reviewedAt').optional({ values: 'falsy' }).isISO8601().withMessage('review.reviewedAt must be a valid date'),
