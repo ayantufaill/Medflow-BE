@@ -12,7 +12,7 @@ export class ReportGenerationService {
     switch (name) {
       case 'aging':
       case 'patient-aging':
-        return this.getAgingReport(name === 'patient-aging');
+        return this.getAgingReport(query, name === 'patient-aging');
 
       case 'deposit-slips':
         return this.getDepositSlipsReport(startDate, endDate);
@@ -200,99 +200,97 @@ export class ReportGenerationService {
   // FINANCIAL REPORTS QUERY HELPERS
   // ==========================================
 
-  private async getAgingReport(patientOnly = false) {
-    const patients = await prisma.patient.findMany({
-      where: {
-        OR: [
-          { BalTotal: { not: 0 } },
-          { InsEst: { not: 0 } }
-        ]
-      },
-      select: {
-        PatNum: true,
-        FName: true,
-        LName: true,
-        BalTotal: true,
-        InsEst: true,
-        patplan: {
-          orderBy: { Ordinal: 'asc' },
-          take: 1,
-          select: {
-            inssub: {
-              select: {
-                insplan: {
-                  select: {
-                    carrier: {
-                      select: {
-                        CarrierName: true
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      take: 20
-    });
+  private async getAgingReport(query: any, patientOnly = false) {
+    const filters: string[] = [];
+
+    // Patient Status filter
+    if (query.patientStatusFilter === 'active') {
+      filters.push(`p."PatStatus" = 0`); // 0 is typically active
+    } else if (query.patientStatusFilter === 'inactive') {
+      filters.push(`p."PatStatus" != 0`);
+    }
+
+    // Provider filter
+    if (query.providerFilter && query.providerFilter !== 'all') {
+      // Basic sanitize to ensure it's a number to prevent injection
+      const provNum = Number(query.providerFilter);
+      if (!isNaN(provNum)) {
+        filters.push(`p."PriProv" = ${provNum}`);
+      }
+    }
+
+    // Minimum Balance filter (mapping loosely to over30, over60 etc.)
+    if (query.balanceFilter === 'over30') {
+      filters.push(`f."BalTotal" > 30`);
+    } else if (query.balanceFilter === 'over60') {
+      filters.push(`f."BalTotal" > 60`);
+    } else if (query.balanceFilter === 'over90') {
+      filters.push(`f."BalTotal" > 90`);
+    } else if (query.balanceFilter === 'over0') {
+      filters.push(`f."BalTotal" > 0`);
+    } else {
+      // By default, usually only show patients with balances or expected insurance
+      filters.push(`(f."BalTotal" != 0 OR f."InsEst" != 0)`);
+    }
+
+    const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
+
+    const sql = `
+      SELECT 
+        p."PatNum", p."FName", p."LName", p."PatStatus", p."PriProv",
+        f."Bal_0_30", f."Bal_31_60", f."Bal_61_90", f."BalOver90", f."InsEst", f."BalTotal", f."PayPlanDue",
+        c."CarrierName"
+      FROM patient p
+      LEFT JOIN famaging f ON p."PatNum" = f."PatNum"
+      LEFT JOIN patplan pp ON p."PatNum" = pp."PatNum" AND pp."Ordinal" = 1
+      LEFT JOIN inssub isub ON pp."InsSubNum" = isub."InsSubNum"
+      LEFT JOIN insplan ipl ON isub."PlanNum" = ipl."PlanNum"
+      LEFT JOIN carrier c ON ipl."CarrierNum" = c."CarrierNum"
+      ${whereClause}
+      ORDER BY f."BalTotal" DESC
+      LIMIT 200
+    `;
+
+    const rawPatients = await prisma.$queryRawUnsafe<any[]>(sql);
 
     const agingBuckets = ['0 - 30 days', '31 - 60 days', '61 - 90 days', '91 - 120 days', '121 - 150 days', '151 - 180 days', '> 180 day'];
 
-    const report = patients.map((p) => {
-      const balance = p.BalTotal ?? 0;
-      const insEst = p.InsEst ?? 0;
+    const report = rawPatients.map((p) => {
+      const bal0_30 = Number(p.Bal_0_30) || 0;
+      const bal31_60 = Number(p.Bal_31_60) || 0;
+      const bal61_90 = Number(p.Bal_61_90) || 0;
+      const balOver90 = Number(p.BalOver90) || 0;
+      const insEst = Number(p.InsEst) || 0;
+      const balance = Number(p.BalTotal) || 0;
+
       const buckets: Record<string, { pt: number; ins: number }> = {};
 
-      agingBuckets.forEach((bucket, idx) => {
-        // Distribute balance in first bucket for demo
-        buckets[bucket] = {
-          pt: idx === 0 ? balance : 0,
-          ins: idx === 0 ? insEst : 0
-        };
+      agingBuckets.forEach((bucket) => {
+        buckets[bucket] = { pt: 0, ins: 0 };
       });
 
-      const primaryPatPlan = p.patplan?.[0];
-      const insuranceName = primaryPatPlan?.inssub?.insplan?.carrier?.CarrierName ?? null;
+      // Distribute appropriately based on famaging table
+      buckets['0 - 30 days'] = { pt: bal0_30, ins: insEst };
+      buckets['31 - 60 days'] = { pt: bal31_60, ins: 0 };
+      buckets['61 - 90 days'] = { pt: bal61_90, ins: 0 };
+      buckets['91 - 120 days'] = { pt: balOver90, ins: 0 };
 
       return {
         id: p.PatNum.toString(),
         flags: [],
         name: `${p.FName} ${p.LName}`,
-        insuranceName,
+        insuranceName: p.CarrierName || null,
         buckets,
         total: balance,
         totalOwings: balance + (patientOnly ? 0 : insEst),
-        paymentPlan: 0,
+        paymentPlan: Number(p.PayPlanDue) || 0,
         credit: balance < 0 ? Math.abs(balance) : 0,
         lastBilled: ''
       };
     });
 
-    // Provide default fallback if empty
     if (report.length === 0) {
-      return [
-        {
-          id: 'fallback-1',
-          flags: [],
-          name: 'John Doe',
-          insuranceName: 'Blue Cross Blue Shield',
-          buckets: {
-            '0 - 30 days': { pt: 1904.33, ins: 2000.00 },
-            '31 - 60 days': { pt: 0, ins: 0 },
-            '61 - 90 days': { pt: 0, ins: 0 },
-            '91 - 120 days': { pt: 0, ins: 0 },
-            '121 - 150 days': { pt: 0, ins: 0 },
-            '151 - 180 days': { pt: 0, ins: 0 },
-            '> 180 day': { pt: 0, ins: 0 }
-          },
-          total: 1904.33,
-          totalOwings: patientOnly ? 1904.33 : 3904.33,
-          paymentPlan: 0,
-          credit: 0,
-          lastBilled: '05/01/2026'
-        }
-      ];
+      return [];
     }
 
     return report;
