@@ -192,7 +192,12 @@ const seedAssistants = async () => {
     // 2. Create provider profile
     let assistantProvId: string | null = null;
     try {
-      const result = await providerService.createProvider({ userId, ...profile }, seedUserId);
+      const result = await providerService.createProvider({
+        userId,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        ...profile
+      }, seedUserId);
       assistantProvId = result._id;
       console.log(`  Created: ${user.firstName} ${user.lastName}, ${profile.title} — assigned to ${dentistEmail}`);
       created++;

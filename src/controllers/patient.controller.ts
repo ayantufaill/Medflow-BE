@@ -14,8 +14,10 @@ export class PatientController {
       const dobEnd = req.query.dobEnd as string | undefined;
       const gender = req.query.gender as string | undefined;
       const providerId = req.query.providerId as string | undefined;
+      const sortBy = req.query.sortBy as string | undefined;
+      const sortOrder = req.query.sortOrder as string | undefined;
 
-      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId);
+      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder);
       res.status(200).json({
         success: true,
         data: result,
@@ -134,8 +136,10 @@ export class PatientController {
       const dobEnd = req.query.dobEnd as string | undefined;
       const gender = req.query.gender as string | undefined;
       const providerId = req.query.providerId as string | undefined;
+      const sortBy = req.query.sortBy as string | undefined;
+      const sortOrder = req.query.sortOrder as string | undefined;
 
-      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId);
+      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder);
       res.status(200).json({
         success: true,
         data: result,
@@ -225,6 +229,15 @@ export class PatientController {
       }
 
       const result = await patientService.updatePatient(patientId, req.body, req.userId);
+
+      // Remove extra large arrays from medical and dental history as they are not required in this response
+      if (result.medicalHistory && typeof result.medicalHistory === 'object') {
+        const mh = result.medicalHistory as Record<string, any>;
+        if ('sections' in mh) delete mh.sections;
+        if ('medications' in mh) delete mh.medications;
+        if ('supplements' in mh) delete mh.supplements;
+      }
+
       res.status(200).json({
         success: true,
         data: { patient: result },
@@ -707,6 +720,25 @@ export class PatientController {
       res.status(200).json({
         success: true,
         data: note,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getPatientFamilyAppointments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Patient ID is required' },
+        });
+      }
+      const result = await patientService.getFamilyAppointments(patientId);
+      res.status(200).json({
+        success: true,
+        data: result,
       });
     } catch (error) {
       next(error);

@@ -202,8 +202,11 @@ export const createPatientValidator: ValidationChain[] = [
     .withMessage('Preferred language must be a valid language code'),
   body('communicationPreference')
     .optional()
-    .isIn(['phone', 'email', 'sms', 'portal'])
-    .withMessage('Communication preference must be one of: phone, email, sms, portal'),
+    .isArray()
+    .withMessage('Communication preference must be an array of strings'),
+  body('communicationPreference.*')
+    .isIn(['phone', 'email', 'sms', 'portal', 'voicemail'])
+    .withMessage('Communication preference must be one of: phone, email, sms, portal, voicemail'),
   body('portalAccessEnabled')
     .optional()
     .isBoolean()
@@ -266,7 +269,6 @@ export const createPatientValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 20 })
     .withMessage('workAddress.postalCode must be less than 20 characters'),
-  optionalNumericIdValidator('userAccountId', 'Invalid user account ID format'),
   optionalNumericIdValidator('guarantorId', 'Invalid guarantor ID format'),
   body('referralSource')
     .optional()
@@ -279,9 +281,13 @@ export const createPatientValidator: ValidationChain[] = [
     .isLength({ max: 1000 })
     .withMessage('Notes must be less than 1000 characters'),
   body('customFields')
-    .optional()
+    .optional({ nullable: true })
     .isObject()
     .withMessage('customFields must be an object'),
+  body('assignmentAndRelease')
+    .optional({ nullable: true })
+    .isObject()
+    .withMessage('assignmentAndRelease must be an object'),
   body('preferredDentistId')
     .optional({ nullable: true })
     .isString()
@@ -460,8 +466,11 @@ export const updatePatientValidator: ValidationChain[] = [
     .withMessage('Preferred language must be a valid language code'),
   body('communicationPreference')
     .optional()
-    .isIn(['phone', 'email', 'sms', 'portal'])
-    .withMessage('Communication preference must be one of: phone, email, sms, portal'),
+    .isArray()
+    .withMessage('Communication preference must be an array of strings'),
+  body('communicationPreference.*')
+    .isIn(['phone', 'email', 'sms', 'portal', 'voicemail'])
+    .withMessage('Communication preference must be one of: phone, email, sms, portal, voicemail'),
   body('portalAccessEnabled')
     .optional()
     .isBoolean()
@@ -545,9 +554,13 @@ export const updatePatientValidator: ValidationChain[] = [
     .isLength({ max: 1000 })
     .withMessage('Notes must be less than 1000 characters'),
   body('customFields')
-    .optional()
+    .optional({ nullable: true })
     .isObject()
     .withMessage('customFields must be an object'),
+  body('assignmentAndRelease')
+    .optional({ nullable: true })
+    .isObject()
+    .withMessage('assignmentAndRelease must be an object'),
   body('preferredDentistId')
     .optional({ nullable: true })
     .isString()
@@ -707,6 +720,7 @@ export const patientMedicalHistoryValidator: ValidationChain[] = [
   body('sections.*.answer').optional().isString().withMessage('section answer must be a string'),
   body('sections.*.comment').optional().isString().withMessage('section comment must be a string'),
   body('sections.*.doctorNote').optional().isString().withMessage('section doctorNote must be a string'),
+  body('sections.*.severity').optional({ values: 'null' }).isIn(['low', 'moderate', 'high', '']).withMessage('section severity must be one of: low, moderate, high, or empty'),
   body('sections.*.additionalInfo').optional().isArray().withMessage('section additionalInfo must be an array'),
   body('medications').optional().isArray().withMessage('medications must be an array'),
   body('medications.*.drug').optional().isString().withMessage('medication drug must be a string'),
@@ -738,6 +752,7 @@ export const patientDentalHistoryValidator: ValidationChain[] = [
   body('personalHistory.*.scale').optional().isString().withMessage('personalHistory scale must be a string'),
   body('personalHistory.*.note').optional().isString().withMessage('personalHistory note must be a string'),
   body('personalHistory.*.additionalInfo').optional().isString().withMessage('personalHistory additionalInfo must be a string'),
+  body('personalHistory.*.comment').optional().isString().withMessage('personalHistory comment must be a string'),
   body('review').optional().isObject().withMessage('review must be an object'),
   body('review.reviewedWithPatient').optional().isBoolean().withMessage('review.reviewedWithPatient must be a boolean'),
   body('review.reviewedAt').optional({ values: 'falsy' }).isISO8601().withMessage('review.reviewedAt must be a valid date'),
@@ -770,4 +785,12 @@ export const patientSearchValidator: ValidationChain[] = [
     .optional()
     .isISO8601()
     .withMessage('dobEnd must be a valid ISO 8601 date'),
+  query('sortBy')
+    .optional()
+    .isString()
+    .withMessage('sortBy must be a string'),
+  query('sortOrder')
+    .optional()
+    .isIn(['asc', 'desc'])
+    .withMessage('sortOrder must be asc or desc'),
 ];

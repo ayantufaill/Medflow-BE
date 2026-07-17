@@ -189,21 +189,26 @@ export const createPatientInsuranceValidator: ValidationChain[] = [
     .withMessage('Insurance company ID is required')
     .isInt({ min: 1 })
     .withMessage('Invalid insurance company ID format'),
+  body('payerId')
+    .optional()
+    .trim()
+    .isLength({ max: 20 })
+    .withMessage('Payer ID must be less than 20 characters'),
   body('policyNumber')
     .trim()
     .notEmpty()
     .withMessage('Policy number is required')
     .isLength({ min: 5, max: 30 })
     .withMessage('Policy number must be between 5 and 30 characters')
-    .matches(/^[A-Za-z0-9]+$/)
-    .withMessage('Policy number must be alphanumeric only (no special symbols)'),
+    .matches(/^[A-Za-z0-9\s-]+$/)
+    .withMessage('Policy number must be alphanumeric, and can contain spaces or hyphens'),
   body('groupNumber')
     .optional()
     .trim()
     .isLength({ max: 30 })
     .withMessage('Group number must not exceed 30 characters')
-    .matches(/^[A-Za-z0-9]*$/)
-    .withMessage('Group number must be alphanumeric only'),
+    .matches(/^[A-Za-z0-9\s-]*$/)
+    .withMessage('Group number must be alphanumeric, and can contain spaces or hyphens'),
   body('groupName')
     .optional()
     .trim()
@@ -388,6 +393,11 @@ export const updatePatientInsuranceValidator: ValidationChain[] = [
     .optional()
     .isInt({ min: 1 })
     .withMessage('Invalid insurance company ID format'),
+  body('payerId')
+    .optional()
+    .trim()
+    .isLength({ max: 20 })
+    .withMessage('Payer ID must be less than 20 characters'),
   body('policyNumber')
     .optional()
     .trim()
@@ -578,5 +588,18 @@ export const updateAllergyValidator: ValidationChain[] = [
     .optional()
     .isBoolean()
     .withMessage('isActive must be a boolean'),
+];
+
+export const reorderInsurancesValidator: ValidationChain[] = [
+  body('insuranceIds')
+    .isArray({ min: 1 })
+    .withMessage('insuranceIds must be a non-empty array of strings'),
+  body('insuranceIds.*')
+    .isString()
+    .withMessage('Each insuranceId must be a string')
+    .custom((value) => {
+      return typeof value === 'string' && /^\d+$/.test(value.trim());
+    })
+    .withMessage('Each insuranceId must be a valid numeric ID string'),
 ];
 

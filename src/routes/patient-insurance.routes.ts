@@ -3,7 +3,7 @@ import { patientInsuranceController } from '../controllers/patient-insurance.con
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { patientIdValidator } from '../validators/patient.validator';
-import { createPatientInsuranceValidator, updatePatientInsuranceValidator, patientInsuranceIdValidator } from '../validators/insurance.validator';
+import { createPatientInsuranceValidator, updatePatientInsuranceValidator, patientInsuranceIdValidator, reorderInsurancesValidator } from '../validators/insurance.validator';
 
 const router = Router();
 router.use(authenticate);
@@ -432,4 +432,12 @@ router.patch(
   validate([...patientIdValidator, ...patientInsuranceIdValidator]),
   patientInsuranceController.setPrimaryInsurance.bind(patientInsuranceController)
 );
+
+router.post(
+  '/:patientId/insurance/reorder',
+  requireRoles('Receptionist', 'Admin'),
+  validate([...patientIdValidator, ...reorderInsurancesValidator]),
+  patientInsuranceController.reorderPatientInsurances.bind(patientInsuranceController)
+);
+
 export default router;

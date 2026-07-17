@@ -26,7 +26,7 @@ describe('Providers', () => {
 
   it('validates provider id', async () => {
     const res = await request(app)
-      .get('/api/providers/1')
+      .get('/api/providers/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
@@ -41,7 +41,7 @@ describe('Providers', () => {
 
   it('validates update provider payload', async () => {
     const res = await request(app)
-      .put('/api/providers/1')
+      .put('/api/providers/invalid-id')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -49,21 +49,21 @@ describe('Providers', () => {
 
   it('validates activate provider params', async () => {
     const res = await request(app)
-      .patch('/api/providers/1/activate')
+      .patch('/api/providers/invalid-id/activate')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates deactivate provider params', async () => {
     const res = await request(app)
-      .patch('/api/providers/1/deactivate')
+      .patch('/api/providers/invalid-id/deactivate')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates delete provider params', async () => {
     const res = await request(app)
-      .delete('/api/providers/1')
+      .delete('/api/providers/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });

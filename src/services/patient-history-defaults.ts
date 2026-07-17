@@ -76,6 +76,7 @@ export const DEFAULT_DENTAL_HISTORY = {
       scale: '',
       note: '',
       additionalInfo: '',
+      comment: '',
     },
     {
       id: 'unfavorable-experience',
@@ -85,6 +86,7 @@ export const DEFAULT_DENTAL_HISTORY = {
       scale: '',
       note: '',
       additionalInfo: '',
+      comment: '',
     },
     {
       id: 'treatment-complications',
@@ -94,6 +96,7 @@ export const DEFAULT_DENTAL_HISTORY = {
       scale: '',
       note: '',
       additionalInfo: '',
+      comment: '',
     },
     {
       id: 'grind-clench',
@@ -103,6 +106,7 @@ export const DEFAULT_DENTAL_HISTORY = {
       scale: '',
       note: '',
       additionalInfo: '',
+      comment: '',
     },
     {
       id: 'oral-surgery',
@@ -112,6 +116,7 @@ export const DEFAULT_DENTAL_HISTORY = {
       scale: '',
       note: '',
       additionalInfo: '',
+      comment: '',
     },
     {
       id: 'missing-teeth-trauma',
@@ -121,6 +126,7 @@ export const DEFAULT_DENTAL_HISTORY = {
       scale: '',
       note: '',
       additionalInfo: '',
+      comment: '',
     },
   ],
   review: {

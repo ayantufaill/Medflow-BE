@@ -34,7 +34,7 @@ describe('Appointment Types', () => {
 
   it('validates appointment type id', async () => {
     const res = await request(app)
-      .get('/api/appointment-types/1')
+      .get('/api/appointment-types/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
@@ -49,7 +49,7 @@ describe('Appointment Types', () => {
 
   it('validates update appointment type payload', async () => {
     const res = await request(app)
-      .put('/api/appointment-types/1')
+      .put('/api/appointment-types/invalid-id')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -57,7 +57,7 @@ describe('Appointment Types', () => {
 
   it('validates delete appointment type params', async () => {
     const res = await request(app)
-      .delete('/api/appointment-types/1')
+      .delete('/api/appointment-types/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });

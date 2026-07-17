@@ -146,7 +146,12 @@ const seedProviders = async () => {
 
     // 2. Create provider profile
     try {
-      await providerService.createProvider({ userId, ...profile }, seedUserId);
+      await providerService.createProvider({
+        userId,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        ...profile
+      }, seedUserId);
       console.log(`  Created provider: Dr. ${user.firstName} ${user.lastName} (${profile.specialty})`);
       created++;
     } catch (err: any) {

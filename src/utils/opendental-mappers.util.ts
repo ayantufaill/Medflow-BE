@@ -14,7 +14,7 @@ const formatTime = (date: Date): string => {
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 };
 
-const parseDurationMinutes = (pattern?: string | null): number => {
+export const parseDurationMinutes = (pattern?: string | null): number => {
   if (!pattern) return 30;
   const parsed = Number.parseInt(pattern, 10);
   return Number.isFinite(parsed) ? parsed : 30;
@@ -216,6 +216,9 @@ export const mapPatientToApi = (
     } | null;
     patientProfileType?: string | null;
     medicalHistory?: Record<string, unknown> | null;
+    dentalHistory?: Record<string, unknown> | null;
+    communicationPreference?: string[];
+    assignmentAndRelease?: Record<string, unknown> | null;
   }
 ) => {
   const carrierName = row.patplan?.[0]?.inssub?.insplan?.carrier?.CarrierName;
@@ -229,7 +232,6 @@ export const mapPatientToApi = (
   id: row.PatNum.toString(),
   _id: row.PatNum.toString(),
   patientCode: row.ChartNumber ?? `PAT${row.PatNum.toString()}`,
-  userAccountId: null,
   title: row.Title ?? null,
   firstName: row.FName ?? '',
   middleName: row.MiddleI ?? null,
@@ -249,12 +251,13 @@ export const mapPatientToApi = (
     city: row.City ?? null,
     state: row.State ?? null,
     postalCode: row.Zip ?? null,
-    country: row.Country ?? null,
+    country: row.Country || 'United States',
   },
   emergencyContact: options?.emergencyContact ?? null,
+  assignmentAndRelease: options?.assignmentAndRelease ?? null,
   isActive: row.PatStatus === null ? true : row.PatStatus !== 2,
   preferredLanguage: row.Language ?? 'en',
-  communicationPreference: mapContactPreferenceFromDb(row.PreferContactMethod),
+  communicationPreference: options?.communicationPreference ?? [mapContactPreferenceFromDb(row.PreferContactMethod)],
   portalAccessEnabled: options?.portalAccessEnabled ?? false,
   lastVisitDate: row.DateFirstVisit ?? null,
   referralSource: options?.referralSource ?? null,
@@ -476,7 +479,7 @@ export const mapAppointmentToApi = (
     endTime,
     durationMinutes,
     appointmentType: 'consultation',
-    roomId: row.Op?.toString() ?? null,
+    roomId: row.Op?.toString() ?? '1',
     createdBy: options?.createdBy ? mapUserToApi(options.createdBy) : row.SecUserNumEntry?.toString() ?? null,
     status: mapAppointmentStatusFromDb(row.AptStatus),
     chiefComplaint: row.ProcDescript ?? null,
@@ -491,6 +494,8 @@ export const mapAppointmentToApi = (
     checkInAt: options?.checkInAt ?? row.DateTimeArrived ?? null,
     completedAt: options?.completedAt ?? row.DateTimeDismissed ?? null,
     parentAppointmentId: row.NextAptNum?.toString() ?? null,
+    createdAt: row.SecDateTEntry ?? null,
+    updatedAt: row.DateTStamp ?? null,
     patient: undefined,
     provider: undefined,
     appointmentTypeData: undefined,

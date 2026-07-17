@@ -22,7 +22,7 @@ describe('Services', () => {
   it('creates, fetches, updates, and deletes a service', async () => {
     const token = uniqueToken('service');
     const created = await createProcedureCodeRecord(token);
-    const serviceId = created.ProcCode;
+    const serviceId = created.CodeNum.toString();
     const cptCode = created.ProcCode;
 
     const getRes = await request(app)
@@ -48,7 +48,7 @@ describe('Services', () => {
   it('toggles the service active status', async () => {
     const token = uniqueToken('service');
     const created = await createProcedureCodeRecord(token);
-    const serviceId = created.ProcCode;
+    const serviceId = created.CodeNum.toString();
 
     // Check initial status
     const getRes1 = await request(app)
@@ -86,7 +86,7 @@ describe('Services', () => {
 
   it('validates service id', async () => {
     const res = await request(app)
-      .get('/api/services/1')
+      .get('/api/services/999999')
       .set(authHeader);
     expect(res.status).toBe(404);
   });
@@ -101,7 +101,7 @@ describe('Services', () => {
 
   it('validates update service payload', async () => {
     const res = await request(app)
-      .put('/api/services/1')
+      .put('/api/services/999999')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(404);
@@ -109,7 +109,7 @@ describe('Services', () => {
 
   it('validates delete service params', async () => {
     const res = await request(app)
-      .delete('/api/services/1')
+      .delete('/api/services/999999')
       .set(authHeader);
     expect(res.status).toBe(404);
   });

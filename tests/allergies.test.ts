@@ -27,14 +27,14 @@ describe('Allergies', () => {
 
   it('validates allergy id', async () => {
     const res = await request(app)
-      .get('/api/allergies/1')
+      .get('/api/allergies/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates update allergy payload', async () => {
     const res = await request(app)
-      .put('/api/allergies/1')
+      .put('/api/allergies/invalid-id')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -42,7 +42,7 @@ describe('Allergies', () => {
 
   it('validates delete allergy params', async () => {
     const res = await request(app)
-      .delete('/api/allergies/1')
+      .delete('/api/allergies/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });

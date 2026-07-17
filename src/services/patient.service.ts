@@ -40,6 +40,9 @@ const buildPatientMapperOptions = (patientMeta: Record<string, any>) => ({
   workAddress: patientMeta.workAddress ?? null,
   patientProfileType: patientMeta.patientProfileType ?? null,
   medicalHistory: patientMeta.medicalHistory ?? null,
+  dentalHistory: patientMeta.dentalHistory ?? null,
+  communicationPreference: patientMeta.communicationPreference ?? undefined,
+  assignmentAndRelease: patientMeta.assignmentAndRelease ?? null,
 });
 
 /**
@@ -50,7 +53,7 @@ async function generatePatientCode(): Promise<string> {
   return `PAT${nextId.toString().padStart(3, '0')}`;
 }
 
-async function getFamilyMembers(guarantorId: bigint, currentPatNum: bigint) {
+export async function getFamilyMembers(guarantorId: bigint, currentPatNum: bigint) {
   if (!guarantorId || guarantorId <= 0n) return [];
   const members = await prisma.patient.findMany({
     where: { 
@@ -87,7 +90,9 @@ export class PatientService {
     dobStart?: string,
     dobEnd?: string,
     gender?: string,
-    providerId?: string
+    providerId?: string,
+    sortBy?: string,
+    sortOrder?: string
   ) {
     const skip = (page - 1) * limit;
     const where: any = {};
@@ -135,38 +140,38 @@ export class PatientService {
         const reverseLastNameSearch = searchTerms.slice(0, -1).join(' ');
 
         where.OR = [
-          { ChartNumber: { contains: search } },
-          { Email: { contains: search } },
-          { WirelessPhone: { contains: search } },
-          { HmPhone: { contains: search } },
-          { WkPhone: { contains: search } },
+          { ChartNumber: { contains: search, mode: 'insensitive' } },
+          { Email: { contains: search, mode: 'insensitive' } },
+          { WirelessPhone: { contains: search, mode: 'insensitive' } },
+          { HmPhone: { contains: search, mode: 'insensitive' } },
+          { WkPhone: { contains: search, mode: 'insensitive' } },
           {
             AND: [
-              { FName: { contains: firstNameSearch } },
-              { LName: { contains: lastNameSearch } },
+              { FName: { contains: firstNameSearch, mode: 'insensitive' } },
+              { LName: { contains: lastNameSearch, mode: 'insensitive' } },
             ],
           },
           {
             AND: [
-              { FName: { contains: reverseFirstNameSearch } },
-              { LName: { contains: reverseLastNameSearch } },
+              { FName: { contains: reverseFirstNameSearch, mode: 'insensitive' } },
+              { LName: { contains: reverseLastNameSearch, mode: 'insensitive' } },
             ],
           },
-          { FName: { contains: search } },
-          { LName: { contains: search } },
-          { AddrNote: { contains: search } },
+          { FName: { contains: search, mode: 'insensitive' } },
+          { LName: { contains: search, mode: 'insensitive' } },
+          { AddrNote: { contains: search, mode: 'insensitive' } },
         ];
       } else {
         // Single word - search across all relevant fields
         where.OR = [
-          { ChartNumber: { contains: search } },
-          { Email: { contains: search } },
-          { FName: { contains: search } },
-          { LName: { contains: search } },
-          { WirelessPhone: { contains: search } },
-          { HmPhone: { contains: search } },
-          { WkPhone: { contains: search } },
-          { AddrNote: { contains: search } },
+          { ChartNumber: { contains: search, mode: 'insensitive' } },
+          { Email: { contains: search, mode: 'insensitive' } },
+          { FName: { contains: search, mode: 'insensitive' } },
+          { LName: { contains: search, mode: 'insensitive' } },
+          { WirelessPhone: { contains: search, mode: 'insensitive' } },
+          { HmPhone: { contains: search, mode: 'insensitive' } },
+          { WkPhone: { contains: search, mode: 'insensitive' } },
+          { AddrNote: { contains: search, mode: 'insensitive' } },
         ];
       }
     }
@@ -198,7 +203,15 @@ export class PatientService {
     const [patients, total] = await Promise.all([
       prisma.patient.findMany({
         where,
-        orderBy: { DateTStamp: 'desc' },
+        orderBy: sortBy === 'name'
+          ? [
+              { FName: sortOrder === 'desc' ? 'desc' : 'asc' },
+              { LName: sortOrder === 'desc' ? 'desc' : 'asc' }
+            ]
+          : [
+              { DateTStamp: 'desc' },
+              { PatNum: 'asc' }
+            ],
         skip,
         take: limit,
         include: {
@@ -547,7 +560,6 @@ async getPatientLastVisit(patientId: string) {
       preferredLanguage?: string;
       communicationPreference?: string;
       portalAccessEnabled?: boolean;
-      userAccountId?: string;
       lastVisitDate?: Date;
       referralSource?: string;
       maritalStatus?: string;
@@ -711,7 +723,7 @@ async getPatientLastVisit(patientId: string) {
         phone?: string;
       };
       preferredLanguage?: string;
-      communicationPreference?: string;
+      communicationPreference?: string[];
       portalAccessEnabled?: boolean;
       isActive?: boolean;
       lastVisitDate?: Date;
@@ -736,6 +748,7 @@ async getPatientLastVisit(patientId: string) {
       headOfCommunication?: Record<string, any> | null;
       household?: any[];
       spouseInfo?: Record<string, any> | null;
+      assignmentAndRelease?: Record<string, any> | null;
       patientFlags?: any[];
       financialResponsibility?: Record<string, any> | null;
       guarantorId?: string;
@@ -796,7 +809,7 @@ async getPatientLastVisit(patientId: string) {
             : undefined,
         PreferContactMethod:
           updates.communicationPreference !== undefined
-            ? mapContactPreferenceToDb(updates.communicationPreference)
+            ? mapContactPreferenceToDb(updates.communicationPreference[0] || 'phone')
             : undefined,
         PatStatus:
           updates.isActive !== undefined ? (updates.isActive ? 0 : 2) : undefined,
@@ -819,6 +832,7 @@ async getPatientLastVisit(patientId: string) {
       headOfCommunication: updates.headOfCommunication !== undefined ? updates.headOfCommunication : currentMeta.headOfCommunication ?? null,
       household: updates.household !== undefined ? updates.household : currentMeta.household ?? [],
       spouseInfo: updates.spouseInfo !== undefined ? updates.spouseInfo : currentMeta.spouseInfo ?? null,
+      assignmentAndRelease: updates.assignmentAndRelease !== undefined ? updates.assignmentAndRelease : currentMeta.assignmentAndRelease ?? null,
       patientFlags: updates.patientFlags !== undefined ? updates.patientFlags : currentMeta.patientFlags ?? [],
       financialResponsibility: updates.financialResponsibility !== undefined ? updates.financialResponsibility : currentMeta.financialResponsibility ?? null,
       sexAtBirth:
@@ -847,6 +861,10 @@ async getPatientLastVisit(patientId: string) {
         updates.patientProfileType !== undefined
           ? updates.patientProfileType
           : currentMeta.patientProfileType ?? 'adult',
+      communicationPreference:
+        updates.communicationPreference !== undefined
+          ? updates.communicationPreference
+          : currentMeta.communicationPreference ?? undefined,
       workAddress:
         updates.workAddress !== undefined
           ? updates.workAddress
@@ -961,15 +979,12 @@ async getPatientLastVisit(patientId: string) {
     }
 
     const patientMeta = await getPatientMeta(patient.PatNum);
-    const timelineData = await clinicalNoteService.getPatientMedicalHistory(patientId, {
-      includeAllergies: true,
-      includeVitals: true,
-      includePrescriptions: true,
-      includeLabOrders: true,
-      includeLabResults: true,
-      includeDocuments: true,
-      includeNotes: true,
-      limit: 100,
+    const appointments = await prisma.appointment.findMany({
+      where: {
+        PatNum: BigInt(patientId),
+        AptStatus: { not: 6 }, // filter out cancelled
+      },
+      select: { AptDateTime: true },
     });
 
     const medicalHistory = {
@@ -978,11 +993,10 @@ async getPatientLastVisit(patientId: string) {
     };
 
     const visitDates = buildVisitDates(
-      (timelineData.timeline || []).map((item: any) => ({ date: item?.date }))
+      appointments.map((apt) => ({ date: apt.AptDateTime }))
     );
 
     return {
-      patient: mapPatientToApi(patient, buildPatientMapperOptions(patientMeta)),
       visitDates,
       generalInfo: medicalHistory.generalInfo,
       premed: medicalHistory.premed,
@@ -991,8 +1005,6 @@ async getPatientLastVisit(patientId: string) {
       medications: medicalHistory.medications,
       supplements: medicalHistory.supplements,
       review: medicalHistory.review,
-      timeline: timelineData.timeline || [],
-      summary: timelineData.summary || {},
     };
   }
 
@@ -1041,6 +1053,7 @@ async getPatientLastVisit(patientId: string) {
           answer: section?.answer ?? '',
           comment: section?.comment ?? '',
           doctorNote: section?.doctorNote ?? '',
+          severity: section?.severity ?? '',
           additionalInfo: Array.isArray(section?.additionalInfo) ? section.additionalInfo : [],
         }))
         : currentMedicalHistory.sections,
@@ -1085,117 +1098,15 @@ async getPatientLastVisit(patientId: string) {
       throw new NotFoundError('Patient not found');
     }
 
-    const [procedures, clinicalNotesResult, documents, providers] = await Promise.all([
-      prisma.procedurelog.findMany({
-        where: { PatNum: BigInt(patientId) },
-        include: { procedurecode_procedurelog_CodeNumToprocedurecode: true },
-        orderBy: [{ ProcDate: 'desc' }, { ProcNum: 'desc' }],
-        take: 100,
-      }),
-      clinicalNoteService.getAllClinicalNotes(1, 50, { patientId }),
-      prisma.document.findMany({
-        where: { PatNum: BigInt(patientId) },
-        orderBy: { DateCreated: 'desc' },
-        take: 50,
-      }),
-      prisma.provider.findMany(),
-    ]);
-
-    const providerMap = new Map(
-      providers.map((provider) => [
-        provider.ProvNum.toString(),
-        `${provider.FName || ''} ${provider.LName || ''}`.trim() || provider.Abbr || 'Provider',
-      ])
-    );
-
-    const mappedProcedures = procedures
-      .map((proc) => {
-        const procedureCode =
-          proc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? proc.OldCode ?? '';
-        const description =
-          proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ??
-          proc.procedurecode_procedurelog_CodeNumToprocedurecode?.LaymanTerm ??
-          '';
-        const procedureName = [procedureCode, description].filter(Boolean).join(' - ').trim() || 'Procedure';
-        return {
-          _id: proc.ProcNum.toString(),
-          date: proc.ProcDate ?? proc.DateEntryC ?? null,
-          procedureCode,
-          procedureName,
-          tooth: proc.ToothNum ?? proc.ToothRange ?? '–',
-          status: mapProcedureStatusToText(proc.ProcStatus),
-          provider: proc.ProvNum
-            ? {
-              _id: proc.ProvNum.toString(),
-              name: providerMap.get(proc.ProvNum.toString()) ?? 'Provider',
-            }
-            : null,
-          isPlaceholder: !procedureCode && !description,
-        };
-      })
-      .filter((proc) => !proc.isPlaceholder);
-
-    const clinicalNotes = Array.isArray(clinicalNotesResult?.clinicalNotes)
-      ? clinicalNotesResult.clinicalNotes
-      : [];
-
-    const mappedNotes = clinicalNotes
-      .map((note: any) => {
-        const readableNote =
-          note.chiefComplaint ||
-          note.subjective ||
-          note.objective ||
-          note.assessment ||
-          note.plan ||
-          note.historyOfPresentIllness ||
-          note.physicalExam ||
-          '';
-        if (!readableNote.trim()) return null;
-        return {
-          _id: String(note._id),
-          date: note.createdAt ?? null,
-          note: readableNote.trim(),
-          noteType: note.noteType || 'clinical',
-        };
-      })
-      .filter((note): note is { _id: string; date: Date | string | null; note: string; noteType: string } => Boolean(note));
-
-    // Filter documents to x-rays only
-    const xrays = documents
-      .filter((doc) => {
-        const name = `${doc.Description || ''} ${doc.FileName || ''}`.toLowerCase();
-        return name.includes('xray') || name.includes('x-ray') || name.includes('radiograph');
-      })
-      .map((doc) => ({
-        _id: doc.DocNum.toString(),
-        date: doc.DateCreated ?? null,
-        name: doc.Description ?? doc.FileName ?? 'X-Ray',
-        url: doc.FileName ?? null,
-      }));
-
-    // Build a unified timeline sorted newest-first
-    const timeline = [
-      ...mappedProcedures.map((item) => ({
-        _id: `procedure-${item._id}`,
-        date: item.date,
-        type: 'procedure',
-        title: item.procedureName,
-      })),
-      ...mappedNotes.map((item) => ({
-        _id: `note-${item._id}`,
-        date: item.date,
-        type: 'note',
-        title: `${item.noteType}: ${item.note.slice(0, 100)}`,
-      })),
-      ...xrays.map((item) => ({
-        _id: `xray-${item._id}`,
-        date: item.date,
-        type: 'xray',
-        title: item.name,
-      })),
-    ].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
-
     const patientMeta = await getPatientMeta(patient.PatNum);
+    const appointments = await prisma.appointment.findMany({
+      where: {
+        PatNum: BigInt(patientId),
+        AptStatus: { not: 6 }, // filter out cancelled
+      },
+      select: { AptDateTime: true },
+    });
+
     const dentalHistory = {
       ...DEFAULT_DENTAL_HISTORY,
       ...(patientMeta.dentalHistory ?? {}),
@@ -1212,30 +1123,17 @@ async getPatientLastVisit(patientId: string) {
       },
     };
 
-    const visitDates = buildVisitDates(timeline.map((item) => ({ date: item.date })));
+    const visitDates = buildVisitDates(
+      appointments.map((apt) => ({ date: apt.AptDateTime }))
+    );
 
     return {
-      patient: mapPatientToApi(patient, buildPatientMapperOptions(patientMeta)),
       visitDates,
       generalInfo: dentalHistory.generalInfo,
       personalHistory: dentalHistory.personalHistory,
       reviewStatus: Boolean(dentalHistory.review.reviewedWithPatient),
-      lastUpdateDate:
-        dentalHistory.review.reviewedAt ??
-        patient.DateTStamp ??
-        mappedProcedures[0]?.date ??
-        null,
+      lastUpdateDate: dentalHistory.review.reviewedAt ?? patient.DateTStamp ?? null,
       review: dentalHistory.review,
-      summary: {
-        totalProcedures: mappedProcedures.length,
-        lastVisitDate: mappedProcedures[0]?.date ?? null,
-        clinicalNotesCount: mappedNotes.length,
-        xrayCount: xrays.length,
-      },
-      procedures: mappedProcedures,
-      timeline,
-      clinicalNotes: mappedNotes,
-      xrays,
     };
   }
 
@@ -1578,6 +1476,54 @@ async getPatientHistoryAggregate(patientId: string) {
       remindMe: updatedPayload.remindMe || false,
       archived: updatedPayload.archived || false,
       createdAt: updated.CommDateTime ? new Date(updated.CommDateTime).toISOString() : new Date().toISOString()
+    };
+  }
+
+  async getFamilyAppointments(patientId: string) {
+    const { appointmentService } = await import('./appointment.service');
+    const patientObj = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) }
+    });
+    if (!patientObj) throw new NotFoundError('Patient not found');
+
+    const guarantorId = (patientObj.Guarantor && patientObj.Guarantor > 0n) ? patientObj.Guarantor : patientObj.PatNum;
+
+    // Get family members (excluding current patient)
+    const familyMembers = await getFamilyMembers(guarantorId, patientObj.PatNum);
+
+    // Get current patient info in the same format
+    const currentPatientInfo = {
+      id: patientObj.PatNum.toString(),
+      firstName: patientObj.FName,
+      lastName: patientObj.LName,
+      preferredName: patientObj.Preferred,
+      dateOfBirth: patientObj.Birthdate,
+      gender: patientObj.Gender === 0 ? 'male' : patientObj.Gender === 1 ? 'female' : 'unknown',
+      guarantorId: patientObj.Guarantor?.toString() || null,
+      relationship: patientObj.PatNum === guarantorId ? 'Guarantor' : 'Dependent'
+    };
+
+    const allMembers = [currentPatientInfo, ...familyMembers];
+    const memberIds = allMembers.map(m => m.id);
+
+    const rawAppointments = await prisma.appointment.findMany({
+      where: {
+        PatNum: { in: memberIds.map(BigInt) }
+      },
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        appointmenttype: true,
+        userod: true,
+      },
+      orderBy: { AptDateTime: 'desc' }
+    });
+
+    const appointments = await appointmentService.mapAppointmentsBulk(rawAppointments);
+
+    return {
+      familyMembers,
+      appointments
     };
   }
 }

@@ -25,7 +25,7 @@ describe('Route Registration & Middleware', () => {
     it('GET /health returns health status', async () => {
       const res = await request(app).get('/health');
       expect(res.status).toBe(200);
-      expect(res.body.status).toBe('healthyyy');
+      expect(res.body.status).toBe('healthy');
     });
   });
 

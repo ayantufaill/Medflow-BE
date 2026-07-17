@@ -39,7 +39,7 @@ describe('Estimates', () => {
 
   it('validates estimate id', async () => {
     const res = await request(app)
-      .get('/api/estimates/1')
+      .get('/api/estimates/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
@@ -54,7 +54,7 @@ describe('Estimates', () => {
 
   it('validates update estimate payload', async () => {
     const res = await request(app)
-      .patch('/api/estimates/1')
+      .patch('/api/estimates/invalid-id')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);
@@ -62,14 +62,14 @@ describe('Estimates', () => {
 
   it('validates delete estimate params', async () => {
     const res = await request(app)
-      .delete('/api/estimates/1')
+      .delete('/api/estimates/invalid-id')
       .set(authHeader);
     expect(res.status).toBe(400);
   });
 
   it('validates convert estimate payload', async () => {
     const res = await request(app)
-      .post('/api/estimates/1/convert')
+      .post('/api/estimates/invalid-id/convert')
       .set(authHeader)
       .send({});
     expect(res.status).toBe(400);

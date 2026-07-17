@@ -1,5 +1,6 @@
 import { prisma } from '../config/db';
 import type { AppUser, AppRole } from '../types/auth.types';
+import { getNextId } from './opendental-ids.util';
 
 // OpenDental userodpref.FkeyType is tinyint (0-255). Keep custom values in range.
 const ROLE_META_FKEYTYPE = 200;
@@ -41,11 +42,7 @@ const buildUserOdPrefWhere = (identity: UserOdPrefIdentity) => ({
 });
 
 const getNextUserOdPrefId = async () => {
-  const nextId = await prisma.$queryRawUnsafe<[{ nextId: any }]>(
-    'SELECT COALESCE(MAX("UserOdPrefNum"), 0) + 1 AS "nextId" FROM "userodpref"'
-  );
-  const id = nextId[0]?.nextId;
-  return id ? BigInt(id) : 1n;
+  return getNextId('userodpref', 'UserOdPrefNum');
 };
 
 const upsertUserOdPref = async (identity: UserOdPrefIdentity, valueString: string) => {

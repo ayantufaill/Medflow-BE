@@ -21,6 +21,16 @@ export class ShortlistController {
     }
   };
 
+  updateShortlistItem = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { id } = req.params;
+      const item = await shortlistService.updateShortlistItem(id, req.body);
+      res.json({ status: 'success', data: item });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   deleteShortlistItem = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { id } = req.params;
