@@ -105,6 +105,9 @@ export class InvoiceService {
       writeoff: Number((meta as any).writeoff || 0),
       paidAmount: Number((meta as any).paidAmount || 0),
       dbi: (meta as any).dbi !== undefined ? Boolean((meta as any).dbi) : null,
+      site: (meta as any).site || null,
+      provider: (meta as any).provider || null,
+      completed: (meta as any).completed !== undefined ? Boolean((meta as any).completed) : null
     };
   }
 

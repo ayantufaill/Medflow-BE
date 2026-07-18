@@ -1,5 +1,5 @@
 import { prisma } from '../config/db';
-import { NotFoundError, ConflictError } from '../utils/error.util';
+import { NotFoundError, ConflictError, BadRequestError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import {
@@ -340,10 +340,17 @@ export class PatientInsuranceService {
     const patPlanNum = await getNextId('patplan', 'PatPlanNum');
 
     if (data.payerId !== undefined) {
-      await prisma.carrier.update({
-        where: { CarrierNum: BigInt(data.insuranceCompanyId) },
-        data: { ElectID: data.payerId || null },
-      });
+      try {
+        await prisma.carrier.update({
+          where: { CarrierNum: BigInt(data.insuranceCompanyId) },
+          data: { ElectID: data.payerId || null },
+        });
+      } catch (err: any) {
+        if (err.code === 'P2002') {
+          throw new BadRequestError('The Payer ID provided is already in use by another insurance carrier.');
+        }
+        throw err;
+      }
     }
 
     await prisma.insplan.create({
@@ -558,10 +565,17 @@ export class PatientInsuranceService {
     if (updates.payerId !== undefined) {
       const carrierId = updates.insuranceCompanyId ? safeBigInt(updates.insuranceCompanyId) : patplan.inssub?.insplan?.CarrierNum;
       if (carrierId) {
-        await prisma.carrier.update({
-          where: { CarrierNum: carrierId },
-          data: { ElectID: updates.payerId || null },
-        });
+        try {
+          await prisma.carrier.update({
+            where: { CarrierNum: carrierId },
+            data: { ElectID: updates.payerId || null },
+          });
+        } catch (err: any) {
+          if (err.code === 'P2002') {
+            throw new BadRequestError('The Payer ID provided is already in use by another insurance carrier.');
+          }
+          throw err;
+        }
       }
     }
     await prisma.patplan.update({
