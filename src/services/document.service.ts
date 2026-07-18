@@ -2,6 +2,7 @@ import { prisma } from '../config/db';
 import { NotFoundError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
+import { getUserMeta } from '../utils/opendental-auth.util';
 
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;
@@ -40,12 +41,31 @@ type DocumentMeta = {
 };
 
 export class DocumentService {
-  private mapDocumentRow(doc: any) {
+  private mapDocumentRow(doc: any, options?: { userMeta?: any }) {
     const meta = parseJson<DocumentMeta>(doc.Note);
     const storagePath = meta.storagePath ?? doc.FileName ?? null;
+
+    let patientIdObj: any = doc.PatNum?.toString() ?? null;
+    if (doc.patient) {
+      patientIdObj = {
+        _id: doc.patient.PatNum.toString(),
+        firstName: doc.patient.FName ?? '',
+        lastName: doc.patient.LName ?? '',
+      };
+    }
+
+    let uploadedByObj: any = meta.uploadedBy ?? doc.UserNum?.toString() ?? null;
+    if (doc.userod) {
+      uploadedByObj = {
+        _id: doc.userod.UserNum.toString(),
+        firstName: options?.userMeta?.firstName || doc.userod.UserName || 'System',
+        lastName: options?.userMeta?.lastName || 'User',
+      };
+    }
+
     return {
       _id: doc.DocNum.toString(),
-      patientId: doc.PatNum?.toString() ?? null,
+      patientId: patientIdObj,
       appointmentId: meta.appointmentId ?? null,
       documentName: doc.Description ?? doc.FileName ?? 'Document',
       documentType: meta.documentType ?? 'other',
@@ -58,7 +78,7 @@ export class DocumentService {
       isConfidential: meta.isConfidential ?? false,
       expirationDate: meta.expirationDate ? new Date(meta.expirationDate) : null,
       ocrText: meta.ocrText ?? doc.OcrResponseData ?? null,
-      uploadedBy: meta.uploadedBy ?? doc.UserNum?.toString() ?? null,
+      uploadedBy: uploadedByObj,
       checksum: meta.checksum ?? doc.ChartLetterHash ?? null,
       tags: meta.tags ?? [],
       createdAt: doc.DateCreated ?? null,
@@ -104,12 +124,25 @@ export class DocumentService {
   async getDocumentById(documentId: string) {
     const doc = await prisma.document.findUnique({
       where: { DocNum: BigInt(documentId) },
+      include: {
+        patient: true,
+        userod: true,
+      },
     });
     if (!doc) {
       throw new NotFoundError('Document not found');
     }
 
-    return this.mapDocumentRow(doc);
+    let userMeta = null;
+    if (doc.UserNum) {
+      try {
+        userMeta = await getUserMeta(doc.UserNum);
+      } catch (err) {
+        // Safe fallback in case user preference retrieval fails
+      }
+    }
+
+    return this.mapDocumentRow(doc, { userMeta });
   }
 
   async getDocumentsByPatient(patientId: string, page = 1, limit = 10, documentType?: string) {

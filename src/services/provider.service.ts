@@ -321,6 +321,8 @@ export class ProviderService {
   async updateProvider(
     providerId: string,
     updates: {
+      firstName?: string;
+      lastName?: string;
       npiNumber?: string;
       licenseNumber?: string;
       specialty?: string[] | string;
@@ -383,6 +385,8 @@ export class ProviderService {
     const updated = await prisma.provider.update({
       where: { ProvNum: BigInt(providerId) },
       data: {
+        FName: updates.firstName ?? undefined,
+        LName: updates.lastName ?? undefined,
         NationalProvID: updates.npiNumber ?? undefined,
         StateLicense: updates.licenseNumber ?? undefined,
         Specialty: specialtyDefNum,

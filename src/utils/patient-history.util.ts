@@ -41,6 +41,7 @@ export const normalizeDentalHistorySections = (rows: any[] = []) =>
         : '',
     note: typeof row?.note === 'string' ? row.note : '',
     additionalInfo: typeof row?.additionalInfo === 'string' ? row.additionalInfo : '',
+    comment: typeof row?.comment === 'string' ? row.comment : '',
   }));
 
 /**

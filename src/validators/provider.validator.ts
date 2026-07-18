@@ -100,6 +100,16 @@ export const createProviderValidator: ValidationChain[] = [
 ];
 
 export const updateProviderValidator: ValidationChain[] = [
+  body('firstName')
+    .optional()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage('First name must be less than 50 characters'),
+  body('lastName')
+    .optional()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage('Last name must be less than 50 characters'),
   body('npiNumber')
     .optional()
     .trim()
