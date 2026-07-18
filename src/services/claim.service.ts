@@ -50,6 +50,8 @@ type ClaimMeta = {
   corrections?: Record<string, unknown>;
   claimFormat?: string;
   isHidden?: boolean;
+  providerSignature?: string;
+  patientSignature?: string;
 };
 
 type ClaimFilters = {
@@ -306,6 +308,8 @@ export class ClaimService {
       procedures: context.procedures ?? [],
       claimFormat: meta.claimFormat ?? (row.ClaimType === 'Manual' ? 'Paper' : 'E-claim'),
       isHidden: meta.isHidden ?? false,
+      providerSignature: meta.providerSignature ?? null,
+      patientSignature: meta.patientSignature ?? null,
     };
   }
 
@@ -978,6 +982,8 @@ export class ClaimService {
       denialReason: string | null;
       paidDate: Date;
       corrections: Record<string, unknown>;
+      providerSignature: string;
+      patientSignature: string;
     }>,
     userId?: string
   ) {
@@ -1002,6 +1008,8 @@ export class ClaimService {
       patientResponsibility: updates.patientResponsibility ?? currentMeta.patientResponsibility,
       claimFormat: (updates.claimFormat as any) ?? currentMeta.claimFormat,
       policyNumber: updates.policyNumber ?? currentMeta.policyNumber,
+      providerSignature: updates.providerSignature ?? currentMeta.providerSignature,
+      patientSignature: updates.patientSignature ?? currentMeta.patientSignature,
       notes: updates.notes ?? currentMeta.notes,
       submissionDate:
         updates.submissionDate !== undefined
