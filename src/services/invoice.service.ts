@@ -908,10 +908,25 @@ export class InvoiceService {
       const procNum = await getNextId('procedurelog', 'ProcNum');
       const service = await prisma.procedurecode.findFirst({ where: { ProcCode: item.code } });
 
+      let provNum: bigint | null = null;
+      if (item.provider) {
+        if (/^\d+$/.test(item.provider)) {
+           const prov = await prisma.provider.findUnique({ where: { ProvNum: BigInt(item.provider) } });
+           if (prov) provNum = prov.ProvNum;
+        }
+        if (!provNum) {
+           const nameParts = item.provider.trim().split(' ');
+           const lastName = nameParts[nameParts.length - 1];
+           const prov = await prisma.provider.findFirst({ where: { LName: { contains: lastName, mode: 'insensitive' } } });
+           if (prov) provNum = prov.ProvNum;
+        }
+      }
+
       await prisma.procedurelog.create({
         data: {
           ProcNum: procNum,
           PatNum: patientId,
+          ProvNum: provNum,
           ProcDate: item.date ? new Date(item.date) : new Date(),
           ProcFee: Number(item.charge ?? 0),
           UnitQty: 1,

@@ -739,27 +739,42 @@ export class ClaimService {
       if (invoiceIdBigInt) {
         const invoiceProcs = await prisma.procedurelog.findMany({
           where: { StatementNum: invoiceIdBigInt },
-          include: { procedurecode_procedurelog_CodeNumToprocedurecode: true },
+          include: { 
+            procedurecode_procedurelog_CodeNumToprocedurecode: true,
+            provider_procedurelog_ProvNumToprovider: true 
+          },
         });
-        procedures = invoiceProcs.map((proc) => ({
-          id: proc.ProcNum.toString(),
-          _id: proc.ProcNum.toString(),
-          appointmentId: proc.AptNum?.toString() ?? null,
-          patientId: proc.PatNum?.toString() ?? null,
-          codeNum: proc.CodeNum?.toString() ?? null,
-          code: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? proc.OldCode ?? null,
-          name: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
-          description: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
-          tooth: proc.ToothNum ?? null,
-          surface: proc.Surf ?? null,
-          status: proc.ProcStatus ?? null,
-          quantity: proc.UnitQty ?? 1,
-          fee: proc.ProcFee ?? 0,
-          providerId: proc.ProvNum?.toString() ?? null,
-          dateOfService: proc.ProcDate ?? null,
-          placeOfService: proc.PlaceService ?? null,
-          createdAt: proc.SecDateEntry ?? null,
-        }));
+        procedures = invoiceProcs.map((proc) => {
+          const prov = proc.provider_procedurelog_ProvNumToprovider;
+          let providerName = prov ? `${prov.FName ?? ''} ${prov.LName ?? ''}`.trim() : null;
+          if (!providerName && proc.BillingNote) {
+             try {
+                const bn = JSON.parse(proc.BillingNote);
+                if (bn.provider) providerName = bn.provider;
+             } catch(e) {}
+          }
+          
+          return {
+            id: proc.ProcNum.toString(),
+            _id: proc.ProcNum.toString(),
+            appointmentId: proc.AptNum?.toString() ?? null,
+            patientId: proc.PatNum?.toString() ?? null,
+            codeNum: proc.CodeNum?.toString() ?? null,
+            code: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? proc.OldCode ?? null,
+            name: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? (proc.BillingNote ? 'Procedure' : 'Procedure'),
+            description: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? (proc.BillingNote ? 'Procedure' : 'Procedure'),
+            tooth: proc.ToothNum ?? null,
+            surface: proc.Surf ?? null,
+            status: proc.ProcStatus ?? null,
+            quantity: proc.UnitQty ?? 1,
+            fee: Number(proc.ProcFee ?? 0),
+            providerId: proc.ProvNum?.toString() ?? null,
+            providerName: providerName,
+            dateOfService: proc.ProcDate ?? null,
+            placeOfService: proc.PlaceService ?? null,
+            createdAt: proc.SecDateEntry ?? null,
+          };
+        });
       }
     }
 
@@ -823,10 +838,30 @@ export class ClaimService {
     };
 
     const claimNum = await getNextId('claim', 'ClaimNum');
+    
+    const patPlan = invoice.PatNum ? await prisma.patplan.findFirst({
+      where: { PatNum: invoice.PatNum, Ordinal: 1 },
+      include: { inssub: true }
+    }) : null;
+    
+    const invoiceProcs = invoice.PatNum ? await prisma.procedurelog.findMany({
+      where: { StatementNum: invoice.StatementNum },
+    }) : [];
+    
+    const treatingProv = invoiceProcs[0]?.ProvNum;
+    const patientRow = invoice.PatNum ? await prisma.patient.findUnique({
+      where: { PatNum: invoice.PatNum },
+    }) : null;
+    const billingProv = patientRow?.PriProv || treatingProv;
+
     const created = await prisma.claim.create({
       data: {
         ClaimNum: claimNum,
         PatNum: invoice.PatNum ?? null,
+        PlanNum: patPlan?.inssub?.PlanNum ?? null,
+        InsSubNum: patPlan?.InsSubNum ?? null,
+        ProvTreat: treatingProv ?? null,
+        ProvBill: billingProv ?? null,
         ClaimType: data.insuranceType ?? 'Primary',
         ClaimStatus: claimStatusToCode(status),
         DateService: new Date(),

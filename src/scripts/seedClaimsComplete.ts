@@ -45,6 +45,10 @@ async function seedClaimsComplete() {
             CarrierNum: carrierNum,
             CarrierName: cData.name,
             ElectID: cData.electId,
+            Address: '123 Insurance Way',
+            City: 'New York',
+            State: 'NY',
+            Zip: '10001',
             IsHidden: 0,
           },
         });
@@ -80,8 +84,14 @@ async function seedClaimsComplete() {
             LName: pData.lastName,
             ChartNumber: `PAT${patNum.toString().padStart(3, '0')}`,
             Birthdate: new Date('1990-05-15'),
+            Gender: 1, // Male
+            Address: '456 Patient St',
+            City: 'Brooklyn',
+            State: 'NY',
+            Zip: '11201',
             PatStatus: 0, // Active
             Language: 'en',
+            PriProv: provider.ProvNum, // Set primary provider
           },
         });
         console.log(`Created test patient: ${patient.FName} ${patient.LName} (Code: ${patient.ChartNumber})`);
@@ -301,6 +311,7 @@ async function seedClaimsComplete() {
           PlanNum: insPlan.PlanNum,
           InsSubNum: insSub.InsSubNum,
           ProvTreat: provider.ProvNum,
+          ProvBill: provider.ProvNum,
           ClaimStatus: claimStatusMap[state.status] ?? 'H',
           ClaimType: 'Primary',
           DateService: new Date(),
