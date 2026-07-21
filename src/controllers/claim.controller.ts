@@ -107,6 +107,8 @@ export class ClaimController {
           denialReason: req.body.denialReason,
           paidDate: req.body.paidDate ? new Date(req.body.paidDate) : undefined,
           corrections: req.body.corrections,
+          providerSignature: req.body.providerSignature,
+          patientSignature: req.body.patientSignature,
         },
         req.userId
       );
