@@ -790,6 +790,82 @@ router.patch(
  *             properties:
  *               scheduleConfig:
  *                 type: object
+ *                 properties:
+ *                   generalSettings:
+ *                     type: object
+ *                     properties:
+ *                       enableHorizontalScroll:
+ *                         type: boolean
+ *                         default: false
+ *                       minSlotWidth:
+ *                         type: number
+ *                         default: 200
+ *                       showCalendar:
+ *                         type: boolean
+ *                         default: true
+ *                       adjustableSlotHeight:
+ *                         type: boolean
+ *                         default: false
+ *                       slotHeight:
+ *                         type: number
+ *                         default: 50
+ *                   appointmentCardHeader:
+ *                     type: object
+ *                     properties:
+ *                       patientNameFormat:
+ *                         type: string
+ *                         default: 'First Name Last Name'
+ *                       displayAge:
+ *                         type: boolean
+ *                         default: true
+ *                       headerFontColor:
+ *                         type: string
+ *                         default: '#ffffff'
+ *                   appointmentCardSettings:
+ *                     type: object
+ *                     properties:
+ *                       defaultView:
+ *                         type: string
+ *                         default: 'List'
+ *                       infoToDisplay:
+ *                         type: array
+ *                         items:
+ *                           type: string
+ *                   treatmentScheduleSettings:
+ *                     type: object
+ *                     properties:
+ *                       providerView:
+ *                         type: string
+ *                         default: 'Standard'
+ *                       chairView:
+ *                         type: string
+ *                         default: 'Standard'
+ *                   statusColors:
+ *                     type: array
+ *                     items:
+ *                       type: object
+ *                       properties:
+ *                         name:
+ *                           type: string
+ *                         color1:
+ *                           type: string
+ *                         color2:
+ *                           type: string
+ *                           default: ''
+ *                         anim:
+ *                           type: string
+ *                           default: 'None'
+ *                   appointmentTypes:
+ *                     type: array
+ *                     items:
+ *                       type: object
+ *                       properties:
+ *                         type:
+ *                           type: string
+ *                         providers:
+ *                           type: number
+ *                         time:
+ *                           type: string
  *     responses:
  *       200:
  *         description: Schedule configuration updated
