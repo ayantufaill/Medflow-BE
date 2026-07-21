@@ -189,6 +189,11 @@ const buildInsuranceView = (row: any) => {
     _id: row.CarrierNum?.toString() ?? null,
     name: row.CarrierName ?? '',
     payerId: row.ElectID ?? null,
+    address: row.Address ?? '',
+    address2: row.Address2 ?? '',
+    city: row.City ?? '',
+    state: row.State ?? '',
+    zip: row.Zip ?? '',
   };
 };
 
@@ -273,6 +278,41 @@ export class ClaimService {
     const status = normalizeClaimStatus(meta.status ?? claimCodeToStatus(row.ClaimStatus));
     const patient = row.patient ? mapPatientToApi(row.patient) : null;
 
+    const mapProvider = (prov: any) => {
+      if (!prov) return null;
+      return {
+        _id: prov.ProvNum.toString(),
+        firstName: prov.FName || '',
+        lastName: prov.LName || '',
+        npi: prov.NationalProvID || '',
+        tin: prov.SSN || '',
+      };
+    };
+
+    const billingProvider = row.provider_claim_ProvBillToprovider ? mapProvider(row.provider_claim_ProvBillToprovider) : null;
+    const treatingProvider = row.provider_claim_ProvTreatToprovider ? mapProvider(row.provider_claim_ProvTreatToprovider) : null;
+
+    let subscriberDetails = null;
+    if (row.inssub_claim_InsSubNumToinssub) {
+      const inssub = row.inssub_claim_InsSubNumToinssub;
+      const subPatient = inssub.patient;
+      const insplan = row.insplan_claim_PlanNumToinsplan;
+      subscriberDetails = {
+        _id: inssub.InsSubNum.toString(),
+        memberId: inssub.SubscriberID || '',
+        groupNumber: insplan?.GroupNum || '',
+        relationshipToSubscriber: row.PatRelat || 1,
+        firstName: subPatient?.FName || subPatient?.firstName || '',
+        lastName: subPatient?.LName || subPatient?.lastName || '',
+        dateOfBirth: subPatient?.Birthdate || subPatient?.dateOfBirth || null,
+        address: subPatient?.Address || subPatient?.address || '',
+        city: subPatient?.City || subPatient?.city || '',
+        state: subPatient?.State || subPatient?.state || '',
+        zip: subPatient?.Zip || subPatient?.zip || '',
+        gender: subPatient?.Gender || subPatient?.gender || '',
+      };
+    }
+
     return {
       _id: row.ClaimNum.toString(),
       id: row.ClaimNum.toString(),
@@ -281,6 +321,9 @@ export class ClaimService {
       patientRefId: row.PatNum?.toString() ?? null,
       patientId: patient ?? row.PatNum?.toString() ?? null,
       patient,
+      subscriberDetails,
+      billingProvider,
+      treatingProvider,
       invoiceRefId: meta.invoiceId ?? null,
       invoiceId: context.invoice ?? meta.invoiceId ?? null,
       invoice: context.invoice ?? null,
@@ -407,6 +450,8 @@ export class ClaimService {
           quantity: procLog.UnitQty ?? 1,
           fee: cp.FeeBilled ?? procLog.ProcFee ?? 0,
           providerId: procLog.ProvNum?.toString() ?? null,
+          dateOfService: procLog.ProcDate ?? null,
+          placeOfService: procLog.PlaceService ?? null,
           createdAt: procLog.SecDateEntry ?? null,
         });
       }
@@ -463,6 +508,8 @@ export class ClaimService {
             quantity: proc.UnitQty ?? 1,
             fee: proc.ProcFee ?? 0,
             providerId: proc.ProvNum?.toString() ?? null,
+            dateOfService: proc.ProcDate ?? null,
+            placeOfService: proc.PlaceService ?? null,
             createdAt: proc.SecDateEntry ?? null,
           });
         }
@@ -482,7 +529,17 @@ export class ClaimService {
   private async getClaimRecord(claimId: string) {
     const claim = await prisma.claim.findUnique({
       where: { ClaimNum: BigInt(claimId) },
-      include: { patient: true },
+      include: { 
+        patient: true,
+        provider_claim_ProvTreatToprovider: true,
+        provider_claim_ProvBillToprovider: true,
+        inssub_claim_InsSubNumToinssub: {
+          include: {
+            patient: true,
+          }
+        },
+        insplan_claim_PlanNumToinsplan: true,
+      },
     });
 
     if (!claim || claim.ClaimType === 'PreAuth') {
@@ -682,25 +739,42 @@ export class ClaimService {
       if (invoiceIdBigInt) {
         const invoiceProcs = await prisma.procedurelog.findMany({
           where: { StatementNum: invoiceIdBigInt },
-          include: { procedurecode_procedurelog_CodeNumToprocedurecode: true },
+          include: { 
+            procedurecode_procedurelog_CodeNumToprocedurecode: true,
+            provider_procedurelog_ProvNumToprovider: true 
+          },
         });
-        procedures = invoiceProcs.map((proc) => ({
-          id: proc.ProcNum.toString(),
-          _id: proc.ProcNum.toString(),
-          appointmentId: proc.AptNum?.toString() ?? null,
-          patientId: proc.PatNum?.toString() ?? null,
-          codeNum: proc.CodeNum?.toString() ?? null,
-          code: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? proc.OldCode ?? null,
-          name: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
-          description: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
-          tooth: proc.ToothNum ?? null,
-          surface: proc.Surf ?? null,
-          status: proc.ProcStatus ?? null,
-          quantity: proc.UnitQty ?? 1,
-          fee: proc.ProcFee ?? 0,
-          providerId: proc.ProvNum?.toString() ?? null,
-          createdAt: proc.SecDateEntry ?? null,
-        }));
+        procedures = invoiceProcs.map((proc) => {
+          const prov = proc.provider_procedurelog_ProvNumToprovider;
+          let providerName = prov ? `${prov.FName ?? ''} ${prov.LName ?? ''}`.trim() : null;
+          if (!providerName && proc.BillingNote) {
+             try {
+                const bn = JSON.parse(proc.BillingNote);
+                if (bn.provider) providerName = bn.provider;
+             } catch(e) {}
+          }
+          
+          return {
+            id: proc.ProcNum.toString(),
+            _id: proc.ProcNum.toString(),
+            appointmentId: proc.AptNum?.toString() ?? null,
+            patientId: proc.PatNum?.toString() ?? null,
+            codeNum: proc.CodeNum?.toString() ?? null,
+            code: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? proc.OldCode ?? null,
+            name: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? (proc.BillingNote ? 'Procedure' : 'Procedure'),
+            description: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? (proc.BillingNote ? 'Procedure' : 'Procedure'),
+            tooth: proc.ToothNum ?? null,
+            surface: proc.Surf ?? null,
+            status: proc.ProcStatus ?? null,
+            quantity: proc.UnitQty ?? 1,
+            fee: Number(proc.ProcFee ?? 0),
+            providerId: proc.ProvNum?.toString() ?? null,
+            providerName: providerName,
+            dateOfService: proc.ProcDate ?? null,
+            placeOfService: proc.PlaceService ?? null,
+            createdAt: proc.SecDateEntry ?? null,
+          };
+        });
       }
     }
 
@@ -764,10 +838,30 @@ export class ClaimService {
     };
 
     const claimNum = await getNextId('claim', 'ClaimNum');
+    
+    const patPlan = invoice.PatNum ? await prisma.patplan.findFirst({
+      where: { PatNum: invoice.PatNum, Ordinal: 1 },
+      include: { inssub: true }
+    }) : null;
+    
+    const invoiceProcs = invoice.PatNum ? await prisma.procedurelog.findMany({
+      where: { StatementNum: invoice.StatementNum },
+    }) : [];
+    
+    const treatingProv = invoiceProcs[0]?.ProvNum;
+    const patientRow = invoice.PatNum ? await prisma.patient.findUnique({
+      where: { PatNum: invoice.PatNum },
+    }) : null;
+    const billingProv = patientRow?.PriProv || treatingProv;
+
     const created = await prisma.claim.create({
       data: {
         ClaimNum: claimNum,
         PatNum: invoice.PatNum ?? null,
+        PlanNum: patPlan?.inssub?.PlanNum ?? null,
+        InsSubNum: patPlan?.InsSubNum ?? null,
+        ProvTreat: treatingProv ?? null,
+        ProvBill: billingProv ?? null,
         ClaimType: data.insuranceType ?? 'Primary',
         ClaimStatus: claimStatusToCode(status),
         DateService: new Date(),
