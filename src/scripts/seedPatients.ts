@@ -5,43 +5,12 @@ import { prisma } from '../config/db';
 // Medical history helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Full standard dental-practice medical history section list.
- * Every section defaults to 'no'. Pass overrides to flip specific ones.
- */
+import { DEFAULT_MEDICAL_HISTORY } from '../services/patient-history-defaults';
+
 const buildMedicalSections = (
   overrides: Record<string, { answer: string; comment?: string; doctorNote?: string }> = {}
 ) => {
-  const base = [
-    { id: 'hospitalization',    number: 1,  group: 'medical',          question: 'hospitalization for illness or injury' },
-    { id: 'physician-care',     number: 2,  group: 'medical',          question: 'currently under physician care' },
-    { id: 'allergies',          number: 3,  group: 'allergy',          question: 'allergic to any medications or substances' },
-    { id: 'penicillin-allergy', number: 4,  group: 'allergy',          question: 'allergic to penicillin or antibiotics' },
-    { id: 'aspirin-allergy',    number: 5,  group: 'allergy',          question: 'allergic to aspirin or NSAIDs' },
-    { id: 'latex-allergy',      number: 6,  group: 'allergy',          question: 'allergic to latex or rubber' },
-    { id: 'anesthetic-allergy', number: 7,  group: 'allergy',          question: 'adverse reaction to local anesthetics' },
-    { id: 'heart-disease',      number: 8,  group: 'cardiovascular',   question: 'heart disease or heart attack' },
-    { id: 'high-blood-pressure',number: 9,  group: 'cardiovascular',   question: 'high blood pressure (hypertension)' },
-    { id: 'heart-murmur',       number: 10, group: 'cardiovascular',   question: 'heart murmur or rheumatic fever' },
-    { id: 'pacemaker',          number: 11, group: 'cardiovascular',   question: 'cardiac pacemaker or defibrillator' },
-    { id: 'stroke',             number: 12, group: 'cardiovascular',   question: 'stroke or transient ischemic attack (TIA)' },
-    { id: 'blood-thinner',      number: 13, group: 'cardiovascular',   question: 'taking blood thinners (anticoagulants)' },
-    { id: 'anemia',             number: 14, group: 'blood',            question: 'anemia or blood disorders' },
-    { id: 'diabetes',           number: 15, group: 'endocrine',        question: 'diabetes (Type I or Type II)' },
-    { id: 'thyroid',            number: 16, group: 'endocrine',        question: 'thyroid disorder' },
-    { id: 'asthma',             number: 17, group: 'respiratory',      question: 'asthma, emphysema, or breathing problems' },
-    { id: 'sleep-apnea',        number: 18, group: 'respiratory',      question: 'sleep apnea (using CPAP or oral appliance)' },
-    { id: 'kidney-disease',     number: 19, group: 'urological',       question: 'kidney or bladder disease' },
-    { id: 'liver-disease',      number: 20, group: 'hepatic',          question: 'liver disease or jaundice' },
-    { id: 'gastric',            number: 21, group: 'gastrointestinal', question: 'gastric reflux (GERD) or stomach ulcers' },
-    { id: 'arthritis',          number: 22, group: 'musculoskeletal',  question: 'arthritis or joint replacement' },
-    { id: 'osteoporosis',       number: 23, group: 'musculoskeletal',  question: 'osteoporosis or bone disease' },
-    { id: 'epilepsy',           number: 24, group: 'neurological',     question: 'epilepsy or seizure disorder' },
-    { id: 'cancer',             number: 25, group: 'oncological',      question: 'cancer, radiation, or chemotherapy' },
-    { id: 'hiv',                number: 26, group: 'immune',           question: 'HIV/AIDS or immune deficiency' },
-    { id: 'hepatitis',          number: 27, group: 'hepatic',          question: 'hepatitis (A, B, or C)' },
-    { id: 'supplements',        number: 50, group: 'medical',          question: 'taking any dietary supplements or vitamins' },
-  ];
+  const base = DEFAULT_MEDICAL_HISTORY.sections;
 
   return base.map((s) => {
     const ov = overrides[s.id] ?? {};
@@ -251,38 +220,23 @@ const MEDICAL_PROFILES = {
 // Dental history helpers
 // ---------------------------------------------------------------------------
 
-const buildDentalPersonalHistory = (
+import { DEFAULT_DENTAL_HISTORY } from '../services/patient-history-defaults';
+
+const buildDentalHistorySections = (
   overrides: Record<string, { answer: string; scale?: string; note?: string; additionalInfo?: string }> = {}
 ) => {
-  const base = [
-    { id: 'fearful-treatment',     number: 1, question: 'Are you fearful of dental treatment?' },
-    { id: 'unfavorable-experience',number: 2, question: 'Have you had an unfavorable dental experience?' },
-    { id: 'treatment-complications',number: 3, question: 'Have you ever had complications from past dental treatment?' },
-    { id: 'grind-clench',          number: 4, question: 'Do you grind or clench your teeth?' },
-    { id: 'oral-surgery',          number: 5, question: 'Have you had any oral surgery?' },
-    { id: 'missing-teeth-trauma',  number: 6, question: 'Have you had any teeth removed or missing teeth due to trauma?' },
-    { id: 'jaw-pain',              number: 7, question: 'Do you experience jaw pain, clicking, or popping (TMJ)?' },
-    { id: 'dry-mouth',             number: 8, question: 'Do you experience dry mouth (xerostomia)?' },
-    { id: 'sensitive-teeth',       number: 9, question: 'Do you have sensitive teeth (hot, cold, or sweet)?' },
-    { id: 'bleeding-gums',         number: 10, question: 'Do your gums bleed when you brush or floss?' },
-    { id: 'orthodontic-treatment', number: 11, question: 'Have you had orthodontic treatment (braces or aligners)?' },
-    { id: 'implants',              number: 12, question: 'Do you have any dental implants?' },
-    { id: 'dentures-partials',     number: 13, question: 'Do you wear dentures or partial dentures?' },
-    { id: 'snoring',               number: 14, question: 'Do you snore or have been told you stop breathing while sleeping?' },
-    { id: 'mouth-breathing',       number: 15, question: 'Do you breathe through your mouth?' },
-  ];
-
-  return base.map((s) => {
+  const mapSection = (section: any[]) => section.map(s => {
     const ov = overrides[s.id] ?? {};
-    return {
-      ...s,
-      scale: '',
-      note: '',
-      additionalInfo: '',
-      ...ov,
-      answer: (ov as any).answer ?? 'No',
-    };
+    return { ...s, ...ov, answer: (ov as any).answer ?? 'No' };
   });
+
+  return {
+    personalHistory: mapSection(DEFAULT_DENTAL_HISTORY.personalHistory),
+    gumAndBone: mapSection(DEFAULT_DENTAL_HISTORY.gumAndBone),
+    toothStructure: mapSection(DEFAULT_DENTAL_HISTORY.toothStructure),
+    biteAndJawJoint: mapSection(DEFAULT_DENTAL_HISTORY.biteAndJawJoint),
+    smileCharacteristics: mapSection(DEFAULT_DENTAL_HISTORY.smileCharacteristics),
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -303,7 +257,7 @@ const DENTAL_PROFILES = {
       recentXrayDate: '2024-09-15',
       dentistVisitFrequency: '6mo',
     },
-    personalHistory: buildDentalPersonalHistory(),
+    ...buildDentalHistorySections(),
     review: { reviewedWithPatient: true, reviewedAt: '2025-03-01T10:00:00Z', signatureDataUrl: null },
   },
 
@@ -319,11 +273,11 @@ const DENTAL_PROFILES = {
       recentXrayDate: '2024-10-22',
       dentistVisitFrequency: '6mo',
     },
-    personalHistory: buildDentalPersonalHistory({
+    ...buildDentalHistorySections({
       'fearful-treatment':  { answer: 'Yes', scale: '3', note: 'Mild anxiety — prefers to know what to expect before each step' },
-      'grind-clench':       { answer: 'Yes', note: 'Wears custom nightguard, worse during periods of stress', additionalInfo: 'Nightguard made by previous dentist — 2023' },
+      'clench-grind':       { answer: 'Yes', note: 'Wears custom nightguard, worse during periods of stress', additionalInfo: 'Nightguard made by previous dentist — 2023' },
       'sensitive-teeth':    { answer: 'Yes', scale: '4', note: 'Sensitivity to cold on lower molars' },
-      'jaw-pain':           { answer: 'Yes', note: 'Morning jaw stiffness, occasional clicking on right side' },
+      'jaw-joint-pain':     { answer: 'Yes', note: 'Morning jaw stiffness, occasional clicking on right side' },
     }),
     review: { reviewedWithPatient: true, reviewedAt: '2025-02-15T09:30:00Z', signatureDataUrl: null },
   },
@@ -340,9 +294,8 @@ const DENTAL_PROFILES = {
       recentXrayDate: '2024-08-10',
       dentistVisitFrequency: '1yr',
     },
-    personalHistory: buildDentalPersonalHistory({
-      'oral-surgery':         { answer: 'Yes', note: 'All 4 wisdom teeth extracted November 2023, uneventful recovery' },
-      'missing-teeth-trauma': { answer: 'Yes', note: 'Upper right #3 extracted due to fracture (2021)' },
+    ...buildDentalHistorySections({
+      'missing-teeth-trauma': { answer: 'Yes', note: 'All 4 wisdom teeth extracted November 2023, uneventful recovery. Upper right #3 extracted due to fracture (2021)' },
       'sensitive-teeth':      { answer: 'Yes', scale: '5', note: 'Cold sensitivity lower right quadrant for past 3 months' },
       'treatment-complications': { answer: 'Yes', note: 'Dry socket after #32 extraction — resolved with irrigation' },
     }),
@@ -361,15 +314,12 @@ const DENTAL_PROFILES = {
       recentXrayDate: '2024-07-18',
       dentistVisitFrequency: '6mo',
     },
-    personalHistory: buildDentalPersonalHistory({
+    ...buildDentalHistorySections({
       'unfavorable-experience':  { answer: 'Yes', note: 'Bad experience with numbing — took multiple injections to get numb' },
-      'treatment-complications': { answer: 'Yes', note: 'Prolonged numbness after block injection approx 2019' },
-      'oral-surgery':            { answer: 'Yes', note: 'Multiple extractions and implant placement #19 (2022)' },
-      'missing-teeth-trauma':    { answer: 'Yes', note: 'Multiple posterior teeth missing — lower partial denture in place' },
-      'implants':                { answer: 'Yes', note: 'Implant #19 placed 2022 — crown seated 2023', additionalInfo: 'Implant brand: Straumann' },
-      'dentures-partials':       { answer: 'Yes', note: 'Lower removable partial denture (teeth #28–#31 pontics)' },
+      'trouble-getting-numb':    { answer: 'Yes', note: 'Prolonged numbness after block injection approx 2019' },
+      'missing-teeth-trauma':    { answer: 'Yes', note: 'Multiple extractions and implant placement #19 (2022). Multiple posterior teeth missing — lower partial denture in place' },
       'bleeding-gums':           { answer: 'Yes', scale: '4', note: 'Bleeding around implant crown and posterior teeth when flossing' },
-      'dry-mouth':               { answer: 'Yes', note: 'On multiple medications — xerostomia is a side effect' },
+      'saliva-amount':           { answer: 'Yes', note: 'On multiple medications — xerostomia is a side effect' },
     }),
     review: { reviewedWithPatient: true, reviewedAt: '2025-03-10T11:00:00Z', signatureDataUrl: null },
   },
@@ -386,7 +336,7 @@ const DENTAL_PROFILES = {
       recentXrayDate: '2023-05-20',
       dentistVisitFrequency: '1yr',
     },
-    personalHistory: buildDentalPersonalHistory({
+    ...buildDentalHistorySections({
       'orthodontic-treatment': { answer: 'Yes', note: 'Braces age 13–16, retainer worn nightly' },
       'sensitive-teeth':       { answer: 'Yes', scale: '2', note: 'Mild cold sensitivity upper front teeth' },
     }),
