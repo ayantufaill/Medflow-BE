@@ -80,7 +80,8 @@ async function checkConflicts(
   endTime: string,
   excludeAppointmentId?: string,
   appointmentTypeId?: string,
-  roomId?: string
+  roomId?: string,
+  patientId?: string
 ): Promise<{ hasConflict: boolean; conflictingAppointments: any[]; conflictType?: string }> {
   const dateObj = appointmentDate instanceof Date ? new Date(appointmentDate) : new Date(appointmentDate);
   const startOfDay = getStartOfDay(dateObj);
@@ -174,6 +175,36 @@ async function checkConflicts(
         conflictingAppointments.push({
           apt: block,
           conflictType: 'blockout',
+        });
+      }
+    });
+  }
+
+  if (patientId) {
+    const patientWhere: any = {
+      PatNum: BigInt(patientId),
+      AptDateTime: { gte: startOfDay, lt: endOfDay },
+      AptStatus: { notIn: [3, 4, 6] },
+    };
+    if (excludeAppointmentId) {
+      patientWhere.AptNum = { not: BigInt(excludeAppointmentId) };
+    }
+
+    const patientAppointments = await prisma.appointment.findMany({
+      where: patientWhere,
+    });
+
+    patientAppointments.forEach((apt) => {
+      if (!apt.AptDateTime) return;
+      const aptStart = parseTimeToMinutes(formatMinutesToTime(
+        apt.AptDateTime.getHours() * 60 + apt.AptDateTime.getMinutes()
+      ));
+      const duration = getDurationMinutesFromPattern(apt.Pattern);
+      const aptEnd = aptStart + duration;
+      if (!(newEnd <= aptStart || newStart >= aptEnd)) {
+        conflictingAppointments.push({
+          apt,
+          conflictType: 'patient',
         });
       }
     });
@@ -889,7 +920,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       data.durationMinutes = 30;
     }
 
-    // Check for conflicts (including buffers and room)
+    // Check for conflicts (including buffers, room, and patient double-booking)
     const conflictCheck = await checkConflicts(
       data.providerId,
       data.appointmentDate,
@@ -897,7 +928,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
       data.endTime,
       undefined,
       resolvedAppointmentTypeId,
-      data.roomId
+      data.roomId,
+      data.patientId
     );
 
     if (conflictCheck.hasConflict) {
@@ -905,6 +937,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
         ? 'Appointment conflicts with a blocked slot in this room'
         : conflictCheck.conflictType === 'room'
         ? 'Room is already booked'
+        : conflictCheck.conflictType === 'patient'
+        ? 'Patient already has an appointment booked for this time slot'
         : 'Provider already has an appointment booked for this time slot';
       throw new ConflictError(conflictType);
     }
@@ -1039,7 +1073,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
         String(endTime),
         appointmentId,
         appointmentTypeId ? String(appointmentTypeId) : undefined,
-        roomId ? String(roomId) : undefined
+        roomId ? String(roomId) : undefined,
+        appointment.PatNum?.toString()
       );
 
       if (conflictCheck.hasConflict) {
@@ -1047,6 +1082,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
           ? 'Appointment conflicts with a blocked slot in this room'
           : conflictCheck.conflictType === 'room'
           ? 'Room is already booked at this time'
+          : conflictCheck.conflictType === 'patient'
+          ? 'Patient already has an appointment booked for this time slot'
           : 'Updated appointment conflicts with existing appointment';
         throw new ConflictError(conflictType);
       }
@@ -1239,7 +1276,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       throw new BadRequestError('Cannot reschedule a completed appointment');
     }
 
-    // Check for conflicts with new time (including buffers and room)
+    // Check for conflicts with new time (including buffers, room, and patient double-booking)
     const conflictCheck = await checkConflicts(
       appointment.ProvNum?.toString() ?? '',
       newDate,
@@ -1247,7 +1284,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
       newEndTime,
       appointmentId,
       appointment.AppointmentTypeNum ? appointment.AppointmentTypeNum.toString() : undefined,
-      appointment.Op ? appointment.Op.toString() : undefined
+      appointment.Op ? appointment.Op.toString() : undefined,
+      appointment.PatNum?.toString()
     );
 
     if (conflictCheck.hasConflict) {
@@ -1255,6 +1293,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
         ? 'Appointment conflicts with a blocked slot in this room'
         : conflictCheck.conflictType === 'room'
         ? 'Room is already booked at this time'
+        : conflictCheck.conflictType === 'patient'
+        ? 'Patient already has an appointment booked for this time slot'
         : 'Rescheduled appointment conflicts with existing appointment';
       throw new ConflictError(conflictType);
     }
