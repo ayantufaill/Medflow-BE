@@ -516,6 +516,119 @@ describe('Claims Procedures Fallback', () => {
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
+
+  it('correctly calculates patient coverage (90%) for invoice and claim patbalance / insbalance', async () => {
+    const token = uniqueToken('covtest');
+    const alphanumericToken = token.replace(/[^A-Za-z0-9]/g, '');
+    const patient = await createPatientRecord(alphanumericToken);
+
+    // Create an insurance carrier
+    const carrierNum = BigInt(Date.now() - Math.floor(Math.random() * 1000000));
+    const uniqueElectId = `EL${Math.floor(100 + Math.random() * 900)}${alphanumericToken.substring(0, 2)}`;
+    await prisma.carrier.create({
+      data: {
+        CarrierNum: carrierNum,
+        CarrierName: `Carrier-${alphanumericToken}`,
+        ElectID: uniqueElectId,
+      },
+    });
+
+    // Add primary insurance for patient with 60% diagnostic and 90% restorative coverage
+    const insRes = await request(app)
+      .post(`/api/patients/${patient.PatNum}/insurance`)
+      .set(authHeader)
+      .send({
+        insuranceType: 'primary',
+        insuranceCompanyId: carrierNum.toString(),
+        relationshipToPatient: 'self',
+        effectiveDate: new Date().toISOString(),
+        policyNumber: `POL${alphanumericToken.substring(0, 10)}`,
+        subscriberName: 'Test Subscriber',
+        subscriberDateOfBirth: '1990-01-01T00:00:00.000Z',
+        coverageCategoryTable: [
+          {
+            category: 'diagnostic',
+            coverage: 60,
+          },
+          {
+            category: 'restorative',
+            coverage: 90,
+          },
+        ],
+      });
+
+    expect(insRes.status).toBe(201);
+
+    // Create an invoice for patient
+    const statement = await createInvoiceStatement({
+      patientId: patient.PatNum,
+      token: alphanumericToken,
+    });
+
+    // Add a $100 Diagnostic procedure (D0120) to invoice
+    const diagItemRes = await request(app)
+      .post(`/api/invoices/${statement.StatementNum}/items`)
+      .set(authHeader)
+      .send({
+        cptCode: 'D0120',
+        description: 'Periodic oral evaluation - established patient',
+        quantity: 1,
+        unitPrice: 100,
+      });
+
+    expect(diagItemRes.status).toBe(201);
+    const diagItemData = diagItemRes.body?.data?.item || diagItemRes.body?.data;
+    expect(diagItemData.insPortion).toBe(60);
+    expect(diagItemData.ptPortion).toBe(40);
+
+    // Add a $100 Restorative procedure (D2140) to invoice
+    const restItemRes = await request(app)
+      .post(`/api/invoices/${statement.StatementNum}/items`)
+      .set(authHeader)
+      .send({
+        cptCode: 'D2140',
+        description: 'Amalgam - one surface, primary or permanent',
+        quantity: 1,
+        unitPrice: 100,
+      });
+
+    expect(restItemRes.status).toBe(201);
+    const restItemData = restItemRes.body?.data?.item || restItemRes.body?.data;
+    expect(restItemData.insPortion).toBe(90);
+    expect(restItemData.ptPortion).toBe(10);
+
+    // Fetch the claim generated for invoice
+    const claimsRes = await request(app)
+      .get(`/api/claims?patientId=${patient.PatNum}`)
+      .set(authHeader);
+
+    expect(claimsRes.status).toBe(200);
+    const claims = claimsRes.body?.data?.claims || [];
+    const claim = claims[0];
+    expect(claim).toBeDefined();
+    expect(claim.insbalance).toBe(150);
+    expect(claim.patbalance).toBe(50);
+    expect(claim.patientResponsibility).toBe(50);
+
+    // Clean up all claims for patient
+    const patClaims = await prisma.claim.findMany({ where: { PatNum: patient.PatNum } });
+    const claimNums = patClaims.map(c => c.ClaimNum);
+    if (claimNums.length > 0) {
+      await prisma.claimtracking.deleteMany({ where: { ClaimNum: { in: claimNums } } });
+      await prisma.claimproc.deleteMany({ where: { ClaimNum: { in: claimNums } } });
+      await prisma.claim.deleteMany({ where: { PatNum: patient.PatNum } });
+    }
+    await prisma.procedurelog.deleteMany({ where: { StatementNum: statement.StatementNum } });
+    await prisma.patplan.deleteMany({ where: { PatNum: patient.PatNum } });
+    await prisma.inssub.deleteMany({ where: { Subscriber: patient.PatNum } });
+    const insPlans = await prisma.insplan.findMany({ where: { CarrierNum: carrierNum } });
+    for (const plan of insPlans) {
+      await prisma.insplan.delete({ where: { PlanNum: plan.PlanNum } });
+    }
+    await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
+    await prisma.statement.delete({ where: { StatementNum: statement.StatementNum } });
+    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+  });
 });
 
 

@@ -335,11 +335,17 @@ export class ClaimService {
       submissionDate: meta.submissionDate ? new Date(meta.submissionDate) : row.DateSent ?? row.DateService ?? null,
       submittedDate: meta.submissionDate ? new Date(meta.submissionDate) : row.DateSent ?? row.DateService ?? null,
       submittedAmount:
-        Number(meta.submittedAmount ?? meta.claimAmount ?? meta.totalAmount ?? row.ClaimFee ?? row.InsPayEst) || 0,
+        Number(meta.submittedAmount ?? row.InsPayEst ?? meta.claimAmount ?? meta.totalAmount ?? row.ClaimFee) || 0,
       claimAmount: Number(meta.claimAmount ?? meta.totalAmount ?? row.ClaimFee ?? row.InsPayEst) || 0,
       totalAmount: Number(meta.totalAmount ?? meta.claimAmount ?? row.ClaimFee ?? row.InsPayEst) || 0,
       paidAmount: Number(meta.paidAmount ?? row.InsPayAmt) || 0,
       patientResponsibility: Number(meta.patientResponsibility ?? row.DedApplied) || 0,
+      insbalance: Number(meta.submittedAmount ?? row.InsPayEst ?? (Number(row.ClaimFee || 0) - Number(meta.patientResponsibility ?? row.DedApplied ?? 0))) || 0,
+      patbalance: Number(meta.patientResponsibility ?? row.DedApplied) || 0,
+      insuranceBalance: Number(meta.submittedAmount ?? row.InsPayEst ?? (Number(row.ClaimFee || 0) - Number(meta.patientResponsibility ?? row.DedApplied ?? 0))) || 0,
+      patientBalance: Number(meta.patientResponsibility ?? row.DedApplied) || 0,
+      insurancePortion: Number(meta.submittedAmount ?? row.InsPayEst) || 0,
+      patientPortion: Number(meta.patientResponsibility ?? row.DedApplied) || 0,
       denialReason: meta.denialReason ?? row.ReasonUnderPaid ?? null,
       deniedDate: meta.deniedDate ? new Date(meta.deniedDate) : null,
       denialDate: meta.deniedDate ? new Date(meta.deniedDate) : null,
@@ -823,16 +829,61 @@ export class ClaimService {
     const claimAmount = Number(data.claimAmount ?? data.submittedAmount ?? invoice.BalTotal) || 0;
     const claimNumber = await this.generateClaimNumber();
 
+    const invoiceProcs = invoice.PatNum ? await prisma.procedurelog.findMany({
+      where: { StatementNum: invoice.StatementNum },
+    }) : [];
+
+    let insPayEst = Number(invoice.InsEst || invoiceMeta.insurancePortion || 0);
+    let patientResponsibility = Number(invoiceMeta.patientPortion || 0);
+
+    let sumIns = 0;
+    let sumPt = 0;
+    let hasPortions = false;
+    for (const proc of invoiceProcs) {
+      if (proc.BillingNote) {
+        try {
+          const bn = JSON.parse(proc.BillingNote);
+          if (bn.insPortion !== undefined || bn.ptPortion !== undefined) {
+            sumIns += Number(bn.insPortion || 0);
+            sumPt += Number(bn.ptPortion || 0);
+            hasPortions = true;
+          }
+        } catch (e) {}
+      }
+    }
+
+    if (hasPortions) {
+      insPayEst = sumIns;
+      patientResponsibility = sumPt;
+    } else if (invoice.PatNum && invoiceProcs.length > 0) {
+      const { invoiceService } = await import('./invoice.service');
+      const simulated = invoiceProcs.map(proc => {
+        const meta = parseJson<any>(proc.BillingNote);
+        return {
+          ...meta,
+          ProcFee: proc.ProcFee,
+          serviceId: proc.CodeNum?.toString()
+        };
+      });
+      const enriched = await invoiceService.calculateInsuranceEstimates(invoice.PatNum, simulated);
+      insPayEst = enriched.reduce((sum: number, item: any) => sum + (Number(item.insPortion) || 0), 0);
+      patientResponsibility = enriched.reduce((sum: number, item: any) => sum + (Number(item.ptPortion) || 0), 0);
+    }
+
+    if (!patientResponsibility && claimAmount > insPayEst && insPayEst > 0) {
+      patientResponsibility = Math.max(0, claimAmount - insPayEst);
+    }
+
     const claimMeta: ClaimMeta = {
       invoiceId,
       insuranceCompanyId: data.insuranceCompanyId ?? invoiceMeta.insuranceCompanyId ?? undefined,
       insuranceType: data.insuranceType ?? 'primary',
       status,
       claimAmount,
-      submittedAmount: Number(data.submittedAmount ?? claimAmount) || claimAmount,
+      submittedAmount: insPayEst > 0 ? insPayEst : Number(data.submittedAmount ?? claimAmount) || claimAmount,
       totalAmount: claimAmount,
       paidAmount: 0,
-      patientResponsibility: 0,
+      patientResponsibility,
       policyNumber: data.policyNumber,
       notes: data.notes,
     };
@@ -843,10 +894,6 @@ export class ClaimService {
       where: { PatNum: invoice.PatNum, Ordinal: 1 },
       include: { inssub: true }
     }) : null;
-    
-    const invoiceProcs = invoice.PatNum ? await prisma.procedurelog.findMany({
-      where: { StatementNum: invoice.StatementNum },
-    }) : [];
     
     const treatingProv = invoiceProcs[0]?.ProvNum;
     const patientRow = invoice.PatNum ? await prisma.patient.findUnique({
@@ -866,9 +913,9 @@ export class ClaimService {
         ClaimStatus: claimStatusToCode(status),
         DateService: new Date(),
         ClaimFee: claimAmount,
-        InsPayEst: claimAmount,
+        InsPayEst: insPayEst > 0 ? insPayEst : claimAmount,
         InsPayAmt: 0,
-        DedApplied: 0,
+        DedApplied: patientResponsibility,
         PreAuthString: claimNumber,
         PriorAuthorizationNumber: claimNumber,
         ClaimIdentifier: claimNumber,
@@ -941,16 +988,35 @@ export class ClaimService {
     const claimAmount = acceptedItems.reduce((sum, item) => sum + (Number(item.fee) || 0), 0);
     const claimNumber = await this.generateClaimNumber();
 
+    let insPayEst = claimAmount;
+    let patientResponsibility = 0;
+
+    if (patientId && /^\d+$/.test(patientId) && acceptedItems.length > 0) {
+      try {
+        const { invoiceService } = await import('./invoice.service');
+        const simulated = acceptedItems.map(item => ({
+          ...item,
+          charge: item.fee,
+          cptCode: item.procedureCode || item.code,
+        }));
+        const enriched = await invoiceService.calculateInsuranceEstimates(BigInt(patientId), simulated);
+        insPayEst = enriched.reduce((sum: number, it: any) => sum + (Number(it.insPortion) || 0), 0);
+        patientResponsibility = enriched.reduce((sum: number, it: any) => sum + (Number(it.ptPortion) || 0), 0);
+      } catch (err) {
+        console.warn('Failed to calculate insurance estimates for treatment plan claim:', err);
+      }
+    }
+
     const claimMeta: ClaimMeta = {
       treatmentPlanId: planId,
       insuranceCompanyId,
       insuranceType,
       status,
       claimAmount,
-      submittedAmount: claimAmount,
+      submittedAmount: insPayEst,
       totalAmount: claimAmount,
       paidAmount: 0,
-      patientResponsibility: 0,
+      patientResponsibility,
       procedures: acceptedItems.map(item => ({
         id: item.id || Math.random().toString(36).substr(2, 9),
         _id: item.id || Math.random().toString(36).substr(2, 9),
@@ -976,9 +1042,9 @@ export class ClaimService {
         ClaimStatus: claimStatusToCode(status),
         DateService: new Date(),
         ClaimFee: claimAmount,
-        InsPayEst: claimAmount,
+        InsPayEst: insPayEst,
         InsPayAmt: 0,
-        DedApplied: 0,
+        DedApplied: patientResponsibility,
         PreAuthString: claimNumber,
         PriorAuthorizationNumber: claimNumber,
         ClaimIdentifier: claimNumber,
