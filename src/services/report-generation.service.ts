@@ -611,23 +611,111 @@ export class ReportGenerationService {
     }));
   }
 
+  private async getCourtesyCreditModifications(start: Date, end: Date) {
+    const courtesyDefs = await prisma.definition.findMany({
+      where: {
+        Category: 1, // AdjTypes
+        ItemName: { contains: 'Courtesy', mode: 'insensitive' }
+      }
+    });
+    const courtesyDefNums = courtesyDefs.map(d => d.DefNum);
+
+    if (courtesyDefNums.length === 0) return [];
+
+    const adjustments = await prisma.adjustment.findMany({
+      where: { 
+        AdjDate: { gte: start, lte: end },
+        AdjType: { in: courtesyDefNums }
+      }
+    });
+    const adjNums = adjustments.map(a => a.AdjNum);
+
+    if (adjNums.length === 0) return [];
+
+    const logs = await prisma.securitylog.findMany({
+      where: {
+        FKey: { in: adjNums },
+        PermType: 106, // AdjustmentEdit
+        LogDateTime: { gte: start, lte: end }
+      },
+      include: {
+        userod: true,
+        patient: true
+      },
+      take: 200
+    });
+
+    return logs.map(log => ({
+      dateModified: log.LogDateTime?.toLocaleDateString() || '',
+      user: log.userod ? log.userod.UserName : 'System',
+      action: log.LogText || 'Modified Courtesy Credit',
+      type: 'Adjustment',
+      patient: log.patient ? `${log.patient.FName} ${log.patient.LName}` : 'Unknown',
+      amount: 0
+    }));
+  }
+
   private async getCourtesyCreditReport(start: Date, end: Date, modifications = false) {
-    return [
-      { date: new Date().toLocaleDateString(), patient: 'Francis Fuller', creditAmount: 50.00, authorizedBy: 'Dr. Sabour', type: modifications ? 'Modified' : 'Standard' }
-    ];
+    if (modifications) {
+      return this.getCourtesyCreditModifications(start, end);
+    }
+
+    const courtesyDefs = await prisma.definition.findMany({
+      where: {
+        Category: 1, // AdjTypes
+        ItemName: { contains: 'Courtesy', mode: 'insensitive' }
+      }
+    });
+    
+    if (courtesyDefs.length === 0) return [];
+    
+    const courtesyDefNums = courtesyDefs.map(d => d.DefNum);
+
+    const adjustments = await prisma.adjustment.findMany({
+      where: { 
+        AdjDate: { gte: start, lte: end },
+        AdjType: { in: courtesyDefNums } 
+      },
+      include: {
+        patient: true
+      },
+      take: 200
+    });
+
+    return adjustments.map(a => ({
+      flags: [],
+      id: a.patient?.PatNum?.toString() || '0',
+      name: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Unknown Patient',
+      amount: Math.abs(a.AdjAmt ?? 0)
+    }));
   }
 
   private async getCreditAccountsReport() {
     const patients = await prisma.patient.findMany({
       where: { BalTotal: { lt: 0 } },
-      select: { PatNum: true, FName: true, LName: true, BalTotal: true },
-      take: 20
+      select: { 
+        PatNum: true, 
+        FName: true, 
+        LName: true, 
+        Birthdate: true,
+        Email: true,
+        HmPhone: true,
+        WirelessPhone: true,
+        BalTotal: true,
+        InsEst: true 
+      },
+      take: 200
     });
 
     return patients.map(p => ({
       patientId: p.PatNum.toString(),
       name: `${p.FName} ${p.LName}`,
-      credit: Math.abs(p.BalTotal ?? 0)
+      dob: p.Birthdate?.toLocaleDateString() || '',
+      email: p.Email || '',
+      phone: p.WirelessPhone || p.HmPhone || '',
+      amount: Math.abs(p.BalTotal ?? 0),
+      credit: Math.abs(p.BalTotal ?? 0),
+      insCredit: Math.abs(p.InsEst && p.InsEst < 0 ? p.InsEst : 0)
     }));
   }
 

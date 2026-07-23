@@ -48,6 +48,69 @@ const parseFormDataFields = (body: any): any => {
     }
   }
 
+  // Parse kioskAccounts
+  if (typeof parsed.kioskAccounts === 'string' && parsed.kioskAccounts) {
+    try {
+      parsed.kioskAccounts = JSON.parse(parsed.kioskAccounts);
+    } catch (e) {
+      parsed.kioskAccounts = []; // Default fallback for arrays
+    }
+  }
+
+  // Parse myChartSettings
+  if (typeof parsed.myChartSettings === 'string' && parsed.myChartSettings) {
+    try {
+      parsed.myChartSettings = JSON.parse(parsed.myChartSettings);
+    } catch (e) {
+      parsed.myChartSettings = {}; // Default fallback for objects
+    }
+  }
+
+  // Parse officeTimings
+  if (typeof parsed.officeTimings === 'string' && parsed.officeTimings) {
+    try {
+      parsed.officeTimings = JSON.parse(parsed.officeTimings);
+    } catch (e) {
+      parsed.officeTimings = {};
+    }
+  }
+
+  // Parse onlineSchedule
+  if (typeof parsed.onlineSchedule === 'string' && parsed.onlineSchedule) {
+    try {
+      parsed.onlineSchedule = JSON.parse(parsed.onlineSchedule);
+    } catch (e) {
+      parsed.onlineSchedule = {};
+    }
+  }
+
+  // Parse patientFlags
+  if (typeof parsed.patientFlags === 'string' && parsed.patientFlags) {
+    try {
+      parsed.patientFlags = JSON.parse(parsed.patientFlags);
+    } catch (e) {
+      parsed.patientFlags = [];
+    }
+  }
+
+  // Parse documentCategories
+  if (typeof parsed.documentCategories === 'string' && parsed.documentCategories) {
+    try {
+      parsed.documentCategories = JSON.parse(parsed.documentCategories);
+    } catch (e) {
+      parsed.documentCategories = {};
+    }
+  }
+
+  // Parse scheduleConfig
+  if (typeof parsed.scheduleConfig === 'string' && parsed.scheduleConfig) {
+    try {
+      parsed.scheduleConfig = JSON.parse(parsed.scheduleConfig);
+    } catch (e) {
+      parsed.scheduleConfig = {};
+    }
+  }
+
   return parsed;
 };
 

@@ -3,6 +3,7 @@ import { BadRequestError, ConflictError, NotFoundError } from '../utils/error.ut
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { mapPatientToApi, mapProviderToApi } from '../utils/opendental-mappers.util';
+import { getPatientInsuranceMeta } from '../utils/opendental-auth.util';
 import { adjustmentService } from './adjustment.service';
 import { paymentService } from './payment.service';
 import { claimService } from './claim.service';
@@ -112,6 +113,190 @@ export class InvoiceService {
   }
 
   /**
+   * Calculate estimated insurance and patient portions for a list of items based on the primary patplan
+   */
+  public async calculateInsuranceEstimates(patientId: bigint, items: any[]) {
+    try {
+      const patPlan = await prisma.patplan.findFirst({
+        where: { PatNum: patientId, IsPending: 0 },
+        orderBy: { Ordinal: 'asc' },
+        include: { inssub: true }
+      });
+
+      if (!patPlan?.PatPlanNum) return items;
+
+      const meta: any = await getPatientInsuranceMeta(patPlan.PatPlanNum);
+      const coverageCategoryTable = meta?.coverageCategoryTable || [];
+
+      // Build quick lookup maps from the UI meta payload
+      const procCodePercentages = new Map<string, number>();
+      const categoryPercentages = new Map<string, number>();
+
+      const normalizeCat = (str: string) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+      const addCategoryPercentage = (catName: string, cov: number) => {
+        if (!catName || typeof cov !== 'number') return;
+        const norm = normalizeCat(catName);
+        categoryPercentages.set(norm, cov);
+
+        // Map common category aliases
+        if (norm.includes('diagnostic')) categoryPercentages.set('diagnostic', cov);
+        if (norm.includes('prevent') || norm === 'preventative' || norm === 'preventive') {
+          categoryPercentages.set('preventative', cov);
+          categoryPercentages.set('preventive', cov);
+        }
+        if (norm.includes('restor')) categoryPercentages.set('restorative', cov);
+        if (norm.includes('endo')) categoryPercentages.set('endodontics', cov);
+        if (norm.includes('perio')) categoryPercentages.set('periodontics', cov);
+        if (norm.includes('remov')) categoryPercentages.set('prosthodonticsremovable', cov);
+        if (norm.includes('maxillofac')) categoryPercentages.set('maxillofacialprosthetics', cov);
+        if (norm.includes('implant')) categoryPercentages.set('implantservices', cov);
+        if (norm.includes('fixed')) categoryPercentages.set('prosthodonticsfixed', cov);
+        if (norm.includes('surg') || norm.includes('oral')) categoryPercentages.set('oralsurgery', cov);
+        if (norm.includes('ortho')) categoryPercentages.set('orthodontics', cov);
+        if (norm.includes('adjunc') || norm.includes('general')) categoryPercentages.set('adjunctgeneral', cov);
+      };
+
+      // Process coverageCategoryTable (can be Array or Object)
+      if (Array.isArray(coverageCategoryTable)) {
+        for (const catEntry of coverageCategoryTable) {
+          if (catEntry && typeof catEntry === 'object') {
+            const catName = catEntry.category || catEntry.title || catEntry.label || catEntry.name;
+            if (catName && typeof catEntry.coverage === 'number') {
+              addCategoryPercentage(catName, catEntry.coverage);
+            }
+            if (Array.isArray(catEntry.items)) {
+              for (const subItem of catEntry.items) {
+                if (subItem.code && typeof subItem.coverage === 'number') {
+                  procCodePercentages.set(String(subItem.code).toUpperCase().trim(), subItem.coverage);
+                } else if (subItem.label && typeof subItem.coverage === 'number') {
+                  addCategoryPercentage(subItem.label, subItem.coverage);
+                  if (catName) addCategoryPercentage(catName, subItem.coverage);
+                }
+              }
+            }
+          }
+        }
+      } else if (coverageCategoryTable && typeof coverageCategoryTable === 'object') {
+        for (const [catKey, value] of Object.entries(coverageCategoryTable)) {
+          if (typeof value === 'number') {
+            addCategoryPercentage(catKey, value);
+          } else if (Array.isArray(value)) {
+            for (const subItem of value as any[]) {
+              if (subItem.code && typeof subItem.coverage === 'number') {
+                procCodePercentages.set(String(subItem.code).toUpperCase().trim(), subItem.coverage);
+              } else if (subItem.label && typeof subItem.coverage === 'number') {
+                addCategoryPercentage(subItem.label, subItem.coverage);
+                addCategoryPercentage(catKey, subItem.coverage);
+              }
+            }
+          }
+        }
+      }
+
+      // Also get OpenDental covSpans so we can map procedures to general categories
+      const covSpans = await prisma.covspan.findMany();
+      const covCats = await prisma.covcat.findMany();
+      const covCatMap = new Map<string, string>();
+      for (const cat of covCats) {
+        if (cat.Description) {
+          covCatMap.set(cat.CovCatNum.toString(), cat.Description.toLowerCase());
+        }
+      }
+
+      for (const item of items) {
+        const charge = Number(item.totalPrice ?? item.charge ?? item.ProcFee ?? item.unitPrice ?? 0);
+        if (item.dbi) {
+          item.insPortion = 0;
+          item.ptPortion = charge;
+          continue;
+        }
+
+        let procCodeString = item.cptCode || item.code || '';
+        if (!procCodeString && item.serviceId) {
+          const procCode = await prisma.procedurecode.findUnique({ where: { CodeNum: BigInt(item.serviceId) } });
+          if (procCode) procCodeString = procCode.ProcCode;
+        }
+
+        if (!procCodeString) continue;
+
+        const cleanCode = String(procCodeString).toUpperCase().trim();
+        let percent: number | undefined;
+
+        // 1. Specific Procedure Code Override (e.g. "D2140" or "2140")
+        if (procCodePercentages.has(cleanCode)) {
+          percent = procCodePercentages.get(cleanCode);
+        } else if (cleanCode.startsWith('D') && procCodePercentages.has(cleanCode.substring(1))) {
+          percent = procCodePercentages.get(cleanCode.substring(1));
+        }
+
+        // 2. CDT Code Range Category Mapping (12 standard categories)
+        if (percent === undefined) {
+          const numMatch = cleanCode.match(/\d+/);
+          const num = numMatch ? parseInt(numMatch[0], 10) : null;
+          let catKey = '';
+
+          if (num !== null) {
+            if (num < 1000) catKey = 'diagnostic';
+            else if (num < 2000) catKey = 'preventative';
+            else if (num < 3000) catKey = 'restorative';
+            else if (num < 4000) catKey = 'endodontics';
+            else if (num < 5000) catKey = 'periodontics';
+            else if (num < 5900) catKey = 'prosthodonticsremovable';
+            else if (num < 6000) catKey = 'maxillofacialprosthetics';
+            else if (num < 6200) catKey = 'implantservices';
+            else if (num < 7000) catKey = 'prosthodonticsfixed';
+            else if (num < 8000) catKey = 'oralsurgery';
+            else if (num < 9000) catKey = 'orthodontics';
+            else catKey = 'adjunctgeneral';
+          }
+
+          if (catKey && categoryPercentages.has(catKey)) {
+            percent = categoryPercentages.get(catKey);
+          }
+        }
+
+        // 3. OpenDental CovSpan / CovCat Fallback
+        if (percent === undefined) {
+          const span = covSpans.find(s => s.FromCode && s.ToCode && cleanCode >= s.FromCode && cleanCode <= s.ToCode);
+          if (span && span.CovCatNum) {
+            const odCategoryName = covCatMap.get(span.CovCatNum.toString());
+            if (odCategoryName) {
+              const normOdCat = normalizeCat(odCategoryName);
+              if (categoryPercentages.has(normOdCat)) {
+                percent = categoryPercentages.get(normOdCat);
+              }
+            }
+          }
+        }
+
+        // 4. General / Basic Fallback
+        if (percent === undefined) {
+          if (categoryPercentages.has('general')) {
+            percent = categoryPercentages.get('general');
+          } else if (categoryPercentages.has('basic')) {
+            percent = categoryPercentages.get('basic');
+          }
+        }
+
+        if (percent !== undefined) {
+          const insPortion = Math.round((charge * percent) / 100);
+          item.insPortion = insPortion;
+          item.ptPortion = Math.max(0, charge - insPortion);
+          item.coveragePct = percent;
+        }
+      }
+    } catch (err) {
+      console.warn('[InvoiceService] Failed to calculate insurance estimates:', err);
+    }
+    return items;
+  }
+
+  public async estimateInvoiceItems(patientId: string, items: any[]) {
+    return this.calculateInsuranceEstimates(BigInt(patientId), items);
+  }
+
+  /**
    * Background task: generate a draft claim for the patient's primary insurance
    * if the invoice has no claim yet and the patient has active insurance.
    * Uses setImmediate to avoid blocking the main thread.
@@ -167,7 +352,37 @@ export class InvoiceService {
           },
         });
         if (existingClaim) {
-          console.log(`[InvoiceService] Existing claim found via Narrative, skipping`);
+          const invoiceProcs = await prisma.procedurelog.findMany({ where: { StatementNum: statementNum } });
+          let sumFee = 0;
+          let sumIns = 0;
+          let sumPt = 0;
+          for (const proc of invoiceProcs) {
+            const fee = Number(proc.ProcFee || 0);
+            sumFee += fee;
+            if (proc.BillingNote) {
+              const bn = parseJson<any>(proc.BillingNote);
+              sumIns += Number(bn.insPortion || 0);
+              sumPt += Number(bn.ptPortion || 0);
+            }
+          }
+          const existingMeta = parseJson<any>(existingClaim.Narrative || '{}');
+          const updatedMeta = {
+            ...existingMeta,
+            claimAmount: sumFee,
+            submittedAmount: sumIns > 0 ? sumIns : sumFee,
+            totalAmount: sumFee,
+            patientResponsibility: sumPt,
+          };
+          await prisma.claim.update({
+            where: { ClaimNum: existingClaim.ClaimNum },
+            data: {
+              ClaimFee: sumFee,
+              InsPayEst: sumIns,
+              DedApplied: sumPt,
+              Narrative: buildJson(updatedMeta),
+            },
+          });
+          console.log(`[InvoiceService] Updated existing claim ${existingClaim.ClaimNum} amounts: fee=${sumFee}, ins=${sumIns}, pt=${sumPt}`);
           return;
         }
 
@@ -583,12 +798,13 @@ export class InvoiceService {
     });
 
     await this.recalculateInvoice(invoiceId);
-    await logActivity(userId, 'created', 'invoice_items', item.ProcNum.toString(), undefined, item, undefined, undefined, 'low');
+    const updatedItem = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
+    await logActivity(userId, 'created', 'invoice_items', item.ProcNum.toString(), undefined, updatedItem || item, undefined, undefined, 'low');
 
     // AUTO-GENERATE CLAIM after adding item (if not already generated)
     this.triggerClaimGeneration(invoice.StatementNum, invoice.PatNum, userId);
 
-    return this.mapProcedureLogToInvoiceItem(item, invoiceId, service);
+    return this.mapProcedureLogToInvoiceItem(updatedItem || item, invoiceId, service);
   }
 
   async updateInvoiceItem(
@@ -652,8 +868,9 @@ export class InvoiceService {
     });
 
     await this.recalculateInvoice(invoiceId);
-    await logActivity(userId, 'updated', 'invoice_items', itemId, item, updated, undefined, undefined, 'low');
-    return this.mapProcedureLogToInvoiceItem(updated, invoiceId, service);
+    const reFetchedUpdated = await prisma.procedurelog.findUnique({ where: { ProcNum: BigInt(itemId) } });
+    await logActivity(userId, 'updated', 'invoice_items', itemId, item, reFetchedUpdated || updated, undefined, undefined, 'low');
+    return this.mapProcedureLogToInvoiceItem(reFetchedUpdated || updated, invoiceId, service);
   }
 
   async deleteInvoiceItem(invoiceId: string, itemId: string, userId: string) {
@@ -760,9 +977,38 @@ export class InvoiceService {
     const discountAmount = Math.min(Number(meta.discountAmount) || 0, totalAmount);
     const subtotal = totalAmount - discountAmount + taxAmount;
 
-    let insurancePortion = Number(meta.insurancePortion) || 0;
+    let insurancePortion = 0;
     if (insuranceCoveragePercent !== undefined) {
       insurancePortion = roundCurrency((subtotal * insuranceCoveragePercent) / 100);
+    } else if (invoice.PatNum) {
+      const simulatedItems = items.map(item => {
+        const itemMeta = parseJson<any>(item.BillingNote);
+        return {
+          ...itemMeta,
+          ProcFee: item.ProcFee,
+          serviceId: item.CodeNum?.toString()
+        };
+      });
+      const enrichedSimulatedItems = await this.calculateInsuranceEstimates(invoice.PatNum, simulatedItems);
+      
+      for (let i = 0; i < enrichedSimulatedItems.length; i++) {
+        insurancePortion += Number(enrichedSimulatedItems[i].insPortion || 0);
+        
+        const originalItem = items[i];
+        const enrichedItem = enrichedSimulatedItems[i];
+        const originalMeta = parseJson<any>(originalItem.BillingNote);
+        
+        if (originalMeta.insPortion !== enrichedItem.insPortion || originalMeta.ptPortion !== enrichedItem.ptPortion) {
+          originalMeta.insPortion = enrichedItem.insPortion;
+          originalMeta.ptPortion = enrichedItem.ptPortion;
+          await prisma.procedurelog.update({
+            where: { ProcNum: originalItem.ProcNum },
+            data: { BillingNote: buildJson(originalMeta) }
+          });
+        }
+      }
+    } else {
+      insurancePortion = Number(meta.insurancePortion) || 0;
     }
 
     const patientPortion = roundCurrency(Math.max(0, subtotal - insurancePortion));
@@ -869,7 +1115,9 @@ export class InvoiceService {
     let totalInsPortion = 0;
     let totalPtPortion = 0;
 
-    for (const item of data.items) {
+    const enrichedItems = await this.calculateInsuranceEstimates(patientId, data.items);
+
+    for (const item of enrichedItems) {
       totalAmount += Number(item.charge ?? 0);
       totalInsPortion += Number(item.insPortion ?? 0);
       totalPtPortion += Number(item.ptPortion ?? 0);
@@ -908,10 +1156,25 @@ export class InvoiceService {
       const procNum = await getNextId('procedurelog', 'ProcNum');
       const service = await prisma.procedurecode.findFirst({ where: { ProcCode: item.code } });
 
+      let provNum: bigint | null = null;
+      if (item.provider) {
+        if (/^\d+$/.test(item.provider)) {
+           const prov = await prisma.provider.findUnique({ where: { ProvNum: BigInt(item.provider) } });
+           if (prov) provNum = prov.ProvNum;
+        }
+        if (!provNum) {
+           const nameParts = item.provider.trim().split(' ');
+           const lastName = nameParts[nameParts.length - 1];
+           const prov = await prisma.provider.findFirst({ where: { LName: { contains: lastName, mode: 'insensitive' } } });
+           if (prov) provNum = prov.ProvNum;
+        }
+      }
+
       await prisma.procedurelog.create({
         data: {
           ProcNum: procNum,
           PatNum: patientId,
+          ProvNum: provNum,
           ProcDate: item.date ? new Date(item.date) : new Date(),
           ProcFee: Number(item.charge ?? 0),
           UnitQty: 1,

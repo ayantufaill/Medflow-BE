@@ -354,26 +354,45 @@ export class InvoiceController {
   }
 
   async markItemPaid(req: Request, res: Response, next: NextFunction) {
-  try {
-    const { invoiceId, itemId } = req.params;
-    const { amount } = req.body;
-    
-    if (!amount || Number(amount) <= 0) {
-      return res.status(400).json({ 
-        success: false, 
-        error: { message: 'amount must be > 0' } 
+    try {
+      const { invoiceId, itemId } = req.params;
+      const { amount } = req.body;
+      
+      if (!amount || Number(amount) <= 0) {
+        return res.status(400).json({ 
+          success: false, 
+          error: { message: 'amount must be > 0' } 
+        });
+      }
+      
+      await invoiceService.markItemPaid(invoiceId, itemId, Number(amount));
+      res.json({ 
+        success: true, 
+        message: 'Item payment recorded' 
       });
+    } catch (error) {
+      next(error);
     }
-    
-    await invoiceService.markItemPaid(invoiceId, itemId, Number(amount));
-    res.json({ 
-      success: true, 
-      message: 'Item payment recorded' 
-    });
-  } catch (error) {
-    next(error);
   }
-}
+
+  async estimateInvoiceItems(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId, items } = req.body;
+      if (!patientId || !Array.isArray(items)) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'patientId and items array are required' },
+        });
+      }
+      const result = await invoiceService.estimateInvoiceItems(patientId, items);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const invoiceController = new InvoiceController();

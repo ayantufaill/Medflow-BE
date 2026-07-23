@@ -107,6 +107,13 @@ router.post(
   invoiceController.createStandaloneInvoice.bind(invoiceController)
 );
 
+router.post(
+  '/estimate',
+  authenticate,
+  requirePermission('invoices.read'),
+  invoiceController.estimateInvoiceItems.bind(invoiceController)
+);
+
 /**
  * @swagger
  * /invoices/patient/{patientId}:

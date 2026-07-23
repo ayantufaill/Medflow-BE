@@ -1117,6 +1117,18 @@ async getPatientLastVisit(patientId: string) {
       personalHistory: Array.isArray(patientMeta.dentalHistory?.personalHistory)
         ? normalizeDentalHistorySections(patientMeta.dentalHistory.personalHistory)
         : DEFAULT_DENTAL_HISTORY.personalHistory,
+      gumAndBone: Array.isArray(patientMeta.dentalHistory?.gumAndBone)
+        ? normalizeDentalHistorySections(patientMeta.dentalHistory.gumAndBone)
+        : DEFAULT_DENTAL_HISTORY.gumAndBone,
+      biteAndJawJoint: Array.isArray(patientMeta.dentalHistory?.biteAndJawJoint)
+        ? normalizeDentalHistorySections(patientMeta.dentalHistory.biteAndJawJoint)
+        : DEFAULT_DENTAL_HISTORY.biteAndJawJoint,
+      toothStructure: Array.isArray(patientMeta.dentalHistory?.toothStructure)
+        ? normalizeDentalHistorySections(patientMeta.dentalHistory.toothStructure)
+        : DEFAULT_DENTAL_HISTORY.toothStructure,
+      smileCharacteristics: Array.isArray(patientMeta.dentalHistory?.smileCharacteristics)
+        ? normalizeDentalHistorySections(patientMeta.dentalHistory.smileCharacteristics)
+        : DEFAULT_DENTAL_HISTORY.smileCharacteristics,
       review: {
         ...DEFAULT_DENTAL_HISTORY.review,
         ...(patientMeta.dentalHistory?.review ?? {}),
@@ -1130,7 +1142,12 @@ async getPatientLastVisit(patientId: string) {
     return {
       visitDates,
       generalInfo: dentalHistory.generalInfo,
+      sectionSummaries: dentalHistory.sectionSummaries,
       personalHistory: dentalHistory.personalHistory,
+      gumAndBone: dentalHistory.gumAndBone,
+      biteAndJawJoint: dentalHistory.biteAndJawJoint,
+      toothStructure: dentalHistory.toothStructure,
+      smileCharacteristics: dentalHistory.smileCharacteristics,
       reviewStatus: Boolean(dentalHistory.review.reviewedWithPatient),
       lastUpdateDate: dentalHistory.review.reviewedAt ?? patient.DateTStamp ?? null,
       review: dentalHistory.review,
@@ -1230,9 +1247,25 @@ async getPatientHistoryAggregate(patientId: string) {
         ...DEFAULT_DENTAL_HISTORY.generalInfo,
         ...(patientMeta.dentalHistory?.generalInfo ?? {}),
       },
+      sectionSummaries: {
+        ...DEFAULT_DENTAL_HISTORY.sectionSummaries,
+        ...(patientMeta.dentalHistory?.sectionSummaries ?? {}),
+      },
       personalHistory: Array.isArray(patientMeta.dentalHistory?.personalHistory)
         ? normalizeDentalHistorySections(patientMeta.dentalHistory.personalHistory)
         : DEFAULT_DENTAL_HISTORY.personalHistory,
+      gumAndBone: Array.isArray(patientMeta.dentalHistory?.gumAndBone)
+        ? normalizeDentalHistorySections(patientMeta.dentalHistory.gumAndBone)
+        : DEFAULT_DENTAL_HISTORY.gumAndBone,
+      biteAndJawJoint: Array.isArray(patientMeta.dentalHistory?.biteAndJawJoint)
+        ? normalizeDentalHistorySections(patientMeta.dentalHistory.biteAndJawJoint)
+        : DEFAULT_DENTAL_HISTORY.biteAndJawJoint,
+      toothStructure: Array.isArray(patientMeta.dentalHistory?.toothStructure)
+        ? normalizeDentalHistorySections(patientMeta.dentalHistory.toothStructure)
+        : DEFAULT_DENTAL_HISTORY.toothStructure,
+      smileCharacteristics: Array.isArray(patientMeta.dentalHistory?.smileCharacteristics)
+        ? normalizeDentalHistorySections(patientMeta.dentalHistory.smileCharacteristics)
+        : DEFAULT_DENTAL_HISTORY.smileCharacteristics,
       review: {
         ...DEFAULT_DENTAL_HISTORY.review,
         ...(patientMeta.dentalHistory?.review ?? {}),
@@ -1245,9 +1278,25 @@ async getPatientHistoryAggregate(patientId: string) {
         ...currentDentalHistory.generalInfo,
         ...(payload.generalInfo ?? {}),
       },
+      sectionSummaries: {
+        ...currentDentalHistory.sectionSummaries,
+        ...(payload.sectionSummaries ?? {}),
+      },
       personalHistory: Array.isArray(payload.personalHistory)
         ? normalizeDentalHistorySections(payload.personalHistory)
         : currentDentalHistory.personalHistory,
+      gumAndBone: Array.isArray(payload.gumAndBone)
+        ? normalizeDentalHistorySections(payload.gumAndBone)
+        : currentDentalHistory.gumAndBone,
+      biteAndJawJoint: Array.isArray(payload.biteAndJawJoint)
+        ? normalizeDentalHistorySections(payload.biteAndJawJoint)
+        : currentDentalHistory.biteAndJawJoint,
+      toothStructure: Array.isArray(payload.toothStructure)
+        ? normalizeDentalHistorySections(payload.toothStructure)
+        : currentDentalHistory.toothStructure,
+      smileCharacteristics: Array.isArray(payload.smileCharacteristics)
+        ? normalizeDentalHistorySections(payload.smileCharacteristics)
+        : currentDentalHistory.smileCharacteristics,
       review: {
         ...currentDentalHistory.review,
         ...(payload.review ?? {}),
