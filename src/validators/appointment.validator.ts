@@ -433,3 +433,14 @@ export const appointmentCommunicationValidator: ValidationChain[] = [
     .isString()
     .withMessage('subject must be a string'),
 ];
+
+export const appointmentSendConfirmationValidator: ValidationChain[] = [
+  body('channels')
+    .optional()
+    .isArray({ min: 1 })
+    .withMessage('channels must be a non-empty array')
+    .custom((channels: unknown[]) =>
+      channels.every((channel) => channel === 'email' || channel === 'sms')
+    )
+    .withMessage("channels may only contain 'email' and/or 'sms'"),
+];

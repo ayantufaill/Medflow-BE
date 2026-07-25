@@ -15,6 +15,8 @@ import {
   setAppointmentMeta,
 } from '../utils/opendental-auth.util';
 import { patientWorkspaceService } from './patient-workspace.service';
+import { emailService } from './email.service';
+import { smsService } from './sms.service';
 
 /**
  * Generate unique appointment code (e.g., APT001, APT002, etc.)
@@ -1802,6 +1804,107 @@ async getPatientAppointments(patientId: string, limit = 10) {
     return {
       success: true,
     };
+  }
+
+  /**
+   * Send a one-click confirmation notification (email and/or SMS) to the patient
+   * on an appointment. Skips channels the patient has no contact info for, and
+   * skips SMS if the patient has opted out (TxtMsgOk === 0).
+   */
+  async sendAppointmentConfirmationNotification(
+    appointmentId: string,
+    channels: Array<'email' | 'sms'>,
+    userId: string
+  ) {
+    const appointment = await prisma.appointment.findUnique({
+      where: { AptNum: BigInt(appointmentId) },
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+      },
+    });
+    if (!appointment) {
+      throw new NotFoundError('Appointment not found');
+    }
+    const patient = appointment.patient;
+    if (!patient) {
+      throw new BadRequestError('Appointment does not have a patient');
+    }
+
+    const appointmentDateTime = appointment.AptDateTime
+      ? new Intl.DateTimeFormat('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        }).format(appointment.AptDateTime)
+      : 'your scheduled time';
+    const providerName = appointment.provider_appointment_ProvNumToprovider
+      ? [
+          appointment.provider_appointment_ProvNumToprovider.FName,
+          appointment.provider_appointment_ProvNumToprovider.LName,
+        ]
+          .filter(Boolean)
+          .join(' ')
+      : undefined;
+
+    const result: {
+      email: { sent: boolean; reason?: string };
+      sms: { sent: boolean; reason?: string };
+    } = {
+      email: { sent: false },
+      sms: { sent: false },
+    };
+
+    if (channels.includes('email')) {
+      if (!patient.Email) {
+        result.email.reason = 'Patient has no email on file';
+      } else {
+        await emailService.sendAppointmentConfirmation(
+          patient.Email,
+          patient.FName ?? undefined,
+          appointmentDateTime,
+          providerName
+        );
+        result.email.sent = true;
+      }
+    }
+
+    if (channels.includes('sms')) {
+      if (!patient.WirelessPhone) {
+        result.sms.reason = 'Patient has no mobile number on file';
+      } else if (patient.TxtMsgOk === 0) {
+        result.sms.reason = 'Patient has opted out of text messages';
+      } else {
+        const message = `MedFlow: Your appointment is confirmed for ${appointmentDateTime}${providerName ? ` with ${providerName}` : ''}.`;
+        await smsService.sendSms(patient.WirelessPhone, message);
+        result.sms.sent = true;
+      }
+    }
+
+    const sentChannels: Array<{ channel: 'email' | 'text'; source: 'email' | 'sms' }> = [];
+    if (result.email.sent) sentChannels.push({ channel: 'email', source: 'email' });
+    if (result.sms.sent) sentChannels.push({ channel: 'text', source: 'sms' });
+
+    for (const { channel, source } of sentChannels) {
+      await patientWorkspaceService.createCommunication(
+        patient.PatNum.toString(),
+        {
+          appointmentId,
+          channel,
+          message:
+            source === 'email'
+              ? `Appointment confirmation email sent for ${appointmentDateTime}`
+              : `Appointment confirmation text sent for ${appointmentDateTime}`,
+          subject: channel === 'email' ? 'Your Appointment is Confirmed' : undefined,
+        },
+        userId
+      );
+    }
+
+    return result;
   }
 }
 

@@ -491,6 +491,109 @@ MedFlow Team
   }
 
   /**
+   * Send appointment confirmation email to a patient
+   * @param email - Recipient email address
+   * @param firstName - Patient's first name
+   * @param appointmentDateTime - Formatted appointment date/time string
+   * @param providerName - Optional provider name
+   */
+  async sendAppointmentConfirmation(
+    email: string,
+    firstName: string | undefined,
+    appointmentDateTime: string,
+    providerName?: string
+  ): Promise<void> {
+    const subject = 'MedFlow - Your Appointment is Confirmed';
+    const textBody = `
+Hello ${firstName || 'there'},
+
+Your appointment has been confirmed for:
+
+${appointmentDateTime}${providerName ? `\nProvider: ${providerName}` : ''}
+
+If you need to reschedule or have any questions, please contact our office.
+
+Best regards,
+MedFlow Team
+    `.trim();
+
+    const htmlBody = this.generateAppointmentConfirmationHTML(firstName, appointmentDateTime, providerName);
+    const fromEmail = process.env.FROM_EMAIL || 'noreply@medflow.com';
+    const fromName = process.env.FROM_NAME || 'MedFlow';
+
+    if (!this.transporter) {
+      console.log('='.repeat(50));
+      console.log('APPOINTMENT CONFIRMATION EMAIL (Console Mode)');
+      console.log('='.repeat(50));
+      console.log(`To: ${email}`);
+      console.log(`From: ${fromName} <${fromEmail}>`);
+      console.log(`Subject: ${subject}`);
+      console.log(`Body:\n${textBody}`);
+      console.log('='.repeat(50));
+      return;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: `"${fromName}" <${fromEmail}>`,
+        to: email,
+        subject,
+        text: textBody,
+        html: htmlBody,
+      });
+      console.log(`Appointment confirmation email sent successfully to ${email}`);
+    } catch (error) {
+      console.error('Error sending appointment confirmation email:', error);
+      throw new Error('Failed to send appointment confirmation email. Please try again later.');
+    }
+  }
+
+  /**
+   * Generate HTML email template for appointment confirmation
+   */
+  private generateAppointmentConfirmationHTML(
+    firstName: string | undefined,
+    appointmentDateTime: string,
+    providerName?: string
+  ): string {
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+    .header { background-color: #2e7d32; color: white; padding: 20px; text-align: center; }
+    .content { padding: 20px; background-color: #f9f9f9; }
+    .details { font-size: 18px; font-weight: bold; text-align: center; padding: 20px; background-color: white; margin: 20px 0; }
+    .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Appointment Confirmed</h1>
+    </div>
+    <div class="content">
+      <h2>Hello ${firstName || 'there'},</h2>
+      <p>Your appointment has been confirmed for:</p>
+      <div class="details">
+        ${appointmentDateTime}
+        ${providerName ? `<br><span style="font-size: 14px; font-weight: normal;">Provider: ${providerName}</span>` : ''}
+      </div>
+      <p>If you need to reschedule or have any questions, please contact our office.</p>
+    </div>
+    <div class="footer">
+      <p>Best regards,<br>MedFlow Team</p>
+    </div>
+  </div>
+</body>
+</html>
+    `.trim();
+  }
+
+  /**
    * Generate HTML email template for password reset code
    */
   private generatePasswordResetEmailHTML(code: string, firstName?: string): string {
