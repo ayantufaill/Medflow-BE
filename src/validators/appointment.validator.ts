@@ -440,7 +440,7 @@ export const appointmentSendConfirmationValidator: ValidationChain[] = [
     .isArray({ min: 1 })
     .withMessage('channels must be a non-empty array')
     .custom((channels: unknown[]) =>
-      channels.every((channel) => channel === 'email' || channel === 'sms')
+      channels.every((channel) => channel === 'email' || channel === 'sms' || channel === 'whatsapp')
     )
-    .withMessage("channels may only contain 'email' and/or 'sms'"),
+    .withMessage("channels may only contain 'email', 'sms', and/or 'whatsapp'"),
 ];

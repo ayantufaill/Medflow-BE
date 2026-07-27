@@ -1814,7 +1814,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
    */
   async sendAppointmentConfirmationNotification(
     appointmentId: string,
-    channels: Array<'email' | 'sms'>,
+    channels: Array<'email' | 'sms' | 'whatsapp'>,
     userId: string
   ) {
     const appointment = await prisma.appointment.findUnique({
@@ -1844,6 +1844,12 @@ async getPatientAppointments(patientId: string, limit = 10) {
           minute: '2-digit',
         }).format(appointment.AptDateTime)
       : 'your scheduled time';
+    const appointmentDateOnly = appointment.AptDateTime
+      ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(appointment.AptDateTime)
+      : 'TBD';
+    const appointmentTimeOnly = appointment.AptDateTime
+      ? new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(appointment.AptDateTime)
+      : 'TBD';
     const providerName = appointment.provider_appointment_ProvNumToprovider
       ? [
           appointment.provider_appointment_ProvNumToprovider.FName,
@@ -1872,38 +1878,44 @@ async getPatientAppointments(patientId: string, limit = 10) {
     const result: {
       email: { sent: boolean; reason?: string };
       sms: { sent: boolean; reason?: string };
+      whatsapp: { sent: boolean; reason?: string };
     } = {
       email: { sent: false },
       sms: { sent: false },
+      whatsapp: { sent: false },
     };
 
     if (channels.includes('email')) {
       if (!patient.Email) {
         result.email.reason = 'Patient has no email on file';
       } else {
-        const practiceInfo = await practiceInfoService.getPracticeInfo();
-        await emailService.sendAppointmentConfirmation({
-          email: patient.Email,
-          firstName: patient.FName ?? undefined,
-          appointmentDateTime,
-          providerName,
-          appointmentType,
-          reasonForVisit,
-          confirmationCode,
-          operatoryName,
-          durationMinutes,
-          procedures,
-          clinic: practiceInfo
-            ? {
-                name: practiceInfo.practiceName || undefined,
-                phone: practiceInfo.phone || undefined,
-                email: practiceInfo.email || undefined,
-                website: practiceInfo.website || undefined,
-                address: practiceInfo.address,
-              }
-            : undefined,
-        });
-        result.email.sent = true;
+        try {
+          const practiceInfo = await practiceInfoService.getPracticeInfo();
+          await emailService.sendAppointmentConfirmation({
+            email: patient.Email,
+            firstName: patient.FName ?? undefined,
+            appointmentDateTime,
+            providerName,
+            appointmentType,
+            reasonForVisit,
+            confirmationCode,
+            operatoryName,
+            durationMinutes,
+            procedures,
+            clinic: practiceInfo
+              ? {
+                  name: practiceInfo.practiceName || undefined,
+                  phone: practiceInfo.phone || undefined,
+                  email: practiceInfo.email || undefined,
+                  website: practiceInfo.website || undefined,
+                  address: practiceInfo.address,
+                }
+              : undefined,
+          });
+          result.email.sent = true;
+        } catch (error) {
+          result.email.reason = error instanceof Error ? error.message : 'Failed to send email';
+        }
       }
     }
 
@@ -1913,15 +1925,35 @@ async getPatientAppointments(patientId: string, limit = 10) {
       } else if (patient.TxtMsgOk === 0) {
         result.sms.reason = 'Patient has opted out of text messages';
       } else {
-        const message = `MedFlow: Your appointment is confirmed for ${appointmentDateTime}${providerName ? ` with ${providerName}` : ''}.`;
-        await smsService.sendSms(patient.WirelessPhone, message);
-        result.sms.sent = true;
+        try {
+          const message = `MedFlow: Your appointment is confirmed for ${appointmentDateTime}${providerName ? ` with ${providerName}` : ''}.`;
+          await smsService.sendSms(patient.WirelessPhone, message);
+          result.sms.sent = true;
+        } catch (error) {
+          result.sms.reason = error instanceof Error ? error.message : 'Failed to send SMS';
+        }
       }
     }
 
-    const sentChannels: Array<{ channel: 'email' | 'text'; source: 'email' | 'sms' }> = [];
+    if (channels.includes('whatsapp')) {
+      if (!patient.WirelessPhone) {
+        result.whatsapp.reason = 'Patient has no mobile number on file';
+      } else if (patient.TxtMsgOk === 0) {
+        result.whatsapp.reason = 'Patient has opted out of text messages';
+      } else {
+        try {
+          await smsService.sendWhatsAppAppointmentConfirmation(patient.WirelessPhone, appointmentDateOnly, appointmentTimeOnly);
+          result.whatsapp.sent = true;
+        } catch (error) {
+          result.whatsapp.reason = error instanceof Error ? error.message : 'Failed to send WhatsApp message';
+        }
+      }
+    }
+
+    const sentChannels: Array<{ channel: 'email' | 'text'; source: 'email' | 'sms' | 'whatsapp' }> = [];
     if (result.email.sent) sentChannels.push({ channel: 'email', source: 'email' });
     if (result.sms.sent) sentChannels.push({ channel: 'text', source: 'sms' });
+    if (result.whatsapp.sent) sentChannels.push({ channel: 'text', source: 'whatsapp' });
 
     for (const { channel, source } of sentChannels) {
       await patientWorkspaceService.createCommunication(
@@ -1932,6 +1964,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
           message:
             source === 'email'
               ? `Appointment confirmation email sent for ${appointmentDateTime}`
+              : source === 'whatsapp'
+              ? `Appointment confirmation WhatsApp message sent for ${appointmentDateTime}`
               : `Appointment confirmation text sent for ${appointmentDateTime}`,
           subject: channel === 'email' ? 'Your Appointment is Confirmed' : undefined,
         },
