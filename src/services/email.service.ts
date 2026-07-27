@@ -1,5 +1,28 @@
 import nodemailer from 'nodemailer';
 
+export type AppointmentConfirmationDetails = {
+  email: string;
+  firstName?: string;
+  appointmentDateTime: string;
+  providerName?: string;
+  appointmentType?: string;
+  reasonForVisit?: string;
+  confirmationCode?: string;
+  clinic?: {
+    name?: string;
+    phone?: string;
+    email?: string;
+    website?: string;
+    address?: {
+      line1?: string | null;
+      line2?: string | null;
+      city?: string | null;
+      state?: string | null;
+      postalCode?: string | null;
+    };
+  };
+};
+
 /**
  * Email Service
  * Handles sending emails for verification and notifications
@@ -492,34 +515,32 @@ MedFlow Team
 
   /**
    * Send appointment confirmation email to a patient
-   * @param email - Recipient email address
-   * @param firstName - Patient's first name
-   * @param appointmentDateTime - Formatted appointment date/time string
-   * @param providerName - Optional provider name
    */
-  async sendAppointmentConfirmation(
-    email: string,
-    firstName: string | undefined,
-    appointmentDateTime: string,
-    providerName?: string
-  ): Promise<void> {
-    const subject = 'MedFlow - Your Appointment is Confirmed';
+  async sendAppointmentConfirmation(details: AppointmentConfirmationDetails): Promise<void> {
+    const { email, firstName, appointmentDateTime, providerName, appointmentType, reasonForVisit, confirmationCode, clinic } = details;
+    const clinicName = clinic?.name || process.env.FROM_NAME || 'MedFlow';
+    const addressLine = [clinic?.address?.line1, clinic?.address?.city, clinic?.address?.state, clinic?.address?.postalCode]
+      .filter(Boolean)
+      .join(', ');
+
+    const subject = `${clinicName} - Your Appointment is Confirmed`;
     const textBody = `
 Hello ${firstName || 'there'},
 
-Your appointment has been confirmed for:
+Your appointment with ${clinicName} has been confirmed.
 
-${appointmentDateTime}${providerName ? `\nProvider: ${providerName}` : ''}
+${confirmationCode ? `Confirmation #: ${confirmationCode}\n` : ''}Date & Time: ${appointmentDateTime}
+${providerName ? `Provider: ${providerName}\n` : ''}${appointmentType ? `Visit Type: ${appointmentType}\n` : ''}${reasonForVisit ? `Reason for Visit: ${reasonForVisit}\n` : ''}
+Please arrive 15 minutes early and bring a valid photo ID and your insurance card (if applicable).
 
-If you need to reschedule or have any questions, please contact our office.
+Need to reschedule or cancel? Please contact us at least 24 hours in advance${clinic?.phone ? ` by calling ${clinic.phone}` : ''}.
 
-Best regards,
-MedFlow Team
+${clinicName}${addressLine ? `\n${addressLine}` : ''}${clinic?.phone ? `\n${clinic.phone}` : ''}${clinic?.website ? `\n${clinic.website}` : ''}
     `.trim();
 
-    const htmlBody = this.generateAppointmentConfirmationHTML(firstName, appointmentDateTime, providerName);
+    const htmlBody = this.generateAppointmentConfirmationHTML(details);
     const fromEmail = process.env.FROM_EMAIL || 'noreply@medflow.com';
-    const fromName = process.env.FROM_NAME || 'MedFlow';
+    const fromName = clinicName;
 
     if (!this.transporter) {
       console.log('='.repeat(50));
@@ -551,41 +572,96 @@ MedFlow Team
   /**
    * Generate HTML email template for appointment confirmation
    */
-  private generateAppointmentConfirmationHTML(
-    firstName: string | undefined,
-    appointmentDateTime: string,
-    providerName?: string
-  ): string {
+  private generateAppointmentConfirmationHTML(details: AppointmentConfirmationDetails): string {
+    const { firstName, appointmentDateTime, providerName, appointmentType, reasonForVisit, confirmationCode, clinic } = details;
+    const clinicName = clinic?.name || process.env.FROM_NAME || 'MedFlow';
+    const addressLine = [clinic?.address?.line1, clinic?.address?.line2].filter(Boolean).join(', ');
+    const cityStateZip = [clinic?.address?.city, [clinic?.address?.state, clinic?.address?.postalCode].filter(Boolean).join(' ')]
+      .filter(Boolean)
+      .join(', ');
+
+    const detailRow = (label: string, value?: string) =>
+      value
+        ? `
+      <tr>
+        <td style="padding: 10px 0; border-bottom: 1px solid #eef2f7; color: #64748b; font-size: 13px; width: 140px; vertical-align: top;">${label}</td>
+        <td style="padding: 10px 0; border-bottom: 1px solid #eef2f7; color: #0f172a; font-size: 14px; font-weight: 600;">${value}</td>
+      </tr>`
+        : '';
+
     return `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-    .header { background-color: #2e7d32; color: white; padding: 20px; text-align: center; }
-    .content { padding: 20px; background-color: #f9f9f9; }
-    .details { font-size: 18px; font-weight: bold; text-align: center; padding: 20px; background-color: white; margin: 20px 0; }
-    .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+    body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height: 1.6; color: #0f172a; margin: 0; background-color: #f1f5f9; }
+    .wrapper { padding: 32px 16px; }
+    .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .header { background: linear-gradient(135deg, #15803d, #16a34a); color: white; padding: 28px 32px; }
+    .header .brand { font-size: 14px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; opacity: 0.85; margin: 0 0 6px; }
+    .header h1 { margin: 0; font-size: 22px; }
+    .badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.18); border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 600; margin-top: 12px; }
+    .content { padding: 28px 32px; }
+    .greeting { font-size: 16px; margin: 0 0 4px; }
+    .lead { color: #475569; font-size: 14px; margin: 0 0 20px; }
+    .card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 4px 20px; margin: 0 0 20px; }
+    .card table { width: 100%; border-collapse: collapse; }
+    .notice { background-color: #f0fdf4; border-left: 4px solid #16a34a; border-radius: 6px; padding: 14px 16px; font-size: 13px; color: #14532d; margin: 0 0 20px; }
+    .notice strong { display: block; margin-bottom: 4px; }
+    .checklist { margin: 0 0 20px; padding: 0; list-style: none; }
+    .checklist li { padding: 6px 0 6px 26px; position: relative; font-size: 13px; color: #334155; }
+    .checklist li::before { content: "✓"; position: absolute; left: 0; color: #16a34a; font-weight: 700; }
+    .policy { font-size: 12px; color: #64748b; border-top: 1px solid #eef2f7; padding-top: 16px; }
+    .footer { text-align: center; padding: 20px 32px 28px; color: #94a3b8; font-size: 12px; }
+    .footer a { color: #16a34a; text-decoration: none; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <h1>Appointment Confirmed</h1>
-    </div>
-    <div class="content">
-      <h2>Hello ${firstName || 'there'},</h2>
-      <p>Your appointment has been confirmed for:</p>
-      <div class="details">
-        ${appointmentDateTime}
-        ${providerName ? `<br><span style="font-size: 14px; font-weight: normal;">Provider: ${providerName}</span>` : ''}
+  <div class="wrapper">
+    <div class="container">
+      <div class="header">
+        <p class="brand">${clinicName}</p>
+        <h1>Your appointment is confirmed</h1>
+        ${confirmationCode ? `<span class="badge">Confirmation #${confirmationCode}</span>` : ''}
       </div>
-      <p>If you need to reschedule or have any questions, please contact our office.</p>
-    </div>
-    <div class="footer">
-      <p>Best regards,<br>MedFlow Team</p>
+      <div class="content">
+        <p class="greeting">Hello ${firstName || 'there'},</p>
+        <p class="lead">We're looking forward to seeing you. Here are your appointment details:</p>
+
+        <div class="card">
+          <table>
+            ${detailRow('Date &amp; Time', appointmentDateTime)}
+            ${detailRow('Provider', providerName)}
+            ${detailRow('Visit Type', appointmentType)}
+            ${detailRow('Reason for Visit', reasonForVisit)}
+            ${detailRow('Location', cityStateZip || addressLine)}
+          </table>
+        </div>
+
+        <div class="notice">
+          <strong>Please arrive 15 minutes early</strong>
+          This gives us time to complete any check-in paperwork before your visit.
+        </div>
+
+        <ul class="checklist">
+          <li>Bring a valid photo ID</li>
+          <li>Bring your insurance card, if applicable</li>
+          <li>Bring a list of current medications</li>
+        </ul>
+
+        <p class="policy">
+          Need to reschedule or cancel? Please let us know at least 24 hours in advance${clinic?.phone ? ` by calling <strong>${clinic.phone}</strong>` : ''}${clinic?.email ? ` or emailing <a href="mailto:${clinic.email}">${clinic.email}</a>` : ''}.
+        </p>
+      </div>
+      <div class="footer">
+        <p style="margin: 0 0 4px; font-weight: 600; color: #475569;">${clinicName}</p>
+        ${addressLine || cityStateZip ? `<p style="margin: 0 0 4px;">${[addressLine, cityStateZip].filter(Boolean).join(' · ')}</p>` : ''}
+        <p style="margin: 0;">
+          ${clinic?.phone ? `${clinic.phone}` : ''}${clinic?.phone && clinic?.website ? ' &nbsp;·&nbsp; ' : ''}${clinic?.website ? `<a href="${clinic.website}">${clinic.website}</a>` : ''}
+        </p>
+      </div>
     </div>
   </div>
 </body>

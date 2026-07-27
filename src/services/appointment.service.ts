@@ -17,6 +17,7 @@ import {
 import { patientWorkspaceService } from './patient-workspace.service';
 import { emailService } from './email.service';
 import { smsService } from './sms.service';
+import { practiceInfoService } from './practice-info.service';
 
 /**
  * Generate unique appointment code (e.g., APT001, APT002, etc.)
@@ -1821,6 +1822,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       include: {
         patient: true,
         provider_appointment_ProvNumToprovider: true,
+        appointmenttype: true,
       },
     });
     if (!appointment) {
@@ -1849,6 +1851,9 @@ async getPatientAppointments(patientId: string, limit = 10) {
           .filter(Boolean)
           .join(' ')
       : undefined;
+    const appointmentType = appointment.appointmenttype?.AppointmentTypeName ?? undefined;
+    const reasonForVisit = appointment.Note?.trim() || undefined;
+    const confirmationCode = `APT${appointment.AptNum.toString()}`;
 
     const result: {
       email: { sent: boolean; reason?: string };
@@ -1862,12 +1867,25 @@ async getPatientAppointments(patientId: string, limit = 10) {
       if (!patient.Email) {
         result.email.reason = 'Patient has no email on file';
       } else {
-        await emailService.sendAppointmentConfirmation(
-          patient.Email,
-          patient.FName ?? undefined,
+        const practiceInfo = await practiceInfoService.getPracticeInfo();
+        await emailService.sendAppointmentConfirmation({
+          email: patient.Email,
+          firstName: patient.FName ?? undefined,
           appointmentDateTime,
-          providerName
-        );
+          providerName,
+          appointmentType,
+          reasonForVisit,
+          confirmationCode,
+          clinic: practiceInfo
+            ? {
+                name: practiceInfo.practiceName || undefined,
+                phone: practiceInfo.phone || undefined,
+                email: practiceInfo.email || undefined,
+                website: practiceInfo.website || undefined,
+                address: practiceInfo.address,
+              }
+            : undefined,
+        });
         result.email.sent = true;
       }
     }
