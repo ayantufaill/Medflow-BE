@@ -3,6 +3,7 @@ import { NotFoundError, UnprocessableEntityError } from '../utils/error.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { claimService } from './claim.service';
 import { PatientInsuranceService } from './patient-insurance.service';
+import { invoiceService } from './invoice.service';
 
 const patientInsuranceService = new PatientInsuranceService();
 
@@ -22,9 +23,60 @@ type PlanMeta = {
   items?: any[];
   status?: string;
   totalAmount?: number;
+  insurancePortion?: number;
+  patientPortion?: number;
 };
 
 export class TreatmentPlanService {
+  private async enrichItemsWithInsurance(patientId: bigint, items: any[]) {
+    if (!items || items.length === 0) {
+      return { enrichedItems: items, insPortion: 0, ptPortion: 0, calcTotal: 0 };
+    }
+
+    const isVisits = Array.isArray(items[0].procedures);
+
+    let flatProcedures: any[] = [];
+    if (isVisits) {
+      for (const visit of items) {
+        if (Array.isArray(visit.procedures)) {
+          flatProcedures.push(...visit.procedures);
+        }
+      }
+    } else {
+      flatProcedures = items;
+    }
+
+    if (flatProcedures.length === 0) {
+      return { enrichedItems: items, insPortion: 0, ptPortion: 0, calcTotal: 0 };
+    }
+
+    for (const p of flatProcedures) {
+      if (p.charge === undefined) {
+        const feeStr = p.fee ?? p.patientAmount ?? p.unitPrice ?? p.totalPrice ?? '0';
+        p.charge = Number(String(feeStr).replace(/[^0-9.-]+/g, ""));
+      }
+    }
+
+    const enrichedProcedures = await invoiceService.calculateInsuranceEstimates(patientId, flatProcedures);
+
+    let insPortion = 0;
+    let ptPortion = 0;
+    let calcTotal = 0;
+
+    for (const item of enrichedProcedures) {
+      calcTotal += Number(item.charge || 0);
+      insPortion += Number(item.insPortion || 0);
+      ptPortion += Number(item.ptPortion || 0);
+
+      if (isVisits) {
+        item.insuranceAmount = `$${Number(item.insPortion || 0).toFixed(2)}`;
+        item.patientAmount = `$${Number(item.ptPortion || 0).toFixed(2)}`;
+        item.fee = `$${Number(item.charge || 0).toFixed(2)}`;
+      }
+    }
+
+    return { enrichedItems: items, insPortion, ptPortion, calcTotal };
+  }
   async getAllTreatmentPlans(page = 1, limit = 10, patientId?: string) {
     const skip = (page - 1) * limit;
     const where: any = {};
@@ -50,6 +102,8 @@ export class TreatmentPlanService {
           notes: plan.Note ?? null,
           status: meta.status ?? null,
           totalAmount: meta.totalAmount ?? null,
+          insurancePortion: meta.insurancePortion ?? null,
+          patientPortion: meta.patientPortion ?? null,
           items: meta.items ?? [],
           createdAt: plan.DateTP ?? null,
         };
@@ -73,6 +127,8 @@ export class TreatmentPlanService {
       notes: plan.Note ?? null,
       status: meta.status ?? null,
       totalAmount: meta.totalAmount ?? null,
+      insurancePortion: meta.insurancePortion ?? null,
+      patientPortion: meta.patientPortion ?? null,
       items: meta.items ?? [],
       createdAt: plan.DateTP ?? null,
     };
@@ -87,10 +143,18 @@ export class TreatmentPlanService {
     items?: any[];
   }) {
     const nextId = await getNextId('treatplan', 'TreatPlanNum');
+    
+    const { enrichedItems, insPortion, ptPortion, calcTotal } = await this.enrichItemsWithInsurance(
+      BigInt(data.patientId),
+      data.items ?? []
+    );
+
     const payload: PlanMeta = {
       status: data.status,
-      totalAmount: data.totalAmount,
-      items: data.items ?? [],
+      totalAmount: enrichedItems.length > 0 ? calcTotal : data.totalAmount,
+      insurancePortion: insPortion,
+      patientPortion: ptPortion,
+      items: enrichedItems,
     };
 
     const plan = await prisma.treatplan.create({
@@ -111,6 +175,8 @@ export class TreatmentPlanService {
       notes: plan.Note ?? null,
       status: payload.status ?? null,
       totalAmount: payload.totalAmount ?? null,
+      insurancePortion: payload.insurancePortion ?? null,
+      patientPortion: payload.patientPortion ?? null,
       items: payload.items ?? [],
       createdAt: plan.DateTP ?? null,
     };
@@ -125,11 +191,27 @@ export class TreatmentPlanService {
     }
 
     const meta = parseJson<PlanMeta>(plan.Note);
+    
+    let nextItems = updates.items ?? meta.items ?? [];
+    let insPortion = meta.insurancePortion ?? 0;
+    let ptPortion = meta.patientPortion ?? 0;
+    let calcTotal = updates.totalAmount ?? meta.totalAmount;
+
+    if (updates.items && plan.PatNum) {
+      const enrichment = await this.enrichItemsWithInsurance(plan.PatNum, updates.items);
+      nextItems = enrichment.enrichedItems;
+      insPortion = enrichment.insPortion;
+      ptPortion = enrichment.ptPortion;
+      calcTotal = enrichment.calcTotal;
+    }
+
     const nextMeta: PlanMeta = {
       ...meta,
       status: updates.status ?? meta.status,
-      totalAmount: updates.totalAmount ?? meta.totalAmount,
-      items: updates.items ?? meta.items,
+      totalAmount: updates.items ? calcTotal : (updates.totalAmount ?? meta.totalAmount),
+      insurancePortion: insPortion,
+      patientPortion: ptPortion,
+      items: nextItems,
     };
 
     const updated = await prisma.treatplan.update({
@@ -147,6 +229,8 @@ export class TreatmentPlanService {
       notes: updated.Note ?? null,
       status: nextMeta.status ?? null,
       totalAmount: nextMeta.totalAmount ?? null,
+      insurancePortion: nextMeta.insurancePortion ?? null,
+      patientPortion: nextMeta.patientPortion ?? null,
       items: nextMeta.items ?? [],
       createdAt: updated.DateTP ?? null,
     };
@@ -192,6 +276,8 @@ export class TreatmentPlanService {
       notes: updated.Note ?? null,
       status: nextMeta.status ?? null,
       totalAmount: nextMeta.totalAmount ?? null,
+      insurancePortion: nextMeta.insurancePortion ?? null,
+      patientPortion: nextMeta.patientPortion ?? null,
       items: nextMeta.items ?? [],
       createdAt: updated.DateTP ?? null,
     };
@@ -221,6 +307,8 @@ export class TreatmentPlanService {
       notes: plan.Note ?? null,
       status: meta.status ?? null,
       totalAmount: meta.totalAmount ?? null,
+      insurancePortion: meta.insurancePortion ?? null,
+      patientPortion: meta.patientPortion ?? null,
       items: meta.items ?? [],
       createdAt: plan.DateTP ?? null,
     };
