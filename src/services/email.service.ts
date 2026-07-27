@@ -596,33 +596,35 @@ ${clinicName}${addressLine ? `\n${addressLine}` : ''}${clinic?.phone ? `\n${clin
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height: 1.6; color: #0f172a; margin: 0; background-color: #f1f5f9; }
+    body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height: 1.6; color: #0f172a; margin: 0; background-color: #eef1f8; }
     .wrapper { padding: 32px 16px; }
     .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-    .header { background: linear-gradient(135deg, #15803d, #16a34a); color: white; padding: 28px 32px; }
-    .header .brand { font-size: 14px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; opacity: 0.85; margin: 0 0 6px; }
+    .header { background: linear-gradient(135deg, #0f1730, #1b2a56); color: white; padding: 28px 32px; }
+    .logo { display: flex; align-items: center; gap: 8px; margin: 0 0 18px; }
+    .logo .mark { width: 18px; height: 18px; border-radius: 5px; background: #4f5fe0; display: inline-block; }
+    .logo .word { font-size: 15px; font-weight: 700; letter-spacing: 0.2px; }
     .header h1 { margin: 0; font-size: 22px; }
-    .badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.18); border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 600; margin-top: 12px; }
+    .badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(79,95,224,0.35); border: 1px solid rgba(255,255,255,0.25); border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 600; margin-top: 12px; }
     .content { padding: 28px 32px; }
     .greeting { font-size: 16px; margin: 0 0 4px; }
     .lead { color: #475569; font-size: 14px; margin: 0 0 20px; }
     .card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 4px 20px; margin: 0 0 20px; }
     .card table { width: 100%; border-collapse: collapse; }
-    .notice { background-color: #f0fdf4; border-left: 4px solid #16a34a; border-radius: 6px; padding: 14px 16px; font-size: 13px; color: #14532d; margin: 0 0 20px; }
+    .notice { background-color: #eef1fd; border-left: 4px solid #4f5fe0; border-radius: 6px; padding: 14px 16px; font-size: 13px; color: #1e2a56; margin: 0 0 20px; }
     .notice strong { display: block; margin-bottom: 4px; }
     .checklist { margin: 0 0 20px; padding: 0; list-style: none; }
     .checklist li { padding: 6px 0 6px 26px; position: relative; font-size: 13px; color: #334155; }
-    .checklist li::before { content: "✓"; position: absolute; left: 0; color: #16a34a; font-weight: 700; }
+    .checklist li::before { content: "✓"; position: absolute; left: 0; color: #4f5fe0; font-weight: 700; }
     .policy { font-size: 12px; color: #64748b; border-top: 1px solid #eef2f7; padding-top: 16px; }
     .footer { text-align: center; padding: 20px 32px 28px; color: #94a3b8; font-size: 12px; }
-    .footer a { color: #16a34a; text-decoration: none; }
+    .footer a { color: #4f5fe0; text-decoration: none; }
   </style>
 </head>
 <body>
   <div class="wrapper">
     <div class="container">
       <div class="header">
-        <p class="brand">${clinicName}</p>
+        <div class="logo"><span class="mark"></span><span class="word">${clinicName}</span></div>
         <h1>Your appointment is confirmed</h1>
         ${confirmationCode ? `<span class="badge">Confirmation #${confirmationCode}</span>` : ''}
       </div>
