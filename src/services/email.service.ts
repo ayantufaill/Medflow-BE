@@ -8,6 +8,9 @@ export type AppointmentConfirmationDetails = {
   appointmentType?: string;
   reasonForVisit?: string;
   confirmationCode?: string;
+  operatoryName?: string;
+  durationMinutes?: number;
+  procedures?: string[];
   clinic?: {
     name?: string;
     phone?: string;
@@ -517,7 +520,7 @@ MedFlow Team
    * Send appointment confirmation email to a patient
    */
   async sendAppointmentConfirmation(details: AppointmentConfirmationDetails): Promise<void> {
-    const { email, firstName, appointmentDateTime, providerName, appointmentType, reasonForVisit, confirmationCode, clinic } = details;
+    const { email, firstName, appointmentDateTime, providerName, appointmentType, reasonForVisit, confirmationCode, operatoryName, durationMinutes, procedures, clinic } = details;
     const clinicName = clinic?.name || process.env.FROM_NAME || 'MedFlow';
     const addressLine = [clinic?.address?.line1, clinic?.address?.city, clinic?.address?.state, clinic?.address?.postalCode]
       .filter(Boolean)
@@ -530,7 +533,7 @@ Hello ${firstName || 'there'},
 Your appointment with ${clinicName} has been confirmed.
 
 ${confirmationCode ? `Confirmation #: ${confirmationCode}\n` : ''}Date & Time: ${appointmentDateTime}
-${providerName ? `Provider: ${providerName}\n` : ''}${appointmentType ? `Visit Type: ${appointmentType}\n` : ''}${reasonForVisit ? `Reason for Visit: ${reasonForVisit}\n` : ''}
+${providerName ? `Provider: ${providerName}\n` : ''}${appointmentType ? `Visit Type: ${appointmentType}\n` : ''}${operatoryName ? `Room: ${operatoryName}\n` : ''}${durationMinutes ? `Duration: ${durationMinutes} minutes\n` : ''}${reasonForVisit ? `Reason for Visit: ${reasonForVisit}\n` : ''}${procedures && procedures.length > 0 ? `Procedures: ${procedures.join(', ')}\n` : ''}
 Please arrive 15 minutes early and bring a valid photo ID and your insurance card (if applicable).
 
 Need to reschedule or cancel? Please contact us at least 24 hours in advance${clinic?.phone ? ` by calling ${clinic.phone}` : ''}.
@@ -573,7 +576,7 @@ ${clinicName}${addressLine ? `\n${addressLine}` : ''}${clinic?.phone ? `\n${clin
    * Generate HTML email template for appointment confirmation
    */
   private generateAppointmentConfirmationHTML(details: AppointmentConfirmationDetails): string {
-    const { firstName, appointmentDateTime, providerName, appointmentType, reasonForVisit, confirmationCode, clinic } = details;
+    const { firstName, appointmentDateTime, providerName, appointmentType, reasonForVisit, confirmationCode, operatoryName, durationMinutes, procedures, clinic } = details;
     const clinicName = clinic?.name || process.env.FROM_NAME || 'MedFlow';
     const addressLine = [clinic?.address?.line1, clinic?.address?.line2].filter(Boolean).join(', ');
     const cityStateZip = [clinic?.address?.city, [clinic?.address?.state, clinic?.address?.postalCode].filter(Boolean).join(' ')]
@@ -634,12 +637,20 @@ ${clinicName}${addressLine ? `\n${addressLine}` : ''}${clinic?.phone ? `\n${clin
         <div class="card">
           <table>
             ${detailRow('Date &amp; Time', appointmentDateTime)}
+            ${detailRow('Duration', durationMinutes ? `${durationMinutes} minutes` : undefined)}
             ${detailRow('Provider', providerName)}
+            ${detailRow('Room', operatoryName)}
             ${detailRow('Visit Type', appointmentType)}
             ${detailRow('Reason for Visit', reasonForVisit)}
             ${detailRow('Location', cityStateZip || addressLine)}
           </table>
         </div>
+
+        ${procedures && procedures.length > 0 ? `
+        <p style="font-size: 13px; font-weight: 700; color: #0f172a; margin: 0 0 8px;">Planned Procedures</p>
+        <ul class="checklist" style="margin-bottom: 20px;">
+          ${procedures.map((proc) => `<li>${proc}</li>`).join('')}
+        </ul>` : ''}
 
         <div class="notice">
           <strong>Please arrive 15 minutes early</strong>

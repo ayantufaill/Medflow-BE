@@ -1823,6 +1823,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
         patient: true,
         provider_appointment_ProvNumToprovider: true,
         appointmenttype: true,
+        operatory: true,
       },
     });
     if (!appointment) {
@@ -1854,6 +1855,19 @@ async getPatientAppointments(patientId: string, limit = 10) {
     const appointmentType = appointment.appointmenttype?.AppointmentTypeName ?? undefined;
     const reasonForVisit = appointment.Note?.trim() || undefined;
     const confirmationCode = `APT${appointment.AptNum.toString()}`;
+    const operatoryName = appointment.operatory?.OpName ?? undefined;
+    const durationMinutes = getDurationMinutesFromPattern(appointment.Pattern);
+    const procedureRows = await prisma.procedurelog.findMany({
+      where: { AptNum: appointment.AptNum },
+      include: { procedurecode_procedurelog_CodeNumToprocedurecode: true },
+      orderBy: { ProcNum: 'asc' },
+    });
+    const procedures = procedureRows.map(
+      (proc) =>
+        proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ??
+        proc.BillingNote ??
+        'Procedure'
+    );
 
     const result: {
       email: { sent: boolean; reason?: string };
@@ -1876,6 +1890,9 @@ async getPatientAppointments(patientId: string, limit = 10) {
           appointmentType,
           reasonForVisit,
           confirmationCode,
+          operatoryName,
+          durationMinutes,
+          procedures,
           clinic: practiceInfo
             ? {
                 name: practiceInfo.practiceName || undefined,
