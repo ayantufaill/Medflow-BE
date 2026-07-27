@@ -598,37 +598,42 @@ ${clinicName}${addressLine ? `\n${addressLine}` : ''}${clinic?.phone ? `\n${clin
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
   <style>
-    body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height: 1.6; color: #0f172a; margin: 0; background-color: #eef1f8; }
-    .wrapper { padding: 32px 16px; }
-    .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
-    .header { background: linear-gradient(135deg, #0f1730, #1b2a56); color: white; padding: 28px 32px; }
+    :root { color-scheme: light; supported-color-schemes: light; }
+    body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height: 1.6; color: #0f172a !important; margin: 0; background-color: #eef1f8 !important; }
+    .wrapper { padding: 32px 16px; background-color: #eef1f8 !important; }
+    .container { max-width: 600px; margin: 0 auto; background-color: #ffffff !important; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .header { background: #14204a !important; background-color: #14204a !important; color: #ffffff !important; padding: 28px 32px; }
+    .header * { color: #ffffff !important; }
     .logo { display: flex; align-items: center; gap: 8px; margin: 0 0 18px; }
-    .logo .word { font-size: 15px; font-weight: 700; letter-spacing: 0.2px; }
-    .header h1 { margin: 0; font-size: 22px; }
-    .badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(79,95,224,0.35); border: 1px solid rgba(255,255,255,0.25); border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 600; margin-top: 12px; }
-    .content { padding: 28px 32px; }
-    .greeting { font-size: 16px; margin: 0 0 4px; }
-    .lead { color: #475569; font-size: 14px; margin: 0 0 20px; }
-    .card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 4px 20px; margin: 0 0 20px; }
+    .logo .word { font-size: 15px; font-weight: 700; letter-spacing: 0.2px; color: #ffffff !important; }
+    .header h1 { margin: 0; font-size: 22px; color: #ffffff !important; }
+    .badge { display: inline-flex; align-items: center; gap: 6px; background-color: #4f5fe0 !important; border: 1px solid rgba(255,255,255,0.4); border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 600; margin-top: 12px; color: #ffffff !important; }
+    .content { padding: 28px 32px; background-color: #ffffff !important; }
+    .greeting { font-size: 16px; margin: 0 0 4px; color: #0f172a !important; }
+    .lead { color: #475569 !important; font-size: 14px; margin: 0 0 20px; }
+    .card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 4px 20px; margin: 0 0 20px; background-color: #ffffff !important; }
     .card table { width: 100%; border-collapse: collapse; }
-    .notice { background-color: #eef1fd; border-left: 4px solid #4f5fe0; border-radius: 6px; padding: 14px 16px; font-size: 13px; color: #1e2a56; margin: 0 0 20px; }
+    .card td { color: #0f172a !important; }
+    .notice { background-color: #eef1fd !important; border-left: 4px solid #4f5fe0; border-radius: 6px; padding: 14px 16px; font-size: 13px; color: #1e2a56 !important; margin: 0 0 20px; }
     .notice strong { display: block; margin-bottom: 4px; }
     .checklist { margin: 0 0 20px; padding: 0; list-style: none; }
-    .checklist li { padding: 6px 0 6px 26px; position: relative; font-size: 13px; color: #334155; }
+    .checklist li { padding: 6px 0 6px 26px; position: relative; font-size: 13px; color: #334155 !important; }
     .checklist li::before { content: "✓"; position: absolute; left: 0; color: #4f5fe0; font-weight: 700; }
-    .policy { font-size: 12px; color: #64748b; border-top: 1px solid #eef2f7; padding-top: 16px; }
-    .footer { text-align: center; padding: 20px 32px 28px; color: #94a3b8; font-size: 12px; }
-    .footer a { color: #4f5fe0; text-decoration: none; }
+    .policy { font-size: 12px; color: #64748b !important; border-top: 1px solid #eef2f7; padding-top: 16px; }
+    .footer { text-align: center; padding: 20px 32px 28px; color: #94a3b8 !important; font-size: 12px; background-color: #ffffff !important; }
+    .footer a { color: #4f5fe0 !important; text-decoration: none; }
   </style>
 </head>
 <body>
   <div class="wrapper">
     <div class="container">
-      <div class="header">
-        <div class="logo"><span class="word">${clinicName}</span></div>
-        <h1>Your appointment is confirmed</h1>
-        ${confirmationCode ? `<span class="badge">Confirmation #${confirmationCode}</span>` : ''}
+      <div class="header" style="background-color: #14204a; color: #ffffff;">
+        <div class="logo"><span class="word" style="color: #ffffff;">${clinicName}</span></div>
+        <h1 style="color: #ffffff;">Your appointment is confirmed</h1>
+        ${confirmationCode ? `<span class="badge" style="background-color: #4f5fe0; color: #ffffff;">Confirmation #${confirmationCode}</span>` : ''}
       </div>
       <div class="content">
         <p class="greeting">Hello ${firstName || 'there'},</p>
