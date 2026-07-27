@@ -8,6 +8,7 @@ import { getNextId } from '../utils/opendental-ids.util';
 import { mapPatientToApi } from '../utils/opendental-mappers.util';
 import { uploadToS3, deleteFromS3 } from '../utils/s3.util';
 import { logActivity } from '../utils/activity-logger.util';
+import { agingService } from './aging.service';
 
 type ClaimStatus =
   | 'draft'
@@ -1004,6 +1005,10 @@ export class ClaimService {
         dateOfService: proc.ProcDate ?? null,
         dos: proc.ProcDate ?? null,
       }));
+    }
+
+    if (created.PatNum) {
+      await agingService.updatePatientAging(created.PatNum);
     }
 
     return this.mapClaim(created, claimMeta, {

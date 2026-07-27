@@ -8,6 +8,7 @@ import { adjustmentService } from './adjustment.service';
 import { paymentService } from './payment.service';
 import { claimService } from './claim.service';
 import { patientInsuranceService } from './patient-insurance.service';
+import { agingService } from './aging.service';
 
 const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
@@ -1231,6 +1232,8 @@ export class InvoiceService {
 
     // AUTO-GENERATE CLAIM — runs in background
     this.triggerClaimGeneration(statementNum, patientId, createdBy);
+
+    await agingService.updatePatientAging(patientId);
 
     return this.mapStatementToInvoice(finalStatement, finalMeta);
   }
