@@ -601,7 +601,6 @@ ${clinicName}${addressLine ? `\n${addressLine}` : ''}${clinic?.phone ? `\n${clin
     .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
     .header { background: linear-gradient(135deg, #0f1730, #1b2a56); color: white; padding: 28px 32px; }
     .logo { display: flex; align-items: center; gap: 8px; margin: 0 0 18px; }
-    .logo .mark { width: 18px; height: 18px; border-radius: 5px; background: #4f5fe0; display: inline-block; }
     .logo .word { font-size: 15px; font-weight: 700; letter-spacing: 0.2px; }
     .header h1 { margin: 0; font-size: 22px; }
     .badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(79,95,224,0.35); border: 1px solid rgba(255,255,255,0.25); border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 600; margin-top: 12px; }
@@ -624,7 +623,7 @@ ${clinicName}${addressLine ? `\n${addressLine}` : ''}${clinic?.phone ? `\n${clin
   <div class="wrapper">
     <div class="container">
       <div class="header">
-        <div class="logo"><span class="mark"></span><span class="word">${clinicName}</span></div>
+        <div class="logo"><span class="word">${clinicName}</span></div>
         <h1>Your appointment is confirmed</h1>
         ${confirmationCode ? `<span class="badge">Confirmation #${confirmationCode}</span>` : ''}
       </div>
