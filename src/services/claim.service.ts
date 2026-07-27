@@ -425,6 +425,7 @@ export class ClaimService {
         procedurelog: {
           include: {
             procedurecode_procedurelog_CodeNumToprocedurecode: true,
+            provider_procedurelog_ProvNumToprovider: true,
           },
         },
       },
@@ -456,6 +457,7 @@ export class ClaimService {
           quantity: procLog.UnitQty ?? 1,
           fee: cp.FeeBilled ?? procLog.ProcFee ?? 0,
           providerId: procLog.ProvNum?.toString() ?? null,
+          providerName: procLog.provider_procedurelog_ProvNumToprovider ? `${procLog.provider_procedurelog_ProvNumToprovider.FName} ${procLog.provider_procedurelog_ProvNumToprovider.LName}`.trim() : null,
           dateOfService: procLog.ProcDate ?? null,
           placeOfService: procLog.PlaceService ?? null,
           createdAt: procLog.SecDateEntry ?? null,
@@ -489,6 +491,7 @@ export class ClaimService {
           },
           include: {
             procedurecode_procedurelog_CodeNumToprocedurecode: true,
+            provider_procedurelog_ProvNumToprovider: true,
           },
         });
 
@@ -514,6 +517,7 @@ export class ClaimService {
             quantity: proc.UnitQty ?? 1,
             fee: proc.ProcFee ?? 0,
             providerId: proc.ProvNum?.toString() ?? null,
+            providerName: proc.provider_procedurelog_ProvNumToprovider ? `${proc.provider_procedurelog_ProvNumToprovider.FName} ${proc.provider_procedurelog_ProvNumToprovider.LName}`.trim() : null,
             dateOfService: proc.ProcDate ?? null,
             placeOfService: proc.PlaceService ?? null,
             createdAt: proc.SecDateEntry ?? null,
@@ -572,7 +576,7 @@ export class ClaimService {
 
     const rows = await prisma.claim.findMany({
       where,
-      include: { patient: true },
+      include: { patient: true, provider_claim_ProvTreatToprovider: true },
       orderBy: { DateService: 'desc' },
     });
 
@@ -937,8 +941,49 @@ export class ClaimService {
     if (invoiceIdBigInt) {
       const invoiceProcs = await prisma.procedurelog.findMany({
         where: { StatementNum: invoiceIdBigInt },
-        include: { procedurecode_procedurelog_CodeNumToprocedurecode: true },
+        include: { 
+          procedurecode_procedurelog_CodeNumToprocedurecode: true,
+          provider_procedurelog_ProvNumToprovider: true,
+        },
       });
+
+      if (invoiceProcs.length > 0) {
+        await Promise.all(
+          invoiceProcs.map(async (proc) => {
+            const claimProcNum = await getNextId('claimproc', 'ClaimProcNum');
+            let insPortion = 0;
+            let ptPortion = 0;
+            if (proc.BillingNote) {
+              try {
+                const bn = JSON.parse(proc.BillingNote);
+                insPortion = Number(bn.insPortion || 0);
+                ptPortion = Number(bn.ptPortion || 0);
+              } catch (e) {}
+            }
+            await prisma.claimproc.create({
+              data: {
+                ClaimProcNum: claimProcNum,
+                ClaimNum: created.ClaimNum,
+                ProcNum: proc.ProcNum,
+                PatNum: created.PatNum,
+                ProvNum: proc.ProvNum ?? created.ProvTreat,
+                PlanNum: created.PlanNum,
+                InsSubNum: created.InsSubNum,
+                ClinicNum: proc.ClinicNum,
+                DateCP: new Date(),
+                ProcDate: proc.ProcDate,
+                DateEntry: new Date(),
+                Status: 0,
+                FeeBilled: proc.ProcFee,
+                InsPayEst: insPortion,
+                DedApplied: ptPortion,
+                InsPayAmt: 0,
+              }
+            });
+          })
+        );
+      }
+
       procedures = invoiceProcs.map((proc) => ({
         id: proc.ProcNum.toString(),
         _id: proc.ProcNum.toString(),
@@ -954,7 +999,10 @@ export class ClaimService {
         quantity: proc.UnitQty ?? 1,
         fee: proc.ProcFee ?? 0,
         providerId: proc.ProvNum?.toString() ?? null,
+        providerName: proc.provider_procedurelog_ProvNumToprovider ? `${proc.provider_procedurelog_ProvNumToprovider.FName} ${proc.provider_procedurelog_ProvNumToprovider.LName}`.trim() : null,
         createdAt: proc.SecDateEntry ?? null,
+        dateOfService: proc.ProcDate ?? null,
+        dos: proc.ProcDate ?? null,
       }));
     }
 
