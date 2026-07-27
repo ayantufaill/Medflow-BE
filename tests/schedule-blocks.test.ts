@@ -78,5 +78,32 @@ describe('Schedule Blocks Overlap Validation', () => {
       });
     expect(failEnvelopRes.status).toBe(400);
     expect(failEnvelopRes.body.error?.message || failEnvelopRes.body.message).toContain('Cannot create block slot: Overlaps with an existing appointment');
+
+    // 4. Update the created block successfully (09:00 to 09:30 -> 08:30 to 09:15)
+    const blockId = successRes.body.data?._id;
+    expect(blockId).toBeDefined();
+
+    const updateRes = await request(app)
+      .put(`/api/schedule-blocks/${blockId}`)
+      .set(authHeader)
+      .send({
+        startTime: '08:30',
+        endTime: '09:15',
+        notes: 'Updated pre-meeting block',
+      });
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.body.data?.startTime).toBe('08:30');
+    expect(updateRes.body.data?.endTime).toBe('09:15');
+    expect(updateRes.body.data?.notes).toBe('Updated pre-meeting block');
+
+    // 5. Attempt updating block so that it overlaps with appointment (08:30 to 09:45)
+    const updateFailRes = await request(app)
+      .put(`/api/schedule-blocks/${blockId}`)
+      .set(authHeader)
+      .send({
+        endTime: '09:45',
+      });
+    expect(updateFailRes.status).toBe(400);
+    expect(updateFailRes.body.error?.message || updateFailRes.body.message).toContain('Cannot update block slot: Overlaps with an existing appointment');
   });
 });

@@ -63,6 +63,44 @@ router.get('/', scheduleBlockController.getBlocksForDate.bind(scheduleBlockContr
  */
 
 router.post('/', scheduleBlockController.createBlock.bind(scheduleBlockController));
+
+/**
+ * @swagger
+ * /schedule-blocks/{blockId}:
+ *   put:
+ *     summary: Update schedule block
+ *     tags: [Schedule Block]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: blockId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *     responses:
+ *       200:
+ *         description: Successful response
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object }
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Not found
+ */
+
+router.put('/:blockId', scheduleBlockController.updateBlock.bind(scheduleBlockController));
+
 /**
  * @swagger
  * /schedule-blocks/{blockId}:
