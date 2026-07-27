@@ -351,6 +351,44 @@ export class ClinicalManagementService {
     };
   }
 
+  async deleteChecklistCategory(categoryName: string) {
+    return await prisma.$transaction(async (tx) => {
+      const category = await tx.clinicalchecklistcategory.findFirst({
+        where: { Name: categoryName, IsActive: true },
+      });
+
+      if (!category) {
+        throw new NotFoundError('Checklist category not found');
+      }
+
+      const checklists = await tx.clinicalchecklist.findMany({
+        where: { CategoryId: category.CategoryId, IsActive: true },
+        select: { ChecklistId: true },
+      });
+
+      const checklistIds = checklists.map((c) => c.ChecklistId);
+
+      if (checklistIds.length > 0) {
+        await tx.clinicalchecklistitem.updateMany({
+          where: { ChecklistId: { in: checklistIds } },
+          data: { IsActive: false },
+        });
+
+        await tx.clinicalchecklist.updateMany({
+          where: { CategoryId: category.CategoryId },
+          data: { IsActive: false },
+        });
+      }
+
+      await tx.clinicalchecklistcategory.update({
+        where: { CategoryId: category.CategoryId },
+        data: { IsActive: false },
+      });
+
+      return { success: true };
+    });
+  }
+
   async deleteChecklist(checklistId: string) {
     await prisma.clinicalchecklist.update({
       where: { ChecklistId: BigInt(checklistId) },
