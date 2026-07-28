@@ -12,6 +12,12 @@ export class ProcedureCodeService {
       name: c.Descript,
       abbreviation: c.AbbrDesc,
       treatArea: c.TreatArea,
+      requiresXRay: c.RequiresXRay ?? false,
+      requiresConsent: c.RequiresConsent ?? false,
+      requiresPerioChart: c.RequiresPerioChart ?? false,
+      requiresNarrative: c.RequiresNarrative ?? false,
+      requiresMedicalNecessity: c.RequiresMedicalNecessity ?? false,
+      requiresToothImage: c.RequiresToothImage ?? false,
     }));
   }
 }

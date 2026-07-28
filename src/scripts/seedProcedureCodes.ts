@@ -193,6 +193,54 @@ const procedureCodes = [
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+function getRequirements(code: string) {
+  const req = {
+    RequiresXRay: false,
+    RequiresNarrative: false,
+    RequiresPerioChart: false,
+    RequiresConsent: false,
+    RequiresMedicalNecessity: false,
+    RequiresToothImage: false,
+  };
+
+  if (['D0140', 'D0160'].includes(code)) req.RequiresNarrative = true;
+  if (['D0180'].includes(code)) req.RequiresPerioChart = true;
+
+  if (['D0210', 'D0220', 'D0230', 'D0240', 'D0250', 'D0270', 'D0272', 'D0273', 'D0274', 'D0277', 'D0330', 'D0340', 'D1351', 'D1352', 'D4346'].includes(code)) {
+    req.RequiresXRay = true;
+  }
+  if (['D4346'].includes(code)) {
+    req.RequiresNarrative = true;
+  }
+
+  const isAmalgam = code >= 'D2140' && code <= 'D2161';
+  const isComposite = code >= 'D2330' && code <= 'D2394';
+  if (isAmalgam || isComposite || ['D4341', 'D4342', 'D7140'].includes(code)) {
+    req.RequiresXRay = true;
+  }
+  if (['D4341', 'D4342'].includes(code)) {
+    req.RequiresPerioChart = true;
+  }
+
+  const isCrown = code >= 'D2740' && code <= 'D2799';
+  const isImplantAbutment = code >= 'D6056' && code <= 'D6068';
+  const isDenture = ['D5110', 'D5120', 'D5211', 'D5212', 'D5213', 'D5214'].includes(code);
+
+  if (isCrown || isImplantAbutment || isDenture || ['D2950', 'D3330', 'D7210', 'D6010'].includes(code)) {
+    req.RequiresXRay = true;
+  }
+  if (isCrown || isImplantAbutment || ['D2950', 'D6010'].includes(code)) {
+    req.RequiresNarrative = true;
+  }
+
+  if (['D8070', 'D8080', 'D8090', 'D8670', 'D8680'].includes(code)) {
+    req.RequiresXRay = true;
+    req.RequiresNarrative = true;
+  }
+
+  return req;
+}
+
 /** Ensure a `definition` row exists for a given ADA category name (Category=1).
  *  Returns the DefNum of the found or newly created row. */
 async function ensureCategoryDef(
@@ -259,16 +307,29 @@ async function seedProcedureCodes() {
       continue;
     }
 
+    const reqs = getRequirements(proc.code);
+
     const existing = await prisma.procedurecode.findFirst({
       where: { ProcCode: proc.code },
     });
 
     if (existing) {
       // Update if category changed (fixes previously-wrong ProcCat values)
-      if (existing.ProcCat !== catDefNum) {
+      if (
+        existing.ProcCat !== catDefNum || 
+        existing.RequiresXRay !== reqs.RequiresXRay ||
+        existing.RequiresNarrative !== reqs.RequiresNarrative ||
+        existing.RequiresPerioChart !== reqs.RequiresPerioChart ||
+        existing.RequiresConsent !== reqs.RequiresConsent ||
+        existing.RequiresMedicalNecessity !== reqs.RequiresMedicalNecessity ||
+        existing.RequiresToothImage !== reqs.RequiresToothImage
+      ) {
         await prisma.procedurecode.update({
           where: { ProcCode: proc.code },
-          data: { ProcCat: catDefNum },
+          data: { 
+            ProcCat: catDefNum,
+            ...reqs
+          },
         });
         updated++;
         console.log(`  ↻ Updated ${proc.code} → "${proc.cat}" (DefNum=${catDefNum})`);
@@ -303,6 +364,7 @@ async function seedProcedureCodes() {
         BypassGlobalLock: 0,
         AreaAlsoToothRange: 0,
         LaymanTerm: proc.desc,
+        ...reqs,
       },
     });
     created++;

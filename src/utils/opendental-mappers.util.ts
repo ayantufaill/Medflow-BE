@@ -142,6 +142,12 @@ export const mapServiceToApi = (
   isBillable: row.NoBillIns ? false : true,
   taxRate: parseTaxRate(row.TaxCode),
   isActive: row.BypassGlobalLock ? false : true,
+  requiresXRay: row.RequiresXRay ?? false,
+  requiresConsent: row.RequiresConsent ?? false,
+  requiresPerioChart: row.RequiresPerioChart ?? false,
+  requiresNarrative: row.RequiresNarrative ?? false,
+  requiresMedicalNecessity: row.RequiresMedicalNecessity ?? false,
+  requiresToothImage: row.RequiresToothImage ?? false,
 });
 
 const calculatePatientStatus = (row: any): string => {

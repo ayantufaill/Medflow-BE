@@ -152,13 +152,11 @@ export const gapFillValidator: ValidationChain[] = [
     .isString()
     .withMessage('Trigger type must be a string'),
   body('templateId')
-    .notEmpty()
-    .withMessage('Template ID is required')
+    .optional()
     .isString()
     .withMessage('Template ID must be a string'),
   body('isActive')
-    .notEmpty()
-    .withMessage('isActive is required')
+    .optional()
     .isBoolean()
     .withMessage('isActive must be a boolean'),
   body('scheduleOffsetDays')
@@ -167,39 +165,37 @@ export const gapFillValidator: ValidationChain[] = [
     .isInt({ min: 0 })
     .withMessage('scheduleOffsetDays must be a non-negative integer'),
   body('maxOffers')
-    .notEmpty()
-    .withMessage('maxOffers is required')
+    .optional()
     .isInt({ min: 1 })
     .withMessage('maxOffers must be a positive integer'),
 ];
 
-export const updateReviewSettingsValidator: ValidationChain[] = [
-  body('isActive')
-    .notEmpty()
-    .withMessage('isActive status is required')
+export const gapFillSettingsValidator: ValidationChain[] = [
+  body('unscheduledNotificationEnabled')
+    .optional()
     .isBoolean()
-    .withMessage('isActive must be a boolean'),
-  body('sendDelayHours')
-    .notEmpty()
-    .withMessage('Send delay in hours is required')
-    .isInt({ min: 0 })
-    .withMessage('sendDelayHours must be a non-negative integer'),
-  body('channels')
-    .notEmpty()
-    .withMessage('Channels is required')
-    .isArray()
-    .withMessage('channels must be an array of strings'),
-  body('googleReviewUrl')
+    .withMessage('unscheduledNotificationEnabled must be a boolean'),
+  body('showBookNow')
     .optional()
-    .isString()
-    .withMessage('googleReviewUrl must be a string'),
-  body('facebookReviewUrl')
+    .isBoolean()
+    .withMessage('showBookNow must be a boolean'),
+  body('skipDays')
     .optional()
-    .isString()
-    .withMessage('facebookReviewUrl must be a string'),
-  body('customMessageText')
-    .notEmpty()
-    .withMessage('Custom message text is required')
-    .isString()
-    .withMessage('customMessageText must be a string'),
+    .isNumeric()
+    .withMessage('skipDays must be numeric'),
+];
+
+export const updateReviewSettingsValidator: ValidationChain[] = [
+  body('isActive').optional().isBoolean().withMessage('isActive must be a boolean'),
+  body('notifications').optional().isArray().withMessage('notifications must be an array'),
+  body('notifications.*.id').optional().isString(),
+  body('notifications.*.method').optional().isIn(['SMS', 'Email']),
+  body('notifications.*.time').optional().isNumeric(),
+  body('notifications.*.frequency').optional().isIn(['Hours', 'Days']),
+  body('enablePhoneCallRequests').optional().isBoolean().withMessage('enablePhoneCallRequests must be a boolean'),
+  body('includeFacebookReview').optional().isBoolean().withMessage('includeFacebookReview must be a boolean'),
+  body('includeYelpReview').optional().isBoolean().withMessage('includeYelpReview must be a boolean'),
+  body('skipDuplicateDays').optional().isNumeric().withMessage('skipDuplicateDays must be numeric'),
+  body('googleReviewLink').optional().isString().withMessage('googleReviewLink must be a string'),
+  body('reputationManagementActive').optional().isBoolean().withMessage('reputationManagementActive must be a boolean'),
 ];

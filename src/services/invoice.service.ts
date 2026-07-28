@@ -8,6 +8,7 @@ import { adjustmentService } from './adjustment.service';
 import { paymentService } from './payment.service';
 import { claimService } from './claim.service';
 import { patientInsuranceService } from './patient-insurance.service';
+import { agingService } from './aging.service';
 
 const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
@@ -1170,6 +1171,24 @@ export class InvoiceService {
         }
       }
 
+      let parsedTooth = '';
+      let parsedSurf = '';
+      if (item.site && item.site !== 'None') {
+        const match = item.site.match(/^([^(]+)(?:\(([^)]+)\))?$/);
+        if (match) {
+          parsedTooth = match[1].trim();
+          if (match[2]) {
+            parsedSurf = match[2].trim();
+          }
+        } else {
+          parsedTooth = item.site.trim();
+        }
+      }
+      
+      const toothNum = parsedTooth.length > 0 && parsedTooth.length <= 2 ? parsedTooth : null;
+      const toothRange = parsedTooth.length > 2 ? parsedTooth : null;
+      const surf = parsedSurf.length > 0 ? parsedSurf : null;
+
       await prisma.procedurelog.create({
         data: {
           ProcNum: procNum,
@@ -1181,6 +1200,9 @@ export class InvoiceService {
           CodeNum: service?.CodeNum ?? null,
           StatementNum: statementNum,
           ProcStatus: item.completed ? 2 : 1,
+          ToothNum: toothNum,
+          ToothRange: toothRange,
+          Surf: surf,
           BillingNote: buildJson({
             description: item.description,
             unitPrice: Number(item.charge ?? 0),
@@ -1210,6 +1232,8 @@ export class InvoiceService {
 
     // AUTO-GENERATE CLAIM — runs in background
     this.triggerClaimGeneration(statementNum, patientId, createdBy);
+
+    await agingService.updatePatientAging(patientId);
 
     return this.mapStatementToInvoice(finalStatement, finalMeta);
   }

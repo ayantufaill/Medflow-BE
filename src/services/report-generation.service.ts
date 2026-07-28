@@ -203,37 +203,75 @@ export class ReportGenerationService {
   private async getAgingReport(query: any, patientOnly = false) {
     const filters: string[] = [];
 
-    // Patient Status filter
-    if (query.patientStatusFilter === 'active') {
-      filters.push(`p."PatStatus" = 0`); // 0 is typically active
-    } else if (query.patientStatusFilter === 'inactive') {
+    // 1. query.patients (Patient Status)
+    if (query.patients === 'active') {
+      filters.push(`p."PatStatus" = 0`);
+    } else if (query.patients === 'inactive') {
       filters.push(`p."PatStatus" != 0`);
     }
 
-    // Provider filter
-    if (query.providerFilter && query.providerFilter !== 'all') {
-      // Basic sanitize to ensure it's a number to prevent injection
-      const provNum = Number(query.providerFilter);
+    // 2. query.provider
+    if (query.provider && query.provider !== 'all') {
+      const provNum = Number(query.provider);
       if (!isNaN(provNum)) {
         filters.push(`p."PriProv" = ${provNum}`);
       }
     }
 
-    // Minimum Balance filter (mapping loosely to over30, over60 etc.)
-    if (query.balanceFilter === 'over30') {
+    // 3. query.balance
+    if (query.balance === 'over_30') {
       filters.push(`f."BalTotal" > 30`);
-    } else if (query.balanceFilter === 'over60') {
+    } else if (query.balance === 'over_60') {
       filters.push(`f."BalTotal" > 60`);
-    } else if (query.balanceFilter === 'over90') {
+    } else if (query.balance === 'over_90') {
       filters.push(`f."BalTotal" > 90`);
-    } else if (query.balanceFilter === 'over0') {
-      filters.push(`f."BalTotal" > 0`);
     } else {
-      // By default, usually only show patients with balances or expected insurance
       filters.push(`(f."BalTotal" != 0 OR f."InsEst" != 0)`);
     }
 
+    // 4. query.claims (Open Claims)
+    if (query.claims === 'with') {
+      filters.push(`EXISTS (SELECT 1 FROM claim cl WHERE cl."PatNum" = p."PatNum" AND cl."ClaimStatus" IN ('U', 'S', 'W', 'H'))`);
+    } else if (query.claims === 'without') {
+      filters.push(`NOT EXISTS (SELECT 1 FROM claim cl WHERE cl."PatNum" = p."PatNum" AND cl."ClaimStatus" IN ('U', 'S', 'W', 'H'))`);
+    }
+
+    // 5. query.owing (Who Owes)
+    if (query.owing === 'pt_only') {
+      filters.push(`(f."BalTotal" - f."InsEst" > 0 AND f."InsEst" <= 0)`);
+    } else if (query.owing === 'insurance_only') {
+      filters.push(`(f."InsEst" > 0 AND f."BalTotal" - f."InsEst" <= 0)`);
+    } else if (query.owing === 'pt_insurance') {
+      filters.push(`(f."BalTotal" - f."InsEst" > 0 AND f."InsEst" > 0)`);
+    }
+
+    // 6. query.arRange (Aging Bucket)
+    if (query.arRange === '0_30') {
+      filters.push(`f."Bal_0_30" > 0`);
+    } else if (query.arRange === '31_60') {
+      filters.push(`f."Bal_31_60" > 0`);
+    } else if (query.arRange === '61_90') {
+      filters.push(`f."Bal_61_90" > 0`);
+    } else if (query.arRange === 'over_90') {
+      filters.push(`f."BalOver90" > 0`);
+    }
+
+    // 7. query.flags (Patient with Flags)
+    if (query.flags === 'with') {
+      filters.push(`EXISTS (SELECT 1 FROM patfield pf WHERE pf."PatNum" = p."PatNum")`);
+    } else if (query.flags === 'without') {
+      filters.push(`NOT EXISTS (SELECT 1 FROM patfield pf WHERE pf."PatNum" = p."PatNum")`);
+    }
+
     const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
+
+    // 8. query.sortReport (Sorting)
+    let orderByClause = 'ORDER BY f."BalTotal" DESC';
+    if (query.sortReport === 'low_to_high') {
+      orderByClause = 'ORDER BY f."BalTotal" ASC';
+    } else if (query.sortReport === 'a_to_z') {
+      orderByClause = 'ORDER BY p."FName" ASC, p."LName" ASC';
+    }
 
     const sql = `
       SELECT 
@@ -247,7 +285,7 @@ export class ReportGenerationService {
       LEFT JOIN insplan ipl ON isub."PlanNum" = ipl."PlanNum"
       LEFT JOIN carrier c ON ipl."CarrierNum" = c."CarrierNum"
       ${whereClause}
-      ORDER BY f."BalTotal" DESC
+      ${orderByClause}
       LIMIT 200
     `;
 
