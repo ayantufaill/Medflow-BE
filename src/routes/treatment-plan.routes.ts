@@ -13,6 +13,7 @@ import {
 } from '../validators/treatment-plan.validator';
 
 const router = Router();
+router.use(authenticate);
 
 /**
  * @swagger
