@@ -1812,11 +1812,12 @@ async getPatientAppointments(patientId: string, limit = 10) {
    * on an appointment. Skips channels the patient has no contact info for, and
    * skips SMS if the patient has opted out (TxtMsgOk === 0).
    */
-  async sendAppointmentConfirmationNotification(
-    appointmentId: string,
-    channels: Array<'email' | 'sms' | 'whatsapp'>,
-    userId: string
-  ) {
+  /**
+   * Gathers the patient/provider/clinic/procedure details shared by every
+   * appointment notification (confirmation, reminder, cancellation, reschedule)
+   * so each notification type doesn't re-fetch and re-format the same data.
+   */
+  private async buildNotificationContext(appointmentId: string) {
     const appointment = await prisma.appointment.findUnique({
       where: { AptNum: BigInt(appointmentId) },
       include: {
@@ -1874,6 +1875,53 @@ async getPatientAppointments(patientId: string, limit = 10) {
         proc.BillingNote ??
         'Procedure'
     );
+    const practiceInfo = await practiceInfoService.getPracticeInfo();
+    const clinic = practiceInfo
+      ? {
+          name: practiceInfo.practiceName || undefined,
+          phone: practiceInfo.phone || undefined,
+          email: practiceInfo.email || undefined,
+          website: practiceInfo.website || undefined,
+          address: practiceInfo.address,
+        }
+      : undefined;
+
+    return {
+      appointment,
+      patient,
+      appointmentDateTime,
+      appointmentDateOnly,
+      appointmentTimeOnly,
+      providerName,
+      appointmentType,
+      reasonForVisit,
+      confirmationCode,
+      operatoryName,
+      durationMinutes,
+      procedures,
+      clinic,
+    };
+  }
+
+  async sendAppointmentConfirmationNotification(
+    appointmentId: string,
+    channels: Array<'email' | 'sms' | 'whatsapp'>,
+    userId: string
+  ) {
+    const {
+      patient,
+      appointmentDateTime,
+      appointmentDateOnly,
+      appointmentTimeOnly,
+      providerName,
+      appointmentType,
+      reasonForVisit,
+      confirmationCode,
+      operatoryName,
+      durationMinutes,
+      procedures,
+      clinic,
+    } = await this.buildNotificationContext(appointmentId);
 
     const result: {
       email: { sent: boolean; reason?: string };
