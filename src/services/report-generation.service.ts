@@ -291,6 +291,9 @@ export class ReportGenerationService {
 
     const rawPatients = await prisma.$queryRawUnsafe<any[]>(sql);
 
+    const patNums = rawPatients.map((p) => BigInt(p.PatNum));
+    const meta = await getPatientsMeta(patNums);
+
     const agingBuckets = ['0 - 30 days', '31 - 60 days', '61 - 90 days', '91 - 120 days', '121 - 150 days', '151 - 180 days', '> 180 day'];
 
     const report = rawPatients.map((p) => {
@@ -313,9 +316,12 @@ export class ReportGenerationService {
       buckets['61 - 90 days'] = { pt: bal61_90, ins: 0 };
       buckets['91 - 120 days'] = { pt: balOver90, ins: 0 };
 
+      const pNumStr = p.PatNum.toString();
+      const patientFlags = meta[pNumStr]?.patientFlags || [];
+
       return {
-        id: p.PatNum.toString(),
-        flags: [],
+        id: pNumStr,
+        flags: patientFlags,
         name: `${p.FName} ${p.LName}`,
         insuranceName: p.CarrierName || null,
         buckets,
