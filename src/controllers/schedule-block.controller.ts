@@ -63,6 +63,41 @@ export class ScheduleBlockController {
     }
   }
 
+  async updateBlock(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const { blockId } = req.params;
+      if (!blockId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Block ID parameter is required' },
+        });
+      }
+
+      const { roomId, date, startTime, endTime, notes, color } = req.body;
+
+      const block = await scheduleBlockService.updateBlock(
+        blockId,
+        { roomId, date, startTime, endTime, notes, color },
+        req.userId
+      );
+
+      res.status(200).json({
+        success: true,
+        data: block,
+        message: 'Schedule block updated successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async deleteBlock(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.userId) {

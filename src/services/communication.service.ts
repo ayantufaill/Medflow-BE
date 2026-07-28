@@ -666,19 +666,27 @@ export class CommunicationService {
     return JSON.parse(pref.ValueString);
   }
 
-  async saveGapFill(data: { id?: string; triggerType: string; templateId: string; isActive: boolean; scheduleOffsetDays: number; maxOffers: number }) {
+  async saveGapFill(data: { id?: string; triggerType: string; templateId?: string; isActive?: boolean; scheduleOffsetDays: number; maxOffers?: number }) {
     const clinicNum = await getClinicNum();
     const current = await this.getGapFills();
     
+    // Apply default values for missing fields to prevent schema mismatch
+    const payload = {
+      ...data,
+      templateId: data.templateId || 'default',
+      isActive: data.isActive !== undefined ? data.isActive : true,
+      maxOffers: data.maxOffers || 1,
+    };
+    
     let updated;
-    const targetId = data.id || Math.random().toString(36).substring(2, 9);
+    const targetId = payload.id || Math.random().toString(36).substring(2, 9);
     
     const existingIdx = current.findIndex((item: any) => item.id === targetId);
     if (existingIdx > -1) {
-      current[existingIdx] = { ...current[existingIdx], ...data, id: targetId };
+      current[existingIdx] = { ...current[existingIdx], ...payload, id: targetId };
       updated = [...current];
     } else {
-      updated = [...current, { ...data, id: targetId }];
+      updated = [...current, { ...payload, id: targetId }];
     }
 
     await this.setClinicPref(clinicNum, 'medflow.communication.gapFills', JSON.stringify(updated));
@@ -693,6 +701,23 @@ export class CommunicationService {
     return { success: true, message: 'Gap fill configuration deleted' };
   }
 
+  async getGapFillSettings() {
+    const clinicNum = await getClinicNum();
+    const pref = await prisma.clinicpref.findFirst({
+      where: { ClinicNum: clinicNum, PrefName: 'medflow.communication.gapFills.settings' },
+    });
+    if (!pref || !pref.ValueString) {
+      return { unscheduledNotificationEnabled: true, showBookNow: true, skipDays: 30 };
+    }
+    return JSON.parse(pref.ValueString);
+  }
+
+  async saveGapFillSettings(settings: { unscheduledNotificationEnabled: boolean; showBookNow: boolean; skipDays: number | string }) {
+    const clinicNum = await getClinicNum();
+    await this.setClinicPref(clinicNum, 'medflow.communication.gapFills.settings', JSON.stringify(settings));
+    return settings;
+  }
+
   /* ─── Review Settings ─── */
   async getReviewSettings() {
     const clinicNum = await getClinicNum();
@@ -702,11 +727,13 @@ export class CommunicationService {
     if (!pref || !pref.ValueString) {
       return {
         isActive: false,
-        sendDelayHours: 24,
-        channels: ['email', 'sms'],
-        googleReviewUrl: '',
-        facebookReviewUrl: '',
-        customMessageText: 'Thank you for visiting us! Please leave a review.',
+        notifications: [],
+        enablePhoneCallRequests: false,
+        includeFacebookReview: false,
+        includeYelpReview: false,
+        skipDuplicateDays: 30,
+        googleReviewLink: '',
+        reputationManagementActive: false,
       };
     }
     return JSON.parse(pref.ValueString);

@@ -134,6 +134,16 @@ export class ClinicalManagementController {
     }
   }
 
+  async deleteChecklistCategory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const categoryName = req.params.categoryName as string;
+      const result = await clinicalManagementService.deleteChecklistCategory(categoryName);
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async deleteChecklist(req: Request, res: Response, next: NextFunction) {
     try {
       const checklistId = req.params.checklistId as string;

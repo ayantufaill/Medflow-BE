@@ -123,6 +123,12 @@ describe('Clinical Management APIs', () => {
         .delete(`/api/clinical-management/checklists/${checklistId}`)
         .set(authHeader);
       expect(delChecklistRes.status).toBe(200);
+
+      const delCategoryRes = await request(app)
+        .delete(`/api/clinical-management/checklists/categories/${encodeURIComponent(catName)}`)
+        .set(authHeader);
+      expect(delCategoryRes.status).toBe(200);
+      expect(delCategoryRes.body?.data?.success).toBe(true);
     });
   });
 
