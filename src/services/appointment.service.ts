@@ -15,6 +15,9 @@ import {
   setAppointmentMeta,
 } from '../utils/opendental-auth.util';
 import { patientWorkspaceService } from './patient-workspace.service';
+import { emailService } from './email.service';
+import { smsService } from './sms.service';
+import { practiceInfoService } from './practice-info.service';
 
 /**
  * Generate unique appointment code (e.g., APT001, APT002, etc.)
@@ -1802,6 +1805,223 @@ async getPatientAppointments(patientId: string, limit = 10) {
     return {
       success: true,
     };
+  }
+
+  /**
+   * Send a one-click confirmation notification (email and/or SMS) to the patient
+   * on an appointment. Skips channels the patient has no contact info for, and
+   * skips SMS if the patient has opted out (TxtMsgOk === 0).
+   */
+  /**
+   * Gathers the patient/provider/clinic/procedure details shared by every
+   * appointment notification (confirmation, reminder, cancellation, reschedule)
+   * so each notification type doesn't re-fetch and re-format the same data.
+   */
+  private async buildNotificationContext(appointmentId: string) {
+    const appointment = await prisma.appointment.findUnique({
+      where: { AptNum: BigInt(appointmentId) },
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        appointmenttype: true,
+        operatory: true,
+      },
+    });
+    if (!appointment) {
+      throw new NotFoundError('Appointment not found');
+    }
+    const patient = appointment.patient;
+    if (!patient) {
+      throw new BadRequestError('Appointment does not have a patient');
+    }
+
+    const appointmentDateTime = appointment.AptDateTime
+      ? new Intl.DateTimeFormat('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        }).format(appointment.AptDateTime)
+      : 'your scheduled time';
+    const appointmentDateOnly = appointment.AptDateTime
+      ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(appointment.AptDateTime)
+      : 'TBD';
+    const appointmentTimeOnly = appointment.AptDateTime
+      ? new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(appointment.AptDateTime)
+      : 'TBD';
+    const providerName = appointment.provider_appointment_ProvNumToprovider
+      ? [
+          appointment.provider_appointment_ProvNumToprovider.FName,
+          appointment.provider_appointment_ProvNumToprovider.LName,
+        ]
+          .filter(Boolean)
+          .join(' ')
+      : undefined;
+    const appointmentType = appointment.appointmenttype?.AppointmentTypeName ?? undefined;
+    const reasonForVisit = appointment.Note?.trim() || undefined;
+    const confirmationCode = `APT${appointment.AptNum.toString()}`;
+    const operatoryName = appointment.operatory?.OpName ?? undefined;
+    const durationMinutes = getDurationMinutesFromPattern(appointment.Pattern);
+    const procedureRows = await prisma.procedurelog.findMany({
+      where: { AptNum: appointment.AptNum },
+      include: { procedurecode_procedurelog_CodeNumToprocedurecode: true },
+      orderBy: { ProcNum: 'asc' },
+    });
+    const procedures = procedureRows.map(
+      (proc) =>
+        proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ??
+        proc.BillingNote ??
+        'Procedure'
+    );
+    const practiceInfo = await practiceInfoService.getPracticeInfo();
+    const clinic = practiceInfo
+      ? {
+          name: practiceInfo.practiceName || undefined,
+          phone: practiceInfo.phone || undefined,
+          email: practiceInfo.email || undefined,
+          website: practiceInfo.website || undefined,
+          address: practiceInfo.address,
+        }
+      : undefined;
+
+    return {
+      appointment,
+      patient,
+      appointmentDateTime,
+      appointmentDateOnly,
+      appointmentTimeOnly,
+      providerName,
+      appointmentType,
+      reasonForVisit,
+      confirmationCode,
+      operatoryName,
+      durationMinutes,
+      procedures,
+      clinic,
+    };
+  }
+
+  async sendAppointmentConfirmationNotification(
+    appointmentId: string,
+    channels: Array<'email' | 'sms' | 'whatsapp'>,
+    userId: string
+  ) {
+    const {
+      patient,
+      appointmentDateTime,
+      appointmentDateOnly,
+      appointmentTimeOnly,
+      providerName,
+      appointmentType,
+      reasonForVisit,
+      confirmationCode,
+      operatoryName,
+      durationMinutes,
+      procedures,
+      clinic,
+    } = await this.buildNotificationContext(appointmentId);
+
+    const result: {
+      email: { sent: boolean; reason?: string };
+      sms: { sent: boolean; reason?: string };
+      whatsapp: { sent: boolean; reason?: string };
+    } = {
+      email: { sent: false },
+      sms: { sent: false },
+      whatsapp: { sent: false },
+    };
+
+    if (channels.includes('email')) {
+      if (!patient.Email) {
+        result.email.reason = 'Patient has no email on file';
+      } else {
+        try {
+          const practiceInfo = await practiceInfoService.getPracticeInfo();
+          await emailService.sendAppointmentConfirmation({
+            email: patient.Email,
+            firstName: patient.FName ?? undefined,
+            appointmentDateTime,
+            providerName,
+            appointmentType,
+            reasonForVisit,
+            confirmationCode,
+            operatoryName,
+            durationMinutes,
+            procedures,
+            clinic: practiceInfo
+              ? {
+                  name: practiceInfo.practiceName || undefined,
+                  phone: practiceInfo.phone || undefined,
+                  email: practiceInfo.email || undefined,
+                  website: practiceInfo.website || undefined,
+                  address: practiceInfo.address,
+                }
+              : undefined,
+          });
+          result.email.sent = true;
+        } catch (error) {
+          result.email.reason = error instanceof Error ? error.message : 'Failed to send email';
+        }
+      }
+    }
+
+    if (channels.includes('sms')) {
+      if (!patient.WirelessPhone) {
+        result.sms.reason = 'Patient has no mobile number on file';
+      } else if (patient.TxtMsgOk === 0) {
+        result.sms.reason = 'Patient has opted out of text messages';
+      } else {
+        try {
+          const message = `MedFlow: Your appointment is confirmed for ${appointmentDateTime}${providerName ? ` with ${providerName}` : ''}.`;
+          await smsService.sendSms(patient.WirelessPhone, message);
+          result.sms.sent = true;
+        } catch (error) {
+          result.sms.reason = error instanceof Error ? error.message : 'Failed to send SMS';
+        }
+      }
+    }
+
+    if (channels.includes('whatsapp')) {
+      if (!patient.WirelessPhone) {
+        result.whatsapp.reason = 'Patient has no mobile number on file';
+      } else if (patient.TxtMsgOk === 0) {
+        result.whatsapp.reason = 'Patient has opted out of text messages';
+      } else {
+        try {
+          await smsService.sendWhatsAppAppointmentConfirmation(patient.WirelessPhone, appointmentDateOnly, appointmentTimeOnly);
+          result.whatsapp.sent = true;
+        } catch (error) {
+          result.whatsapp.reason = error instanceof Error ? error.message : 'Failed to send WhatsApp message';
+        }
+      }
+    }
+
+    const sentChannels: Array<{ channel: 'email' | 'text'; source: 'email' | 'sms' | 'whatsapp' }> = [];
+    if (result.email.sent) sentChannels.push({ channel: 'email', source: 'email' });
+    if (result.sms.sent) sentChannels.push({ channel: 'text', source: 'sms' });
+    if (result.whatsapp.sent) sentChannels.push({ channel: 'text', source: 'whatsapp' });
+
+    for (const { channel, source } of sentChannels) {
+      await patientWorkspaceService.createCommunication(
+        patient.PatNum.toString(),
+        {
+          appointmentId,
+          channel,
+          message:
+            source === 'email'
+              ? `Appointment confirmation email sent for ${appointmentDateTime}`
+              : source === 'whatsapp'
+              ? `Appointment confirmation WhatsApp message sent for ${appointmentDateTime}`
+              : `Appointment confirmation text sent for ${appointmentDateTime}`,
+          subject: channel === 'email' ? 'Your Appointment is Confirmed' : undefined,
+        },
+        userId
+      );
+    }
+
+    return result;
   }
 }
 

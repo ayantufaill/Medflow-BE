@@ -8,6 +8,7 @@ import {
   appointmentQueryValidator, scheduleQueryValidator, availableSlotsQueryValidator,
   appointmentWorkspaceValidator, appointmentProcedureValidator, appointmentTagValidator,
   appointmentLabOrderValidator, appointmentCommunicationValidator,
+  appointmentSendConfirmationValidator,
 } from '../validators/appointment.validator';
 
 const router = Router();
@@ -1213,5 +1214,46 @@ router.post('/:appointmentId/lab-orders', requireRoles('Front Desk', 'Admin'), v
  *         description: Validation failed - invalid message content
  */
 router.post('/:appointmentId/communications/send', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...appointmentCommunicationValidator]), appointmentController.createAppointmentCommunication.bind(appointmentController));
+
+/**
+ * @swagger
+ * /appointments/{appointmentId}/send-confirmation:
+ *   post:
+ *     summary: Send a one-click appointment confirmation notification (email and/or SMS) to the patient
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: appointmentId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               channels:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   enum: [email, sms]
+ *                 description: Defaults to ['email', 'sms'] if omitted
+ *     responses:
+ *       200:
+ *         description: Notification send result per channel
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Appointment not found
+ */
+router.post('/:appointmentId/send-confirmation', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...appointmentSendConfirmationValidator]), appointmentController.sendAppointmentConfirmationNotification.bind(appointmentController));
 
 export default router;

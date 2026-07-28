@@ -614,6 +614,33 @@ export class AppointmentController {
     }
   }
 
+  async sendAppointmentConfirmationNotification(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const channels = req.body.channels ?? ['email', 'sms'];
+      const result = await appointmentService.sendAppointmentConfirmationNotification(
+        appointmentId,
+        channels,
+        req.userId
+      );
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async deleteAppointment(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.userId) {
