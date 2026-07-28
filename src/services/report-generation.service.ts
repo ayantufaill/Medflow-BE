@@ -358,17 +358,38 @@ export class ReportGenerationService {
   private async getProductionReport(start: Date, end: Date) {
     const procs = await prisma.procedurelog.findMany({
       where: { ProcDate: { gte: start, lte: end }, ProcStatus: 2 },
-      include: { provider_procedurelog_ProvNumToprovider: true },
-      take: 50
+      include: { 
+        patient: true,
+        provider_procedurelog_ProvNumToprovider: true,
+        procedurecode_procedurelog_CodeNumToprocedurecode: true 
+      }
     });
 
-    return procs.map(p => ({
-      procedureId: p.ProcNum.toString(),
-      code: p.OldCode ?? 'D0120',
-      fee: p.ProcFee ?? 0,
-      date: p.ProcDate?.toLocaleDateString() || '',
-      provider: p.provider_procedurelog_ProvNumToprovider ? `${p.provider_procedurelog_ProvNumToprovider.FName} ${p.provider_procedurelog_ProvNumToprovider.LName}` : 'Provider'
-    }));
+    const patNums = Array.from(new Set(procs.map(p => p.PatNum).filter(Boolean))) as bigint[];
+    const metaMap = await getPatientsMeta(patNums);
+
+    return procs.map(p => {
+      const patNumStr = p.PatNum?.toString() || '';
+      const meta = metaMap[patNumStr] || {};
+      const flags = Array.isArray(meta.patientFlags) ? meta.patientFlags.filter(Boolean) : [];
+
+      let dobStr = '-';
+      if (p.patient?.Birthdate) {
+        dobStr = new Date(p.patient.Birthdate).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' });
+      }
+
+      return {
+        procedureId: p.ProcNum.toString(),
+        date: p.ProcDate?.toISOString() || '',
+        flags: flags,
+        patient: p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Unknown Patient',
+        dob: dobStr,
+        code: p.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || p.OldCode || 'Unknown Code',
+        procedure: p.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || 'Unknown Procedure',
+        provider: p.provider_procedurelog_ProvNumToprovider?.Abbr || p.provider_procedurelog_ProvNumToprovider?.FName || 'Unknown Provider',
+        fee: p.ProcFee || 0
+      };
+    });
   }
 
   private async getProductionCollectionReport(start: Date, end: Date, summary = false) {
