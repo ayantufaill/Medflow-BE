@@ -221,6 +221,27 @@ router.post('/checklists/categories', clinicalManagementController.createCheckli
 
 /**
  * @swagger
+ * /clinical-management/checklists/categories/{categoryName}:
+ *   delete:
+ *     summary: Delete checklist category by name
+ *     tags: [Clinical Management]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: categoryName
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Category deleted
+ *       404:
+ *         description: Category not found
+ */
+router.delete('/checklists/categories/:categoryName', clinicalManagementController.deleteChecklistCategory.bind(clinicalManagementController));
+
+/**
+ * @swagger
  * /clinical-management/checklists:
  *   post:
  *     summary: Create checklist template
