@@ -68,9 +68,11 @@ export class TreatmentPlanService {
       insPortion += Number(item.insPortion || 0);
       ptPortion += Number(item.ptPortion || 0);
 
-      item.insuranceAmount = `$${Number(item.insPortion || 0).toFixed(2)}`;
-      item.patientAmount = `$${Number(item.ptPortion || 0).toFixed(2)}`;
-      item.fee = `$${Number(item.charge || 0).toFixed(2)}`;
+      if (isVisits) {
+        item.insuranceAmount = `$${Number(item.insPortion || 0).toFixed(2)}`;
+        item.patientAmount = `$${Number(item.ptPortion || 0).toFixed(2)}`;
+        item.fee = `$${Number(item.charge || 0).toFixed(2)}`;
+      }
     }
 
     return { enrichedItems: items, insPortion, ptPortion, calcTotal };
