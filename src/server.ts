@@ -8,6 +8,7 @@ dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || '.env' });
 import connectDB, { prisma } from './config/db.js';
 import app from './app.js';
 import { hashPassword } from './utils/password.util.js';
+import { startReminderScheduler } from './jobs/reminderScheduler.js';
 
 
 // ── Seed essential data if DB is empty ───────────────────────────────────────
@@ -127,6 +128,8 @@ const startServer = async (): Promise<void> => {
     console.log(` 📖 Docs         →  http://localhost:${PORT}/api-docs`);
     console.log('═══════════════════════════════════════════════════════════════');
   });
+
+  startReminderScheduler();
 };
 
 startServer().catch((err) => {

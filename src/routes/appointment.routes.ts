@@ -1256,4 +1256,22 @@ router.post('/:appointmentId/communications/send', requireRoles('Front Desk', 'A
  */
 router.post('/:appointmentId/send-confirmation', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...appointmentSendConfirmationValidator]), appointmentController.sendAppointmentConfirmationNotification.bind(appointmentController));
 
+/**
+ * @swagger
+ * /appointments/send-due-reminders:
+ *   post:
+ *     summary: Manually trigger the due-reminders sweep (runs automatically every 15 minutes)
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Reminder sweep result
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ */
+router.post('/send-due-reminders', requireRoles('Admin'), appointmentController.sendDueReminders.bind(appointmentController));
+
 export default router;

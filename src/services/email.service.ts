@@ -1,5 +1,7 @@
 import nodemailer from 'nodemailer';
 
+export type AppointmentNotificationKind = 'confirmation' | 'reminder' | 'cancellation' | 'reschedule';
+
 export type AppointmentConfirmationDetails = {
   email: string;
   firstName?: string;
@@ -11,6 +13,10 @@ export type AppointmentConfirmationDetails = {
   operatoryName?: string;
   durationMinutes?: number;
   procedures?: string[];
+  /** Only used when kind is 'reschedule' - the appointment's previous date/time. */
+  previousAppointmentDateTime?: string;
+  /** Only used when kind is 'cancellation'. */
+  cancellationReason?: string;
   clinic?: {
     name?: string;
     phone?: string;
@@ -38,6 +44,37 @@ export type AppointmentConfirmationDetails = {
  * - AWS SES (via SMTP)
  * - Mailgun (via SMTP)
  */
+
+/** Copy that varies by notification kind - keeps one shared template instead of four near-duplicates. */
+const NOTIFICATION_COPY: Record<
+  AppointmentNotificationKind,
+  { subjectSuffix: string; heading: string; lead: (firstName: string) => string; showArrivalNotice: boolean }
+> = {
+  confirmation: {
+    subjectSuffix: 'Your Appointment is Confirmed',
+    heading: 'Your appointment is confirmed',
+    lead: () => "We're looking forward to seeing you. Here are your appointment details:",
+    showArrivalNotice: true,
+  },
+  reminder: {
+    subjectSuffix: 'Appointment Reminder',
+    heading: 'Upcoming appointment reminder',
+    lead: () => 'This is a friendly reminder about your upcoming appointment:',
+    showArrivalNotice: true,
+  },
+  cancellation: {
+    subjectSuffix: 'Your Appointment Has Been Cancelled',
+    heading: 'Your appointment has been cancelled',
+    lead: () => 'The appointment below has been cancelled. Contact us whenever you\'re ready to rebook:',
+    showArrivalNotice: false,
+  },
+  reschedule: {
+    subjectSuffix: 'Your Appointment Has Been Rescheduled',
+    heading: 'Your appointment has been rescheduled',
+    lead: () => 'Your appointment time has changed. Here are the updated details:',
+    showArrivalNotice: true,
+  },
+};
 
 export class EmailService {
   private transporter: nodemailer.Transporter | null = null;
@@ -517,37 +554,58 @@ MedFlow Team
   }
 
   /**
-   * Send appointment confirmation email to a patient
+   * Send an appointment confirmation email to a patient
    */
   async sendAppointmentConfirmation(details: AppointmentConfirmationDetails): Promise<void> {
-    const { email, firstName, appointmentDateTime, providerName, appointmentType, reasonForVisit, confirmationCode, operatoryName, durationMinutes, procedures, clinic } = details;
+    return this.sendAppointmentNotification(details, 'confirmation');
+  }
+
+  /** Send a reminder email for an upcoming appointment. */
+  async sendAppointmentReminder(details: AppointmentConfirmationDetails): Promise<void> {
+    return this.sendAppointmentNotification(details, 'reminder');
+  }
+
+  /** Send a cancellation email. `details.cancellationReason` is shown if provided. */
+  async sendAppointmentCancellation(details: AppointmentConfirmationDetails): Promise<void> {
+    return this.sendAppointmentNotification(details, 'cancellation');
+  }
+
+  /** Send a reschedule email. `details.previousAppointmentDateTime` shows the old slot. */
+  async sendAppointmentReschedule(details: AppointmentConfirmationDetails): Promise<void> {
+    return this.sendAppointmentNotification(details, 'reschedule');
+  }
+
+  private async sendAppointmentNotification(
+    details: AppointmentConfirmationDetails,
+    kind: AppointmentNotificationKind
+  ): Promise<void> {
+    const { email, firstName, appointmentDateTime, providerName, appointmentType, reasonForVisit, confirmationCode, operatoryName, durationMinutes, procedures, previousAppointmentDateTime, cancellationReason, clinic } = details;
     const clinicName = clinic?.name || process.env.FROM_NAME || 'MedFlow';
     const addressLine = [clinic?.address?.line1, clinic?.address?.city, clinic?.address?.state, clinic?.address?.postalCode]
       .filter(Boolean)
       .join(', ');
+    const copy = NOTIFICATION_COPY[kind];
 
-    const subject = `${clinicName} - Your Appointment is Confirmed`;
+    const subject = `${clinicName} - ${copy.subjectSuffix}`;
     const textBody = `
 Hello ${firstName || 'there'},
 
-Your appointment with ${clinicName} has been confirmed.
+${copy.lead(firstName || 'there')}
 
-${confirmationCode ? `Confirmation #: ${confirmationCode}\n` : ''}Date & Time: ${appointmentDateTime}
-${providerName ? `Provider: ${providerName}\n` : ''}${appointmentType ? `Visit Type: ${appointmentType}\n` : ''}${operatoryName ? `Room: ${operatoryName}\n` : ''}${durationMinutes ? `Duration: ${durationMinutes} minutes\n` : ''}${reasonForVisit ? `Reason for Visit: ${reasonForVisit}\n` : ''}${procedures && procedures.length > 0 ? `Procedures: ${procedures.join(', ')}\n` : ''}
-Please arrive 15 minutes early and bring a valid photo ID and your insurance card (if applicable).
-
-Need to reschedule or cancel? Please contact us at least 24 hours in advance${clinic?.phone ? ` by calling ${clinic.phone}` : ''}.
+${kind === 'reschedule' && previousAppointmentDateTime ? `Previous Date & Time: ${previousAppointmentDateTime}\n` : ''}${confirmationCode ? `Confirmation #: ${confirmationCode}\n` : ''}Date & Time: ${appointmentDateTime}
+${providerName ? `Provider: ${providerName}\n` : ''}${appointmentType ? `Visit Type: ${appointmentType}\n` : ''}${operatoryName ? `Room: ${operatoryName}\n` : ''}${durationMinutes ? `Duration: ${durationMinutes} minutes\n` : ''}${reasonForVisit ? `Reason for Visit: ${reasonForVisit}\n` : ''}${procedures && procedures.length > 0 ? `Procedures: ${procedures.join(', ')}\n` : ''}${kind === 'cancellation' && cancellationReason ? `Cancellation Reason: ${cancellationReason}\n` : ''}
+${copy.showArrivalNotice ? 'Please arrive 15 minutes early and bring a valid photo ID and your insurance card (if applicable).\n\n' : ''}Need to reschedule or cancel? Please contact us at least 24 hours in advance${clinic?.phone ? ` by calling ${clinic.phone}` : ''}.
 
 ${clinicName}${addressLine ? `\n${addressLine}` : ''}${clinic?.phone ? `\n${clinic.phone}` : ''}${clinic?.website ? `\n${clinic.website}` : ''}
     `.trim();
 
-    const htmlBody = this.generateAppointmentConfirmationHTML(details);
+    const htmlBody = this.generateAppointmentNotificationHTML(details, kind);
     const fromEmail = process.env.FROM_EMAIL || 'noreply@medflow.com';
     const fromName = clinicName;
 
     if (!this.transporter) {
       console.log('='.repeat(50));
-      console.log('APPOINTMENT CONFIRMATION EMAIL (Console Mode)');
+      console.log(`APPOINTMENT ${kind.toUpperCase()} EMAIL (Console Mode)`);
       console.log('='.repeat(50));
       console.log(`To: ${email}`);
       console.log(`From: ${fromName} <${fromEmail}>`);
@@ -565,18 +623,20 @@ ${clinicName}${addressLine ? `\n${addressLine}` : ''}${clinic?.phone ? `\n${clin
         text: textBody,
         html: htmlBody,
       });
-      console.log(`Appointment confirmation email sent successfully to ${email}`);
+      console.log(`Appointment ${kind} email sent successfully to ${email}`);
     } catch (error) {
-      console.error('Error sending appointment confirmation email:', error);
-      throw new Error('Failed to send appointment confirmation email. Please try again later.');
+      console.error(`Error sending appointment ${kind} email:`, error);
+      throw new Error(`Failed to send appointment ${kind} email. Please try again later.`);
     }
   }
 
   /**
-   * Generate HTML email template for appointment confirmation
+   * Generate HTML email template for an appointment notification (confirmation,
+   * reminder, cancellation, or reschedule).
    */
-  private generateAppointmentConfirmationHTML(details: AppointmentConfirmationDetails): string {
-    const { firstName, appointmentDateTime, providerName, appointmentType, reasonForVisit, confirmationCode, operatoryName, durationMinutes, procedures, clinic } = details;
+  private generateAppointmentNotificationHTML(details: AppointmentConfirmationDetails, kind: AppointmentNotificationKind): string {
+    const { firstName, appointmentDateTime, providerName, appointmentType, reasonForVisit, confirmationCode, operatoryName, durationMinutes, procedures, previousAppointmentDateTime, cancellationReason, clinic } = details;
+    const copy = NOTIFICATION_COPY[kind];
     const clinicName = clinic?.name || process.env.FROM_NAME || 'MedFlow';
     const addressLine = [clinic?.address?.line1, clinic?.address?.line2].filter(Boolean).join(', ');
     const cityStateZip = [clinic?.address?.city, [clinic?.address?.state, clinic?.address?.postalCode].filter(Boolean).join(' ')]
@@ -632,22 +692,24 @@ ${clinicName}${addressLine ? `\n${addressLine}` : ''}${clinic?.phone ? `\n${clin
     <div class="container">
       <div class="header" style="background-color: #14204a; color: #ffffff;">
         <div class="logo"><span class="word" style="color: #ffffff;">${clinicName}</span></div>
-        <h1 style="color: #ffffff;">Your appointment is confirmed</h1>
+        <h1 style="color: #ffffff;">${copy.heading}</h1>
         ${confirmationCode ? `<span class="badge" style="background-color: #4f5fe0; color: #ffffff;">Confirmation #${confirmationCode}</span>` : ''}
       </div>
       <div class="content">
         <p class="greeting">Hello ${firstName || 'there'},</p>
-        <p class="lead">We're looking forward to seeing you. Here are your appointment details:</p>
+        <p class="lead">${copy.lead(firstName || 'there')}</p>
 
         <div class="card">
           <table>
-            ${detailRow('Date &amp; Time', appointmentDateTime)}
+            ${kind === 'reschedule' ? detailRow('Previous Date &amp; Time', previousAppointmentDateTime) : ''}
+            ${detailRow(kind === 'reschedule' ? 'New Date &amp; Time' : 'Date &amp; Time', appointmentDateTime)}
             ${detailRow('Duration', durationMinutes ? `${durationMinutes} minutes` : undefined)}
             ${detailRow('Provider', providerName)}
             ${detailRow('Room', operatoryName)}
             ${detailRow('Visit Type', appointmentType)}
             ${detailRow('Reason for Visit', reasonForVisit)}
             ${detailRow('Location', cityStateZip || addressLine)}
+            ${kind === 'cancellation' ? detailRow('Cancellation Reason', cancellationReason) : ''}
           </table>
         </div>
 
@@ -657,6 +719,7 @@ ${clinicName}${addressLine ? `\n${addressLine}` : ''}${clinic?.phone ? `\n${clin
           ${procedures.map((proc) => `<li>${proc}</li>`).join('')}
         </ul>` : ''}
 
+        ${copy.showArrivalNotice ? `
         <div class="notice">
           <strong>Please arrive 15 minutes early</strong>
           This gives us time to complete any check-in paperwork before your visit.
@@ -666,7 +729,7 @@ ${clinicName}${addressLine ? `\n${addressLine}` : ''}${clinic?.phone ? `\n${clin
           <li>Bring a valid photo ID</li>
           <li>Bring your insurance card, if applicable</li>
           <li>Bring a list of current medications</li>
-        </ul>
+        </ul>` : ''}
 
         <p class="policy">
           Need to reschedule or cancel? Please let us know at least 24 hours in advance${clinic?.phone ? ` by calling <strong>${clinic.phone}</strong>` : ''}${clinic?.email ? ` or emailing <a href="mailto:${clinic.email}">${clinic.email}</a>` : ''}.
