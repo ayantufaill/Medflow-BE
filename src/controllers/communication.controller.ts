@@ -296,7 +296,7 @@ export class CommunicationController {
     try {
       const result = await communicationService.saveGapFillSettings(req.body);
       if (req.userId) {
-        await logActivityFromRequest(req, 'updated', 'gapfills_settings');
+        await logActivityFromRequest(req, 'updated', 'gapfills_settings', 'global');
       }
       res.status(200).json({
         success: true,

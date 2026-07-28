@@ -213,7 +213,7 @@ export class InvoiceService {
           continue;
         }
 
-        let procCodeString = item.cptCode || item.code || '';
+        let procCodeString = item.cptCode || item.code || item.procedureCode || item.procCode || '';
         if (!procCodeString && item.serviceId) {
           const procCode = await prisma.procedurecode.findUnique({ where: { CodeNum: BigInt(item.serviceId) } });
           if (procCode) procCodeString = procCode.ProcCode;
