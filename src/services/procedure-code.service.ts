@@ -34,6 +34,31 @@ export class ProcedureCodeService {
       requiresToothImage: c.RequiresToothImage ?? false,
     }));
   }
+  async getProcedureButtons() {
+    const buttons = await prisma.procbutton.findMany({
+      orderBy: { ItemOrder: 'asc' },
+      include: {
+        procbuttonitem: {
+          orderBy: { ItemOrder: 'asc' },
+          include: {
+            procedurecode: true,
+          }
+        }
+      }
+    });
+
+    return buttons.map(b => ({
+      _id: b.ProcButtonNum.toString(),
+      category: b.Description,
+      itemOrder: b.ItemOrder,
+      items: b.procbuttonitem.map(item => ({
+        _id: item.ProcButtonItemNum.toString(),
+        code: item.procedurecode?.ProcCode,
+        name: item.procedurecode?.AbbrDesc || item.procedurecode?.Descript,
+        itemOrder: item.ItemOrder?.toString()
+      }))
+    }));
+  }
 }
 
 export const procedureCodeService = new ProcedureCodeService();

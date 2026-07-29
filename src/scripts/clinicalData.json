@@ -1,0 +1,3466 @@
+{
+  "categories": [
+    {
+      "name": "Products",
+      "subCategories": []
+    },
+    {
+      "name": "Products",
+      "subCategories": [
+        {
+          "name": "Lab Fee",
+          "items": [
+            {
+              "choiceName": "Lab Fee",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Toothbrush",
+          "items": [
+            {
+              "choiceName": "Hard",
+              "isDefault": true,
+              "instructions": "Brush twice daily for 2 minutes",
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Medium",
+              "isDefault": true,
+              "instructions": "Brush twice daily for 2 minutes",
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Soft",
+              "isDefault": true,
+              "instructions": "Brush twice daily for 2 minutes",
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Mechanical toothbrush",
+          "items": [
+            {
+              "choiceName": "Battery toothbrush",
+              "isDefault": false,
+              "instructions": "Brush twice daily for 2 minutes",
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Burst",
+              "isDefault": false,
+              "instructions": "brush twice daily for 2 minutes",
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Oral B",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Oral B iO Brush head-Gentle Clean",
+              "isDefault": false,
+              "instructions": null,
+              "price": 15,
+              "code": "PS4527927689824551806"
+            },
+            {
+              "choiceName": "Oral B iO Brush head-Ultimate Clean",
+              "isDefault": false,
+              "instructions": null,
+              "price": 15,
+              "code": "PS1192233608725221725"
+            },
+            {
+              "choiceName": "Oral B iO Bundle",
+              "isDefault": true,
+              "instructions": "Brush twice daily for 2 minutes",
+              "price": 250,
+              "code": "PS673051180522263191"
+            },
+            {
+              "choiceName": "Sonicare",
+              "isDefault": false,
+              "instructions": "Brush twice daily for 2 minutes",
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Toothpaste",
+          "items": [
+            {
+              "choiceName": "Aim",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Amway Glister",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Aquafresh Sensitive",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Aquafresh Whitening",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Arm & Hammer Advance White Extreme Whitening",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Arm & Hammer Advance White Gel",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Arm & Hammer Advance White Sensitive",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Arm & Hammer Dental Care",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Arm & Hammer Dental Care PM Bold Mint",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Arm & Hammer Mentadent Advance Whitening",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Arm & Hammer Peroxicare Regular",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Arm & Hammer Peroxicare Tartar Control",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Arm & Hammer Sensation",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Arm & Hammer Sensation Tartar Control",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Arm & Hammer Tooth Powder",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Biotene Gel",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Biotene Paste with Fluoride",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "CariFree CTx3 Grape (SLS free and FL free all natural)",
+              "isDefault": true,
+              "instructions": "Brush teeth thoroughly, preferably after each meal or at least twice a day",
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "CariFree CTx3 Gel",
+              "isDefault": true,
+              "instructions": "Brush teeth thoroughly, preferably after each meal or at least twice a day",
+              "price": 18,
+              "code": "PS6526268085136992143"
+            },
+            {
+              "choiceName": "CariFree CTx4 Gel 5000",
+              "isDefault": true,
+              "instructions": "Brush teeth thoroughly, preferably after each meal or at least twice a day",
+              "price": 20,
+              "code": "PS2256433527282254236"
+            },
+            {
+              "choiceName": "Clinpro 5000",
+              "isDefault": true,
+              "instructions": "Brush teeth thoroughly, preferably after each meal or at least twice a day",
+              "price": 30,
+              "code": "PS6331382082222720076"
+            },
+            {
+              "choiceName": "Close Up with Baking Soda",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Closys",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Colgate 2-in-1 Fresh Mint",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Colgate Baking Soda Whitening",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Colgate Enamel Care Advanced Whitening",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Colgate Enamel Care Natural Whitening",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Colgate Herbal",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Colgate Optic White",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Colgate Platinum",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Colgate Regular",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Colgate Sensitive Max Strength",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Colgate Tartar Control",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Colgate Tartar Control with Baking Soda and Peroxide",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Colgate Total",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Colgate Whitening",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Crest Extra Whitening",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Crest Extra Whitening with Tartar Protection",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Crest Maximum Sensitivity",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Crest MultiCare Fresh Mint",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Crest Multicare Whitening",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Crest Sensitivity Protection",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Crest with Scope",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Crest with Scope Whitening",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Elmex Sensitive Plus",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Fluoridex Daily Defense",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Healthy Teeth & Gums",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Mentadent",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Natural White",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Oxyfresh",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Oxyfresh Powder",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Oxyfresh with Fluoride",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Pepsodent",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "PerioScience White Care",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Plain baking soda",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Plus White",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Prevident 5000 Booster",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Pronamel",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Pronamel Mint Essence (SLS free)",
+              "isDefault": true,
+              "instructions": "Brush teeth thoroughly, preferably after each meal or at least twice a day",
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Rembrandt Mint",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Rembrandt Original",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Rembrandt Plus",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Sensodyne",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Sensodyne Extra Whitening",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Squiggle Enamel Saver",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Supersmile",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Tom's of Maine Children's",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Tom's of Maine Regular",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Tom's of Maine Sensitive",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Toothbrush with plain water",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Ultra Brite",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Ultra Brite Advanced Whitening Formula",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Weleda Calendula Toothpaste",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Weleda Children's Tooth Gel",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Weleda Pink Toothpaste with Ratanhia",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Weleda Plant Tooth Gel",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Weleda Salt Toothpaste",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Floss",
+          "items": [
+            {
+              "choiceName": "Airfloss",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Floss pics",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "H2Ofloss",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Hydo Floss",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Unwaxed floss",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Waterpik",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Waxed floss",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Interdental devices",
+          "items": [
+            {
+              "choiceName": "End Tuft",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Oralpix",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Perio aid/stimulator",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Proxabrush Moderate (pink)",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Proxabrush Tight (green)",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Proxabrush Ultra wide (teal)",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Proxabrush Wide (blue)",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Soft Green Pics",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Stimudent/Rotapoint",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Sulcabrush",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Superfloss",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Threader",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Patient Self Care",
+          "items": [
+            {
+              "choiceName": "Bleach",
+              "isDefault": true,
+              "instructions": "Two teaspoons bleach with 4 oz water. May also be used in waterpik",
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Sodium Hypochlorite",
+              "isDefault": true,
+              "instructions": "Dilute (0.2%) Sodium Hypochlorite, two three times per week",
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Environmental Therapy (Oral rinse)",
+          "items": [
+            {
+              "choiceName": "ACT Anticavity Fluoride Rinse",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "ACT Restoring Mouthwash with Fluoride",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Biotene Dry Mouth Oral Rinse",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Biotene Mouthwash",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "BreathRx Anti-Bacterial Breath Spray",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "BreathRx Anti-Bacterial Mouth Rinse",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "BreathRX Anti-Bacterial Tongue Spray",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "BreathRx Antibacterial Mouth Spray",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "BreathRX Antibacterial Rinse",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Cepacol Mouthrinse",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Chlorhexidine Alcohol-Free",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "CloSYS Alcohol-Free Oral Rinse",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "CloSYS Rinse",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Colgate Optic White",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Colgate Total Advance",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Crest 3D White Multi-Care Whitening Rinse",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Crest Pro-Health",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Crest Pro-Health Clinical Deep Clean",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "CTx3 Maintenance Rinse",
+              "isDefault": true,
+              "instructions": "Use daily after brushing and flossing",
+              "price": 39,
+              "code": "PS9186468201826295722"
+            },
+            {
+              "choiceName": "CTx4 Treatment Rinse",
+              "isDefault": true,
+              "instructions": "Use twice daily for 1 month.",
+              "price": 28,
+              "code": "PS7213774927868862157"
+            },
+            {
+              "choiceName": "Fluoride Daily Renewal",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Healthy White Bleach Agent",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Listerine Antiseptic Mouthwash",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Listerine Total Care Mouthwash",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Listerine Whitening Vibrant White Pre-Brush Rinse",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Listerine Zero Mouthwash",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Oasis Moisturizing Mouthwash for Dry Mouth",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "OraCare",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Oral-B Antibacterial Rinse",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Oral-B Anticavity Rinse",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Oxyfresh Mouthrinse",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Peridex",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "PerioSciences AO ProRinse",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Peroxyl Antiseptic Oral Cleanser",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "ProFresh Chlorine Dioxide Oral Rinse",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "SB12",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Scope",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "SmartMouth",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Smile Guard Orthodontic Brace Relief Rinse with Fluoride",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Stella Life Gel",
+              "isDefault": true,
+              "instructions": null,
+              "price": 35,
+              "code": "PS5067168021486235070"
+            },
+            {
+              "choiceName": "Stella Life Rinse-Peppermint",
+              "isDefault": false,
+              "instructions": null,
+              "price": 35,
+              "code": "PS6208555924010497389"
+            },
+            {
+              "choiceName": "The Natural Dentist Anti-Gingivitis Rinse",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Therabreath Oral Rinse",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Tom's of Maine Wicked Fresh Mouthwash",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Over-the-counter",
+          "items": [
+            {
+              "choiceName": "ACT",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Colgate Total",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Crest Pro Help",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Listerine Total Zero Alcohol",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Toothpaste (1.1% NaF)",
+          "items": [
+            {
+              "choiceName": "Carifree CTx4 Gel 5000",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Clinpro 5000",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "PreviDent 5000",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Voco Remin Pro Mint",
+              "isDefault": true,
+              "instructions": null,
+              "price": 25,
+              "code": "PS8070629006542009587"
+            },
+            {
+              "choiceName": "Voco Remin Pro Melon",
+              "isDefault": false,
+              "instructions": null,
+              "price": 25,
+              "code": "PS7180106951690158514"
+            },
+            {
+              "choiceName": "Voco Remin Pro Strawberry",
+              "isDefault": false,
+              "instructions": null,
+              "price": 25,
+              "code": "PS4417808197332996582"
+            }
+          ]
+        },
+        {
+          "name": "Gel (1.1% NaF)",
+          "items": [
+            {
+              "choiceName": "Denti-Pro",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "PreviDent Gel",
+              "isDefault": true,
+              "instructions": "Put inside bleaching trays and leave for 30 mins",
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "X PUR Gel",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Oral Malodor Management",
+          "items": [
+            {
+              "choiceName": "BreathRx",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "CloSYS II",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Halitosis toothpaste",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Meridol",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "OraCare",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "PerioSciences AO ProRinse",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Tongue cleaner",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Caries management system",
+          "items": [
+            {
+              "choiceName": "Carifree CTx3 Flouride Rinse",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Carifree CTx4 Gel 5000",
+              "isDefault": true,
+              "instructions": null,
+              "price": 20,
+              "code": "PS8019049712900161650"
+            },
+            {
+              "choiceName": "Carifree CTx4 treatment rinse",
+              "isDefault": true,
+              "instructions": "Use twice daily, for 1 month.",
+              "price": 39,
+              "code": "PS4237834002816972384"
+            },
+            {
+              "choiceName": "Herbal lollipops",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "PreviDent 5000",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Xylitol - gum or mints",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Erosion management system",
+          "items": [
+            {
+              "choiceName": "Carifree CTx4 Gel 5000",
+              "isDefault": true,
+              "instructions": null,
+              "price": 28,
+              "code": "PS2952518322620264568"
+            },
+            {
+              "choiceName": "Chewing gum",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Lozenges",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Recaldent (CPP-ACP)",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Xerostomia management system",
+          "items": [
+            {
+              "choiceName": "OraMoist Dry Mouth Patch",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "PerioSciences AO ProVantage Topical Antioxidant Gel",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Saliva Substitutes - Carifree CTx2 Spray",
+              "isDefault": true,
+              "instructions": null,
+              "price": 21,
+              "code": "PS1233182882881500981"
+            },
+            {
+              "choiceName": "Water-based Lubricant",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Xylimelts",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Xylitol - gum or mints",
+              "isDefault": true,
+              "instructions": null,
+              "price": 26,
+              "code": "PS9056343723569021969"
+            }
+          ]
+        },
+        {
+          "name": "Functional Therapy",
+          "items": [
+            {
+              "choiceName": "Anti-inflammatory",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "CPAP",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Ice",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Lower Occlusal Guard",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Medication Muscle Relaxant",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "NTI",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Ortho retainers",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Sleep Appliance",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Soft Diet",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Upper Occlusal Guard",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "TDS Membership",
+          "items": [
+            {
+              "choiceName": "TDS Membership: for G.M. only",
+              "isDefault": false,
+              "instructions": null,
+              "price": 716,
+              "code": "PS6334019308982621886"
+            }
+          ]
+        },
+        {
+          "name": "Whitening",
+          "items": [
+            {
+              "choiceName": "Kor At Home SINGLE Syringe 16%",
+              "isDefault": false,
+              "instructions": null,
+              "price": 55,
+              "code": "PS8093469113763518362"
+            },
+            {
+              "choiceName": "KÖR At-Home DOUBLE Syring 16%",
+              "isDefault": true,
+              "instructions": null,
+              "price": 85,
+              "code": "PS1893272653647205810"
+            },
+            {
+              "choiceName": "KÖR At-Home Whitening Kit",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Lumibrite Take Home Whitening System",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Opalescence Boost 40% In office",
+              "isDefault": false,
+              "instructions": null,
+              "price": 349,
+              "code": "PS679812943316384655"
+            },
+            {
+              "choiceName": "Opalescence PF Take Home Dental Bleaching 15%",
+              "isDefault": true,
+              "instructions": null,
+              "price": 25,
+              "code": "PS1353725105773273403"
+            },
+            {
+              "choiceName": "Opalescence PF Take Home Dental Bleaching 20%",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Opalescence PF Take Home Dental Bleaching 35%",
+              "isDefault": true,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Venus White Pro 16%",
+              "isDefault": false,
+              "instructions": null,
+              "price": 0,
+              "code": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Progress Notes",
+      "subCategories": [
+        {
+          "name": "Resin Cement",
+          "items": [
+            {
+              "choiceName": "Adherence Permanent Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Aegis Crown and Bridge Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Bifix QM Resin-Based Adhesive Luting System",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Bifix SE Universal Self-Ahesive Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "BisCem Self-Adhesive Luting Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Bistite II DC Adhesive Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "C&B Cement Luting Composite",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "C&B Metabond Quick Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Calibra Esthetic Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Calibra Universal",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Duo-Link Composite Luting Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Duo-Link Universal Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "eCEMENT Resin Cementation System",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Insure Lite Automix Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Insure Regular and Insure Lite Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "IntegraCem Dual Cure Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Linkmax Dental Resin Adhesive Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Maxcem Elite",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Maxcem Elite Chroma",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Multilink Automix Syringe",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Multilink Sprint Universal Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "NX3",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Panavia 21",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Panavia F2.0",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Panavia SA Cement Plus",
+              "isDefault": false,
+              "isQuickList": true,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Panavia V5",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Paracem",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Permacem 2.0",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Permacem Automix Dual",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Permacem Dual Smartmix",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "PermaFlo DC Luting/Restorative Resin",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "RelyX Ultimate",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "RelyX Unicem 2 Automix",
+              "isDefault": true,
+              "isQuickList": true,
+              "isRecommended": true,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "RelyX Unicem 2 Cement Clicker Dispenser",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "RelyX Unicem Aplicap",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "RelyX Unicem Maxicap",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Twinlook Cement Base",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Ultra-Bond Plus Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Variolink II Esthetic Cementation System",
+              "isDefault": false,
+              "isQuickList": true,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Variolink Ultra Universal Dual Curing Cement",
+              "isDefault": false,
+              "isQuickList": true,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Onlay Cement",
+          "items": [
+            {
+              "choiceName": "Adherence Permanent Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Bifix QM Resin-Based Adhesive Luting System",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "BisCem Self-Adhesive Luting Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Bistite II DC Adhesive Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Clearfil Esthetic Cement EX",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Duo-Link Composite Luting Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Duo-Link Universal Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "eCEMENT Resin Cementation System",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Insure Lite Automix Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Insure Regular and Insure Lite Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "IntegraCem Dual Cure Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "PermaFlo DC Luting/Restorative Resin",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "RelyX Ultimate Adhesive Resin Cement",
+              "isDefault": false,
+              "isQuickList": true,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Ultra-Bond Plus Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Variolink II Esthetic Cementation System",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Variolink Ultra Universal Dual Curing Cement",
+              "isDefault": true,
+              "isQuickList": true,
+              "isRecommended": true,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Veneer Cement",
+          "items": [
+            {
+              "choiceName": "Choice 2 Light-Cured Veneer Cement Bisco",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Clearfil Esthetic Cement EX",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Da Vinci Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "eCEMENT Resin Cementation System",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Kleer-Veneer Light Cure Veneer Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Mojo Veneer Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "PermaShade LC Veneer Luting Resin",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "RelyX Veneer Cement",
+              "isDefault": true,
+              "isQuickList": true,
+              "isRecommended": true,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "UltraBond Clear Light-Cure Resin Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Variolink II Esthetic Cementation System",
+              "isDefault": false,
+              "isQuickList": true,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Vitique Veneer Cement",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Bonding",
+          "items": [
+            {
+              "choiceName": "Ace All-Bond SE Dental Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Ace All-Bond TE (All-Bond 3®)",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "AdheSE Dental Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "AdheSE One F",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Admira Bond",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Adper Easy Bond Self-Etch Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Adper Prompt L-Pop Self-Etch Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Adper Scotchbond Multipurpose Plus Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Adper Scotchbond SE Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Adper Single Bond Plus Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "All-Bond 2 Dental Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "All-Bond Universal Dental Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": true,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Amalgambond Plus",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "BeautiBond Dental Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Bond 1 Primer / Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Bond-1 SF Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Bond-It System",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "BondLink",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Brush&Bond Bonding System",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Clearfil DC Bond",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Clearfil Liner Bond 2v Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Clearfil New Bond",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Clearfil Photo Bond",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Clearfil S3 Plus Bond",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Clearfil SE Bond",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "CLEARFIL SE Protect",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Clearfil SE Protect Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Composite Wetting Resin",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Contax Bonding Agent",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Copalite SnapBond Dental Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Cosmedent Complete Adhesive System",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "CuRay-Eclipse Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Cure On Touch Orthodontic Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "DenTASTIC Dental Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "DenTastic UnoDuo Bonding Kit",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "DiamondBond",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "E-Bond Enamel Bonding Agent",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "EnVision Complete Bonding System",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "ExciTE F DSC Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "ExciTE F Total Etch Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "FL-Bond II Dental Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Frog Adhesive System",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Futura Bond NR",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Futurabond DC",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Futurabond U Dual-Cure Universal Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "G-aenial Bond",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "G-BOND",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "GC Fuji BOND LC",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "GLUMA Comfort Bond & Desensitizer",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "iBOND Self Etch",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "iBOND Total Etch",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "IntegraBond",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Light-Bond Blue Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "LuxaBond Total Etch",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Max Bond LC",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "One Coat Bond",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "One-Step Dental Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "One-Step Plus Dental Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "One-Up Bond F Plus",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "OptiBond All-In-One",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "OptiBond FL",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "OptiBond Solo Plus",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "OptiBond XTR",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Ozinga Bonding Agent",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "PEAK Universal Bond Light Cured Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "PermaQuick Two-Part Bonding System",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "PQ1 Single Resin Bond",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Prelude One Component Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Prelude Self-Etch Bonding Kit",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Prime & Bond NT",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Prime & Bond NT Dual Cure",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Prime&Bond Elect Universal Dental Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "ProBond All Purpose Bonding Agent",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "ProOptions SE Bonding System",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Scotchbond Universal Adhesive",
+              "isDefault": true,
+              "isQuickList": true,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Simplicity Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Solobond M",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Stae Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Syntac Dental Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "TECO Bonding System",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Tenure Multi-Purpose Bonding System",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Tenure Quick w/ F Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Tenure Uni-Bond",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Tenure4G Dual Solvent Bonding Agent",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Tokuyama Bond Force",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Touch&Bond System",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "UniFil Bond",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Wet Bond",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Xeno III Dental Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Xeno IV Self-Etching Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "XP Bond Universal Adhesive",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Zirconia primer",
+          "items": [
+            {
+              "choiceName": "Clearfil Ceramic Primer",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Monobond Plus Universal Primer",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Z-PRIME Plus Silane Coupling Agent",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Zirconia Primer",
+              "isDefault": true,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Ceramic primer",
+          "items": [
+            {
+              "choiceName": "Cerinate Primer & Porcelain Conditioner from DenMat",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Clearfil Ceramic Primer",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Ivoclar Monobond",
+              "isDefault": true,
+              "isQuickList": true,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Porcelain Primer Silane Coupling Agent",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "RelyX Ceramic Primer",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Silanator from Cosmedent",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Ultradent Silane",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "PVS",
+          "items": [
+            {
+              "choiceName": "Affinis Precious VPS Impression Material",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Aquasil Ultra Smart Wetting VPS Impression Material",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Chromaclone VPS",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Cinch VPS Impression Material",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "EXAFLEX VPS Impression Material",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Extrude VPS Impression Material",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Flexitime VPS Impression Material",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Genie Impression Material",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Impressiv Impression Material",
+              "isDefault": false,
+              "isQuickList": true,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Imprint 3 VPS Impression Material",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Imprint 4 VPS Impression Material",
+              "isDefault": true,
+              "isQuickList": true,
+              "isRecommended": true,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Panasil Contact VPS",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Paradigm VPS Impression Material",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "President Putty VPS Impression Material",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Take 1 Advance VPS",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Topical anesthetic",
+          "items": [
+            {
+              "choiceName": "Benzocaine",
+              "isDefault": true,
+              "isQuickList": true,
+              "isRecommended": true,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Dyclonine hydrochloride",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Ethocaine",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Gingicaine anesthetic gel",
+              "isDefault": false,
+              "isQuickList": true,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Lidocaine ointment",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Lidocaine solution",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Lidocaine spray",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Oraqix",
+              "isDefault": false,
+              "isQuickList": true,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Procaine",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Xylocaine",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Infiltration Anesthetic",
+          "items": [
+            {
+              "choiceName": "Articaine, 4% with Epinephrine 1:100,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Articaine, 4% with Epinephrine 1:200,000",
+              "isDefault": true,
+              "isQuickList": true,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Bupivacaine, 0.5% with Epinephrine 1:200,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Carbocaine, 3% plain",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Citanest Forte, 4% with Epinephrine 1:200,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Citanest Plain, 4% without Vasoconstrictor",
+              "isDefault": false,
+              "isQuickList": true,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Duranest, 1.5% with Epinephrine 1:200,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Lidocaine HCL, 2% with Epinephrine 1:100,000",
+              "isDefault": false,
+              "isQuickList": true,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Lidocaine HCL, 2% with Epinephrine 1:50,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Lidocaine, 2% with Epinephrine 1:100,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Marcaine, 0.5% with Epinephrine 1:200,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Mepivacaine, 2% with Levonordefrin 1:20,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Mepivacaine, 3% plain",
+              "isDefault": false,
+              "isQuickList": true,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Prilocaine, 4% plain",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Prilocaine, 4% with Epinephrine 1:200,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Septocaine, 4% with Epinephrine 1:100,000",
+              "isDefault": false,
+              "isQuickList": true,
+              "isRecommended": true,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Xylocaine, 2% with Epinephrine 1:100,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Xylocaine, 2% with Epinephrine 1:50,000",
+              "isDefault": false,
+              "isQuickList": true,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "IA Block Anesthetic",
+          "items": [
+            {
+              "choiceName": "Articaine, 4% with Epinephrine 1:100,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Articaine, 4% with Epinephrine 1:200,000",
+              "isDefault": false,
+              "isQuickList": true,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Bupivacaine, 0.5% with Epinephrine 1:200,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Carbocaine, 3% plain",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Citanest Forte, 4% with Epinephrine 1:200,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Citanest Plain, 4% without Vasoconstrictor",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Duranest, 1.5% with Epinephrine 1:200,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Lidocaine HCL, 2% with Epinephrine 1:100,000",
+              "isDefault": false,
+              "isQuickList": true,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Lidocaine HCL, 2% with Epinephrine 1:50,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Lidocaine, 2% with Epinephrine 1:100,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Mepivacaine, 2% with Levonordefrin 1:20,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Mepivacaine, 3% plain",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Prilocaine, 4% plain",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Prilocaine, 4% with Epinephrine 1:200,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Septocaine, 4% with Epinephrine 1:100,000",
+              "isDefault": true,
+              "isQuickList": true,
+              "isRecommended": true,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Xylocaine, 2% with Epinephrine 1:100,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            },
+            {
+              "choiceName": "Xylocaine, 2% with Epinephrine 1:50,000",
+              "isDefault": false,
+              "isQuickList": false,
+              "isRecommended": false,
+              "price": 0,
+              "code": null
+            }
+          ]
+        },
+        {
+          "name": "Fl- Varnish",
+          "items": [
+            {
+              "choiceName": "3M Varnish applied with brush chairside",
+              "isDefault": true,
+              "isQuickList": true,
+              "isRecommended": false,
+              "price": 35,
+              "code": "PS7796260773125296886"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

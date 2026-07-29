@@ -5154,6 +5154,7 @@ model procedurecode {
   RequiresNarrative                                                 Boolean?           @default(false)
   RequiresMedicalNecessity                                          Boolean?           @default(false)
   RequiresToothImage                                                Boolean?           @default(false)
+  CoverageCategory                                                  String?            @db.VarChar(50)
   autocodeitem                                                      autocodeitem[]
   benefit                                                           benefit[]
   fee                                                               fee[]
@@ -7731,4 +7732,33 @@ model shortlist {
   CustomFields    Json?
   CreatedAt       DateTime @default(now())
   UpdatedAt       DateTime @updatedAt
+}
+
+model clinicalcategory {
+  id            Int                   @id @default(autoincrement())
+  name          String                @unique
+  subCategories clinicalsubcategory[]
+}
+
+model clinicalsubcategory {
+  id         Int              @id @default(autoincrement())
+  name       String
+  categoryId Int
+  category   clinicalcategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  items      clinicalitem[]
+
+  @@unique([name, categoryId])
+}
+
+model clinicalitem {
+  id            Int                 @id @default(autoincrement())
+  subCategoryId Int
+  choiceName    String
+  isDefault     Boolean             @default(false)
+  instructions  String?
+  price         Float               @default(0)
+  code          String?
+  isQuickList   Boolean?
+  isRecommended Boolean?
+  subCategory   clinicalsubcategory @relation(fields: [subCategoryId], references: [id], onDelete: Cascade)
 }

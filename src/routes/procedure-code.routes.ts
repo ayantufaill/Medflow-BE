@@ -17,6 +17,20 @@ router.use(authenticate);
  *       200:
  *         description: List of dental procedure codes
  */
+/**
+ * @swagger
+ * /procedure-codes/buttons:
+ *   get:
+ *     summary: Get all procedure buttons and their items
+ *     tags: [Procedure Codes]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of procedure button categories and items
+ */
+router.get('/buttons', procedureCodeController.getProcedureButtons.bind(procedureCodeController));
+
 router.get('/', procedureCodeController.getAllProcedureCodes.bind(procedureCodeController));
 
 export default router;

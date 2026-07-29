@@ -71,8 +71,8 @@ export const createPatientValidator: ValidationChain[] = [
     .withMessage('Gender must be one of: male, female, non_binary, prefer_not_to_say, unknown'),
   body('sexAtBirth')
     .optional()
-    .isIn(['male', 'female', 'non_binary', 'prefer_not_to_say', 'unknown'])
-    .withMessage('sexAtBirth must be one of: male, female, non_binary, prefer_not_to_say, unknown'),
+    .isIn(['male', 'female', 'intersex', 'non_binary', 'prefer_not_to_say', 'unknown'])
+    .withMessage('sexAtBirth must be one of: male, female, intersex, non_binary, prefer_not_to_say, unknown'),
   body('genderIdentity')
     .optional()
     .isIn(['male', 'female', 'non_binary', 'prefer_not_to_say', 'unknown'])
@@ -335,8 +335,8 @@ export const updatePatientValidator: ValidationChain[] = [
     .withMessage('Gender must be one of: male, female, non_binary, prefer_not_to_say, unknown'),
   body('sexAtBirth')
     .optional()
-    .isIn(['male', 'female', 'non_binary', 'prefer_not_to_say', 'unknown'])
-    .withMessage('sexAtBirth must be one of: male, female, non_binary, prefer_not_to_say, unknown'),
+    .isIn(['male', 'female', 'intersex', 'non_binary', 'prefer_not_to_say', 'unknown'])
+    .withMessage('sexAtBirth must be one of: male, female, intersex, non_binary, prefer_not_to_say, unknown'),
   body('genderIdentity')
     .optional()
     .isIn(['male', 'female', 'non_binary', 'prefer_not_to_say', 'unknown'])
