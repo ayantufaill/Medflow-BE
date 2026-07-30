@@ -13,19 +13,19 @@ export const treatmentPlanIdValidator = [
 export const createTreatmentPlanValidator = [
   body('patientId').notEmpty().withMessage('Patient ID is required.'),
   body('title').notEmpty().withMessage('Title is required.'),
-  body('status').optional().isIn(['D', 'P', 'A', 'X', 'F', '!', 'EO', 'EX']).withMessage('Invalid status code.'),
+  body('status').optional().isIn(['D', 'P', 'A', 'X', 'F', '!', 'EO', 'EX', 'R', 'S']).withMessage('Invalid status code.'),
   body('totalAmount').optional().isFloat(),
   body('items').optional().isArray(),
-  body('items.*.status').optional().isIn(['D', 'P', 'A', 'X', 'F', '!', 'EO', 'EX']).withMessage('Invalid item status code.'),
+  body('items.*.status').optional().isIn(['D', 'P', 'A', 'X', 'F', '!', 'EO', 'EX', 'R', 'S']).withMessage('Invalid item status code.'),
 ];
 
 export const updateTreatmentPlanValidator = [
   body('title').optional().isString(),
   body('notes').optional().isString(),
-  body('status').optional().isIn(['D', 'P', 'A', 'X', 'F', '!', 'EO', 'EX']).withMessage('Invalid status code.'),
+  body('status').optional().isIn(['D', 'P', 'A', 'X', 'F', '!', 'EO', 'EX', 'R', 'S']).withMessage('Invalid status code.'),
   body('totalAmount').optional().isFloat(),
   body('items').optional().isArray(),
-  body('items.*.status').optional().isIn(['D', 'P', 'A', 'X', 'F', '!', 'EO', 'EX']).withMessage('Invalid item status code.'),
+  body('items.*.status').optional().isIn(['D', 'P', 'A', 'X', 'F', '!', 'EO', 'EX', 'R', 'S']).withMessage('Invalid item status code.'),
 ];
 
 export const reorderTreatmentPlanValidator = [
