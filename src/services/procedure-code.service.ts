@@ -35,29 +35,29 @@ export class ProcedureCodeService {
     }));
   }
   async getProcedureButtons() {
-    const buttons = await prisma.procbutton.findMany({
-      orderBy: { ItemOrder: 'asc' },
-      include: {
-        procbuttonitem: {
-          orderBy: { ItemOrder: 'asc' },
-          include: {
-            procedurecode: true,
-          }
-        }
-      }
+    const categories = await prisma.definition.findMany({
+      where: { Category: 1 },
+      orderBy: { ItemOrder: 'asc' }
     });
 
-    return buttons.map(b => ({
-      _id: b.ProcButtonNum.toString(),
-      category: b.Description,
-      itemOrder: b.ItemOrder,
-      items: b.procbuttonitem.map(item => ({
-        _id: item.ProcButtonItemNum.toString(),
-        code: item.procedurecode?.ProcCode,
-        name: item.procedurecode?.AbbrDesc || item.procedurecode?.Descript,
-        itemOrder: item.ItemOrder?.toString()
-      }))
-    }));
+    const codes = await prisma.procedurecode.findMany({
+      orderBy: { ProcCode: 'asc' }
+    });
+
+    return categories.map(cat => {
+      const catCodes = codes.filter(c => c.ProcCat === cat.DefNum);
+      return {
+        _id: cat.DefNum.toString(),
+        category: cat.ItemName,
+        itemOrder: cat.ItemOrder,
+        items: catCodes.map((c, index) => ({
+          _id: c.CodeNum.toString(),
+          code: c.ProcCode,
+          name: c.AbbrDesc || c.Descript,
+          itemOrder: index.toString()
+        }))
+      };
+    });
   }
 }
 
