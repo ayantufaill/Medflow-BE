@@ -85,6 +85,7 @@ export class ClinicalManagementService {
 
       return {
         id: choice.ChoiceId.toString(),
+        categoryId: choice.CategoryId.toString(),
         name: choice.Name,
         isDefault: choice.IsDefault,
         quickList: choice.QuickList,
@@ -140,6 +141,7 @@ export class ClinicalManagementService {
 
       return {
         id: choice.ChoiceId.toString(),
+        categoryId: choice.CategoryId.toString(),
         name: choice.Name,
         isDefault: choice.IsDefault,
         quickList: choice.QuickList,
