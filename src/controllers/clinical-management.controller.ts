@@ -164,6 +164,28 @@ export class ClinicalManagementController {
     }
   }
 
+  async removeChoiceFromChecklistItem(req: Request, res: Response, next: NextFunction) {
+    try {
+      const itemId = req.params.itemId as string;
+      const choiceIndex = parseInt(req.params.choiceIndex, 10);
+      const result = await clinicalManagementService.removeChoiceFromChecklistItem(itemId, choiceIndex);
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async removeProductFromChecklistItem(req: Request, res: Response, next: NextFunction) {
+    try {
+      const itemId = req.params.itemId as string;
+      const productIndex = parseInt(req.params.productIndex, 10);
+      const result = await clinicalManagementService.removeProductFromChecklistItem(itemId, productIndex);
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   // --- PRESCRIPTION TEMPLATES ---
   async getPrescriptionTemplates(req: Request, res: Response, next: NextFunction) {
     try {
