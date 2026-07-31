@@ -455,7 +455,6 @@ export const mapAppointmentToApi = (
     appointmentType?: appointmenttype | null;
     createdBy?: userod | null;
     requiresInterpreter?: boolean | null;
-    interpreterLanguage?: string | null;
     insuranceVerified?: boolean | null;
     copayCollected?: number | null;
     reminderSent?: boolean | null;
@@ -493,7 +492,6 @@ export const mapAppointmentToApi = (
     insuranceVerified: options?.insuranceVerified ?? Boolean(row.InsPlan1 || row.InsPlan2),
     copayCollected: options?.copayCollected ?? 0,
     requiresInterpreter: options?.requiresInterpreter ?? false,
-    interpreterLanguage: options?.interpreterLanguage ?? null,
     reminderSent: options?.reminderSent ?? false,
     customFields: options?.customFields ?? {},
     cancellationReason: options?.cancellationReason ?? null,
