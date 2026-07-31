@@ -7762,3 +7762,56 @@ model clinicalitem {
   isRecommended Boolean?
   subCategory   clinicalsubcategory @relation(fields: [subCategoryId], references: [id], onDelete: Cascade)
 }
+
+// ─── Multi-Tenant: Group & Branch Hierarchy ─────────────────────────────────
+// These models live in the shared/global schema (not per-branch).
+// They hold organizational metadata, NOT PHI.
+
+/// A Group is a parent organization that owns one or more Branches (clinic locations).
+model groups {
+  id          Int        @id @default(autoincrement())
+  name        String     @db.VarChar(255)
+  /// JSONB blob for group-level config: branding overrides, feature flags, etc.
+  config      Json?
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  branches    branches[]
+  patients_master patients_master[]
+}
+
+/// A Branch represents a single clinic location belonging to a Group.
+/// schema_name is the physical Postgres schema created for this branch.
+/// subdomain is the URL tenant identifier used by the Tenant Resolver Middleware.
+model branches {
+  id          Int      @id @default(autoincrement())
+  groupId     Int
+  name        String   @db.VarChar(255)
+  /// The physical Postgres schema name for this branch (e.g. "branch_riverside_1")
+  schemaName  String   @unique @db.VarChar(100)
+  /// Subdomain used to identify this tenant (e.g. "riverside")
+  subdomain   String   @unique @db.VarChar(100)
+  /// Per-branch config: NPI, tax ID, business hours, timezone, logo URL, etc.
+  config      Json?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  group       groups   @relation(fields: [groupId], references: [id], onDelete: Restrict)
+}
+
+/// Shared patient identity across all branches within a Group.
+/// Branch-schema patient records reference this master record via masterPatientId.
+/// Contains only the minimum fields needed for cross-branch identity resolution (no PHI beyond demographics).
+model patients_master {
+  id          Int      @id @default(autoincrement())
+  groupId     Int
+  /// Core identity fields for de-duplication across branches
+  firstName   String   @db.VarChar(100)
+  lastName    String   @db.VarChar(100)
+  dateOfBirth DateTime @db.Date
+  email       String?  @db.VarChar(255)
+  phone       String?  @db.VarChar(30)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  group       groups   @relation(fields: [groupId], references: [id], onDelete: Restrict)
+}

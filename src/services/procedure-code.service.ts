@@ -51,7 +51,7 @@ export class ProcedureCodeService {
         category: cat.ItemName,
         itemOrder: cat.ItemOrder,
         items: catCodes.map((c, index) => ({
-          _id: c.CodeNum.toString(),
+          _id: c.CodeNum!.toString(),
           code: c.ProcCode,
           name: c.AbbrDesc || c.Descript,
           itemOrder: index.toString()
