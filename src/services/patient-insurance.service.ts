@@ -335,8 +335,6 @@ export class PatientInsuranceService {
       });
     }
 
-    const planNum = await getNextId('insplan', 'PlanNum');
-    const insSubNum = await getNextId('inssub', 'InsSubNum');
     const patPlanNum = await getNextId('patplan', 'PatPlanNum');
 
     if (data.payerId !== undefined) {
@@ -353,28 +351,48 @@ export class PatientInsuranceService {
       }
     }
 
-    await prisma.insplan.create({
-      data: {
-        PlanNum: planNum,
-        CarrierNum: BigInt(data.insuranceCompanyId),
-        GroupNum: data.groupNumber ?? null,
-        GroupName: data.groupName ?? null,
-        PlanNote: data.notes ?? null,
-        IsHidden: 0,
+    // Smart Link: Check if a policy with exact Policy Number and Insurance Company exists
+    const existingInsSub = await prisma.inssub.findFirst({
+      where: {
+        SubscriberID: data.policyNumber,
+        insplan: {
+          CarrierNum: BigInt(data.insuranceCompanyId),
+        },
       },
     });
 
-    await prisma.inssub.create({
-      data: {
-        InsSubNum: insSubNum,
-        PlanNum: planNum,
-        Subscriber: BigInt(patientId),
-        SubscriberID: data.policyNumber,
-        DateEffective: data.effectiveDate,
-        DateTerm: data.expirationDate ?? null,
-        SubscNote: data.notes ?? null,
-      },
-    });
+    let insSubNum: bigint;
+
+    if (existingInsSub) {
+      // Intercept and use existing subscriber record
+      insSubNum = existingInsSub.InsSubNum;
+    } else {
+      const planNum = await getNextId('insplan', 'PlanNum');
+      insSubNum = await getNextId('inssub', 'InsSubNum');
+
+      await prisma.insplan.create({
+        data: {
+          PlanNum: planNum,
+          CarrierNum: BigInt(data.insuranceCompanyId),
+          GroupNum: data.groupNumber ?? null,
+          GroupName: data.groupName ?? null,
+          PlanNote: data.notes ?? null,
+          IsHidden: 0,
+        },
+      });
+
+      await prisma.inssub.create({
+        data: {
+          InsSubNum: insSubNum,
+          PlanNum: planNum,
+          Subscriber: BigInt(patientId),
+          SubscriberID: data.policyNumber,
+          DateEffective: data.effectiveDate,
+          DateTerm: data.expirationDate ?? null,
+          SubscNote: data.notes ?? null,
+        },
+      });
+    }
 
     await prisma.patplan.create({
       data: {
