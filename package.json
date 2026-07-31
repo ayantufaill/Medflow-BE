@@ -23,6 +23,7 @@
     "seed:assistants": "tsx src/scripts/seedAssistants.ts",
     "seed:appointments": "tsx src/scripts/seedAppointments.ts",
     "seed:medications": "tsx src/scripts/seedMedications.ts",
+    "seed:feeschedules": "tsx src/scripts/seedFeeSchedules.ts",
     "seed:claims:clean": "tsx src/scripts/seedClaimsComplete.ts",
     "seed:operatories": "tsx src/scripts/seedOperatories.ts",
     "seed:clinical": "tsx src/scripts/seedClinicalManagement.ts",
