@@ -1,5 +1,13 @@
 import { body, param, query, ValidationChain } from 'express-validator';
 
+export const updateCurrentBranchValidator: ValidationChain[] = [
+  body('branchId')
+    .isString()
+    .trim()
+    .notEmpty()
+    .withMessage('branchId is required'),
+];
+
 export const updateUserValidator: ValidationChain[] = [
   body('firstName')
     .optional()
