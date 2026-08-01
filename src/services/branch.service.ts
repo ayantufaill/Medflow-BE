@@ -156,18 +156,21 @@ export class BranchService {
     });
 
     const monthCounts = new Array(buckets.length).fill(0);
+    let total = 0;
     let completed = 0;
     let cancelled = 0;
     let noShow = 0;
-    const perClinic = new Map<string, { completed: number; cancelled: number; noShow: number }>();
+    const perClinic = new Map<string, { total: number; completed: number; cancelled: number; noShow: number }>();
 
+    // Every appointment scheduled at the clinic in range counts toward the
+    // total/monthly breakdown, regardless of patient/provider or status —
+    // completed/cancelled/noShow below are informational subsets, not a filter.
     for (const apt of appointments) {
-      if (apt.AptStatus !== APT_STATUS_COMPLETED && apt.AptStatus !== APT_STATUS_CANCELLED && apt.AptStatus !== APT_STATUS_NO_SHOW) {
-        continue;
-      }
+      total += 1;
       const key = apt.ClinicNum?.toString() ?? '';
-      if (!perClinic.has(key)) perClinic.set(key, { completed: 0, cancelled: 0, noShow: 0 });
+      if (!perClinic.has(key)) perClinic.set(key, { total: 0, completed: 0, cancelled: 0, noShow: 0 });
       const bucket = perClinic.get(key)!;
+      bucket.total += 1;
 
       if (apt.AptStatus === APT_STATUS_COMPLETED) {
         completed += 1;
@@ -175,7 +178,7 @@ export class BranchService {
       } else if (apt.AptStatus === APT_STATUS_CANCELLED) {
         cancelled += 1;
         bucket.cancelled += 1;
-      } else {
+      } else if (apt.AptStatus === APT_STATUS_NO_SHOW) {
         noShow += 1;
         bucket.noShow += 1;
       }
@@ -189,18 +192,18 @@ export class BranchService {
     return {
       branchId: 'all',
       branchName: 'All Branches',
-      totalAppointments: completed + cancelled + noShow,
+      totalAppointments: total,
       completed,
       cancelled,
       noShow,
       newPatients,
       appointmentsByMonth: buckets.map((b, i) => ({ month: b.label, appointments: monthCounts[i] })),
       byBranch: targetClinics.map((c) => {
-        const stats = perClinic.get(c.ClinicNum.toString()) ?? { completed: 0, cancelled: 0, noShow: 0 };
+        const stats = perClinic.get(c.ClinicNum.toString()) ?? { total: 0, completed: 0, cancelled: 0, noShow: 0 };
         return {
           branchId: c.ClinicNum.toString(),
           branchName: c.Description ?? `Branch ${c.ClinicNum}`,
-          totalAppointments: stats.completed + stats.cancelled + stats.noShow,
+          totalAppointments: stats.total,
           completed: stats.completed,
           cancelled: stats.cancelled,
           noShow: stats.noShow,
@@ -226,17 +229,18 @@ export class BranchService {
     });
 
     const monthCounts = new Array(buckets.length).fill(0);
+    let total = 0;
     let completed = 0;
     let cancelled = 0;
     let noShow = 0;
 
+    // Every appointment scheduled at the clinic in range counts, regardless
+    // of patient/provider or status — completed/cancelled/noShow are subsets.
     for (const apt of appointments) {
-      if (apt.AptStatus !== APT_STATUS_COMPLETED && apt.AptStatus !== APT_STATUS_CANCELLED && apt.AptStatus !== APT_STATUS_NO_SHOW) {
-        continue;
-      }
+      total += 1;
       if (apt.AptStatus === APT_STATUS_COMPLETED) completed += 1;
       else if (apt.AptStatus === APT_STATUS_CANCELLED) cancelled += 1;
-      else noShow += 1;
+      else if (apt.AptStatus === APT_STATUS_NO_SHOW) noShow += 1;
 
       if (apt.AptDateTime) {
         const idx = bucketIndexFor(apt.AptDateTime, buckets);
@@ -247,7 +251,7 @@ export class BranchService {
     return {
       branchId: clinicNum.toString(),
       branchName: description ?? `Branch ${clinicNum}`,
-      totalAppointments: completed + cancelled + noShow,
+      totalAppointments: total,
       completed,
       cancelled,
       noShow,
