@@ -319,16 +319,14 @@ describe('Patient Communication APIs', () => {
         .set(authHeader);
 
       expect(getRes.status).toBe(200);
-      expect(getRes.body.data.sendDelayHours).toBeDefined();
+      expect(getRes.body.data.skipDuplicateDays).toBeDefined();
 
       const token = uniqueToken('rev');
       const updatePayload = {
         isActive: true,
-        sendDelayHours: 12,
-        channels: ['sms'],
-        googleReviewUrl: `https://g.page/r/${token}`,
-        facebookReviewUrl: '',
-        customMessageText: 'Please review your scaling session.',
+        skipDuplicateDays: 12,
+        includeFacebookReview: true,
+        googleReviewLink: `https://g.page/r/${token}`,
       };
 
       const putRes = await request(app)
@@ -337,8 +335,8 @@ describe('Patient Communication APIs', () => {
         .send(updatePayload);
 
       expect(putRes.status).toBe(200);
-      expect(putRes.body.data.sendDelayHours).toBe(updatePayload.sendDelayHours);
-      expect(putRes.body.data.googleReviewUrl).toBe(updatePayload.googleReviewUrl);
+      expect(putRes.body.data.skipDuplicateDays).toBe(updatePayload.skipDuplicateDays);
+      expect(putRes.body.data.googleReviewLink).toBe(updatePayload.googleReviewLink);
     });
   });
 });
