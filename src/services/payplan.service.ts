@@ -153,8 +153,9 @@ export class PayPlanService {
 
     // Distribute down payment across invoices
     if (data.downPayment && data.downPayment > 0 && data.invoiceIds && data.invoiceIds.length > 0) {
+      const validInvoiceIds = data.invoiceIds.filter((id: any) => id != null);
       const invoices = await prisma.statement.findMany({
-        where: { StatementNum: { in: data.invoiceIds.map(id => BigInt(id)) } },
+        where: { StatementNum: { in: validInvoiceIds.map((id: any) => BigInt(id)) } },
         orderBy: { StatementNum: 'asc' },
       });
 
