@@ -98,6 +98,7 @@ export class PayPlanService {
       apr?: number;
       startDate?: Date;
       notes?: string;
+      invoiceIds?: string[];
     },
     userId: string
   ) {
@@ -116,6 +117,12 @@ export class PayPlanService {
     }
 
     // Create the plan
+    let planNote = data.notes ?? '';
+    if (data.invoiceIds && data.invoiceIds.length > 0) {
+      const invoiceNote = `Invoices: ${data.invoiceIds.join(', ')}`;
+      planNote = planNote ? `${planNote}\n${invoiceNote}` : invoiceNote;
+    }
+
     const plan = await prisma.payplan.create({
       data: {
         PayPlanNum: payPlanNum,
@@ -123,7 +130,7 @@ export class PayPlanService {
         Guarantor: BigInt(data.patientId),
         PayPlanDate: resolvedStartDate,
         APR: data.apr ?? 0,
-        Note: data.notes ?? null,
+        Note: planNote || null,
         CompletedAmt: data.downPayment ?? 0,
         PayAmt: monthPay,
         DownPayment: data.downPayment ?? 0,
@@ -131,6 +138,60 @@ export class PayPlanService {
         IsClosed: 0,
       },
     });
+
+    // Distribute down payment across invoices
+    if (data.downPayment && data.downPayment > 0 && data.invoiceIds && data.invoiceIds.length > 0) {
+      const payNum = await getNextId('payment', 'PayNum');
+      
+      // Store invoiceIds in the PayNote for frontend retrieval
+      const payNote = JSON.stringify({
+        notes: 'Down payment for payment plan',
+        paymentMethod: 'Payment Plan',
+        invoiceIds: data.invoiceIds,
+      });
+
+      await prisma.payment.create({
+        data: {
+          PayNum: payNum,
+          PatNum: BigInt(data.patientId),
+          PayAmt: data.downPayment,
+          PayDate: resolvedStartDate,
+          PayNote: payNote,
+          SecUserNumEntry: BigInt(userId),
+        },
+      });
+
+      const invoices = await prisma.statement.findMany({
+        where: { StatementNum: { in: data.invoiceIds.map(id => BigInt(id)) } },
+        orderBy: { StatementNum: 'asc' },
+      });
+
+      let remainingDownPayment = data.downPayment;
+      
+      for (const inv of invoices) {
+        if (remainingDownPayment <= 0) break;
+        
+        const invBalance = Number(inv.BalTotal) || 0;
+        if (invBalance <= 0) continue;
+        
+        const amountToApply = Math.min(remainingDownPayment, invBalance);
+        remainingDownPayment -= amountToApply;
+        
+        const splitNum = await getNextId('paysplit', 'SplitNum');
+        await prisma.paysplit.create({
+          data: {
+            SplitNum: splitNum,
+            SplitAmt: amountToApply,
+            PatNum: BigInt(data.patientId),
+            DatePay: resolvedStartDate,
+            PayNum: payNum,
+            PayPlanNum: plan.PayPlanNum,
+            DateEntry: new Date(),
+            SecUserNumEntry: BigInt(userId),
+          }
+        });
+      }
+    }
 
     // Generate charges
     if (numPayments > 0 && monthPay > 0) {
