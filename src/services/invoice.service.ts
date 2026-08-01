@@ -321,7 +321,46 @@ export class InvoiceService {
 
         const meta = parseJson<StatementMeta>(invoice.NoteBold || '{}');
         if (meta.claimId) {
-          console.log(`[InvoiceService] Invoice ${invoiceId} already has claim ${meta.claimId}, skipping`);
+          // A claim already exists for this invoice — recalculate its totals from the
+          // invoice's current procedures instead of skipping, so procedures added after
+          // the claim was first generated (e.g. a second item on the same invoice) are
+          // reflected in the claim's insurance/patient balances.
+          const existingClaim = await prisma.claim.findUnique({ where: { ClaimNum: BigInt(meta.claimId) } });
+          if (!existingClaim) {
+            console.log(`[InvoiceService] Invoice ${invoiceId} references missing claim ${meta.claimId}, skipping`);
+            return;
+          }
+
+          const invoiceProcs = await prisma.procedurelog.findMany({ where: { StatementNum: statementNum } });
+          let sumFee = 0;
+          let sumIns = 0;
+          let sumPt = 0;
+          for (const proc of invoiceProcs) {
+            sumFee += Number(proc.ProcFee || 0);
+            if (proc.BillingNote) {
+              const bn = parseJson<any>(proc.BillingNote);
+              sumIns += Number(bn.insPortion || 0);
+              sumPt += Number(bn.ptPortion || 0);
+            }
+          }
+          const existingMeta = parseJson<any>(existingClaim.Narrative || '{}');
+          const updatedMeta = {
+            ...existingMeta,
+            claimAmount: sumFee,
+            submittedAmount: sumIns > 0 ? sumIns : sumFee,
+            totalAmount: sumFee,
+            patientResponsibility: sumPt,
+          };
+          await prisma.claim.update({
+            where: { ClaimNum: existingClaim.ClaimNum },
+            data: {
+              ClaimFee: sumFee,
+              InsPayEst: sumIns,
+              DedApplied: sumPt,
+              Narrative: buildJson(updatedMeta),
+            },
+          });
+          console.log(`[InvoiceService] Updated existing claim ${existingClaim.ClaimNum} amounts: fee=${sumFee}, ins=${sumIns}, pt=${sumPt}`);
           return;
         }
 

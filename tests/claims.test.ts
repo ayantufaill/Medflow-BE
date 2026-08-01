@@ -89,9 +89,13 @@ describe('Claims Procedures Fallback', () => {
 
     // Clean up
     await prisma.claimtracking.deleteMany({ where: { ClaimNum: BigInt(createdClaim.id) } });
+    await prisma.claimproc.deleteMany({ where: { ClaimNum: BigInt(createdClaim.id) } });
     await prisma.procedurelog.delete({ where: { ProcNum: procNum } });
     await prisma.claim.delete({ where: { ClaimNum: BigInt(createdClaim.id) } });
     await prisma.statement.delete({ where: { StatementNum: statement.StatementNum } });
+    // Claim creation triggers agingService.updatePatientAging(), which upserts a famaging
+    // row for the patient (no Prisma model — raw delete, same as aging.service.ts does).
+    await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
 
@@ -164,6 +168,7 @@ describe('Claims Procedures Fallback', () => {
     }
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
     await prisma.statement.delete({ where: { StatementNum: statement.StatementNum } });
+    await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
 
@@ -244,9 +249,11 @@ describe('Claims Procedures Fallback', () => {
 
     // Clean up
     await prisma.claimtracking.deleteMany({ where: { ClaimNum: BigInt(createdClaim.id) } });
+    await prisma.claimproc.deleteMany({ where: { ClaimNum: BigInt(createdClaim.id) } });
     await prisma.claim.delete({ where: { ClaimNum: BigInt(createdClaim.id) } });
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
     await prisma.statement.delete({ where: { StatementNum: statement.StatementNum } });
+    await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
 
@@ -597,6 +604,11 @@ describe('Claims Procedures Fallback', () => {
     expect(restItemData.insPortion).toBe(90);
     expect(restItemData.ptPortion).toBe(10);
 
+    // Claim generation/update is asynchronous (setImmediate) — adding the second item triggers
+    // a background update of the claim's insurance totals. Wait for it before asserting, same
+    // pattern used above for the initial async claim generation.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
     // Fetch the claim generated for invoice
     const claimsRes = await request(app)
       .get(`/api/claims?patientId=${patient.PatNum}`)
@@ -627,6 +639,7 @@ describe('Claims Procedures Fallback', () => {
     }
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
     await prisma.statement.delete({ where: { StatementNum: statement.StatementNum } });
+    await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
 });
