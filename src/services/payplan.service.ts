@@ -3,6 +3,18 @@ import { NotFoundError, BadRequestError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { mapPatientToApi } from '../utils/opendental-mappers.util';
+import { invoiceService } from './invoice.service';
+
+const buildJson = (value: Record<string, unknown>) => JSON.stringify(value);
+const parseJson = <T>(value?: string | null): T => {
+  if (!value) return {} as T;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? (parsed as T) : ({} as T);
+  } catch {
+    return {} as T;
+  }
+};
 
 export class PayPlanService {
   private mapPayPlanToApi(row: any) {
@@ -190,6 +202,40 @@ export class PayPlanService {
             SecUserNumEntry: BigInt(userId),
           }
         });
+
+        // Distribute amountToApply across procedurelog items
+        const procLogs = await prisma.procedurelog.findMany({
+          where: { StatementNum: inv.StatementNum },
+          orderBy: { ProcNum: 'asc' },
+        });
+
+        let remainingForProcs = amountToApply;
+
+        for (const proc of procLogs) {
+          if (remainingForProcs <= 0) break;
+
+          const billingNote = parseJson<any>(proc.BillingNote);
+          const procFee = Number(proc.ProcFee) || 0;
+          const currentPaid = Number(billingNote.paidAmount) || 0;
+          const insPortion = Number(billingNote.insPortion) || 0;
+          const writeoff = Number(billingNote.writeoff) || 0;
+          
+          const maxToApply = procFee - insPortion - writeoff - currentPaid;
+          if (maxToApply <= 0) continue;
+          
+          const appliedToProc = Math.min(remainingForProcs, maxToApply);
+          remainingForProcs -= appliedToProc;
+          
+          billingNote.paidAmount = currentPaid + appliedToProc;
+          
+          await prisma.procedurelog.update({
+            where: { ProcNum: proc.ProcNum },
+            data: { BillingNote: buildJson(billingNote) },
+          });
+        }
+
+        // Trigger recalculation of the invoice
+        await invoiceService.recalculateInvoice(inv.StatementNum.toString());
       }
     }
 
