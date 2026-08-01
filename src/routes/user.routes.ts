@@ -11,6 +11,7 @@ import {
   queryValidator,
   createUserValidator,
   assignUserRolesValidator,
+  updateCurrentBranchValidator,
 } from '../validators/user.validator';
 
 // Validator for activity and login history endpoints
@@ -232,6 +233,34 @@ router.put(
   '/profile/me',
   validate(updateUserValidator),
   userController.updateProfile.bind(userController)
+);
+
+/**
+ * @swagger
+ * /users/me/branch:
+ *   patch:
+ *     summary: Set the caller's current branch
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [branchId]
+ *             properties:
+ *               branchId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Current branch updated
+ */
+router.patch(
+  '/me/branch',
+  validate(updateCurrentBranchValidator),
+  userController.updateCurrentBranch.bind(userController)
 );
 
 /**

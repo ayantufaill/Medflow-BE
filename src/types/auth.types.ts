@@ -3,6 +3,8 @@ export interface JWTPayload {
   email: string;
   roles?: string[];
   tokenVersion?: number;
+  /** Tenant subdomain encoded at login time — fallback for Tenant Resolver Middleware */
+  tenantSubdomain?: string;
   iat?: number;
   exp?: number;
 }
@@ -58,4 +60,38 @@ export interface AuthResponse {
 
 export interface UserWithRoles extends Omit<AppUser, 'passwordHash'> {
   roles: AppRole[];
+}
+
+// ─── Group Admin Permission Keys ──────────────────────────────────────────────
+//
+// These are the allowed permission keys for the Group Admin role.
+// Group Admins have access strictly to operational and financial rollups.
+// They do NOT have access to raw clinical PHI across branches.
+
+export const GROUP_ADMIN_PERMISSIONS = {
+  /** View aggregated operational & financial reports across all branches in the group */
+  VIEW_ANALYTICS: 'group:view_analytics',
+  /** Create, update, and deactivate users across all branches in the group */
+  MANAGE_USERS: 'group:manage_users',
+  /** Move providers between branches within the group */
+  REASSIGN_PROVIDERS: 'group:reassign_providers',
+} as const;
+
+export type GroupAdminPermission =
+  (typeof GROUP_ADMIN_PERMISSIONS)[keyof typeof GROUP_ADMIN_PERMISSIONS];
+
+// ─── Branch Access ─────────────────────────────────────────────────────────
+//
+// Resolved per-request by the branchAccess middleware from `userclinic`
+// assignments (and, for Group Admins, expanded to every clinic sharing the
+// caller's practicegroup). Used to scope ClinicNum-bearing resources
+// (patient, appointment, claim, payment, ...) to what the caller may see.
+
+export interface BranchAccess {
+  /** ClinicNums the caller may access. For a Group Admin, every clinic in their group. */
+  clinicIds: bigint[];
+  /** The practicegroup.id the caller's clinics belong to, if resolvable. */
+  groupId: number | null;
+  /** True if the caller holds any GROUP_ADMIN_PERMISSIONS permission (or '*'). */
+  isGroupAdmin: boolean;
 }

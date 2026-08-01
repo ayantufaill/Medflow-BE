@@ -5139,6 +5139,12 @@ model procedurecode {
  PaintText String? @db.VarChar(255)
  AreaAlsoToothRange Int?
  DiagnosticCodes String? @db.VarChar(255)
+ RequiresXRay Boolean? @default(false)
+ RequiresConsent Boolean? @default(false)
+ RequiresPerioChart Boolean? @default(false)
+ RequiresNarrative Boolean? @default(false)
+ RequiresMedicalNecessity Boolean? @default(false)
+ RequiresToothImage Boolean? @default(false)
  autocodeitem autocodeitem[]
  benefit benefit[]
  fee fee[]

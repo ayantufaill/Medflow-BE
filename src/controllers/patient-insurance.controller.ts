@@ -26,6 +26,20 @@ export class PatientInsuranceController {
     }
   }
 
+  async getAllPatientInsurances(req: Request, res: Response, next: NextFunction) {
+    try {
+      const isActive = req.query.isActive === 'true' ? true : req.query.isActive === 'false' ? false : undefined;
+
+      const insurances = await patientInsuranceService.getAllPatientInsurances(isActive);
+      res.status(200).json({
+        success: true,
+        data: { insurances },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getPatientInsuranceById(req: Request, res: Response, next: NextFunction) {
     try {
       const { patientInsuranceId } = req.params;

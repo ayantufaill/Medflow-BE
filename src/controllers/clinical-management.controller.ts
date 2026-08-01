@@ -134,6 +134,16 @@ export class ClinicalManagementController {
     }
   }
 
+  async deleteChecklistCategory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const categoryName = req.params.categoryName as string;
+      const result = await clinicalManagementService.deleteChecklistCategory(categoryName);
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async deleteChecklist(req: Request, res: Response, next: NextFunction) {
     try {
       const checklistId = req.params.checklistId as string;
@@ -148,6 +158,28 @@ export class ClinicalManagementController {
     try {
       const itemId = req.params.itemId as string;
       const result = await clinicalManagementService.deleteChecklistItem(itemId);
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async removeChoiceFromChecklistItem(req: Request, res: Response, next: NextFunction) {
+    try {
+      const itemId = req.params.itemId as string;
+      const choiceIndex = parseInt(req.params.choiceIndex, 10);
+      const result = await clinicalManagementService.removeChoiceFromChecklistItem(itemId, choiceIndex);
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async removeProductFromChecklistItem(req: Request, res: Response, next: NextFunction) {
+    try {
+      const itemId = req.params.itemId as string;
+      const productIndex = parseInt(req.params.productIndex, 10);
+      const result = await clinicalManagementService.removeProductFromChecklistItem(itemId, productIndex);
       res.status(200).json({ success: true, data: result });
     } catch (error) {
       next(error);

@@ -85,6 +85,7 @@ export class ClinicalManagementService {
 
       return {
         id: choice.ChoiceId.toString(),
+        categoryId: choice.CategoryId.toString(),
         name: choice.Name,
         isDefault: choice.IsDefault,
         quickList: choice.QuickList,
@@ -140,6 +141,7 @@ export class ClinicalManagementService {
 
       return {
         id: choice.ChoiceId.toString(),
+        categoryId: choice.CategoryId.toString(),
         name: choice.Name,
         isDefault: choice.IsDefault,
         quickList: choice.QuickList,
@@ -319,6 +321,46 @@ export class ClinicalManagementService {
     return { success: true, products };
   }
 
+  async removeChoiceFromChecklistItem(itemId: string, choiceIndex: number) {
+    const itemBigInt = BigInt(itemId);
+    const existing = await prisma.clinicalchecklistitem.findUnique({
+      where: { ItemId: itemBigInt },
+    });
+    if (!existing) {
+      throw new NotFoundError('Checklist item not found');
+    }
+
+    const choices: string[] = JSON.parse(existing.Choices || '[]');
+    choices.splice(choiceIndex, 1);
+
+    await prisma.clinicalchecklistitem.update({
+      where: { ItemId: itemBigInt },
+      data: { Choices: JSON.stringify(choices) },
+    });
+
+    return { success: true, choices };
+  }
+
+  async removeProductFromChecklistItem(itemId: string, productIndex: number) {
+    const itemBigInt = BigInt(itemId);
+    const existing = await prisma.clinicalchecklistitem.findUnique({
+      where: { ItemId: itemBigInt },
+    });
+    if (!existing) {
+      throw new NotFoundError('Checklist item not found');
+    }
+
+    const products: string[] = JSON.parse(existing.Products || '[]');
+    products.splice(productIndex, 1);
+
+    await prisma.clinicalchecklistitem.update({
+      where: { ItemId: itemBigInt },
+      data: { Products: JSON.stringify(products) },
+    });
+
+    return { success: true, products };
+  }
+
   async updateChecklist(
     checklistId: string,
     updates: Partial<{
@@ -349,6 +391,44 @@ export class ClinicalManagementService {
       isHygiene: updated.IsHygiene,
       iconId: updated.IconId,
     };
+  }
+
+  async deleteChecklistCategory(categoryName: string) {
+    return await prisma.$transaction(async (tx) => {
+      const category = await tx.clinicalchecklistcategory.findFirst({
+        where: { Name: categoryName, IsActive: true },
+      });
+
+      if (!category) {
+        throw new NotFoundError('Checklist category not found');
+      }
+
+      const checklists = await tx.clinicalchecklist.findMany({
+        where: { CategoryId: category.CategoryId, IsActive: true },
+        select: { ChecklistId: true },
+      });
+
+      const checklistIds = checklists.map((c) => c.ChecklistId);
+
+      if (checklistIds.length > 0) {
+        await tx.clinicalchecklistitem.updateMany({
+          where: { ChecklistId: { in: checklistIds } },
+          data: { IsActive: false },
+        });
+
+        await tx.clinicalchecklist.updateMany({
+          where: { CategoryId: category.CategoryId },
+          data: { IsActive: false },
+        });
+      }
+
+      await tx.clinicalchecklistcategory.update({
+        where: { CategoryId: category.CategoryId },
+        data: { IsActive: false },
+      });
+
+      return { success: true };
+    });
   }
 
   async deleteChecklist(checklistId: string) {

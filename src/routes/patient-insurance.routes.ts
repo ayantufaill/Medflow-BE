@@ -10,6 +10,31 @@ router.use(authenticate);
 
 /**
  * @swagger
+ * /patients/all/coverages:
+ *   get:
+ *     summary: Get all insurances across all patients
+ *     tags: [Patient Insurance]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of all global insurances
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/PatientInsurance'
+ */
+router.get('/all/coverages', requireRoles('Receptionist', 'Admin'), patientInsuranceController.getAllPatientInsurances.bind(patientInsuranceController));
+
+/**
+ * @swagger
  * /patients/{patientId}/insurance:
  *   get:
  *     summary: Get patient insurances

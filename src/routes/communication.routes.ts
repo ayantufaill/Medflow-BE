@@ -13,6 +13,7 @@ import {
   questionnaireValidator,
   questionnaireIdParamValidator,
   gapFillValidator,
+  gapFillSettingsValidator,
   updateReviewSettingsValidator,
 } from '../validators/communication.validator';
 
@@ -539,6 +540,53 @@ router.get(
   '/gap-fills',
   requirePermission('settings.read'),
   communicationController.getGapFills.bind(communicationController)
+);
+
+/**
+ * @swagger
+ * /communication/gap-fills/settings:
+ *   get:
+ *     summary: Get gap fills settings
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Gap fill settings
+ */
+router.get(
+  '/gap-fills/settings',
+  requirePermission('settings.read'),
+  communicationController.getGapFillSettings.bind(communicationController)
+);
+
+/**
+ * @swagger
+ * /communication/gap-fills/settings:
+ *   post:
+ *     summary: Create/Update gap fills settings
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               unscheduledNotificationEnabled: { type: boolean }
+ *               showBookNow: { type: boolean }
+ *               skipDays: { type: number }
+ *     responses:
+ *       200:
+ *         description: Gap fill settings saved
+ */
+router.post(
+  '/gap-fills/settings',
+  requirePermission('settings.update'),
+  validate(gapFillSettingsValidator),
+  communicationController.saveGapFillSettings.bind(communicationController)
 );
 
 /**

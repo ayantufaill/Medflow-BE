@@ -280,6 +280,34 @@ export class CommunicationController {
     }
   }
 
+  async getGapFillSettings(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await communicationService.getGapFillSettings();
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async saveGapFillSettings(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await communicationService.saveGapFillSettings(req.body);
+      if (req.userId) {
+        await logActivityFromRequest(req, 'updated', 'gapfills_settings', 'global');
+      }
+      res.status(200).json({
+        success: true,
+        data: result,
+        message: 'Gap fill settings saved successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async saveGapFill(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await communicationService.saveGapFill(req.body);

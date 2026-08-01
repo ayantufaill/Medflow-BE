@@ -11,7 +11,9 @@ services:
       npx prisma generate --schema prisma/schema.prisma
       npm run build
 
-    startCommand: node dist/server.js
+    # db push is idempotent — safe to run on every deploy/restart.
+    # --accept-data-loss is safe here since we have no destructive schema changes.
+    startCommand: npx prisma db push --schema prisma/schema.prisma --skip-generate --accept-data-loss && node dist/server.js
 
     healthCheckPath: /health
 

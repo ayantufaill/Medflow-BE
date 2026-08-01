@@ -69,11 +69,6 @@ export const createAppointmentValidator: ValidationChain[] = [
     .optional()
     .isBoolean()
     .withMessage('requiresInterpreter must be a boolean'),
-  body('interpreterLanguage')
-    .optional()
-    .trim()
-    .isLength({ max: 50 })
-    .withMessage('Interpreter language must be less than 50 characters'),
   body('insuranceVerified')
     .optional()
     .isBoolean()
@@ -163,11 +158,6 @@ export const updateAppointmentValidator: ValidationChain[] = [
     .optional()
     .isBoolean()
     .withMessage('requiresInterpreter must be a boolean'),
-  body('interpreterLanguage')
-    .optional()
-    .trim()
-    .isLength({ max: 50 })
-    .withMessage('Interpreter language must be less than 50 characters'),
   body('insuranceVerified')
     .optional()
     .isBoolean()
@@ -432,4 +422,15 @@ export const appointmentCommunicationValidator: ValidationChain[] = [
     .optional()
     .isString()
     .withMessage('subject must be a string'),
+];
+
+export const appointmentSendConfirmationValidator: ValidationChain[] = [
+  body('channels')
+    .optional()
+    .isArray({ min: 1 })
+    .withMessage('channels must be a non-empty array')
+    .custom((channels: unknown[]) =>
+      channels.every((channel) => channel === 'email' || channel === 'sms' || channel === 'whatsapp')
+    )
+    .withMessage("channels may only contain 'email', 'sms', and/or 'whatsapp'"),
 ];

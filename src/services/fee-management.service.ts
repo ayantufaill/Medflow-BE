@@ -52,22 +52,38 @@ export class FeeManagementService {
       };
     }
 
+    const defaultSched = await prisma.feesched.findFirst({
+      where: { IsHidden: 0 },
+      orderBy: { FeeSchedNum: 'asc' },
+    });
+    const feeSchedNum = defaultSched?.FeeSchedNum || BigInt(53);
+
     const [rows, total] = await Promise.all([
       prisma.procedurecode.findMany({
         where,
         orderBy: { ProcCode: 'asc' },
         skip,
         take: limit,
-        include: { definition: true },
+        include: { 
+          definition: true,
+          fee: {
+            where: { FeeSched: feeSchedNum },
+            take: 1
+          }
+        },
       }),
       prisma.procedurecode.count({ where }),
     ]);
 
-    const mapped = rows.map((row) => ({
-      ProcCode: row.ProcCode,
-      Descript: row.Descript ?? '',
-      Category: row.definition?.ItemName ?? '',
-    }));
+    const mapped = rows.map((row) => {
+      const feeAmount = row.fee?.[0]?.Amount ?? null;
+      return {
+        ProcCode: row.ProcCode,
+        Descript: row.Descript ?? '',
+        Category: row.definition?.ItemName ?? '',
+        fee: feeAmount !== null ? Number(feeAmount) : 0,
+      };
+    });
 
     return {
       total,

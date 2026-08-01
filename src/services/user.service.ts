@@ -1,6 +1,7 @@
 import { prisma } from '../config/db';
 import { hashPassword, comparePassword } from '../utils/password.util';
-import { NotFoundError, ConflictError } from '../utils/error.util';
+import { NotFoundError, ConflictError, AuthorizationError } from '../utils/error.util';
+import { PermissionService } from './permission.service';
 import { logActivity, logSecurityEvent } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import {
@@ -563,6 +564,28 @@ export class UserService {
     const meta = await getUserMeta(userNum);
     const nextVersion = (meta.tokenVersion || 0) + 1;
     await setUserMeta(userNum, { ...meta, tokenVersion: nextVersion });
+  }
+
+  /**
+   * Sets the caller's current/default branch, persisted so it follows them
+   * across devices (as opposed to the frontend's localStorage-only default).
+   */
+  async updateCurrentBranch(userId: string, branchId: string): Promise<{ branchId: string }> {
+    const clinicNum = BigInt(branchId);
+    const clinic = await prisma.clinic.findUnique({ where: { ClinicNum: clinicNum } });
+    if (!clinic || clinic.IsHidden === 1) {
+      throw new NotFoundError('Branch not found.');
+    }
+
+    const branchAccess = await PermissionService.getBranchAccess(userId);
+    if (branchAccess.clinicIds.length > 0 && !branchAccess.clinicIds.includes(clinicNum)) {
+      throw new AuthorizationError('You do not have access to this branch.');
+    }
+
+    const meta = await getUserMeta(BigInt(userId));
+    await setUserMeta(BigInt(userId), { ...meta, currentBranchId: branchId });
+
+    return { branchId };
   }
 }
 

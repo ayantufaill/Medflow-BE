@@ -221,6 +221,27 @@ router.post('/checklists/categories', clinicalManagementController.createCheckli
 
 /**
  * @swagger
+ * /clinical-management/checklists/categories/{categoryName}:
+ *   delete:
+ *     summary: Delete checklist category by name
+ *     tags: [Clinical Management]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: categoryName
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Category deleted
+ *       404:
+ *         description: Category not found
+ */
+router.delete('/checklists/categories/:categoryName', clinicalManagementController.deleteChecklistCategory.bind(clinicalManagementController));
+
+/**
+ * @swagger
  * /clinical-management/checklists:
  *   post:
  *     summary: Create checklist template
@@ -420,11 +441,57 @@ router.delete('/checklists/:checklistId', clinicalManagementController.deleteChe
  *         name: itemId
  *         required: true
  *         schema: { type: string }
- *     responses:
+  *     responses:
  *       200:
  *         description: Item deleted
  */
 router.delete('/checklists/items/:itemId', clinicalManagementController.deleteChecklistItem.bind(clinicalManagementController));
+
+/**
+ * @swagger
+ * /clinical-management/checklists/items/{itemId}/choice/{choiceIndex}:
+ *   delete:
+ *     summary: Delete choice from checklist item
+ *     tags: [Clinical Management]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: itemId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: path
+ *         name: choiceIndex
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Choice deleted
+ */
+router.delete('/checklists/items/:itemId/choice/:choiceIndex', clinicalManagementController.removeChoiceFromChecklistItem.bind(clinicalManagementController));
+
+/**
+ * @swagger
+ * /clinical-management/checklists/items/{itemId}/product/{productIndex}:
+ *   delete:
+ *     summary: Delete product from checklist item
+ *     tags: [Clinical Management]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: itemId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: path
+ *         name: productIndex
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Product deleted
+ */
+router.delete('/checklists/items/:itemId/product/:productIndex', clinicalManagementController.removeProductFromChecklistItem.bind(clinicalManagementController));
 
 // Prescription Templates
 /**

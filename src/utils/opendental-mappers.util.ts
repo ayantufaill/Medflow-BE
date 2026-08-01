@@ -142,6 +142,12 @@ export const mapServiceToApi = (
   isBillable: row.NoBillIns ? false : true,
   taxRate: parseTaxRate(row.TaxCode),
   isActive: row.BypassGlobalLock ? false : true,
+  requiresXRay: row.RequiresXRay ?? false,
+  requiresConsent: row.RequiresConsent ?? false,
+  requiresPerioChart: row.RequiresPerioChart ?? false,
+  requiresNarrative: row.RequiresNarrative ?? false,
+  requiresMedicalNecessity: row.RequiresMedicalNecessity ?? false,
+  requiresToothImage: row.RequiresToothImage ?? false,
 });
 
 const calculatePatientStatus = (row: any): string => {
@@ -449,7 +455,6 @@ export const mapAppointmentToApi = (
     appointmentType?: appointmenttype | null;
     createdBy?: userod | null;
     requiresInterpreter?: boolean | null;
-    interpreterLanguage?: string | null;
     insuranceVerified?: boolean | null;
     copayCollected?: number | null;
     reminderSent?: boolean | null;
@@ -487,7 +492,6 @@ export const mapAppointmentToApi = (
     insuranceVerified: options?.insuranceVerified ?? Boolean(row.InsPlan1 || row.InsPlan2),
     copayCollected: options?.copayCollected ?? 0,
     requiresInterpreter: options?.requiresInterpreter ?? false,
-    interpreterLanguage: options?.interpreterLanguage ?? null,
     reminderSent: options?.reminderSent ?? false,
     customFields: options?.customFields ?? {},
     cancellationReason: options?.cancellationReason ?? null,

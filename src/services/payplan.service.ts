@@ -3,6 +3,18 @@ import { NotFoundError, BadRequestError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { mapPatientToApi } from '../utils/opendental-mappers.util';
+import { invoiceService } from './invoice.service';
+
+const buildJson = (value: Record<string, unknown>) => JSON.stringify(value);
+const parseJson = <T>(value?: string | null): T => {
+  if (!value) return {} as T;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? (parsed as T) : ({} as T);
+  } catch {
+    return {} as T;
+  }
+};
 
 export class PayPlanService {
   private mapPayPlanToApi(row: any) {
@@ -98,6 +110,7 @@ export class PayPlanService {
       apr?: number;
       startDate?: Date;
       notes?: string;
+      invoiceIds?: string[];
     },
     userId: string
   ) {
@@ -116,6 +129,12 @@ export class PayPlanService {
     }
 
     // Create the plan
+    let planNote = data.notes ?? '';
+    if (data.invoiceIds && data.invoiceIds.length > 0) {
+      const invoiceNote = `Invoices: ${data.invoiceIds.join(', ')}`;
+      planNote = planNote ? `${planNote}\n${invoiceNote}` : invoiceNote;
+    }
+
     const plan = await prisma.payplan.create({
       data: {
         PayPlanNum: payPlanNum,
@@ -123,7 +142,7 @@ export class PayPlanService {
         Guarantor: BigInt(data.patientId),
         PayPlanDate: resolvedStartDate,
         APR: data.apr ?? 0,
-        Note: data.notes ?? null,
+        Note: planNote || null,
         CompletedAmt: data.downPayment ?? 0,
         PayAmt: monthPay,
         DownPayment: data.downPayment ?? 0,
@@ -131,6 +150,93 @@ export class PayPlanService {
         IsClosed: 0,
       },
     });
+
+    // Distribute down payment across invoices
+    if (data.downPayment && data.downPayment > 0 && data.invoiceIds && data.invoiceIds.length > 0) {
+      const validInvoiceIds = data.invoiceIds.filter((id: any) => id != null);
+      const invoices = await prisma.statement.findMany({
+        where: { StatementNum: { in: validInvoiceIds.map((id: any) => BigInt(id)) } },
+        orderBy: { StatementNum: 'asc' },
+      });
+
+      let remainingDownPayment = data.downPayment;
+      
+      for (const inv of invoices) {
+        if (remainingDownPayment <= 0) break;
+        
+        const invBalance = Number(inv.BalTotal) || 0;
+        if (invBalance <= 0) continue;
+        
+        const amountToApply = Math.min(remainingDownPayment, invBalance);
+        remainingDownPayment -= amountToApply;
+
+        const payNum = await getNextId('payment', 'PayNum');
+        const payNote = JSON.stringify({
+          notes: 'Down payment for payment plan',
+          paymentMethod: 'Payment Plan',
+          invoiceId: inv.StatementNum.toString(),
+        });
+
+        await prisma.payment.create({
+          data: {
+            PayNum: payNum,
+            PatNum: BigInt(data.patientId),
+            PayAmt: amountToApply,
+            PayDate: resolvedStartDate,
+            PayNote: payNote,
+            SecUserNumEntry: BigInt(userId),
+          },
+        });
+        
+        const splitNum = await getNextId('paysplit', 'SplitNum');
+        await prisma.paysplit.create({
+          data: {
+            SplitNum: splitNum,
+            SplitAmt: amountToApply,
+            PatNum: BigInt(data.patientId),
+            DatePay: resolvedStartDate,
+            PayNum: payNum,
+            PayPlanNum: plan.PayPlanNum,
+            DateEntry: new Date(),
+            SecUserNumEntry: BigInt(userId),
+          }
+        });
+
+        // Distribute amountToApply across procedurelog items
+        const procLogs = await prisma.procedurelog.findMany({
+          where: { StatementNum: inv.StatementNum },
+          orderBy: { ProcNum: 'asc' },
+        });
+
+        let remainingForProcs = amountToApply;
+
+        for (const proc of procLogs) {
+          if (remainingForProcs <= 0) break;
+
+          const billingNote = parseJson<any>(proc.BillingNote);
+          const procFee = Number(proc.ProcFee) || 0;
+          const currentPaid = Number(billingNote.paidAmount) || 0;
+          const insPortion = Number(billingNote.insPortion) || 0;
+          const writeoff = Number(billingNote.writeoff) || 0;
+          
+          const maxToApply = procFee - insPortion - writeoff - currentPaid;
+          if (maxToApply <= 0) continue;
+          
+          const appliedToProc = Math.min(remainingForProcs, maxToApply);
+          remainingForProcs -= appliedToProc;
+          
+          billingNote.paidAmount = currentPaid + appliedToProc;
+          
+          await prisma.procedurelog.update({
+            where: { ProcNum: proc.ProcNum },
+            data: { BillingNote: buildJson(billingNote) },
+          });
+        }
+
+        // Trigger recalculation of the invoice
+        await invoiceService.recalculateInvoice(inv.StatementNum.toString());
+      }
+    }
 
     // Generate charges
     if (numPayments > 0 && monthPay > 0) {
