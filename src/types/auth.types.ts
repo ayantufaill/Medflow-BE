@@ -79,3 +79,19 @@ export const GROUP_ADMIN_PERMISSIONS = {
 
 export type GroupAdminPermission =
   (typeof GROUP_ADMIN_PERMISSIONS)[keyof typeof GROUP_ADMIN_PERMISSIONS];
+
+// ─── Branch Access ─────────────────────────────────────────────────────────
+//
+// Resolved per-request by the branchAccess middleware from `userclinic`
+// assignments (and, for Group Admins, expanded to every clinic sharing the
+// caller's practicegroup). Used to scope ClinicNum-bearing resources
+// (patient, appointment, claim, payment, ...) to what the caller may see.
+
+export interface BranchAccess {
+  /** ClinicNums the caller may access. For a Group Admin, every clinic in their group. */
+  clinicIds: bigint[];
+  /** The practicegroup.id the caller's clinics belong to, if resolvable. */
+  groupId: number | null;
+  /** True if the caller holds any GROUP_ADMIN_PERMISSIONS permission (or '*'). */
+  isGroupAdmin: boolean;
+}

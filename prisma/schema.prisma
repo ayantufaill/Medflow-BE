@@ -1158,6 +1158,8 @@ model clearinghouse {
 
 model clinic {
   ClinicNum                                BigInt                      @id(map: "PK__clinic__AE228314D2A96BE3")
+  GroupNum                                 Int?
+  practicegroup                            practicegroup?              @relation(fields: [GroupNum], references: [id], onDelete: SetNull, onUpdate: NoAction)
   Description                              String?                     @db.VarChar(255)
   Address                                  String?                     @db.VarChar(255)
   Address2                                 String?                     @db.VarChar(255)
@@ -7763,7 +7765,25 @@ model clinicalitem {
   subCategory   clinicalsubcategory @relation(fields: [subCategoryId], references: [id], onDelete: Cascade)
 }
 
-// ─── Multi-Tenant: Group & Branch Hierarchy ─────────────────────────────────
+// ─── Practice Group: organization hierarchy over clinic (branch) rows ──────
+// A practicegroup is the customer/organization that owns one or more clinic
+// rows (each clinic is a branch, using OpenDental's native ClinicNum scoping
+// already present across ~40 tables). Row-scoped by GroupNum/ClinicNum, not
+// physically isolated per branch.
+model practicegroup {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(255)
+  config    Json?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  clinic    clinic[]
+}
+
+// ─── Multi-Tenant: Group & Branch Hierarchy (superseded, unused) ────────────
+// This schema-per-branch scaffold was never wired up (see tenantResolver
+// middleware / tenant-provisioning service) and is superseded by
+// practicegroup + clinic.GroupNum above. Left in place, not deleted.
 // These models live in the shared/global schema (not per-branch).
 // They hold organizational metadata, NOT PHI.
 
