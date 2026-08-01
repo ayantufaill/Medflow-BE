@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { feeManagementController } from '../controllers/fee-management.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 
 const router = Router();
 
 // Secure all endpoints with authentication middleware
 router.use(authenticate);
+router.use(resolveBranchAccess);
 
 /**
  * @swagger

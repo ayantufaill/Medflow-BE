@@ -1,1 +1,2166 @@
-﻿[]
+[
+  {
+    "name": "Anesthetic",
+    "checklists": [
+      {
+        "name": "Anesthetic: IA block",
+        "shortName": "IA block",
+        "isTreatment": true,
+        "isHygiene": true,
+        "items": [
+          {
+            "text": "Applied topical anesthetic",
+            "choices": [
+              "TAC gel"
+            ],
+            "products": [
+              "Benzocaine",
+              "Oraqix",
+              "Gingicaine anesthetic gel"
+            ]
+          },
+          {
+            "text": "IA block",
+            "products": [
+              "Articaine, 4% with Epinephrine 1:200,000",
+              "Lidocaine HCL, 2% with Epinephrine 1:100,000",
+              "Septocaine, 4% with Epinephrine 1:100,000"
+            ]
+          },
+          {
+            "text": "Carpules",
+            "choices": [
+              "1",
+              "2",
+              "3",
+              "4",
+              "5",
+              "6",
+              "7",
+              "8",
+              "9",
+              "10",
+              "1/4",
+              "1/3",
+              "1/2",
+              "3/4"
+            ]
+          },
+          {
+            "text": "Needle",
+            "choices": [
+              "short",
+              "long"
+            ]
+          },
+          {
+            "text": "Needle gauge",
+            "choices": [
+              "25",
+              "27",
+              "30"
+            ]
+          },
+          {
+            "text": "Used a self-aspirating injection syringe"
+          },
+          {
+            "text": "Proper anesthesia achieved"
+          }
+        ]
+      },
+      {
+        "name": "Anesthetic: Local Infiltration",
+        "shortName": "Local Infiltration",
+        "isTreatment": true,
+        "isHygiene": true,
+        "items": [
+          {
+            "text": "Applied topical anesthetic",
+            "choices": [
+              "TAC gel"
+            ],
+            "products": [
+              "Benzocaine",
+              "Oraqix",
+              "Gingicaine anesthetic gel"
+            ]
+          },
+          {
+            "text": "Local infiltration",
+            "products": [
+              "Articaine, 4% with Epinephrine 1:200,000",
+              "Citanest Plain, 4% without Vasoconstrictor",
+              "Lidocaine HCL, 2% with Epinephrine 1:100,000",
+              "Mepivacaine, 3% plain",
+              "Septocaine, 4% with Epinephrine 1:100,000",
+              "Xylocaine, 2% with Epinephrine 1:50,000"
+            ]
+          },
+          {
+            "text": "Carpules:",
+            "choices": [
+              "1",
+              "2",
+              "3",
+              "4",
+              "5",
+              "6",
+              "7",
+              "8",
+              "9",
+              "10",
+              "1/4",
+              "1/3",
+              "1/2",
+              "3/4"
+            ]
+          },
+          {
+            "text": "Needle",
+            "choices": [
+              "short",
+              "long"
+            ]
+          },
+          {
+            "text": "Needle gauge",
+            "choices": [
+              "25",
+              "27",
+              "30"
+            ]
+          },
+          {
+            "text": "Used a self-aspirating injection syringe"
+          },
+          {
+            "text": "Proper anesthesia achieved"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Sedation (implicit)",
+    "checklists": [
+      {
+        "name": "Nitrous Oxide Conscious Sedation",
+        "shortName": "Nitrous",
+        "isTreatment": true,
+        "isHygiene": true,
+        "items": [
+          {
+            "text": "Consent forms signed by patient"
+          },
+          {
+            "text": "The use of Nitrous Oxide/ Oxygen conscious sedation was medically necessary due to:",
+            "choices": [
+              "a fearful, anxious or obstreperous patient",
+              "mentally, physically compromised patient",
+              "patient's gag reflex interferes with dental care",
+              "unable to obtain profound local anesthetic effect",
+              "uncooperative child undergoing a lengthy dental procedure"
+            ]
+          },
+          {
+            "text": "-Equipment inspected and found to be in satisfactory operating condition: yes"
+          },
+          {
+            "text": "Pt ate prior to appointment:",
+            "choices": [
+              "yes",
+              "no"
+            ]
+          },
+          {
+            "text": "Height/Weight:"
+          },
+          {
+            "text": "ASA Class:",
+            "choices": [
+              "1",
+              "2",
+              "3",
+              "4"
+            ]
+          },
+          {
+            "text": "BP Start:"
+          },
+          {
+            "text": "Start Time:"
+          },
+          {
+            "text": "Nitrous Percentage",
+            "choices": [
+              "20%",
+              "25%",
+              "30%",
+              "35%",
+              "40%",
+              "45%",
+              "50%",
+              "55%",
+              "60%"
+            ]
+          },
+          {
+            "text": "Flow rate",
+            "choices": [
+              "3.5L/min",
+              "4 L/min",
+              "4.5L/min",
+              "5 L/min"
+            ]
+          },
+          {
+            "text": "End Time:"
+          },
+          {
+            "text": "BP End:"
+          },
+          {
+            "text": "Persons present at time of administration",
+            "choices": [
+              "YSabour, DDS",
+              "Kaylee Barber, RDA",
+              "Karla Hilty, RDH"
+            ]
+          },
+          {
+            "text": "100% O2 Post Nitrous Oxygenation for 10 min"
+          },
+          {
+            "text": "Post Op Instructions provided to Pt."
+          },
+          {
+            "text": "Pt dismissed in ambulatory state."
+          }
+        ]
+      },
+      {
+        "name": "Minimal Sedation Level 1 + Nitrous Oxide Conscious Sedation",
+        "shortName": "Nitrous",
+        "isTreatment": true,
+        "isHygiene": true,
+        "items": [
+          {
+            "text": "Consent forms signed by patient"
+          },
+          {
+            "text": "The use of Nitrous Oxide/ Oxygen conscious sedation was medically necessary due to:",
+            "choices": [
+              "a fearful, anxious or obstreperous patient",
+              "mentally, physically compromised patient",
+              "patient's gag reflex interferes with dental care",
+              "unable to obtain profound local anesthetic effect",
+              "uncooperative child undergoing a lengthy dental procedure"
+            ]
+          },
+          {
+            "text": "-Equipment inspected and found to be in satisfactory operating condition: yes"
+          },
+          {
+            "text": "Pt ate prior to appointment:",
+            "choices": [
+              "yes",
+              "no"
+            ]
+          },
+          {
+            "text": "Height/Weight:"
+          },
+          {
+            "text": "ASA Class:",
+            "choices": [
+              "1",
+              "2",
+              "3",
+              "4"
+            ]
+          },
+          {
+            "text": "Mallampati Score:",
+            "choices": [
+              "1",
+              "2",
+              "3",
+              "4"
+            ]
+          },
+          {
+            "text": "BP Start:"
+          },
+          {
+            "text": "Start Time:"
+          },
+          {
+            "text": "Nitrous Percentage",
+            "choices": [
+              "20%",
+              "25%",
+              "30%",
+              "35%",
+              "40%",
+              "45%",
+              "50%",
+              "55%",
+              "60%"
+            ]
+          },
+          {
+            "text": "Flow rate",
+            "choices": [
+              "3.5L/min",
+              "4 L/min",
+              "4.5L/min",
+              "5 L/min"
+            ]
+          },
+          {
+            "text": "Medication:"
+          },
+          {
+            "text": "Dosage of medication:"
+          },
+          {
+            "text": "First dose was taken at home one hour prior to arrival. Second dose was taken once arrived in office. Patient was accompanied by an spouse/partner/friend who was present for signing of consent forms."
+          },
+          {
+            "text": "End Time:"
+          },
+          {
+            "text": "BP End:"
+          },
+          {
+            "text": "Persons present at time of administration",
+            "choices": [
+              "YSabour, DDS",
+              "Kaylee Barber, RDA"
+            ]
+          },
+          {
+            "text": "100% O2 Post Nitrous Oxygenation for 10 min"
+          },
+          {
+            "text": "Post Op Instructions provided to Pt."
+          },
+          {
+            "text": "Pt dismissed in ambulatory state and left accompanied by spouse/partner/friend."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Endodontics",
+    "checklists": [
+      {
+        "name": "Direct Pulp Capping",
+        "shortName": "Direct pulp cap",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Tooth presenting:",
+            "choices": [
+              "asymptomatic",
+              "with reversible pulpitis"
+            ]
+          },
+          {
+            "text": "Cavity preparation with copious irrigation and exposed pulp."
+          },
+          {
+            "text": "Irrigated with 5 - 6% sodium hypochlorite to achieve hemostasis."
+          },
+          {
+            "text": "Mixed MTA to a paste-like consistency with",
+            "choices": [
+              "sterile saline",
+              "anesthetic"
+            ]
+          },
+          {
+            "text": "Applied MTA directly to exposure"
+          },
+          {
+            "text": "Condensed with cotton pellet, thickness of MTA approximately 2 mm, and air dried slightly."
+          },
+          {
+            "text": "Applied self-adhesive resin liner to seal MTA and cover all the dentin."
+          },
+          {
+            "text": "Removed any resin liner from the enamel using particle abrasion with 27 micron aluminum oxide at 40 PSI"
+          },
+          {
+            "text": "Completed definitive restoration"
+          },
+          {
+            "text": "Selective etch (enamel only): agitated with 30-40% phosphoric acid for 15 seconds, rinsed for 5 seconds, blot dried for 2 seconds."
+          },
+          {
+            "text": "Applied 2-3 layers of adhesive bonding agent"
+          },
+          {
+            "text": "Agitated adhesive bonding agent with dry microbrush, thinned out layers, checked for glossy surface, light cured for 10 seconds."
+          },
+          {
+            "text": "Placed composite resin."
+          },
+          {
+            "text": "Shade",
+            "choices": [
+              "translucent",
+              "B0.5",
+              "Bleach",
+              "B1",
+              "A1",
+              "A2",
+              "A3"
+            ]
+          },
+          {
+            "text": "Light cured, finished and polished"
+          }
+        ]
+      },
+      {
+        "name": "Internal Bleaching",
+        "shortName": "Internal Bleaching",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Removed gutta-percha 1-2 mm below the CEJ."
+          },
+          {
+            "text": "Ensured there is no remaining tissue in the pulp horns."
+          },
+          {
+            "text": "Used particle abrasion with 27 micron aluminum oxide at 40 PSI to clean the pulp chamber"
+          },
+          {
+            "text": "Applied self-adhesive resin liner, around 2 mm over the gutta-percha."
+          },
+          {
+            "text": "Mixed sodium perborate and sterile saline to a wet sand consistency."
+          },
+          {
+            "text": "Placed in pulp chamber and covered with a layer of Cavit as a temporary cover material."
+          },
+          {
+            "text": "Instructed patient will reapply once a week until desired shade is achieved."
+          }
+        ]
+      },
+      {
+        "name": "Managing Access Openings for Endodontically Treated Teeth",
+        "shortName": "Endo Access",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Selected appropriate burs depending on the crown material.",
+            "choices": [
+              "KS1 and 330 for PFM",
+              "Zir-CUT for all-ceramic and zirconia"
+            ]
+          },
+          {
+            "text": "Created a tapered access opening or shelf to develop a vertical stop for the composite restoration. To reduce porcelain fracture, used water and limited pressure with the bur."
+          },
+          {
+            "text": "Micro-abraded the porcelain and dentin with 27 micron aluminum oxide at 40 PSI, rinsed."
+          },
+          {
+            "text": "Flowed RelyX Unicem 2 to create cervical seal, then remove from walls."
+          },
+          {
+            "text": "Etched the surface of the porcelain with phosphoric acid, using a microbrush, to clean the surface."
+          },
+          {
+            "text": "Applied silane to the porcelain and air dried with low pressure air (A dec Warm Air Tooth Dryer)."
+          },
+          {
+            "text": "Applied bonding agent and followed the Universal Bonding Protocol."
+          },
+          {
+            "text": "Used opaque composite and cured in multiple layers."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Restorative",
+    "checklists": [
+      {
+        "name": "Direct Restoration Bonding Protocol",
+        "shortName": "Bonding",
+        "isTreatment": true,
+        "isHygiene": true,
+        "items": [
+          {
+            "text": "Cleaned tooth surface mechanically",
+            "choices": [
+              "with particle abrasion"
+            ]
+          },
+          {
+            "text": "Applied self-adhesive resin liner (RelyX Unicem 2) (no more than 1 mm thickness) on exposed dentin. Waited 5-10 seconds, then light cured for 10 seconds. Removed excess resin liner from axial walls and enamel. Beveled enamel margins."
+          },
+          {
+            "text": "Selective etch (enamel only): agitated with 30-40% phosphoric acid for 15 seconds, rinsed for 5 seconds, blot dried for 2 seconds."
+          },
+          {
+            "text": "Applied 2-3 layers of adhesive bonding agent"
+          },
+          {
+            "text": "Agitated adhesive bonding agent with dry microbrush, thinned out layers, checked for glossy surface, light cured for 10 seconds."
+          },
+          {
+            "text": "Placed composite resin."
+          },
+          {
+            "text": "Shade",
+            "choices": [
+              "translucent",
+              "B0.5",
+              "Bleach",
+              "B1",
+              "A1",
+              "A2",
+              "A3"
+            ]
+          },
+          {
+            "text": "Light cured, finished and polished"
+          }
+        ]
+      },
+      {
+        "name": "Direct Provisional Restorations (PMMA) with Custom Shell",
+        "shortName": "Provisional PMMA",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Tried-in custom shell matrix and oriented the incisal edge position relative to the face."
+          },
+          {
+            "text": "Lubricated teeth with KY jelly."
+          },
+          {
+            "text": "Wetted shell with monomer, then load with acrylic."
+          },
+          {
+            "text": "Dipped in water bath to hasten the dough phase."
+          },
+          {
+            "text": "Inject tooth preparations like injecting impression material, seat the loaded shell and waited for dull appearance."
+          },
+          {
+            "text": "Applied water spray using a syringe to reduce the heat."
+          },
+          {
+            "text": "Moved the shell on/off to eliminate PMMA shrinkage."
+          },
+          {
+            "text": "Made occlusal adjustments, esthetic modifications, final trim and contour, polish"
+          },
+          {
+            "text": "Lubricated the outside of the provisional and filled with the luting agent"
+          },
+          {
+            "text": "Seated the provisional, removed excess cement, and then removed the primary cord."
+          }
+        ]
+      },
+      {
+        "name": "Foundation Restoration - Direct Post & Composite Core",
+        "shortName": "Direct P&C",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Completed post preparation (Did not enlarge beyond original canal space)."
+          },
+          {
+            "text": "Cleaned preparation: Rinsed with water and used absorbent point to remove residual water."
+          },
+          {
+            "text": "Selected post based on size, fit to canal, trimed length to include entire preparation length."
+          },
+          {
+            "text": "Cemented post with RelyX Unicem 2 using endo tip. Filled canal and inserted post."
+          },
+          {
+            "text": "Blew excess coronally and light cured after 10 seconds."
+          },
+          {
+            "text": "Used microabrasion on all exposed dentin using 27 micron aluminum oxide at 40 PSI."
+          },
+          {
+            "text": "Apply self-etching adhesive without phosphoric etch"
+          },
+          {
+            "text": "Placed composite and shaped with hand instrument to cover the post completely",
+            "choices": [
+              "Shade bleach",
+              "Shade White opaque"
+            ]
+          },
+          {
+            "text": "Light cured composite incrementally and finished preparation"
+          }
+        ]
+      },
+      {
+        "name": "Foundation Restorations - Indirect Post & Core-prep",
+        "shortName": "Indirect P&C prep",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Completed coronal tooth preparation."
+          },
+          {
+            "text": "Removed access restoration. Ensured that the seal is not broken. Prepared the root system by beginning with a double banded 9-10 mm Peeso Reamer."
+          },
+          {
+            "text": "Continued to enlarge with the Parapost Drill System"
+          },
+          {
+            "text": "Selected corresponding pattern (color coded)."
+          },
+          {
+            "text": "Flowed GC Pattern Resin into coronal portion of the root system. Allowed initial set and then removed and replaced."
+          },
+          {
+            "text": "Completed the build-up with the appropriate resin pattern."
+          },
+          {
+            "text": "Removed the pattern, trimed excess, and tested the pattern fit."
+          },
+          {
+            "text": "Temporarily fill with cotton and use Fermit to maintain the seal."
+          }
+        ]
+      },
+      {
+        "name": "Foundation Restorations - Indirect Post & Core-cementation",
+        "shortName": "Indirect P&C cementation",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Removed the temporary fill and used post drills to clean the restoration."
+          },
+          {
+            "text": "Tried-in the post core and verified fit."
+          },
+          {
+            "text": "Cemented post with RelyX Unicem 2 using endo tip. Filled canal and inserted post."
+          },
+          {
+            "text": "Blew excess coronally and light cured after 10 seconds."
+          }
+        ]
+      },
+      {
+        "name": "Intracrevicular Tooth Preparation",
+        "shortName": "Intracrevicular Tooth Prep",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Probed to Osseous Crest to determine crest relationship."
+          },
+          {
+            "text": "Margin position: coronally based on osseous crest relationship and apically 2.0 to 2.5 mm coronal to bone.",
+            "choices": [
+              "___________",
+              "___________"
+            ]
+          },
+          {
+            "text": "Placed primary retraction cord size 00.",
+            "choices": [
+              "___________",
+              "___________"
+            ]
+          },
+          {
+            "text": "Facially: extended tooth preparation margin position to coronal aspect of primary cord"
+          },
+          {
+            "text": "Interproximally: extended to retracted FGM - Not Primary Cord."
+          }
+        ]
+      },
+      {
+        "name": "Tissue Management Technique",
+        "shortName": "Tissue management",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "PrimaryCord: Packed \"00\" Ultrapak Cord - DRY, Butt edges"
+          },
+          {
+            "text": "Placed Tissue Gel with Dento-Infusor tip"
+          },
+          {
+            "text": "Secondary Cord:cPacked dry cord",
+            "choices": [
+              "size 0",
+              "size 1",
+              "size 2"
+            ]
+          },
+          {
+            "text": "Placed Tissue Gel with Dento-Infusor Tip"
+          },
+          {
+            "text": "Left secondary cord in place for 4 minutes"
+          }
+        ]
+      },
+      {
+        "name": "Tooth Preparation Cleansing - Particle Abrasion",
+        "shortName": "Particle Abrasion",
+        "isTreatment": true,
+        "isHygiene": true,
+        "items": [
+          {
+            "text": "Isolated tissue interface as needed."
+          },
+          {
+            "text": "Set BioBlaster pressure to 0.25 to 0.4 MPa (36-58 psi). Used 0.3-90 μm aluminum tri-hydroxide powder."
+          },
+          {
+            "text": "Used .015 mm tip diameter and 80° nozzle."
+          },
+          {
+            "text": "Placed tip within a 2-5 mm distance from tooth surface to reduce particle spray creating collateral damage (Tissue bleeding). Kept at 90° to tooth structure."
+          },
+          {
+            "text": "Rinsed prepared tooth. Blot dried, did not desiccate dentin."
+          }
+        ]
+      },
+      {
+        "name": "Simplified Crown & Bridge Final Impression Synopsis",
+        "shortName": "Crown Impression",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Developed cervical margin location relative to the osseous crest."
+          },
+          {
+            "text": "Packed the primary cord (Ultrapak #00) dry. Used scissors for the butt edges."
+          },
+          {
+            "text": "Managed tissue with the appropriate tissue management agent",
+            "choices": [
+              "Tissue Gel",
+              "ViscoStat clear",
+              "____________"
+            ]
+          },
+          {
+            "text": "Packed the secondary cord.",
+            "choices": [
+              "size 0",
+              "size 1",
+              "size 2"
+            ]
+          },
+          {
+            "text": "Left secondary cord in place for 4+ minutes before removal."
+          },
+          {
+            "text": "Particle abraded the teeth with 27 micron aluminum oxide and .015 mm 80°tip at 40 PSI"
+          },
+          {
+            "text": "Rinsed tooth preparations and reapplied tissue management protocol when necessary."
+          },
+          {
+            "text": "Removed secondary cord. Ensured that no debris remains, bleeding has disconnued, and adequate displacement has occurred."
+          },
+          {
+            "text": "Isolated mouth and completely dried preparations."
+          },
+          {
+            "text": "Applied tray adhesive 5 minutes prior."
+          },
+          {
+            "text": "Chilled the syringe material to prolong working time."
+          },
+          {
+            "text": "Started timer at 7 minutes."
+          },
+          {
+            "text": "Mixed heavy body tray material and loaded the tray."
+          },
+          {
+            "text": "Loaded syringe from the tip with light body material. Kept syringe on the tooth. 2-3 times around tooth, blow air to thin out the light body, then flooded the entire preparation and occlusal surfaces with light body"
+          },
+          {
+            "text": "Inserted tray quickly. Did not allow timer to run below 4 minutes and 30 seconds."
+          },
+          {
+            "text": "Allow the timer to reach 0. Broke the impression seal using both hands (not the tray handle) and remove along the path of insertion."
+          },
+          {
+            "text": "Disinfected the impression"
+          },
+          {
+            "text": "Sent to lab with appropriate laboratory communication"
+          }
+        ]
+      },
+      {
+        "name": "Class 2 composite",
+        "shortName": "Class2",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Dx:",
+            "choices": [
+              "Large existing amalgam restorations with potential to fracture + recurrent decay.",
+              "Fractured cusp",
+              "Replacement of amalgam restoration for cosmetic purposes.",
+              "Recurrent caries",
+              "Primary caries",
+              "Leaking composite restoration with recurrent caries"
+            ]
+          },
+          {
+            "text": "Alternative treatments including full-coverage crown have been explained to patient and pt opted for Bioclear rejuvenating alternative procedure. Pt is aware this is an out of pocket procedure not covered by insurance."
+          },
+          {
+            "text": "Isolated with:",
+            "choices": [
+              "Isolite size medium/small.",
+              "Rubber dam heavy.",
+              "Dry Angle",
+              "Cotton rolls"
+            ]
+          },
+          {
+            "text": "Bioclear Class 2 with cala lily occlusal. Removed all decay + existing restoration. Bioclear dual color disclosing solution. Rinsed. Optimized adjacent tooth proximal contact with Soflex disc prior to adapting matrix. Bioclear matrix system, matrix size:",
+            "choices": [
+              "5.5 HD",
+              "6.5 HD",
+              "Evolve Matrix blue/pink/orange",
+              "3.5 HD",
+              "4.5 HD"
+            ]
+          },
+          {
+            "text": "Prep start utilized for dentin conditioning prior to restoration."
+          },
+          {
+            "text": "Gel etch. 3M Scotchbond Universal, massaged dentin for 20 seconds. Cured. 3M Scotchbond Universal. Composite shade:",
+            "choices": [
+              "B1",
+              "A1",
+              "White",
+              "A2",
+              "XWhite",
+              "C2"
+            ]
+          },
+          {
+            "text": "3M Filtek Supreme Ultra Flowable and Paste Composite heated in Bioclear HeatSync injection molded into Bioclear Matrix. Final cured, smoothed and contoured with 3M Soflex composite discs."
+          },
+          {
+            "text": "Rubber dam/cotton rolls removed. Checked and adjusted occlusion. Verified proximal contact(s) with floss. Polished with ASAP polisher"
+          },
+          {
+            "text": "Post-op radiograph taken and reviewed to ensure all margins sealed."
+          }
+        ]
+      },
+      {
+        "name": "Occlusal/Incisal/Cervical Composite",
+        "shortName": "O Comp",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Dx:",
+            "choices": [
+              "Abfraction",
+              "Leaking existing composite",
+              "Caries"
+            ]
+          },
+          {
+            "text": "Isolated with:",
+            "choices": [
+              "Isolite size medium/small",
+              "Rubber dam heavy.",
+              "Cotton roll",
+              "Dry angle + additional suction"
+            ]
+          },
+          {
+            "text": "Removed all decay + existing restoration."
+          },
+          {
+            "text": "Prep start air abrasion for dentin conditioning prior to restoration."
+          },
+          {
+            "text": "Gel etch. 3M Scotchbond Universal, massaged dentin for 20 seconds. Cured. 3M Scotchbond Universal. Composite shade:",
+            "choices": [
+              "A1",
+              "A2",
+              "B1",
+              "C2",
+              "White",
+              "XWhite"
+            ]
+          },
+          {
+            "text": "Verified occlusion with articulating paper. Verified proximal contact with floss (to ensure no adhesive caught interproximally)."
+          },
+          {
+            "text": "Polished with ASAP polisher."
+          }
+        ]
+      },
+      {
+        "name": "Crown/onlay Prep",
+        "shortName": "Crown",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Dx:",
+            "choices": [
+              "- Large existing amalgam restorations with potential to fracture due to undermined cusps and recurrent caries",
+              "Fractured cusp",
+              "Replacement of amalgam restoration for cosmetic purposes.",
+              "Cracked tooth with cold/biting sensitivity",
+              "Leaking largecomposite restoration with recurrent caries and > 1/2 isthmus",
+              "Large cervical caries undermining functional cusps"
+            ]
+          },
+          {
+            "text": "Clinician's Choice Template utilized in triple tray to create matrix for temporary crown."
+          },
+          {
+            "text": "Removed existing crown with handpiece + crown separator.",
+            "choices": [
+              "Clinical crown intact. Recurrent decay present.",
+              "Clinical crown came off in previous crown.",
+              "Build up came out with previous crown.",
+              "__________"
+            ]
+          },
+          {
+            "text": "Assessed restorability of tooth and accuracy of current treatment plan.",
+            "choices": [
+              "Proceeding with existing treatment plan.",
+              "Treatment plan modified due to condition of tooth under crown, new treatment plan created and signed by patient."
+            ]
+          },
+          {
+            "text": "All recurrent caries removed. Bioclear disclosing solution applied and rinsed away. Bioblaster utilized to remove biofilm. Cord impregnated with hemostatic agent packed for gingival retraction:",
+            "choices": [
+              "Size 00",
+              "Size 0",
+              "Size 1",
+              "Size 2"
+            ]
+          },
+          {
+            "text": "Margins refined with KS6 bur at 10,000 RPM."
+          },
+          {
+            "text": "Pontic site development with KS5 bur-prepped into gingiva to create space for ovate pontic to appear it is coming from the gingiva. Verified with floss as measurement to harmonize the scallop of the gingiva with adjacent teeth."
+          },
+          {
+            "text": "Viscostat applied for hemostasis Rinsed thoroughly."
+          },
+          {
+            "text": "Build up placed: etch, Scotchbond multipurpose adhesive, Fuji flowable + paste. Shade:",
+            "choices": [
+              "A1",
+              "B1",
+              "White"
+            ]
+          },
+          {
+            "text": "If 2nd cord packed: size of cord #2 packed:",
+            "choices": [
+              "Size 00",
+              "Size 0",
+              "Size 1",
+              "Size 2",
+              "No 2nd cord. Utilized 3M retraction paste. Rinsed thoroughly prior to scan."
+            ]
+          },
+          {
+            "text": "If utilized-removed 2nd cord prior to scanning. IO scanner utilized for laboratory digital workflow: scanned full arch or quadrant, scanned arch with tooth preparation + acquired all margins for crown prep. Scanned occlusion.",
+            "choices": [
+              "Trios",
+              "iTero"
+            ]
+          },
+          {
+            "text": "Temporary crown created. Luxtatemp temporary material placed in matrix and into mouth within 40 seconds of mixing, patient bit down for 60 seconds, matrix removed from mouth with temporary crown in matrix, crown allowed to cure completely in matrix for another 90 seconds. Verified all temporary material removed from patient's mouth prior to proceeding with shaping of temporary crown. Crown adjusted with soflex XT disc size 1/2\", margins checked in mouth, all margins sealed. Verified occlusion. Polished.",
+            "choices": [
+              "Spot bonded provisional for added retention."
+            ]
+          },
+          {
+            "text": "Verified all cords removed post cementation of temporary crown."
+          },
+          {
+            "text": "Temporary crown cemented interim with TempBond clear. All excess cement removed. Verified proximal contact with floss. Pt is aware to avoid flossing up and down contact with temporary crown to avoid the crown coming off."
+          },
+          {
+            "text": "Shade:",
+            "choices": [
+              "Vita Master shade guide:",
+              "Vita Lumin shade guide:",
+              "ND (stump) shade:"
+            ]
+          },
+          {
+            "text": "Lab:",
+            "choices": [
+              "Reliable Dental Lab",
+              "Prestige Line Dental Studio",
+              "Utah Valley Dental Lab",
+              "Swiss Dental Lab",
+              "Protea Dental Studio",
+              "Micro Dental California"
+            ]
+          },
+          {
+            "text": "Material:",
+            "choices": [
+              "Zirconia",
+              "Lith Dissilicate (EMax)",
+              "Lissi Press",
+              "Metal"
+            ]
+          },
+          {
+            "text": "Next Visit:",
+            "choices": [
+              "Deliver Emax crown #",
+              "Deliver Zirconia crown #",
+              "Final impression via scan for #",
+              "*Spot bonded*"
+            ]
+          },
+          {
+            "text": "RDA:",
+            "choices": [
+              "Kaylee Barber",
+              "Evelyn Gaytan"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "KOR Whitening in-office MAX",
+        "shortName": "KOR",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Removed the KöR Dam from the refrigerator about an hour prior to use. Inserted the Kor Cheek Retractor included in kit + cotton rolls in the vestibules where needed for adequate isolation. Applied KöR desensitizer to all teeth being whitened. Thoroughly dried teeth and gingiva. Applied the paint-on KöR Dam gingival barrier. Cured the dam periodically as it was being placed to ensure adequate seal to protect gingiva. Removed the three syringes (A, B, C) from the KöR Max in-office whitening gel pack in the section under \"1st 20-Minute Application.\" Confirmed the syringes are 34% Hydremide Peroxide. Mixed all syringes according to manufacturer's instructions to reach final whitening product for use."
+          },
+          {
+            "text": "Applied the 34% Hydremide Peroxide whitening gel directly onto the dry dentition that is in the cosmetic zone. Timer set for 20 minutes. Once 20 minutes passed-suctioned the whitening gel off the surfaces of the teeth using the high-speed evacuator with a 1/4\" orifice. Did not rinse with water."
+          },
+          {
+            "text": "Repeated this process for a 2nd application of 34% Hyremide Peroxide gel x 20 minute."
+          },
+          {
+            "text": "Repeated this process for a 3rd application of 34% Hyremide Peroxide gel x 20 minutes."
+          },
+          {
+            "text": "Liberally applied desensitizer. Retractor removed. Pt left in ambulatory state with written PO instructions and desensitizer."
+          }
+        ]
+      },
+      {
+        "name": "Implants Scan",
+        "shortName": "IMP",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Anesthetic:",
+            "choices": [
+              "Anesthetic needed due to gingival sensitivity.",
+              "No anesthetic necessary, procedure minimally invasive for patient."
+            ]
+          },
+          {
+            "text": "iTero opened and scanner utilized for IO scan with healing abutments in place + occlusal/bite scan."
+          },
+          {
+            "text": "Healing abutments removed by DDS. Throat pack in place."
+          },
+          {
+            "text": "Scan bodies screwed in to placed:",
+            "choices": [
+              "Nobel Biocare",
+              "Straumann",
+              "BioHorizon Astra",
+              "Elos Accurate"
+            ]
+          },
+          {
+            "text": "Ensured full seat of scan bodies with radiograph. Scanned with scan bodies in place."
+          },
+          {
+            "text": "Removed scan bodies. Healing abutments screwed into place, no torque."
+          },
+          {
+            "text": "Shade:",
+            "choices": [
+              "Vita Master Shade Guide",
+              "Vita Lumin"
+            ]
+          },
+          {
+            "text": "Abutment material:",
+            "choices": [
+              "Custom zirconia",
+              "Custom titanium"
+            ]
+          },
+          {
+            "text": "Crown material:",
+            "choices": [
+              "EMax",
+              "Zirconia",
+              "Porcelain fused to metal",
+              "Lisse Press"
+            ]
+          },
+          {
+            "text": "Lab:",
+            "choices": [
+              "Reliable Dental Lab",
+              "Protea Dental Lab",
+              "Micro Dental California"
+            ]
+          },
+          {
+            "text": "Pt left in ambulatory state."
+          }
+        ]
+      },
+      {
+        "name": "Implant Seat",
+        "shortName": "Imp Seat",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Showed pt crowns before seat and verified pt is aware they are screw retained implant crowns in order to reduce the risk of implantitis from using cement-retained model."
+          },
+          {
+            "text": "Removed healing cap by removing screw. Tissue has developed well around the healing cap and margins of implants are visible and accessible."
+          },
+          {
+            "text": "Implant crown placed into implant passively. Verified implant is engaged. Screwed into place with hand driver. Allowed for 10 minute pre torque."
+          },
+          {
+            "text": "Verified full seat of crowns with BW radiographs.",
+            "choices": [
+              "Crowns placed one at a time to verified seat and adjust contacts accordingly.",
+              "Verified crowns fully seated + engaged."
+            ]
+          },
+          {
+            "text": "Verified proximal contacts with floss. Verified occlusion with articulating paper. Crowns adjusted as needed. Polished."
+          },
+          {
+            "text": "Implant crowns torqued to manufacturers recommendations:",
+            "choices": [
+              "15 NcM",
+              "35 NcM",
+              "20 NcM"
+            ]
+          },
+          {
+            "text": "Restoration of screw access hole: Isolated teeth appropriately. Covered screw access with teflon tape until 2mm remained occlusal. Scotchbond Adehsive applied to intaglio surface. Restored with injection molded Filtek flowable + packable composite. Shade:",
+            "choices": [
+              "XW",
+              "White",
+              "A1",
+              "A2",
+              "B1",
+              "C2"
+            ]
+          },
+          {
+            "text": "Verified proximal contacts with floss. Verified occlusion with articulating paper. Adjustment as needed with fine football diamond on 20k RPM with water, Polished."
+          }
+        ]
+      },
+      {
+        "name": "Bioclear vs. Crown",
+        "shortName": "BvC",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Discussed Bioclear posterior overlay vs. full coverage crown restoration. Explained that Bioclear and it's 5 pillars (isolation, injection molded composite, removal of biofilm, matrices and polish) combine to make a restoration that is as durable as a full coverage porcelain crown. Informed patient that a full coverage crown would require removal of ~70% of natural tooth structure whereas a Bioclear injection molded restoration allows me to shrink wrap the remaining natural tooth structure once all existing restoration and recurrent decay are removed as opposed to removing the tooth structure. I informed patient that Bioclear is not covered by insurance benefits and would have an out of pocket cost, pt understood."
+          }
+        ]
+      },
+      {
+        "name": "Treatment plan presentation",
+        "shortName": "Treatment",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Pt had an opportunity to ask questions and have all her questions answered. Treatment plan presented + signed by the patient."
+          }
+        ]
+      },
+      {
+        "name": "Bioclear Posterior Overlay",
+        "shortName": "BPO",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Dx:",
+            "choices": [
+              "Large existing amalgam restorations with potential to fracture + recurrent decay.",
+              "Fractured cusp",
+              "Replacement of amalgam restoration for cosmetic purposes.",
+              "Large existing caries or recurrent caries which will undermine cusp once removed or require so much removal of natural tooth structure that the tooth will be structurally compromise and require full coverage restoration to prevent fracture."
+            ]
+          },
+          {
+            "text": "Alternative treatments including full-coverage crown have been explained to patient and pt opted for Bioclear rejuvenating alternative procedure. Pt is aware this is an out of pocket procedure not covered by insurance."
+          },
+          {
+            "text": "Isolated with:",
+            "choices": [
+              "Rubber Dam: Clinician's Choice heavy gauge non-latex",
+              "Isolite size:",
+              "NeoDry",
+              "Cotton rolls"
+            ]
+          },
+          {
+            "text": "Bioclear posterior overlay: Removed all decay + existing restoration if present. Bioclear dual color disclosing solution. Used bioclear blaster, IPC. Rinsed. Optimized adjacent tooth proximal contact with Soflex disc prior to adapting matrix. Bioclear matrix system, matrix size:",
+            "choices": [
+              "Evolve matrix blue size:",
+              "Evolve matrix pink size:",
+              "Evolve matrix orange:",
+              "HD matrix size: 4.5, 5.5, 6.5",
+              "Black triangle matrices"
+            ]
+          },
+          {
+            "text": "Gel etch. 3M Scotchbond Universal, massaged dentin for 20 seconds. Cured. 3M Scotchbond Universal. Composite shade:",
+            "choices": [
+              "A1",
+              "B1",
+              "C2"
+            ]
+          },
+          {
+            "text": "3M Filtek Bulk Flowable and Bulk Paste Composite heated in Bioclear HeatSync injection molded into Bioclear Matrix. Final cured, smoothed and contoured with 3M Soflex composite discs."
+          },
+          {
+            "text": "Rubber dam removed. Checked and adjusted occlusion. Verified proximal contact(s) with floss. Polished with Bioclear Magic Mix + Bioclear Rockstar Polisher."
+          },
+          {
+            "text": "Post-op radiograph taken and reviewed to ensure all margins sealed."
+          },
+          {
+            "text": "NV:"
+          }
+        ]
+      },
+      {
+        "name": "White spot",
+        "shortName": "White spot",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "I will be restoring the lesions with cavitation and deepest progression into dentin at this time. Parent and patient are aware that we are buying time until patient is older, until we have stopped the progression of disease. At this time, restoring all the mesial and distal incipient lesions that have been found will place restorations at risk as they will not have margins on sound tooth structure which will lead to restoration leakage and ultimate failure in the future."
+          },
+          {
+            "text": "Parent had an opportunity to ask questions about this treatment plan and to have all questions answered."
+          }
+        ]
+      },
+      {
+        "name": "Exam Notes",
+        "shortName": "Exa",
+        "isTreatment": true,
+        "isHygiene": true,
+        "items": [
+          {
+            "text": "Oral Cancer Screening:",
+            "choices": [
+              "Negative, following visual + tactile exam",
+              "Conditions Noted: monitoring",
+              "Referral recommended",
+              "Not due for annual update today."
+            ]
+          },
+          {
+            "text": "Radiographic exam-all radiographs ordered and reviewed by DDS.",
+            "choices": [
+              "Updated BW to monitor for any changes in interproximal tooth structure",
+              "Updated PA in anterior regions to monitor apical tissues.",
+              "Updated select PA due to pt symptoms noted at start of exam or due to existing restorations.",
+              "Radiographic exam not recommended today due to low caries risk and no history of perio.",
+              "FMX taken today as new patient records.",
+              "Pt opted out of radiographic update due to insurance frequency",
+              "Patient declined radiographs due to finances."
+            ]
+          },
+          {
+            "text": "TMD Assessment:",
+            "choices": [
+              "Noted: TMJ disorder symptoms, including joint noises, pain, or limited range of motion.",
+              "Noted muscle tenderness upon palpation:",
+              "Adjsuted odontogram to show several teeth with: wear, fractures, or attrition/erosion.",
+              "Checked for any abnormalities in the alignment of upper and lower teeth. Pt is candidate for Invisalign therapy.",
+              "No significant findings.",
+              "Not due for annual update today."
+            ]
+          },
+          {
+            "text": "Occlusal Exam:",
+            "choices": [
+              "Acceptable Function",
+              "Occlusal dysfunction suspected",
+              "Possible parafunction Habits",
+              "Frictional pathway suspected",
+              "Constricted chewing suspected",
+              "Further analysis required",
+              "Pt is candidate for deprogrammer, minimum 4 weeks wear required."
+            ]
+          },
+          {
+            "text": "Align Oral Health Suite reviewed in detail with patient chairside.",
+            "choices": [
+              "Findings discussed. Pt had the chance to ask questions and have all questions answered.",
+              "Not due to wellness scan today."
+            ]
+          },
+          {
+            "text": "Perio:",
+            "choices": [
+              "Perio Health stabilization suggested due to findings on perio exam",
+              "URQ",
+              "LRQ",
+              "ULQ",
+              "LLQ",
+              "Alternatives to treatment discussed with pt.",
+              "Dr would like to review information gathered today develop a comprehensive treatment plan. Will contact patient to review",
+              "routine prophylaxis recommended at this time",
+              "Scaling in presence of gingivitis + laser decontamination recommended for perio health stabilization due to # of bleeding on probing sites consistent with inflammation and infection.",
+              "Perio health stable on reduced periodontium."
+            ]
+          },
+          {
+            "text": "Teeth findings: Review dentogram.",
+            "choices": [
+              "Priority treatment:",
+              "Due to # of carious lesions, even what appears incipient or limited to enamel on radiograph is likely penetrating dentin and will need restoration."
+            ]
+          },
+          {
+            "text": "Referral:",
+            "choices": [
+              "Endo consult",
+              "Ortho consult",
+              "Perio Consult",
+              "PCP consult (general medical consult)",
+              "OMFS consult",
+              "Obtained informed consent from the patient for any necessary procedures, biopsies, or referrals.",
+              "Sleep study with MD"
+            ]
+          },
+          {
+            "text": "Appliance therapy: lab Rx uploaded and submitted to lab.",
+            "choices": [
+              "Deprogrammer",
+              "Deprogrammer prior to Invisalign",
+              "Clear aligner therapy via Invisalign",
+              "Nightguard",
+              "Whitening trays"
+            ]
+          },
+          {
+            "text": "NV:",
+            "choices": [
+              "6 month recall",
+              "4 month recall",
+              "3 month recall",
+              "Treatment visit:",
+              "Whitening:"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Vitality testing",
+        "shortName": "Vitality",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Vitality testing: Non-lingering elevated response to cold which subsided in <10 seconds compared to other teeth in:",
+            "choices": [
+              "URQ",
+              "ULQ",
+              "LLQ",
+              "LRQ"
+            ]
+          },
+          {
+            "text": "Percussion test:",
+            "choices": [
+              "Positive",
+              "Negative"
+            ]
+          },
+          {
+            "text": "Palpation test:",
+            "choices": [
+              "Negative",
+              "Positive"
+            ]
+          },
+          {
+            "text": "Tooth slooth positive when biting on:",
+            "choices": [
+              "Distal cusp",
+              "Mesial cusp"
+            ]
+          },
+          {
+            "text": "Pt reminded of occlusal pathology which was discussed at last visit. Advised that occlusal pressure on the tooth is causing traumatic bite and the pain but that the tooth is at risk of fracture if occlusion is not addressed. Pt is hesitant to pursue Invisalign due:"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Restorative-Cohesive",
+    "checklists": [
+      {
+        "name": "Cohesively Retained (Full Coverage) Tooth Preparation",
+        "shortName": "Crown Prep",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Incisal Reduction",
+            "choices": [
+              "1 mm",
+              "1.5 mm",
+              "2 mm",
+              "2.5 mm"
+            ]
+          },
+          {
+            "text": "Facial Reduction of 1.2 - 1.5 mm"
+          },
+          {
+            "text": "Determined Cervical Limitations, developed esthetic requirements and determined osseous crest relationship",
+            "choices": [
+              "Supragingival prep",
+              "Intracrevicular prep"
+            ]
+          },
+          {
+            "text": "Lingual Reduction/Blend considering occlusal relationship and functional requirements"
+          },
+          {
+            "text": "Finished with precise, well-defined margins, controled taper, rounded line angles"
+          }
+        ]
+      },
+      {
+        "name": "Cohesively Retained Cementation",
+        "shortName": "Crown Cementation",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Removed provisional, cleaned tooth, micro-abraded the preparation with 27 micron aluminum oxide at 40 PSI."
+          },
+          {
+            "text": "Cleaned contaminated surfaces following try-in: re-etched with 30-40% phosphoric acid for 60 seconds, rinsed with water."
+          },
+          {
+            "text": "Applied ceramic primer for 60 seconds"
+          },
+          {
+            "text": "Dried thoroughly",
+            "choices": [
+              "With air only syringe."
+            ]
+          },
+          {
+            "text": "Isolated tissue interface"
+          },
+          {
+            "text": "Cleaned external surface of tooth abutment mechanically",
+            "choices": [
+              "with particle abrasion",
+              "water"
+            ]
+          },
+          {
+            "text": "Filled crown abutment with self-adhesive resin cement",
+            "products": [
+              "Panavia SA Cement Plus",
+              "RelyX Unicem 2 Automix",
+              "Variolink II Esthetic Cementation System",
+              "Variolink Ultra Universal Dual Curing Cement"
+            ]
+          },
+          {
+            "text": "Seated crown, stabilized with positive pressure and blew excess cement out of the interproximals"
+          },
+          {
+            "text": "Spot cured facial and lingual to seal the margin"
+          },
+          {
+            "text": "Debrided excess cement from facial and lingual with a scaler."
+          },
+          {
+            "text": "Completed polymerization by light curing the facial, lingual, and occlusal for 20 seconds each."
+          },
+          {
+            "text": "Debrided excess cement",
+            "choices": [
+              "with scaler",
+              "with #12 surgical blade",
+              "with Cerisaw",
+              "with dental floss with knot"
+            ]
+          },
+          {
+            "text": "Refined margins and polished"
+          },
+          {
+            "text": "Verified occlusion with articulating paper. Adjusted as needed. Polished."
+          },
+          {
+            "text": "Pre and post-cementation radiographs taken to verify marginal seal."
+          }
+        ]
+      },
+      {
+        "name": "Cohesively Retained Cementation-Zirconia",
+        "shortName": "Crown Cementation-Zirconia",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Removed provisional, cleaned tooth, micro abraded the preparation with 27 micron aluminum oxide at 40 PSI."
+          },
+          {
+            "text": "Cleaned contaminated surfaces following try-in",
+            "choices": [
+              "Ivoclean",
+              "air abrasion"
+            ]
+          },
+          {
+            "text": "Isolated tissue interface"
+          },
+          {
+            "text": "Cavit + sponge from endo removed completed. Access holes directly leading to pulp canals sealed with Unicem 2 Automix and cured for 20 seconds. -Permanent build up placed with etch, Scotchbond Multipurpose Universal + Fuji Bulk composite"
+          },
+          {
+            "text": "Cleaned intaglio of crown after try in.",
+            "choices": [
+              "with Zirconia primer",
+              "with particle abrasion (BioBlaster)"
+            ]
+          },
+          {
+            "text": "Cleaned external surface of tooth abutment mechanically",
+            "choices": [
+              "with particle abrasion",
+              "water"
+            ]
+          },
+          {
+            "text": "Dried tooth abutment thoroughly",
+            "choices": [
+              "with A-dec Warm Air Tooth Dryer"
+            ]
+          },
+          {
+            "text": "Filled crown abutment with self-adhesive resin cement",
+            "products": [
+              "Panavia SA Cement Plus",
+              "RelyX Unicem 2 Automix",
+              "Variolink II Esthetic Cementation System",
+              "Variolink Ultra Universal Dual Curing Cement"
+            ]
+          },
+          {
+            "text": "Seated crown, stabilized with positive pressure and blew excess cement out of the interproximals"
+          },
+          {
+            "text": "Spot cured facial and lingual to seal the margin"
+          },
+          {
+            "text": "Debrided excess cement from facial and lingual with a scaler."
+          },
+          {
+            "text": "Completed polymerization by light curing the facial, lingual, and occlusal for 20 seconds each."
+          },
+          {
+            "text": "Debrided excess cement",
+            "choices": [
+              "with scaler",
+              "with #12 surgical blade",
+              "with Cerisaw",
+              "with dental floss with knot"
+            ]
+          },
+          {
+            "text": "Verified occlusion with articulating paper. Adjusted as needed. Polished."
+          },
+          {
+            "text": "Pre and post-cementation radiographs taken to verify marginal seal."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Restorative-Adhesive",
+    "checklists": [
+      {
+        "name": "Anterior Adhesively Retained (Veneer) Cementation",
+        "shortName": "Veneer Cementation",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Removed provisionals, cleaned teeth, micro-abraded the preparations with 27 micron aluminum oxide at 40 PSI"
+          },
+          {
+            "text": "Following try-in, utilized retreatment protocol. Applied 30-40% phosphoric acid for 60 seconds to clean the contaminated surface. Rinsed with water, then dried."
+          },
+          {
+            "text": "Applied ceramic primer or 60 seconds."
+          },
+          {
+            "text": "Dried thoroughly",
+            "choices": [
+              "with A-dec Warm Air Tooth Dryer"
+            ]
+          },
+          {
+            "text": "Isolated cervical surfaces of tooth structure with retraction cord",
+            "choices": [
+              "00",
+              "0",
+              "#1",
+              "#2"
+            ]
+          },
+          {
+            "text": "Isolated contacts",
+            "choices": [
+              "with metal matrix strips.",
+              "with teflon tape."
+            ]
+          },
+          {
+            "text": "Completed mouth preparation. Placed lip and tongue retractor."
+          },
+          {
+            "text": "Re-micro-abraded the preparations."
+          },
+          {
+            "text": "Implemented universal bonding protocol: phosphoric acid etch on enamel, agitated acid on enamel surface, applied bonding agent then rubbed dry with dry microbrush, dried and light cured"
+          },
+          {
+            "text": "Loaded veneers with light-cured resin cement"
+          },
+          {
+            "text": "Shade",
+            "choices": [
+              "translucent",
+              "B0.5",
+              "Bleach",
+              "B1",
+              "A1",
+              "A2",
+              "A3"
+            ]
+          },
+          {
+            "text": "Spot cured from lingual. Removed excess resin cement using a brush. Kept veneer seated with light pressure."
+          },
+          {
+            "text": "Spot cured facial margin. Removed excess resin cement using an explorer. Removed cervical retraction cord."
+          },
+          {
+            "text": "Slid metal matrix band interproximally to clear contacts"
+          },
+          {
+            "text": "Final cure facially and lingually for 60 seconds each."
+          },
+          {
+            "text": "Removed lip and tongue retractor."
+          },
+          {
+            "text": "Final clean-up",
+            "choices": [
+              "with #12 surgical blades",
+              "with scaler",
+              "with Gracey curette"
+            ]
+          },
+          {
+            "text": "Adjusted the occlusion and polished"
+          }
+        ]
+      },
+      {
+        "name": "Posterior Adhesively Retained Cementation (Onlay)",
+        "shortName": "Onlay Cementation",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Removed provisional, cleaned tooth, micro-abraded the preparation with 27 micron aluminum oxide at 40 PSI."
+          },
+          {
+            "text": "Following try-in, utilized retreatment protocol. Applied 30-40% phosphoric acid for 60 seconds to clean the contaminated surface. Rinsed with water, then dried."
+          },
+          {
+            "text": "Applied ceramic primer for 60 seconds"
+          },
+          {
+            "text": "Dried thoroughly",
+            "choices": [
+              "with A-dec Warm Air Tooth Dryer"
+            ]
+          },
+          {
+            "text": "Isolated tooth"
+          },
+          {
+            "text": "Micro-abraded the preparations with 27 micron aluminum oxide at 40 PSI."
+          },
+          {
+            "text": "Implemented universal bonding protocol: phosphoric acid etch on enamel, agitated acid on enamel surface, applied bonding agent then rubbed dry with dry microbrush, dried and light cured"
+          },
+          {
+            "text": "Applied self-adhesive resin liner (RelyX Unicem 2) (no more than 1 mm thick) to seal exposed dentin."
+          },
+          {
+            "text": "Loaded onlay with",
+            "choices": [
+              "SonicFill"
+            ]
+          },
+          {
+            "text": "Shade",
+            "choices": [
+              "translucent",
+              "B0.5",
+              "Bleach",
+              "B1",
+              "A1",
+              "A2",
+              "A3"
+            ]
+          },
+          {
+            "text": "Final cure facially and lingually for 60 seconds each."
+          },
+          {
+            "text": "Final clean-up",
+            "choices": [
+              "with #12 surgical blades",
+              "with scaler",
+              "with Gracey curette"
+            ]
+          },
+          {
+            "text": "Adjusted the occlusion and polished"
+          }
+        ]
+      },
+      {
+        "name": "Anterior Adhesively Retained (Veneer) Tooth Preparation",
+        "shortName": "Veneer Prep",
+        "isTreatment": true,
+        "isHygiene": false,
+        "items": [
+          {
+            "text": "Incisal Reduction",
+            "choices": [
+              "none",
+              "0.5 mm",
+              "1 mm",
+              "1.5 mm",
+              "2 mm"
+            ]
+          },
+          {
+            "text": "Facial Reduction",
+            "choices": [
+              "Normal colored teeth: 0.3 - 0.6 mm minimal",
+              "Dark colored teeth: 1 - 1.5 mm",
+              "Increased 0.2mm per shade change"
+            ]
+          },
+          {
+            "text": "Determined Cervical Limitations, developed esthetic requirements and determined osseous crest relationship",
+            "choices": [
+              "Supragingival prep",
+              "Intracrevicular prep"
+            ]
+          },
+          {
+            "text": "Lingual Reduction/Blend considering occlusal relationship and functional requirements"
+          },
+          {
+            "text": "Finished with precise, well-defined margins, no bevels - only light chamfer, no sharp angles, developed path of insertion"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Preventative",
+    "checklists": [
+      {
+        "name": "Fluoride Application",
+        "shortName": "Fluoride",
+        "isTreatment": true,
+        "isHygiene": true,
+        "items": [
+          {
+            "text": "Dried teeth prior to application by rubbing a 2\" x 2\" disposable cotton sponge"
+          },
+          {
+            "text": "Applied a very thin coat of varnish evenly to all of the desired tooth surfaces."
+          },
+          {
+            "text": "Allowed the varnish dry for approximately 10 seconds and then instructed the patient to close their mouth."
+          },
+          {
+            "text": "Informed patient that when dry, any excess varnish may appear \"spotty\" and may slide off the tooth surface. This will not affect the efficacy of the product as there is still a full layer of varnish on the tooth."
+          }
+        ]
+      },
+      {
+        "name": "Enamel White Spot Lesions / Resin Infiltration",
+        "shortName": "White Spot Lesion",
+        "isTreatment": true,
+        "isHygiene": true,
+        "items": [
+          {
+            "text": "Managed the enamel surface by 15% hydrochloric acid gel for 2 min. The gel was stirred from time to time during application with a microbrush."
+          },
+          {
+            "text": "Rinsed with water for 30 seconds using a water spray."
+          },
+          {
+            "text": "Desiccated the lesion by applying ethanol for 30 seconds and followed by air drying."
+          },
+          {
+            "text": "Applied low viscosity resin on the lesion surface using a microbrush. Allowed resin to penetrate for 3 minutes."
+          },
+          {
+            "text": "Removed resin excess using a cotton roll."
+          },
+          {
+            "text": "Light cured resin for 40 seconds."
+          },
+          {
+            "text": "Repeated the resin application to minimize enamel porosity"
+          }
+        ]
+      },
+      {
+        "name": "Sealant Placement-Ultraseal",
+        "shortName": "Sealant",
+        "isTreatment": true,
+        "isHygiene": true,
+        "items": [
+          {
+            "text": "Particle abraded pit and fissure system with Prepstar I."
+          },
+          {
+            "text": "Applied conditioning agent (Polyacrylic Acid) 20 seconds. Rinsed thoroughly."
+          },
+          {
+            "text": "Placed Ultraseal in pit and fissure system"
+          },
+          {
+            "text": "Used curing light to provide heat to accelerate set time."
+          },
+          {
+            "text": "Polished with brownie point bur, with water."
+          },
+          {
+            "text": "Checked occlusion."
+          },
+          {
+            "text": "Pt (pt guardian) is aware that they are semi-permanent and may need to be replaced in future. Proper brushing and flossing is still needed. Advised pt on need to restrict diet to help extend life of properly functioning preventative restoration from hard ice chewing, hard and sticky forms of candies (ex. jolly ranch, mints, lollypops, skittles, and taffy)."
+          }
+        ]
+      },
+      {
+        "name": "Interim Caries Arresting Medicament Application",
+        "shortName": "Curodont",
+        "isTreatment": true,
+        "isHygiene": true,
+        "items": [
+          {
+            "text": "Tooth #:"
+          },
+          {
+            "text": "Educated pt on etio of caries, benefits of treatment and alternatives to treatment (wait and watch). Pt understood, had the opportunity to ask questions and signed consent form."
+          },
+          {
+            "text": "Curodont Repair Fluoride Plus isolated and dried areas of treatment. Removed pellicle using etch (35% phosphoric acid) for 20 seconds. Rinsed with water and dried area. Applied Curodont to lesion area. Allowed solution to diffuse for 5minutes of treatment time. Advised pt to not eat, rinse, or drink for 30 minutes after the application. Encouraged pt to have improve home care habits with proper daily brushing and daily flossing emphasized. Limiting acidic/sugary foods and drinks."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Hygiene",
+    "checklists": [
+      {
+        "name": "Full Mouth Debridement-",
+        "shortName": "FMD",
+        "isTreatment": true,
+        "isHygiene": true,
+        "items": [
+          {
+            "text": "Pt notified that due to periodontitis that SRP is the standard of care. Pt understands SRP is necessary, pt refused SRP today, and opted for FMD due to:",
+            "choices": [
+              "finances",
+              "will schedule for SRP next appt",
+              "time"
+            ]
+          },
+          {
+            "text": "Debridement w/:",
+            "choices": [
+              "Ultrasonic",
+              "Hand Instruments"
+            ]
+          },
+          {
+            "text": "Next appt needed:",
+            "choices": [
+              "ASAP for SRP",
+              "4-6 week re-eval"
+            ]
+          },
+          {
+            "text": "Pt Scheduled",
+            "choices": [
+              "yes",
+              "no"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Laser Lesion Treatment",
+        "shortName": "Laser Lesion Treatment",
+        "isTreatment": true,
+        "isHygiene": true,
+        "items": [
+          {
+            "text": "Safety goggles used by all persons in treatment room. Warning Signs Posted during use. Laser therapy with noninitiated tip Power setting at 1.0 watts, 810nm Stroke: \" Began at 5 mm away from lesion and slowly moved to 2 mm from the lesion * Circular stroke was used on lesions * The stroke extended over the border of the lesion by 2 mm Post Op Instructions reviewed with patient. Pt Dismissed in good condition."
+          },
+          {
+            "text": "_________"
+          }
+        ]
+      },
+      {
+        "name": "Scaling and Root Planing (SRP) (old)",
+        "shortName": "SRP",
+        "isTreatment": true,
+        "isHygiene": true,
+        "items": [
+          {
+            "text": "HHX Review:",
+            "choices": [
+              "Reviewed HHX with patient.",
+              "No reported changes."
+            ]
+          },
+          {
+            "text": "Allergies:",
+            "choices": [
+              "NKDA, no reported food allergies.",
+              "PCN/ AMOX.",
+              "Sulfa Drugs.",
+              "\"________\""
+            ]
+          },
+          {
+            "text": "Conditions:",
+            "choices": [
+              "None.",
+              "HTN, diabetes II, thyroid, autoimmune.",
+              "HX of \"_________\""
+            ]
+          },
+          {
+            "text": "Medications:",
+            "choices": [
+              "No reported medications.",
+              "Listed: \"________\""
+            ]
+          },
+          {
+            "text": "ASA",
+            "choices": [
+              "I.",
+              "II."
+            ]
+          },
+          {
+            "text": "All consent forms completed by patient."
+          },
+          {
+            "text": "Protective eye wear worn by patient.",
+            "choices": [
+              "Proper eyewear given and utilized for LBR."
+            ]
+          },
+          {
+            "text": "Dr. Sabour prescribed the following X-Rays:",
+            "choices": [
+              "4BWX",
+              "& PA's",
+              "FMX",
+              "Pano",
+              "CBCT",
+              "none taken, not due for radiographic update today.",
+              "Post op BWX taken to ensure all calculus removed."
+            ]
+          },
+          {
+            "text": "3D Wellness Scan completed:",
+            "choices": [
+              "Completed full iTero scan today.",
+              "not due for wellness scan today."
+            ]
+          },
+          {
+            "text": "SRP following 8-step Guided Biofilm Therapy protocol completed today",
+            "choices": [
+              "EMS Airflow Prophylaxis Master utilized, with Piezon and hand instruments."
+            ]
+          },
+          {
+            "text": "Scaling and Root planning completed with:",
+            "choices": [
+              "Ultrasonic Piezon & Hand Instruments.",
+              "Hand Instruments only",
+              "Ultrasonic only"
+            ]
+          },
+          {
+            "text": "Probing",
+            "choices": [
+              "Full Mouth completed.",
+              "Completed during previous visit.",
+              "not due for periodontal charting today.",
+              "1-5 mm pockets.",
+              "1-6 mm pockets.",
+              "Moderate BOP.",
+              "Moderate to heavy BOP."
+            ]
+          },
+          {
+            "text": "Perio Diagnosis:",
+            "choices": [
+              "Stage II",
+              "Stage III",
+              "Grade B.",
+              "Grade C."
+            ]
+          },
+          {
+            "text": "Gingival Description",
+            "choices": [
+              "generalized moderate erythema and edema.",
+              "severe erythema and edema - everywhere.",
+              "localized moderate erythema and edema."
+            ]
+          },
+          {
+            "text": "OH:",
+            "choices": [
+              "Good.",
+              "Good to fair.",
+              "Fair.",
+              "Fair to poor.",
+              "Poor.",
+              "POOR.",
+              "Stressed importance of angling ETB lightly towards gumline and C shaped flossing at night.",
+              "Stressed importance of C shaped flossing, in conjunction with Waterpik.",
+              "Gum Disease noted- Discussed etiology of gum disease and bone loss."
+            ]
+          },
+          {
+            "text": "Plaque:",
+            "choices": [
+              "slight, generalized along gingival margin and interproximal.",
+              "slight to moderate, generalized along gingival margin and interproximal.",
+              "moderate, generalized along gingival margin and interproximal.",
+              "moderate to heavy, generalized along gingival margin and interproximal.",
+              "heavy, generalized along gingival margin and interproximal.",
+              "HEAVY - generalized everywhere."
+            ]
+          },
+          {
+            "text": "Calculus:",
+            "choices": [
+              "slight, localized lower anterior lingual.",
+              "moderate, generalized subgingival and supragingival.",
+              "moderate, generalized subgingival and supragingival - mainly back molars radiographic.",
+              "moderate to heavy, generalized subgingival and supragingival.",
+              "HEAVY, generalized subgingival and supragingival - radiographic."
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

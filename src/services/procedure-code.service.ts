@@ -34,6 +34,31 @@ export class ProcedureCodeService {
       requiresToothImage: c.RequiresToothImage ?? false,
     }));
   }
+  async getProcedureButtons() {
+    const categories = await prisma.definition.findMany({
+      where: { Category: 1 },
+      orderBy: { ItemOrder: 'asc' }
+    });
+
+    const codes = await prisma.procedurecode.findMany({
+      orderBy: { ProcCode: 'asc' }
+    });
+
+    return categories.map(cat => {
+      const catCodes = codes.filter(c => c.ProcCat === cat.DefNum);
+      return {
+        _id: cat.DefNum.toString(),
+        category: cat.ItemName,
+        itemOrder: cat.ItemOrder,
+        items: catCodes.map((c, index) => ({
+          _id: c.CodeNum!.toString(),
+          code: c.ProcCode,
+          name: c.AbbrDesc || c.Descript,
+          itemOrder: index.toString()
+        }))
+      };
+    });
+  }
 }
 
 export const procedureCodeService = new ProcedureCodeService();

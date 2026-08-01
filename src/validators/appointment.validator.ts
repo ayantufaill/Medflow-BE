@@ -69,11 +69,6 @@ export const createAppointmentValidator: ValidationChain[] = [
     .optional()
     .isBoolean()
     .withMessage('requiresInterpreter must be a boolean'),
-  body('interpreterLanguage')
-    .optional()
-    .trim()
-    .isLength({ max: 50 })
-    .withMessage('Interpreter language must be less than 50 characters'),
   body('insuranceVerified')
     .optional()
     .isBoolean()
@@ -163,11 +158,6 @@ export const updateAppointmentValidator: ValidationChain[] = [
     .optional()
     .isBoolean()
     .withMessage('requiresInterpreter must be a boolean'),
-  body('interpreterLanguage')
-    .optional()
-    .trim()
-    .isLength({ max: 50 })
-    .withMessage('Interpreter language must be less than 50 characters'),
   body('insuranceVerified')
     .optional()
     .isBoolean()

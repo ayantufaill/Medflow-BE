@@ -92,10 +92,18 @@ export class PatientService {
     gender?: string,
     providerId?: string,
     sortBy?: string,
-    sortOrder?: string
+    sortOrder?: string,
+    clinicIds?: bigint[]
   ) {
     const skip = (page - 1) * limit;
     const where: any = {};
+
+    // Scope to the caller's accessible clinics, if branch access was resolved
+    // for this request. Callers with no clinic assignments yet (branches not
+    // set up) are left unscoped so existing single-clinic practices are unaffected.
+    if (clinicIds && clinicIds.length > 0) {
+      where.ClinicNum = { in: clinicIds };
+    }
 
     // Filter by gender using mapGenderToDb
     if (gender) {

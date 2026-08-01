@@ -1,6 +1,31 @@
 import { prisma } from '../config/db';
-import type { AppRole } from '../types/auth.types';
+import type { AppRole, BranchAccess } from '../types/auth.types';
+import { GROUP_ADMIN_PERMISSIONS } from '../types/auth.types';
 import { mapRole } from '../utils/opendental-auth.util';
+
+// Resource types scoped by clinic.ClinicNum, and how to look up their clinic.
+const CLINIC_SCOPED_RESOURCES: Record<string, { findClinicNum: (id: bigint) => Promise<bigint | null> }> = {
+  patient: {
+    findClinicNum: async (id) =>
+      (await prisma.patient.findUnique({ where: { PatNum: id }, select: { ClinicNum: true } }))
+        ?.ClinicNum ?? null,
+  },
+  appointment: {
+    findClinicNum: async (id) =>
+      (await prisma.appointment.findUnique({ where: { AptNum: id }, select: { ClinicNum: true } }))
+        ?.ClinicNum ?? null,
+  },
+  claim: {
+    findClinicNum: async (id) =>
+      (await prisma.claim.findUnique({ where: { ClaimNum: id }, select: { ClinicNum: true } }))
+        ?.ClinicNum ?? null,
+  },
+  payment: {
+    findClinicNum: async (id) =>
+      (await prisma.payment.findUnique({ where: { PayNum: id }, select: { ClinicNum: true } }))
+        ?.ClinicNum ?? null,
+  },
+};
 
 export class PermissionService {
   static async getUserRoles(userId: string): Promise<string[]> {
@@ -84,20 +109,78 @@ export class PermissionService {
     return mapped.filter((role) => role.isActive !== false);
   }
 
+  /**
+   * Resolves which ClinicNums a user may access: their `userclinic` assignments
+   * (plus their `userod.ClinicNum` home clinic), expanded to every clinic in
+   * their practicegroup if they hold a GROUP_ADMIN_PERMISSIONS permission.
+   */
+  static async getBranchAccess(userId: string): Promise<BranchAccess> {
+    const userNum = BigInt(userId);
+
+    const assignments = await prisma.userclinic.findMany({
+      where: { UserNum: userNum },
+      select: { ClinicNum: true },
+    });
+    const clinicIds = new Set<bigint>(
+      assignments.map((a) => a.ClinicNum).filter((id): id is bigint => id !== null)
+    );
+
+    const user = await prisma.userod.findUnique({
+      where: { UserNum: userNum },
+      select: { ClinicNum: true },
+    });
+    if (user?.ClinicNum !== null && user?.ClinicNum !== undefined) {
+      clinicIds.add(user.ClinicNum);
+    }
+
+    const permissions = await this.getUserPermissions(userId);
+    const isGroupAdmin =
+      permissions.has('*') ||
+      Object.values(GROUP_ADMIN_PERMISSIONS).some((perm) => permissions.has(perm));
+
+    let groupId: number | null = null;
+    const [firstClinicId] = clinicIds;
+    if (firstClinicId !== undefined) {
+      const homeClinic = await prisma.clinic.findUnique({
+        where: { ClinicNum: firstClinicId },
+        select: { GroupNum: true },
+      });
+      groupId = homeClinic?.GroupNum ?? null;
+    }
+
+    let effectiveClinicIds = Array.from(clinicIds);
+    if (isGroupAdmin && groupId !== null) {
+      const groupClinics = await prisma.clinic.findMany({
+        where: { GroupNum: groupId },
+        select: { ClinicNum: true },
+      });
+      effectiveClinicIds = groupClinics.map((c) => c.ClinicNum);
+    }
+
+    return { clinicIds: effectiveClinicIds, groupId, isGroupAdmin };
+  }
+
   static async canAccessResource(
     userId: string,
     resourceType: string,
     resourceId: string,
-    action: string
+    _action: string
   ): Promise<boolean> {
     if (await this.hasRole(userId, 'Admin')) {
       return true;
     }
 
-    if (resourceType === 'patient') {
+    const resourceConfig = CLINIC_SCOPED_RESOURCES[resourceType];
+    if (!resourceConfig) {
       return false;
     }
 
-    return false;
+    const resourceClinicNum = await resourceConfig.findClinicNum(BigInt(resourceId));
+    if (resourceClinicNum === null) {
+      return false;
+    }
+
+    const branchAccess = await this.getBranchAccess(userId);
+    return branchAccess.clinicIds.includes(resourceClinicNum);
   }
 }

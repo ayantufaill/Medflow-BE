@@ -1,835 +1,544 @@
 import { prisma } from '../config/db';
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+/**
+ * OpenDental ProcStatus codes:
+ *  1 = Treatment Planned (TP)
+ *  2 = Complete
+ *  3 = Existing Current
+ *  4 = Existing Other
+ *  5 = Referred Out
+ *  6 = Deleted
+ *  7 = Condition
+ *  8 = Rejected
+ */
+const PROC_STATUS_COMPLETE = 2;
+const PROC_STATUS_TP = 1;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Generates an array of 12 { year, month } buckets (UTC) going back from the
+ * current month. Index 0 = most recent month, index 11 = 12 months ago.
+ */
+function getLast12MonthBuckets(): Array<{ year: number; month: number; start: Date; end: Date }> {
+  const now = new Date();
+  const buckets: Array<{ year: number; month: number; start: Date; end: Date }> = [];
+
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(Date.UTC(now.getFullYear(), now.getMonth() - i, 1));
+    const year = d.getUTCFullYear();
+    const month = d.getUTCMonth(); // 0-indexed
+
+    const start = new Date(Date.UTC(year, month, 1));
+    const end = new Date(Date.UTC(year, month + 1, 1)); // exclusive upper bound
+
+    buckets.push({ year, month, start, end });
+  }
+
+  return buckets;
+}
+
+/**
+ * Given a Date, returns the bucket index (0-based, 0 = most recent month)
+ * for the given list of buckets, or -1 if it doesn't fall in any.
+ */
+function getBucketIndex(
+  date: Date,
+  buckets: Array<{ start: Date; end: Date }>
+): number {
+  const t = date.getTime();
+  return buckets.findIndex((b) => t >= b.start.getTime() && t < b.end.getTime());
+}
+
+/**
+ * Format a number as a locale string with 2 decimal places.
+ * e.g. 53211.8 → "53,211.80"
+ */
+function fmt(n: number): string {
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * Format an integer count.
+ */
+function fmtInt(n: number): string {
+  return n.toLocaleString('en-US');
+}
+
+// ─── KPI Service ─────────────────────────────────────────────────────────────
+
 export class KpiService {
-  async getMainKpis() {
-    // Dynamically calculate seen patient count from appointment table for the last 12 months
-    let totalSeen = 84;
-    try {
-      const dbSeenCount = await prisma.appointment.count({
-        where: {
-          AptDateTime: {
-            gte: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
-          },
-        },
-      });
-      if (dbSeenCount > 0) totalSeen = dbSeenCount;
-    } catch (e) {
-      // Graceful fallback
+  /**
+   * Returns consolidated KPI metrics for the rolling last 12 months.
+   * All values arrays are ordered: index 0 = most recent month.
+   */
+  async getMainKpis(startDate?: Date, endDate?: Date) {
+    const buckets = getLast12MonthBuckets();
+    const rangeStart = buckets[11].start;
+    const rangeEnd = buckets[0].end;
+
+    // ── 1. Load all providers to classify Doctor vs Hygiene ──────────────────
+    const providers = await prisma.provider.findMany({
+      select: { ProvNum: true, IsSecondary: true, IsHidden: true, FName: true, LName: true },
+    });
+
+    // IsSecondary = 1 → hygienist, 0 → doctor
+    const hygieneProvNums = new Set(
+      providers.filter((p) => p.IsSecondary === 1).map((p) => p.ProvNum)
+    );
+
+    // ── 2. Production: completed procedurelog rows ────────────────────────────
+    const procLogs = await prisma.procedurelog.findMany({
+      where: {
+        ProcStatus: PROC_STATUS_COMPLETE,
+        ProcDate: { gte: rangeStart, lt: rangeEnd },
+        ProcFee: { not: null },
+      },
+      select: { ProcDate: true, ProcFee: true, ProvNum: true, Discount: true },
+    });
+
+    // ── 3. Adjustments (net production = gross - adjustments) ─────────────────
+    const adjustments = await prisma.adjustment.findMany({
+      where: {
+        AdjDate: { gte: rangeStart, lt: rangeEnd },
+      },
+      select: { AdjDate: true, AdjAmt: true, ProvNum: true },
+    });
+
+    // ── 4. Collections via paysplit (patient payments, linked to provider) ────
+    const paySplits = await prisma.paysplit.findMany({
+      where: {
+        DatePay: { gte: rangeStart, lt: rangeEnd },
+        IsDiscount: 0,
+      },
+      select: { DatePay: true, SplitAmt: true, ProvNum: true },
+    });
+
+    // ── 5. Seen patients per month ────────────────────────────────────────────
+    // AptStatus = 2 means Complete in OpenDental
+    const completedAppts = await prisma.appointment.findMany({
+      where: {
+        AptDateTime: { gte: rangeStart, lt: rangeEnd },
+        AptStatus: 2,
+      },
+      select: { AptDateTime: true, PatNum: true, ProvNum: true },
+    });
+
+    // ── 6. Treatment plan procedures (Case Diagnostic) ───────────────────────
+    // Fetch TP-status procs created in the period (DateTP is when TP was created)
+    const tpProcs = await prisma.procedurelog.findMany({
+      where: {
+        ProcStatus: PROC_STATUS_TP,
+        DateTP: { gte: rangeStart, lt: rangeEnd },
+        ProcFee: { not: null },
+      },
+      select: { DateTP: true, ProcFee: true, ProvNum: true },
+    });
+
+    // ── Aggregate into buckets ────────────────────────────────────────────────
+
+    // Initialize zero arrays
+    const gross = Array(12).fill(0);
+    const grossDoc = Array(12).fill(0);
+    const grossHyg = Array(12).fill(0);
+    const netAdj = Array(12).fill(0); // total adjustments per bucket
+    const netAdjDoc = Array(12).fill(0);
+    const netAdjHyg = Array(12).fill(0);
+    const collectionTotal = Array(12).fill(0);
+    const collectionDoc = Array(12).fill(0);
+    const collectionHyg = Array(12).fill(0);
+    const seenPatients = Array(12).fill(0);
+    const seenPatientSets: Set<bigint>[] = Array.from({ length: 12 }, () => new Set());
+    const tpAccepted = Array(12).fill(0); // proxy for "Accepted" case metric
+    const tpDiagnosed = Array(12).fill(0);
+
+    // Gross production
+    for (const row of procLogs) {
+      if (!row.ProcDate) continue;
+      const idx = getBucketIndex(row.ProcDate, buckets);
+      if (idx === -1) continue;
+      const fee = row.ProcFee ?? 0;
+      gross[idx] += fee;
+      if (hygieneProvNums.has(row.ProvNum!)) {
+        grossHyg[idx] += fee;
+      } else {
+        grossDoc[idx] += fee;
+      }
     }
 
-    // Consolidated Metrics Matrix
+    // Adjustments (negative = reduce production, positive = increase)
+    for (const row of adjustments) {
+      if (!row.AdjDate) continue;
+      const idx = getBucketIndex(row.AdjDate, buckets);
+      if (idx === -1) continue;
+      const amt = row.AdjAmt ?? 0;
+      netAdj[idx] += amt;
+      if (hygieneProvNums.has(row.ProvNum!)) {
+        netAdjHyg[idx] += amt;
+      } else {
+        netAdjDoc[idx] += amt;
+      }
+    }
+
+    // Collections
+    for (const row of paySplits) {
+      if (!row.DatePay) continue;
+      const idx = getBucketIndex(row.DatePay, buckets);
+      if (idx === -1) continue;
+      const amt = row.SplitAmt ?? 0;
+      collectionTotal[idx] += amt;
+      if (hygieneProvNums.has(row.ProvNum!)) {
+        collectionHyg[idx] += amt;
+      } else {
+        collectionDoc[idx] += amt;
+      }
+    }
+
+    // Seen patients (unique per month)
+    for (const appt of completedAppts) {
+      if (!appt.AptDateTime || !appt.PatNum) continue;
+      const idx = getBucketIndex(appt.AptDateTime, buckets);
+      if (idx === -1) continue;
+      seenPatientSets[idx].add(appt.PatNum);
+    }
+    for (let i = 0; i < 12; i++) {
+      seenPatients[i] = seenPatientSets[i].size;
+    }
+
+    // TP procedures — "Diagnosed" vs "Accepted" proxy
+    for (const row of tpProcs) {
+      if (!row.DateTP) continue;
+      const idx = getBucketIndex(row.DateTP, buckets);
+      if (idx === -1) continue;
+      const fee = row.ProcFee ?? 0;
+      tpDiagnosed[idx] += fee;
+    }
+
+    // Completed procedures = "Accepted/Completed" case metric
+    for (const row of procLogs) {
+      if (!row.ProcDate) continue;
+      const idx = getBucketIndex(row.ProcDate, buckets);
+      if (idx === -1) continue;
+      tpAccepted[idx] += row.ProcFee ?? 0;
+    }
+
+    // Derive net production = gross - adjustments
+    const net = gross.map((g, i) => g + netAdj[i]); // AdjAmt can be negative
+    const netDoc = grossDoc.map((g, i) => g + netAdjDoc[i]);
+    const netHyg = grossHyg.map((g, i) => g + netAdjHyg[i]);
+
+    // ── Build response matrix ─────────────────────────────────────────────────
     return [
       {
         title: 'Production Metrics',
         rows: [
-          {
-            label: 'Gross Production',
-            values: [
-              '53,211.80',
-              '126,204.15',
-              '95,371.60',
-              '120,460.60',
-              '83,951.61',
-              '59,632.35',
-              '68,911.90',
-              '80,970.39',
-              '116,531.60',
-              '93,017.25',
-              '54,089.50',
-              '76,617.70',
-            ],
-          },
-          {
-            label: 'Doctor Gross Production',
-            values: [
-              '48,205.80',
-              '111,595.00',
-              '81,032.60',
-              '92,614.00',
-              '63,166.60',
-              '46,069.45',
-              '58,323.90',
-              '68,562.39',
-              '102,863.60',
-              '89,097.25',
-              '51,921.50',
-              '65,517.70',
-            ],
-          },
-          {
-            label: 'Hygiene Gross Production',
-            values: [
-              '5,006.00',
-              '14,609.15',
-              '14,339.00',
-              '21,946.60',
-              '14,885.01',
-              '13,562.90',
-              '10,588.00',
-              '12,408.00',
-              '13,668.00',
-              '3,920.00',
-              '2,168.00',
-              '11,100.00',
-            ],
-          },
+          { label: 'Gross Production', values: gross.map(fmt) },
+          { label: 'Doctor Gross Production', values: grossDoc.map(fmt) },
+          { label: 'Hygiene Gross Production', values: grossHyg.map(fmt) },
         ],
       },
       {
         title: 'Net Production Metrics',
         rows: [
-          {
-            label: 'Net Production',
-            values: [
-              '41,383.80',
-              '105,473.95',
-              '80,630.94',
-              '103,143.20',
-              '69,207.01',
-              '47,534.50',
-              '59,776.90',
-              '69,956.74',
-              '95,045.00',
-              '80,056.85',
-              '42,425.50',
-              '72,451.40',
-            ],
-          },
-          {
-            label: 'Doctor Net Production',
-            values: [
-              '37,920.80',
-              '94,778.85',
-              '70,639.94',
-              '82,843.20',
-              '53,025.60',
-              '37,547.40',
-              '51,547.90',
-              '60,405.54',
-              '83,323.40',
-              '76,735.65',
-              '40,719.50',
-              '63,066.00',
-            ],
-          },
-          {
-            label: 'Hygiene Production',
-            values: [
-              '3,463.00',
-              '10,695.10',
-              '9,991.00',
-              '15,100.00',
-              '10,981.41',
-              '9,987.10',
-              '8,229.00',
-              '9,551.20',
-              '11,721.60',
-              '3,321.20',
-              '1,706.00',
-              '9,385.40',
-            ],
-          },
+          { label: 'Net Production', values: net.map(fmt) },
+          { label: 'Doctor Net Production', values: netDoc.map(fmt) },
+          { label: 'Hygiene Production', values: netHyg.map(fmt) },
         ],
       },
       {
         title: 'Collection Metrics',
         rows: [
-          {
-            label: 'Gross Collection',
-            values: [
-              '42,823.71',
-              '90,376.59',
-              '106,284.47',
-              '86,101.20',
-              '69,548.35',
-              '53,770.66',
-              '53,271.42',
-              '84,967.39',
-              '89,710.87',
-              '67,797.35',
-              '42,598.62',
-              '67,286.48',
-            ],
-          },
-          {
-            label: 'Doctor Gross Collection',
-            values: [
-              '38,181.27',
-              '78,271.21',
-              '92,755.46',
-              '71,262.89',
-              '53,830.30',
-              '44,140.26',
-              '44,829.12',
-              '76,384.47',
-              '79,838.87',
-              '66,557.10',
-              '39,097.80',
-              '58,236.85',
-            ],
-          },
-          {
-            label: 'Hygiene Gross Collection',
-            values: [
-              '4,642.44',
-              '12,105.38',
-              '13,909.01',
-              '10,856.33',
-              '14,218.05',
-              '9,630.40',
-              '8,442.30',
-              '8,582.92',
-              '9,872.00',
-              '1,240.25',
-              '3,500.82',
-              '9,049.63',
-            ],
-          },
+          { label: 'Gross Collection', values: collectionTotal.map(fmt) },
+          { label: 'Doctor Gross Collection', values: collectionDoc.map(fmt) },
+          { label: 'Hygiene Gross Collection', values: collectionHyg.map(fmt) },
         ],
       },
       {
         title: 'Total Collection Metrics',
         rows: [
-          {
-            label: 'Total Collection',
-            values: [
-              '42,362.93',
-              '89,273.33',
-              '105,331.08',
-              '85,691.25',
-              '67,125.65',
-              '51,783.06',
-              '51,979.88',
-              '82,307.87',
-              '88,039.85',
-              '66,483.85',
-              '41,114.18',
-              '66,711.38',
-            ],
-          },
-          {
-            label: 'Doctor Collection',
-            values: [
-              '37,942.73',
-              '77,292.75',
-              '92,122.36',
-              '70,960.69',
-              '52,264.70',
-              '42,152.66',
-              '43,860.98',
-              '73,882.87',
-              '78,532.65',
-              '65,243.60',
-              '38,015.51',
-              '57,835.35',
-            ],
-          },
-          {
-            label: 'Hygiene Collection',
-            values: [
-              '4,420.20',
-              '11,980.58',
-              '13,208.72',
-              '10,748.58',
-              '13,360.95',
-              '9,630.40',
-              '8,118.90',
-              '8,425.00',
-              '9,507.20',
-              '1,240.25',
-              '3,098.67',
-              '8,876.03',
-            ],
-          },
+          { label: 'Total Collection', values: collectionTotal.map(fmt) },
+          { label: 'Doctor Collection', values: collectionDoc.map(fmt) },
+          { label: 'Hygiene Collection', values: collectionHyg.map(fmt) },
         ],
       },
       {
         title: 'Patient & Exam Metrics',
         rows: [
-          {
-            label: 'Total Seen Patients',
-            values: [
-              totalSeen.toString(),
-              '112',
-              '79',
-              '94',
-              '81',
-              '87',
-              '76',
-              '89',
-              '96',
-              '100',
-              '86',
-              '70',
-            ],
-          },
-          {
-            label: 'Total Exams Count',
-            values: ['32', '46', '35', '45', '41', '44', '34', '36', '36', '50', '42', '32'],
-          },
-          {
-            label: 'All Exam Diagnosed Procedures',
-            values: [
-              '75,714',
-              '154,941.2',
-              '108,385',
-              '201,524',
-              '188,651',
-              '183,353',
-              '147,005.95',
-              '72,043',
-              '200,658.95',
-              '87,224',
-              '62,317.3',
-              '133,859',
-            ],
-          },
-          {
-            label: 'Total Comprehensive Exams Count',
-            values: ['8', '13', '9', '14', '12', '15', '12', '13', '12', '12', '10', '15'],
-          },
-          {
-            label: 'Comprehensive Exam Diagnosed Procedures',
-            values: [
-              '47,503',
-              '78,417',
-              '33,891',
-              '152,024',
-              '95,444',
-              '138,980',
-              '107,365',
-              '51,115',
-              '137,918.35',
-              '41,227',
-              '46,943',
-              '102,467',
-            ],
-          },
-          {
-            label: 'Total Limited Exams Count',
-            values: ['4', '3', '2', '1', '7', '5', '3', '3', '6', '12', '3', '2'],
-          },
-          {
-            label: 'Limited Exam Diagnosed Procedures',
-            values: [
-              '5,786',
-              '1,681.8',
-              '8,093',
-              '204',
-              '43,638',
-              '14,560',
-              '6,031',
-              '5,177',
-              '19,040.6',
-              '34,197',
-              '2,246',
-              '5,230',
-            ],
-          },
-          {
-            label: 'Total Recare Exams Count',
-            values: ['20', '30', '24', '30', '22', '24', '19', '20', '18', '26', '29', '15'],
-          },
-          {
-            label: 'Recare Exam Diagnosed Procedures',
-            values: [
-              '22,425',
-              '74,842.4',
-              '74,494',
-              '49,296',
-              '49,569',
-              '29,813',
-              '33,609.95',
-              '15,751',
-              '11,800',
-              '13,167.3',
-              '26,162',
-              '26,162',
-            ],
-          },
-          {
-            label: 'Perio Percentage (%)',
-            values: ['35', '32', '26', '27', '27', '28', '35', '42', '44', '42', '37', '42'],
-          },
-          {
-            label: 'Exams Revenue Ratio (%)',
-            values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-          },
+          { label: 'Total Seen Patients', values: seenPatients.map(fmtInt) },
         ],
       },
       {
         title: 'Case Diagnostic Metrics',
         rows: [
-          {
-            label: 'Diagnosed',
-            values: [
-              '15,988.60',
-              '45,155.60',
-              '16,786.00',
-              '55,038.60',
-              '51,062.80',
-              '58,284.60',
-              '55,060.20',
-              '79,833.15',
-              '40,154.80',
-              '20,712.15',
-              '39,122.00',
-              '83,449.40',
-            ],
-          },
-          {
-            label: 'Presented',
-            values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-          },
-          {
-            label: 'Accepted',
-            values: [
-              '57,091.40',
-              '141,668.10',
-              '152,055.55',
-              '62,719.70',
-              '81,172.95',
-              '62,506.75',
-              '85,588.10',
-              '25,934.20',
-              '139,850.95',
-              '94,638.40',
-              '37,498.80',
-              '116,192.90',
-            ],
-          },
-          {
-            label: 'Rejected',
-            values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '5,200.00'],
-          },
-          {
-            label: 'Future',
-            values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-          },
-          {
-            label: 'FollowUp',
-            values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-          },
-          {
-            label: 'Scheduled',
-            values: [
-              '34,478.10',
-              '28,916.46',
-              '25,815.90',
-              '47,306.20',
-              '36,918.00',
-              '38,182.70',
-              '16,615.00',
-              '46,819.90',
-              '44,591.55',
-              '28,275.10',
-              '28,400.00',
-              '7,899.80',
-            ],
-          },
-          {
-            label: 'Completed',
-            values: [
-              '30,939.80',
-              '88,598.00',
-              '59,665.90',
-              '92,511.60',
-              '58,561.41',
-              '35,989.50',
-              '49,893.90',
-              '58,805.74',
-              '84,151.20',
-              '71,693.95',
-              '30,460.20',
-              '54,631.70',
-            ],
-          },
+          { label: 'Diagnosed', values: tpDiagnosed.map(fmt) },
+          { label: 'Accepted', values: tpAccepted.map(fmt) },
+          { label: 'Completed', values: tpAccepted.map(fmt) },
         ],
       },
     ];
   }
 
-  async getProviderKpis() {
-    return [
-      {
-        name: 'Christina Sabour',
+  /**
+   * Returns KPI metrics grouped by provider for the rolling last 12 months.
+   */
+  async getProviderKpis(startDate?: Date, endDate?: Date) {
+    const buckets = getLast12MonthBuckets();
+    const rangeStart = buckets[11].start;
+    const rangeEnd = buckets[0].end;
+
+    // ── Load all non-hidden providers ─────────────────────────────────────────
+    const providers = await prisma.provider.findMany({
+      where: { IsHidden: 0 },
+      select: {
+        ProvNum: true,
+        FName: true,
+        LName: true,
+        IsSecondary: true,
+        HourlyProdGoalAmt: true,
+      },
+      orderBy: { LName: 'asc' },
+    });
+
+    if (providers.length === 0) return [];
+
+    const provNums = providers.map((p) => p.ProvNum);
+
+    // ── Bulk fetch data for all providers ─────────────────────────────────────
+
+    // Gross production per provider
+    const procLogs = await prisma.procedurelog.findMany({
+      where: {
+        ProcStatus: PROC_STATUS_COMPLETE,
+        ProcDate: { gte: rangeStart, lt: rangeEnd },
+        ProvNum: { in: provNums },
+        ProcFee: { not: null },
+      },
+      select: { ProcDate: true, ProcFee: true, ProvNum: true },
+    });
+
+    // Adjustments per provider
+    const adjustments = await prisma.adjustment.findMany({
+      where: {
+        AdjDate: { gte: rangeStart, lt: rangeEnd },
+        ProvNum: { in: provNums },
+      },
+      select: { AdjDate: true, AdjAmt: true, ProvNum: true },
+    });
+
+    // Collections per provider
+    const paySplits = await prisma.paysplit.findMany({
+      where: {
+        DatePay: { gte: rangeStart, lt: rangeEnd },
+        IsDiscount: 0,
+        ProvNum: { in: provNums },
+      },
+      select: { DatePay: true, SplitAmt: true, ProvNum: true },
+    });
+
+    // Appointments per provider
+    const appointments = await prisma.appointment.findMany({
+      where: {
+        AptDateTime: { gte: rangeStart, lt: rangeEnd },
+        AptStatus: 2,
+        ProvNum: { in: provNums },
+      },
+      select: { AptDateTime: true, PatNum: true, ProvNum: true },
+    });
+
+    // ── Aggregate per provider per bucket ─────────────────────────────────────
+
+    // Build maps keyed by ProvNum.toString()
+    const grossMap: Record<string, number[]> = {};
+    const adjMap: Record<string, number[]> = {};
+    const collMap: Record<string, number[]> = {};
+    const apptCountMap: Record<string, number[]> = {};
+    const seenPtMap: Record<string, Set<bigint>[]> = {};
+
+    for (const p of providers) {
+      const key = p.ProvNum.toString();
+      grossMap[key] = Array(12).fill(0);
+      adjMap[key] = Array(12).fill(0);
+      collMap[key] = Array(12).fill(0);
+      apptCountMap[key] = Array(12).fill(0);
+      seenPtMap[key] = Array.from({ length: 12 }, () => new Set<bigint>());
+    }
+
+    for (const row of procLogs) {
+      if (!row.ProcDate || !row.ProvNum) continue;
+      const idx = getBucketIndex(row.ProcDate, buckets);
+      const key = row.ProvNum.toString();
+      if (idx === -1 || !grossMap[key]) continue;
+      grossMap[key][idx] += row.ProcFee ?? 0;
+    }
+
+    for (const row of adjustments) {
+      if (!row.AdjDate || !row.ProvNum) continue;
+      const idx = getBucketIndex(row.AdjDate, buckets);
+      const key = row.ProvNum.toString();
+      if (idx === -1 || !adjMap[key]) continue;
+      adjMap[key][idx] += row.AdjAmt ?? 0;
+    }
+
+    for (const row of paySplits) {
+      if (!row.DatePay || !row.ProvNum) continue;
+      const idx = getBucketIndex(row.DatePay, buckets);
+      const key = row.ProvNum.toString();
+      if (idx === -1 || !collMap[key]) continue;
+      collMap[key][idx] += row.SplitAmt ?? 0;
+    }
+
+    for (const appt of appointments) {
+      if (!appt.AptDateTime || !appt.ProvNum) continue;
+      const idx = getBucketIndex(appt.AptDateTime, buckets);
+      const key = appt.ProvNum.toString();
+      if (idx === -1 || !apptCountMap[key]) continue;
+      apptCountMap[key][idx]++;
+      if (appt.PatNum) seenPtMap[key][idx].add(appt.PatNum);
+    }
+
+    // ── Build per-provider response ───────────────────────────────────────────
+
+    return providers.map((provider) => {
+      const key = provider.ProvNum.toString();
+      const fullName = `${provider.FName ?? ''} ${provider.LName ?? ''}`.trim();
+
+      const gross = grossMap[key];
+      const adj = adjMap[key];
+      const coll = collMap[key];
+      const apptCount = apptCountMap[key];
+      const seenSets = seenPtMap[key];
+
+      const net = gross.map((g, i) => g + adj[i]);
+      const seenPt = seenSets.map((s) => s.size);
+
+      // Production per visit: net / seen patients (avoid divide-by-zero)
+      const prodPerVisit = net.map((n, i) => (seenPt[i] > 0 ? n / seenPt[i] : 0));
+
+      return {
+        name: fullName,
+        isHygienist: provider.IsSecondary === 1,
         groups: [
           {
             title: 'Provider Production Metrics',
             rows: [
-              {
-                label: 'Provider Gross Production',
-                values: [
-                  '48,205.80',
-                  '82,020.00',
-                  '55,932.60',
-                  '92,594.00',
-                  '63,166.60',
-                  '46,069.45',
-                  '58,323.90',
-                  '68,562.39',
-                  '102,863.60',
-                  '89,097.25',
-                  '51,921.50',
-                  '65,517.70',
-                ],
-              },
-              {
-                label: 'Provider Net Production',
-                values: [
-                  '37,920.80',
-                  '67,303.85',
-                  '46,239.94',
-                  '82,843.20',
-                  '53,025.60',
-                  '37,547.40',
-                  '51,547.90',
-                  '60,405.54',
-                  '83,323.40',
-                  '76,735.65',
-                  '40,719.50',
-                  '63,066.00',
-                ],
-              },
-              {
-                label: 'Provider Total Collection',
-                values: [
-                  '35,423.53',
-                  '56,373.63',
-                  '69,260.61',
-                  '70,960.69',
-                  '52,264.70',
-                  '42,152.66',
-                  '43,860.98',
-                  '73,882.87',
-                  '78,532.65',
-                  '65,243.60',
-                  '38,015.51',
-                  '57,835.35',
-                ],
-              },
+              { label: 'Provider Gross Production', values: gross.map(fmt) },
+              { label: 'Provider Net Production', values: net.map(fmt) },
+              { label: 'Provider Total Collection', values: coll.map(fmt) },
             ],
           },
           {
             title: 'Provider Appointment Metrics',
             rows: [
-              {
-                label: 'Provider Total Appointments',
-                values: ['89', '121', '72', '93', '98', '87', '86', '108', '134', '119', '105', '77'],
-              },
-              {
-                label: 'Provider Seen Patients',
-                values: ['72', '94', '61', '68', '77', '77', '71', '88', '94', '96', '86', '59'],
-              },
+              { label: 'Provider Total Appointments', values: apptCount.map(fmtInt) },
+              { label: 'Provider Seen Patients', values: seenPt.map(fmtInt) },
             ],
           },
           {
             title: 'Provider Work Efficiency Metrics',
             rows: [
-              {
-                label: 'Provider Working Hours',
-                values: ['441', '532', '143', '144', '130', '123', '123', '146', '161', '111', '134', '156'],
-              },
-              {
-                label: 'Provider Production Per Visit',
-                values: [
-                  '424.95',
-                  '564.38',
-                  '585.32',
-                  '996.00',
-                  '645.00',
-                  '530.00',
-                  '678.00',
-                  '635.00',
-                  '768.00',
-                  '749.00',
-                  '494.00',
-                  '851.00',
-                ],
-              },
-              {
-                label: 'Provider Scheduled Production',
-                values: [
-                  '37,956.80',
-                  '45,717.70',
-                  '30,519.94',
-                  '79,037.20',
-                  '51,467.20',
-                  '35,600.60',
-                  '44,791.90',
-                  '57,842.74',
-                  '82,303.80',
-                  '69,754.75',
-                  '39,840.30',
-                  '62,613.80',
-                ],
-              },
-              {
-                label: 'Provider Hourly Production',
-                values: ['85.71', '126.12', '340.00', '0.00', '0.00', '0.00', '0.00', '175.00', '573.00', '0.00', '184.00', '0.00'],
-              },
-            ],
-          },
-          {
-            title: 'Provider Treatment Metrics',
-            rows: [
-              {
-                label: 'Provider Same Day Treatment',
-                values: [
-                  '3,182.00',
-                  '26,531.00',
-                  '18,599.00',
-                  '15,556.00',
-                  '11,071.00',
-                  '4,838.00',
-                  '9,321.00',
-                  '2,680.00',
-                  '2,670.00',
-                  '12,811.00',
-                  '3,562.00',
-                  '10,787.00',
-                ],
-              },
+              { label: 'Provider Production Per Visit', values: prodPerVisit.map(fmt) },
             ],
           },
         ],
+      };
+    });
+  }
+
+  /**
+   * Returns 4 top-card summary metrics comparing current month vs last month.
+   * Suitable for a dedicated GET /kpis/summary endpoint.
+   */
+  async getKpiSummary() {
+    const buckets = getLast12MonthBuckets();
+    const thisMonth = buckets[0];
+    const lastMonth = buckets[1];
+
+    // Helper: sum paysplit for a date range
+    const sumCollection = async (start: Date, end: Date) => {
+      const rows = await prisma.paysplit.aggregate({
+        _sum: { SplitAmt: true },
+        where: { DatePay: { gte: start, lt: end }, IsDiscount: 0 },
+      });
+      return rows._sum.SplitAmt ?? 0;
+    };
+
+    // Helper: sum gross production for a date range
+    const sumProduction = async (start: Date, end: Date) => {
+      const rows = await prisma.procedurelog.aggregate({
+        _sum: { ProcFee: true },
+        where: {
+          ProcStatus: PROC_STATUS_COMPLETE,
+          ProcDate: { gte: start, lt: end },
+        },
+      });
+      return rows._sum.ProcFee ?? 0;
+    };
+
+    // Helper: count seen patients for a date range
+    const countSeen = async (start: Date, end: Date) => {
+      const appts = await prisma.appointment.findMany({
+        where: { AptDateTime: { gte: start, lt: end }, AptStatus: 2 },
+        select: { PatNum: true },
+        distinct: ['PatNum'],
+      });
+      return appts.length;
+    };
+
+    // Helper: sum accepted treatment plan value for a date range
+    const sumCaseAccepted = async (start: Date, end: Date) => {
+      const rows = await prisma.procedurelog.aggregate({
+        _sum: { ProcFee: true },
+        where: {
+          ProcStatus: PROC_STATUS_COMPLETE,
+          ProcDate: { gte: start, lt: end },
+        },
+      });
+      return rows._sum.ProcFee ?? 0;
+    };
+
+    const [
+      thisProd, lastProd,
+      thisColl, lastColl,
+      thisSeen, lastSeen,
+      thisCaseAcc, lastCaseAcc,
+    ] = await Promise.all([
+      sumProduction(thisMonth.start, thisMonth.end),
+      sumProduction(lastMonth.start, lastMonth.end),
+      sumCollection(thisMonth.start, thisMonth.end),
+      sumCollection(lastMonth.start, lastMonth.end),
+      countSeen(thisMonth.start, thisMonth.end),
+      countSeen(lastMonth.start, lastMonth.end),
+      sumCaseAccepted(thisMonth.start, thisMonth.end),
+      sumCaseAccepted(lastMonth.start, lastMonth.end),
+    ]);
+
+    const pctChange = (cur: number, prev: number) =>
+      prev === 0 ? 0 : Math.round(((cur - prev) / prev) * 100);
+
+    return {
+      netProduction: {
+        current: thisProd,
+        previous: lastProd,
+        changePercent: pctChange(thisProd, lastProd),
       },
-      {
-        name: 'Sabour Ortho',
-        groups: [
-          {
-            title: 'Provider Production Metrics',
-            rows: [
-              {
-                label: 'Provider Gross Production',
-                values: ['0', '29,500', '25,100', '5,900', '5,900', '0', '0', '0', '0', '0', '0', '0'],
-              },
-              {
-                label: 'Provider Net Production',
-                values: ['0', '27,400', '24,400', '5,200', '5,200', '0', '0', '0', '0', '0', '0', '0'],
-              },
-              {
-                label: 'Provider Total Collection',
-                values: [
-                  '2,519.20',
-                  '20,844.12',
-                  '22,861.75',
-                  '3,981.98',
-                  '1,500.00',
-                  '0',
-                  '0',
-                  '0',
-                  '0',
-                  '0',
-                  '0',
-                  '0',
-                ],
-              },
-            ],
-          },
-          {
-            title: 'Provider Appointment Metrics',
-            rows: [
-              {
-                label: 'Provider Total Appointments',
-                values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-              {
-                label: 'Provider Seen Patients',
-                values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-            ],
-          },
-          {
-            title: 'Provider Work Efficiency Metrics',
-            rows: [
-              {
-                label: 'Provider Working Hours',
-                values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-              {
-                label: 'Provider Production Per Visit',
-                values: ['0', '0', '308.86', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-              {
-                label: 'Provider Scheduled Production',
-                values: ['0', '0', '24,400', '10,400', '5,200', '0', '0', '0', '0', '0', '0', '0'],
-              },
-              {
-                label: 'Provider Hourly Production',
-                values: ['0', '0', '138.64', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-            ],
-          },
-          {
-            title: 'Provider Treatment Metrics',
-            rows: [
-              {
-                label: 'Provider Same Day Treatment',
-                values: ['0', '26,700', '24,400', '5,199', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-            ],
-          },
-          {
-            title: 'Reappointment Metrics',
-            rows: [
-              {
-                label: 'Treatment Reappointment Per Dentist (%)',
-                values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-            ],
-          },
-        ],
+      totalCollection: {
+        current: thisColl,
+        previous: lastColl,
+        changePercent: pctChange(thisColl, lastColl),
       },
-      {
-        name: 'TDS Doc',
-        groups: [
-          {
-            title: 'Provider Production Metrics',
-            rows: [
-              {
-                label: 'Provider Gross Production',
-                values: ['0', '75', '0', '20', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-              {
-                label: 'Provider Net Production',
-                values: ['0', '75', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-              {
-                label: 'Provider Total Collection',
-                values: ['0', '75', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-            ],
-          },
-          {
-            title: 'Provider Appointment Metrics',
-            rows: [
-              {
-                label: 'Provider Total Appointments',
-                values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-              {
-                label: 'Provider Seen Patients',
-                values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-            ],
-          },
-          {
-            title: 'Provider Work Efficiency Metrics',
-            rows: [
-              {
-                label: 'Provider Working Hours',
-                values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-              {
-                label: 'Provider Production Per Visit',
-                values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-              {
-                label: 'Provider Scheduled Production',
-                values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-              {
-                label: 'Provider Hourly Production',
-                values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-            ],
-          },
-          {
-            title: 'Provider Treatment Metrics',
-            rows: [
-              {
-                label: 'Provider Same Day Treatment',
-                values: ['0', '75', '0', '20', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-            ],
-          },
-          {
-            title: 'Reappointment Metrics',
-            rows: [
-              {
-                label: 'Treatment Reappointment Per Dentist (%)',
-                values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-            ],
-          },
-        ],
+      seenPatients: {
+        current: thisSeen,
+        previous: lastSeen,
+        changePercent: pctChange(thisSeen, lastSeen),
       },
-      {
-        name: 'Zoe Niblock',
-        groups: [
-          {
-            title: 'Provider Production Metrics',
-            rows: [
-              {
-                label: 'Provider Gross Production',
-                values: ['5,006', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-              {
-                label: 'Provider Net Production',
-                values: ['3,463', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-              {
-                label: 'Provider Total Collection',
-                values: ['2,032.40', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-            ],
-          },
-          {
-            title: 'Provider Appointment Metrics',
-            rows: [
-              {
-                label: 'Provider Total Appointments',
-                values: ['2', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-              {
-                label: 'Provider Seen Patients',
-                values: ['2', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-            ],
-          },
-          {
-            title: 'Provider Work Efficiency Metrics',
-            rows: [
-              {
-                label: 'Provider Working Hours',
-                values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-              {
-                label: 'Provider Production Per Visit',
-                values: ['1,731.50', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-              {
-                label: 'Provider Scheduled Production',
-                values: ['3,350', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-              {
-                label: 'Provider Hourly Production',
-                values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-            ],
-          },
-          {
-            title: 'Provider Treatment Metrics',
-            rows: [
-              {
-                label: 'Provider Same Day Treatment',
-                values: ['3,007', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-            ],
-          },
-          {
-            title: 'Reappointment Metrics',
-            rows: [
-              {
-                label: 'Hygiene Reappointment Per Hygienist (%)',
-                values: ['0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'],
-              },
-            ],
-          },
-        ],
+      caseAccepted: {
+        current: thisCaseAcc,
+        previous: lastCaseAcc,
+        changePercent: pctChange(thisCaseAcc, lastCaseAcc),
       },
-    ];
+    };
   }
 }
 

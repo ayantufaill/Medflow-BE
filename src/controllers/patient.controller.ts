@@ -17,7 +17,7 @@ export class PatientController {
       const sortBy = req.query.sortBy as string | undefined;
       const sortOrder = req.query.sortOrder as string | undefined;
 
-      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder);
+      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: result,
@@ -139,7 +139,7 @@ export class PatientController {
       const sortBy = req.query.sortBy as string | undefined;
       const sortOrder = req.query.sortOrder as string | undefined;
 
-      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder);
+      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: result,

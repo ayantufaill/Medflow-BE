@@ -145,6 +145,135 @@ export class PatientInsuranceService {
   }
 
   /**
+   * Get all insurances across all patients in the clinic
+   */
+  async getAllPatientInsurances(isActive?: boolean) {
+    const where: any = {};
+    if (isActive !== undefined) {
+      where.IsPending = isActive ? 0 : 1;
+    }
+
+    const patPlans = await prisma.patplan.findMany({
+      where,
+      include: {
+        patient: {
+          select: {
+            PatNum: true,
+            FName: true,
+            LName: true,
+          }
+        },
+        inssub: {
+          include: {
+            insplan: {
+              include: {
+                carrier: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { Ordinal: 'asc' },
+    });
+
+    const patPlanNums = patPlans.map((p) => p.PatPlanNum);
+    const metaMapData = await getPatientInsurancesMeta(patPlanNums);
+    const metaMap = {
+      get: (id: string) => metaMapData[id] || {}
+    };
+
+    const insSubNums = patPlans
+      .map((p) => p.InsSubNum)
+      .filter((num): num is bigint => num !== null && num !== undefined && num !== 0n);
+
+    const sharingPlans = insSubNums.length > 0
+      ? await prisma.patplan.findMany({
+          where: { InsSubNum: { in: insSubNums } },
+          include: {
+            patient: {
+              select: {
+                FName: true,
+                LName: true,
+                PatNum: true,
+              },
+            },
+          },
+        })
+      : [];
+
+    const membersBySubNum = new Map<string, string[]>();
+    for (const plan of sharingPlans) {
+      if (!plan.InsSubNum || !plan.patient) continue;
+      const subKey = plan.InsSubNum.toString();
+      const name = [plan.patient.FName, plan.patient.LName].filter(Boolean).join(' ');
+      if (!membersBySubNum.has(subKey)) {
+        membersBySubNum.set(subKey, []);
+      }
+      membersBySubNum.get(subKey)!.push(name);
+    }
+
+    return patPlans.map((patplan) => {
+      const meta = metaMap.get(patplan.PatPlanNum.toString());
+      const subKey = patplan.InsSubNum ? patplan.InsSubNum.toString() : '';
+      const members = subKey ? (membersBySubNum.get(subKey) ?? []) : [];
+      const isFamilyPlan = members.length > 1;
+
+      return {
+        _id: patplan.PatPlanNum.toString(),
+        patientId: patplan.PatNum?.toString() ?? '',
+        patientName: patplan.patient ? `${patplan.patient.FName ?? ''} ${patplan.patient.LName ?? ''}`.trim() : '',
+        insuranceCompanyId: patplan.inssub?.insplan?.carrier
+          ? {
+              _id: patplan.inssub.insplan.carrier.CarrierNum.toString(),
+              name: patplan.inssub.insplan.carrier.CarrierName ?? '',
+              payerId: patplan.inssub.insplan.carrier.ElectID ?? null,
+            }
+          : null,
+        policyNumber: patplan.inssub?.SubscriberID ?? '',
+        groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
+        groupName: patplan.inssub?.insplan?.GroupName ?? null,
+        subscriberName: meta?.subscriberName ?? '',
+        subscriberDateOfBirth: meta?.subscriberDateOfBirth ?? null,
+        relationshipToPatient: mapRelationshipFromDb(patplan.Relationship),
+        insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
+        effectiveDate: patplan.inssub?.DateEffective ?? null,
+        expirationDate: patplan.inssub?.DateTerm ?? null,
+        copayAmount: meta?.copayAmount ?? null,
+        deductibleAmount: meta?.deductibleAmount ?? null,
+        autoVerify: meta?.autoVerify ?? true,
+        verificationStatus: meta?.verificationStatus ?? 'pending',
+        verificationDate: meta?.verificationDate ?? null,
+        isActive: patplan.IsPending ? false : true,
+        notes: patplan.inssub?.SubscNote ?? null,
+
+        // Family Coverage Fields
+        isFamilyPlan,
+        members,
+
+        // Advanced Dentistry Fields
+        deductiblesGrid: meta?.deductiblesGrid ?? [],
+        coverageLimits: meta?.coverageLimits ?? null,
+        coverageCategoryTable: meta?.coverageCategoryTable ?? [],
+        coverageBookData: meta?.coverageBookData ?? [],
+        planFeeGuide: (patplan.inssub?.insplan?.FeeSched && patplan.inssub.insplan.FeeSched !== 0n)
+          ? patplan.inssub.insplan.FeeSched.toString()
+          : (meta?.planFeeGuide ? String(meta.planFeeGuide) : null),
+        coverageType: meta?.coverageType ?? null,
+        subscriberSsn: meta?.subscriberSsn ?? null,
+        renewalMonth: meta?.renewalMonth ?? null,
+        assignmentOfBenefits: meta?.assignmentOfBenefits ?? null,
+        honorWriteOff: meta?.honorWriteOff ?? null,
+        providersPlanFeeGuides: meta?.providersPlanFeeGuides ?? [],
+        policyNotes: meta?.policyNotes ?? null,
+        eligibilityPolicyNotes: meta?.eligibilityPolicyNotes ?? null,
+        insurancePlanNotes: meta?.insurancePlanNotes ?? null,
+        healthPlan: meta?.healthPlan ?? null,
+        paymentPlan: meta?.paymentPlan ?? null,
+      };
+    });
+  }
+
+  /**
    * Get patient insurance by ID
    */
   async getPatientInsuranceById(patientInsuranceId: string) {
@@ -335,8 +464,6 @@ export class PatientInsuranceService {
       });
     }
 
-    const planNum = await getNextId('insplan', 'PlanNum');
-    const insSubNum = await getNextId('inssub', 'InsSubNum');
     const patPlanNum = await getNextId('patplan', 'PatPlanNum');
 
     if (data.payerId !== undefined) {
@@ -353,28 +480,48 @@ export class PatientInsuranceService {
       }
     }
 
-    await prisma.insplan.create({
-      data: {
-        PlanNum: planNum,
-        CarrierNum: BigInt(data.insuranceCompanyId),
-        GroupNum: data.groupNumber ?? null,
-        GroupName: data.groupName ?? null,
-        PlanNote: data.notes ?? null,
-        IsHidden: 0,
+    // Smart Link: Check if a policy with exact Policy Number and Insurance Company exists
+    const existingInsSub = await prisma.inssub.findFirst({
+      where: {
+        SubscriberID: data.policyNumber,
+        insplan: {
+          CarrierNum: BigInt(data.insuranceCompanyId),
+        },
       },
     });
 
-    await prisma.inssub.create({
-      data: {
-        InsSubNum: insSubNum,
-        PlanNum: planNum,
-        Subscriber: BigInt(patientId),
-        SubscriberID: data.policyNumber,
-        DateEffective: data.effectiveDate,
-        DateTerm: data.expirationDate ?? null,
-        SubscNote: data.notes ?? null,
-      },
-    });
+    let insSubNum: bigint;
+
+    if (existingInsSub) {
+      // Intercept and use existing subscriber record
+      insSubNum = existingInsSub.InsSubNum;
+    } else {
+      const planNum = await getNextId('insplan', 'PlanNum');
+      insSubNum = await getNextId('inssub', 'InsSubNum');
+
+      await prisma.insplan.create({
+        data: {
+          PlanNum: planNum,
+          CarrierNum: BigInt(data.insuranceCompanyId),
+          GroupNum: data.groupNumber ?? null,
+          GroupName: data.groupName ?? null,
+          PlanNote: data.notes ?? null,
+          IsHidden: 0,
+        },
+      });
+
+      await prisma.inssub.create({
+        data: {
+          InsSubNum: insSubNum,
+          PlanNum: planNum,
+          Subscriber: BigInt(patientId),
+          SubscriberID: data.policyNumber,
+          DateEffective: data.effectiveDate,
+          DateTerm: data.expirationDate ?? null,
+          SubscNote: data.notes ?? null,
+        },
+      });
+    }
 
     await prisma.patplan.create({
       data: {
