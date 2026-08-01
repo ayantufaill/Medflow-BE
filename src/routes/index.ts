@@ -58,6 +58,7 @@ import procedureCodeRoutes from './procedure-code.routes';
 import patientImageRouter from './patient-image.route';
 import productivityRoutes from './productivity.routes';
 import shortlistRoutes from './shortlist.routes';
+import branchRoutes from './branch.routes';
 
 const router = Router();
 
@@ -122,6 +123,7 @@ router.use('/schedule-blocks', scheduleBlockRoutes);
 router.use('/patients/:patientId/images', patientImageRouter);
 router.use('/productivity', productivityRoutes);
 router.use('/shortlist', shortlistRoutes);
+router.use('/branches', branchRoutes);
 
 export default router;
 
