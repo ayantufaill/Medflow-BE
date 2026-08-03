@@ -1395,9 +1395,27 @@ async getPatientAppointments(patientId: string, limit = 10) {
       const provNum = ctx.appointment.ProvNum;
       if (!provNum) return;
 
-      const recipients = await prisma.userod.findMany({
-        where: { ProvNum: provNum, NOT: { IsHidden: 1 } },
-      });
+      // Two ways a staff login ends up "assigned" to this provider:
+      // 1. userod.ProvNum set directly (used by seed scripts / direct admin setup)
+      // 2. provider.CustomID = userod.UserNum — the link actually written by the
+      //    app's "Create Provider" screen (src/pages/providers/CreateProviderPage.jsx)
+      const [directMatches, providerRecord] = await Promise.all([
+        prisma.userod.findMany({ where: { ProvNum: provNum, NOT: { IsHidden: 1 } } }),
+        prisma.provider.findUnique({ where: { ProvNum: provNum } }),
+      ]);
+
+      const recipients = [...directMatches];
+      if (providerRecord?.CustomID && /^\d+$/.test(providerRecord.CustomID)) {
+        const linkedUserNum = BigInt(providerRecord.CustomID);
+        if (!recipients.some((u) => u.UserNum === linkedUserNum)) {
+          const linkedUser = await prisma.userod.findUnique({
+            where: { UserNum: linkedUserNum },
+          });
+          if (linkedUser && linkedUser.IsHidden !== 1) {
+            recipients.push(linkedUser);
+          }
+        }
+      }
 
       for (const staff of recipients) {
         await staffNotificationService.createAndEmit({
