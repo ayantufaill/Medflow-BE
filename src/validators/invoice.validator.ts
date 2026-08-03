@@ -78,6 +78,10 @@ export const createInvoiceFromAppointmentValidator: ValidationChain[] = [
     .optional()
     .isFloat({ min: 0 })
     .withMessage('Copay amount must be a positive number'),
+  body('addClaim')
+    .optional()
+    .isBoolean()
+    .withMessage('addClaim must be a boolean'),
 ];
 
 export const updateInvoiceValidator: ValidationChain[] = [
@@ -235,4 +239,8 @@ export const createStandaloneInvoiceValidator: ValidationChain[] = [
   body('items.*.completed')
     .optional()
     .isBoolean(),
+  body('addClaim')
+    .optional()
+    .isBoolean()
+    .withMessage('addClaim must be a boolean'),
 ];
