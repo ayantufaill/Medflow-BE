@@ -1158,6 +1158,8 @@ model clearinghouse {
 
 model clinic {
   ClinicNum                                BigInt                      @id(map: "PK__clinic__AE228314D2A96BE3")
+  GroupNum                                 Int?
+  practicegroup                            practicegroup?              @relation(fields: [GroupNum], references: [id], onDelete: SetNull, onUpdate: NoAction)
   Description                              String?                     @db.VarChar(255)
   Address                                  String?                     @db.VarChar(255)
   Address2                                 String?                     @db.VarChar(255)
@@ -5154,6 +5156,7 @@ model procedurecode {
   RequiresNarrative                                                 Boolean?           @default(false)
   RequiresMedicalNecessity                                          Boolean?           @default(false)
   RequiresToothImage                                                Boolean?           @default(false)
+  CoverageCategory                                                  String?            @db.VarChar(50)
   autocodeitem                                                      autocodeitem[]
   benefit                                                           benefit[]
   fee                                                               fee[]
@@ -7749,4 +7752,104 @@ model shortlist {
   CustomFields    Json?
   CreatedAt       DateTime @default(now())
   UpdatedAt       DateTime @updatedAt
+}
+
+model clinicalcategory {
+  id            Int                   @id @default(autoincrement())
+  name          String                @unique
+  subCategories clinicalsubcategory[]
+}
+
+model clinicalsubcategory {
+  id         Int              @id @default(autoincrement())
+  name       String
+  categoryId Int
+  category   clinicalcategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  items      clinicalitem[]
+
+  @@unique([name, categoryId])
+}
+
+model clinicalitem {
+  id            Int                 @id @default(autoincrement())
+  subCategoryId Int
+  choiceName    String
+  isDefault     Boolean             @default(false)
+  instructions  String?
+  price         Float               @default(0)
+  code          String?
+  isQuickList   Boolean?
+  isRecommended Boolean?
+  subCategory   clinicalsubcategory @relation(fields: [subCategoryId], references: [id], onDelete: Cascade)
+}
+
+// ─── Practice Group: organization hierarchy over clinic (branch) rows ──────
+// A practicegroup is the customer/organization that owns one or more clinic
+// rows (each clinic is a branch, using OpenDental's native ClinicNum scoping
+// already present across ~40 tables). Row-scoped by GroupNum/ClinicNum, not
+// physically isolated per branch.
+model practicegroup {
+  id        Int      @id @default(autoincrement())
+  name      String   @db.VarChar(255)
+  config    Json?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  clinic    clinic[]
+}
+
+// ─── Multi-Tenant: Group & Branch Hierarchy (superseded, unused) ────────────
+// This schema-per-branch scaffold was never wired up (see tenantResolver
+// middleware / tenant-provisioning service) and is superseded by
+// practicegroup + clinic.GroupNum above. Left in place, not deleted.
+// These models live in the shared/global schema (not per-branch).
+// They hold organizational metadata, NOT PHI.
+
+/// A Group is a parent organization that owns one or more Branches (clinic locations).
+model groups {
+  id          Int        @id @default(autoincrement())
+  name        String     @db.VarChar(255)
+  /// JSONB blob for group-level config: branding overrides, feature flags, etc.
+  config      Json?
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  branches    branches[]
+  patients_master patients_master[]
+}
+
+/// A Branch represents a single clinic location belonging to a Group.
+/// schema_name is the physical Postgres schema created for this branch.
+/// subdomain is the URL tenant identifier used by the Tenant Resolver Middleware.
+model branches {
+  id          Int      @id @default(autoincrement())
+  groupId     Int
+  name        String   @db.VarChar(255)
+  /// The physical Postgres schema name for this branch (e.g. "branch_riverside_1")
+  schemaName  String   @unique @db.VarChar(100)
+  /// Subdomain used to identify this tenant (e.g. "riverside")
+  subdomain   String   @unique @db.VarChar(100)
+  /// Per-branch config: NPI, tax ID, business hours, timezone, logo URL, etc.
+  config      Json?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  group       groups   @relation(fields: [groupId], references: [id], onDelete: Restrict)
+}
+
+/// Shared patient identity across all branches within a Group.
+/// Branch-schema patient records reference this master record via masterPatientId.
+/// Contains only the minimum fields needed for cross-branch identity resolution (no PHI beyond demographics).
+model patients_master {
+  id          Int      @id @default(autoincrement())
+  groupId     Int
+  /// Core identity fields for de-duplication across branches
+  firstName   String   @db.VarChar(100)
+  lastName    String   @db.VarChar(100)
+  dateOfBirth DateTime @db.Date
+  email       String?  @db.VarChar(255)
+  phone       String?  @db.VarChar(30)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  group       groups   @relation(fields: [groupId], references: [id], onDelete: Restrict)
 }

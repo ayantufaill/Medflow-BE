@@ -135,6 +135,23 @@ export class UserController {
     }
   }
 
+  async updateCurrentBranch(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const { branchId } = req.body;
+      const data = await userService.updateCurrentBranch(req.userId, branchId);
+      res.status(200).json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async updateProfile(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.userId) {

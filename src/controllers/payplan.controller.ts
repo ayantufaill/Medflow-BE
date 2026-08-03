@@ -62,6 +62,7 @@ export class PayPlanController {
           apr: req.body.apr,
           startDate: req.body.startDate ? new Date(req.body.startDate) : undefined,
           notes: req.body.notes,
+          invoiceIds: req.body.invoiceIds,
         },
         req.userId
       );

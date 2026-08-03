@@ -343,7 +343,6 @@ export class AppointmentService {
     const mapped: any = mapAppointmentToApi(appointment, {
       ...options,
       requiresInterpreter: meta.requiresInterpreter ?? false,
-      interpreterLanguage: meta.interpreterLanguage ?? null,
       insuranceVerified: meta.insuranceVerified ?? Boolean(appointment.InsPlan1 || appointment.InsPlan2),
       copayCollected: meta.copayCollected ?? 0,
       reminderSent: meta.reminderSent ?? false,
@@ -892,7 +891,6 @@ async getPatientAppointments(patientId: string, limit = 10) {
     notes?: string;
     roomId?: string;
     requiresInterpreter?: boolean;
-    interpreterLanguage?: string;
     insuranceVerified?: boolean;
     copayCollected?: number;
     reminderSent?: boolean;
@@ -990,7 +988,6 @@ async getPatientAppointments(patientId: string, limit = 10) {
     await setAppointmentMeta(appointment.AptNum, {
       status: data.status ?? 'scheduled',
       requiresInterpreter: data.requiresInterpreter ?? false,
-      interpreterLanguage: data.interpreterLanguage ?? null,
       insuranceVerified: data.insuranceVerified ?? false,
       copayCollected: data.copayCollected ?? 0,
       reminderSent: data.reminderSent ?? false,
@@ -1041,7 +1038,6 @@ async getPatientAppointments(patientId: string, limit = 10) {
       notes?: string;
       roomId?: string;
       requiresInterpreter?: boolean;
-      interpreterLanguage?: string;
       insuranceVerified?: boolean;
       copayCollected?: number;
       reminderSent?: boolean;
@@ -1164,7 +1160,6 @@ async getPatientAppointments(patientId: string, limit = 10) {
     const nextMeta = {
       status: updates.status ?? existingMeta.status ?? mapAppointmentStatusFromDb(updated.AptStatus),
       requiresInterpreter: updates.requiresInterpreter ?? existingMeta.requiresInterpreter ?? false,
-      interpreterLanguage: updates.interpreterLanguage ?? existingMeta.interpreterLanguage ?? null,
       insuranceVerified: updates.insuranceVerified ?? existingMeta.insuranceVerified ?? Boolean(updated.InsPlan1 || updated.InsPlan2),
       copayCollected: updates.copayCollected ?? existingMeta.copayCollected ?? 0,
       reminderSent: updates.reminderSent ?? existingMeta.reminderSent ?? false,

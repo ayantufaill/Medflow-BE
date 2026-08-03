@@ -13,6 +13,18 @@ export class ProcedureCodeController {
       next(error);
     }
   }
+
+  async getProcedureButtons(req: Request, res: Response, next: NextFunction) {
+    try {
+      const buttons = await procedureCodeService.getProcedureButtons();
+      res.status(200).json({
+        success: true,
+        data: { procedureButtons: buttons },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const procedureCodeController = new ProcedureCodeController();
