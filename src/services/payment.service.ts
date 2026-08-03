@@ -3,6 +3,7 @@ import { NotFoundError, BadRequestError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { mapPatientToApi } from '../utils/opendental-mappers.util';
+import { staffNotificationService } from './staffNotification.service';
 
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;
@@ -239,7 +240,43 @@ export class PaymentService {
 
     await logActivity(userId, 'created', 'payments', payment.PayNum.toString(), undefined, payment);
 
+    await this.notifyStaffPaymentReceived(payment.PayNum, data.patientId, data.amount);
+
     return this.enrichPayment(this.mapPaymentToApi(payment));
+  }
+
+  /**
+   * Notifies Admin-role staff of a new payment. There's no single "owner" for a payment
+   * (SecUserNumEntry is just the entering user, and invoices have no CreatedBy FK), so this
+   * broadcasts to the Admin usergroup instead of one specific recipient. Failures are logged,
+   * not thrown, so a notification hiccup never blocks the payment itself.
+   */
+  private async notifyStaffPaymentReceived(payNum: bigint, patientId: string, amount: number) {
+    try {
+      const patient = await prisma.patient.findUnique({ where: { PatNum: BigInt(patientId) } });
+      const patientName = patient ? [patient.FName, patient.LName].filter(Boolean).join(' ') : 'A patient';
+
+      const adminGroup = await prisma.usergroup.findFirst({ where: { Description: 'Admin' } });
+      if (!adminGroup) return;
+
+      const attachments = await prisma.usergroupattach.findMany({
+        where: { UserGroupNum: adminGroup.UserGroupNum },
+      });
+
+      for (const attachment of attachments) {
+        if (!attachment.UserNum) continue;
+        await staffNotificationService.createAndEmit({
+          userNum: attachment.UserNum,
+          type: 'payment_received',
+          title: 'Payment received',
+          body: `$${amount.toFixed(2)} from ${patientName}`,
+          relatedType: 'payment',
+          relatedId: payNum,
+        });
+      }
+    } catch (error) {
+      console.error(`Failed to notify staff of payment ${payNum}:`, error);
+    }
   }
 
   async updatePayment(
