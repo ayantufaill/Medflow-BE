@@ -577,6 +577,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       tags: apt.tags ?? [],
       procedures: apt.procedures ?? [],
       visitType: apt.visitType ?? null,
+      systemEvents: apt.systemEvents ?? [],
     })),
     total: mappedAppointments.length,
     limit,
