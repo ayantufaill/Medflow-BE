@@ -856,6 +856,9 @@ export class InvoiceService {
       unitPrice: number;
       description: string;
       cptCode: string;
+      insPortion: number;
+      ptPortion: number;
+      writeoff: number;
     }>,
     userId: string
   ) {
@@ -898,11 +901,15 @@ export class InvoiceService {
         UnitQty: quantity,
         ProcFee: totalPrice,
         BillingNote: buildJson({
+          ...currentMeta,
           description: updates.description ?? currentMeta.description ?? service?.Descript ?? 'Service',
           unitPrice,
           quantity,
           cptCode: updates.cptCode ?? currentMeta.cptCode ?? service?.ProcCode ?? null,
           serviceId: service?.CodeNum?.toString() ?? currentMeta.serviceId ?? null,
+          ...(updates.insPortion !== undefined && { insPortion: updates.insPortion }),
+          ...(updates.ptPortion !== undefined && { ptPortion: updates.ptPortion }),
+          ...(updates.writeoff !== undefined && { writeoff: updates.writeoff }),
         }),
       },
     });

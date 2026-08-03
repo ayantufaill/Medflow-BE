@@ -15,6 +15,7 @@ import {
   gapFillValidator,
   gapFillSettingsValidator,
   updateReviewSettingsValidator,
+  bulkTextValidator,
 } from '../validators/communication.validator';
 
 const router = Router();
@@ -705,6 +706,41 @@ router.put(
   requirePermission('settings.update'),
   validate(updateReviewSettingsValidator),
   communicationController.updateReviewSettings.bind(communicationController)
+);
+
+/**
+ * @swagger
+ * /communication/bulk-text:
+ *   post:
+ *     summary: Send bulk SMS to multiple patients
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - patientIds
+ *               - message
+ *             properties:
+ *               patientIds:
+ *                 type: array
+ *                 items: { type: string }
+ *               message: { type: string }
+ *     responses:
+ *       200:
+ *         description: Bulk texts sent
+ *       400:
+ *         description: Invalid input
+ */
+router.post(
+  '/bulk-text',
+  requirePermission('settings.update'),
+  validate(bulkTextValidator),
+  communicationController.sendBulkText.bind(communicationController)
 );
 
 export default router;

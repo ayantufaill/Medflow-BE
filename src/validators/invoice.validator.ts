@@ -159,6 +159,18 @@ export const updateInvoiceItemValidator: ValidationChain[] = [
     .optional()
     .isLength({ min: 4, max: 10 })
     .withMessage('CPT code must be between 4 and 10 characters'),
+  body('insPortion')
+    .optional()
+    .isNumeric()
+    .withMessage('insPortion must be numeric'),
+  body('ptPortion')
+    .optional()
+    .isNumeric()
+    .withMessage('ptPortion must be numeric'),
+  body('writeoff')
+    .optional()
+    .isNumeric()
+    .withMessage('writeoff must be numeric'),
 ];
 
 export const recalculateInvoiceValidator: ValidationChain[] = [
