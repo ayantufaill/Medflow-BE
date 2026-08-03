@@ -744,6 +744,19 @@ export class PatientController {
       next(error);
     }
   }
+
+  async purchaseProducts(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      const { products } = req.body;
+      const data = await patientService.purchaseProducts(patientId, products);
+      res.status(200).json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const patientController = new PatientController();
+
+
