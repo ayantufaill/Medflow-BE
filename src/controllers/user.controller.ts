@@ -319,7 +319,7 @@ export class UserController {
         });
       }
       
-      const result = await userService.getUserActivity(userId, page, limit);
+      const result = await userService.getUserActivity(userId, page, limit, search, startDate, endDate);
       res.status(200).json({
         success: true,
         data: result,
@@ -345,7 +345,7 @@ export class UserController {
         });
       }
       
-      const result = await userService.getUserLoginHistory(userId, page, limit);
+      const result = await userService.getUserLoginHistory(userId, page, limit, search, startDate, endDate);
       res.status(200).json({
         success: true,
         data: result,

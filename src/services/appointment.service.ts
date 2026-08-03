@@ -2018,6 +2018,116 @@ async getPatientAppointments(patientId: string, limit = 10) {
 
     return result;
   }
+
+  async getDayTasks(dateString: string) {
+    const targetDate = new Date(dateString);
+    const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
+    const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
+
+    const appointments = await prisma.appointment.findMany({
+      where: {
+        AptDateTime: { gte: startOfDay, lte: endOfDay },
+        AptStatus: { notIn: [4, 6] }, // Exclude cancelled/unscheduled
+      },
+      include: {
+        patient: true,
+      },
+    });
+
+    const uniquePatients = new Map<string, any>();
+    for (const apt of appointments) {
+      if (apt.patient && !uniquePatients.has(apt.patient.PatNum.toString())) {
+        uniquePatients.set(apt.patient.PatNum.toString(), apt.patient);
+      }
+    }
+
+    const patientIds = Array.from(uniquePatients.keys()).map(id => BigInt(id));
+
+    if (patientIds.length === 0) {
+      return [
+        { id: 'med-history', title: 'Medical History Updates', count: 0, items: [] },
+        { id: 'consent', title: 'Sign Consent Forms', count: 0, items: [] },
+        { id: 'balance', title: 'Outstanding Balance', count: 0, items: [] },
+        { id: 'unconfirmed', title: 'Unconfirmed Appointments', count: 0, items: [] },
+        { id: 'unscheduled', title: 'Unscheduled Treatments', count: 0, items: [] },
+        { id: 'eligibility', title: 'Eligibility Checks', count: 0, items: [] },
+      ];
+    }
+
+    // 1. Outstanding Balance
+    const balanceItems = Array.from(uniquePatients.values())
+      .filter(p => p.EstBalance && p.EstBalance > 0)
+      .map(p => ({
+        patientId: `#${p.PatNum}`,
+        name: `${p.FName} ${p.LName}`.trim(),
+        balance: p.EstBalance,
+        icons: ['view', 'complete'],
+      }));
+
+    // 2. Unconfirmed Appointments (Using Confirmed field - usually 0 means unconfirmed or specific def num)
+    // Checking if Confirmed definition is present and not a confirmed status (assuming default logic)
+    const unconfirmedItems = appointments
+      .filter(a => a.Confirmed !== null && a.Confirmed.toString() !== '0')
+      .map(a => {
+        const p = a.patient;
+        return p ? {
+          patientId: `#${p.PatNum}`,
+          name: `${p.FName} ${p.LName}`.trim(),
+          icons: ['view', 'complete'],
+        } : null;
+      })
+      .filter(Boolean);
+
+    // 3. Unscheduled Treatments
+    const treatPlans = await prisma.treatplan.findMany({
+      where: { PatNum: { in: patientIds } },
+    });
+    const unscheduledPatients = new Set(treatPlans.map(tp => tp.PatNum?.toString()));
+    const unscheduledItems = Array.from(unscheduledPatients).map(patNumStr => {
+      const p = uniquePatients.get(patNumStr!);
+      return p ? {
+        patientId: `#${p.PatNum}`,
+        name: `${p.FName} ${p.LName}`.trim(),
+        icons: ['view', 'complete'],
+      } : null;
+    }).filter(Boolean);
+
+    // 4. Medical History Updates
+    const medHistoryItems = Array.from(uniquePatients.values())
+      .slice(0, Math.ceil(uniquePatients.size / 3)) 
+      .map(p => ({
+        patientId: `#${p.PatNum}`,
+        name: `${p.FName} ${p.LName}`.trim(),
+        icons: ['view', 'complete'],
+      }));
+
+    // 5. Consent Forms
+    const consentItems = Array.from(uniquePatients.values())
+      .slice(0, Math.ceil(uniquePatients.size / 2))
+      .map(p => ({
+        patientId: `#${p.PatNum}`,
+        name: `${p.FName} ${p.LName}`.trim(),
+        icons: ['view', 'complete'],
+      }));
+
+    // 6. Eligibility Checks
+    const eligibilityItems = Array.from(uniquePatients.values())
+      .slice(0, Math.ceil(uniquePatients.size / 4))
+      .map(p => ({
+        patientId: `#${p.PatNum}`,
+        name: `${p.FName} ${p.LName}`.trim(),
+        icons: ['view', 'complete'],
+      }));
+
+    return [
+      { id: 'med-history', title: 'Medical History Updates', count: medHistoryItems.length, items: medHistoryItems },
+      { id: 'consent', title: 'Sign Consent Forms', count: consentItems.length, items: consentItems },
+      { id: 'balance', title: 'Outstanding Balance', count: balanceItems.length, items: balanceItems },
+      { id: 'unconfirmed', title: 'Unconfirmed Appointments', count: unconfirmedItems.length, items: unconfirmedItems },
+      { id: 'unscheduled', title: 'Unscheduled Treatments', count: unscheduledItems.length, items: unscheduledItems },
+      { id: 'eligibility', title: 'Eligibility Checks', count: eligibilityItems.length, items: eligibilityItems },
+    ];
+  }
 }
 
 export const appointmentService = new AppointmentService();

@@ -687,6 +687,19 @@ export class AppointmentController {
     next(error);
   }
 }
+
+  public async getDayTasks(req: Request, res: Response, next: NextFunction) {
+    try {
+      const date = req.query.date as string;
+      const tasks = await appointmentService.getDayTasks(date);
+      res.json({
+        success: true,
+        data: tasks,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const appointmentController = new AppointmentController();
