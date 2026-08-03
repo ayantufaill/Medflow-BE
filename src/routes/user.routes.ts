@@ -332,8 +332,8 @@ router.post(
 router.post(
   '/:userId/roles',
   requireRoles('Admin'),
-  validate(assignUserRolesValidator),
-  userController.assignUserRoles.bind(userController)
+  validate(assignRoleValidator),
+  userController.assignRole.bind(userController)
 );
 
 /**

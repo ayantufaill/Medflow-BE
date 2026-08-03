@@ -1950,7 +1950,7 @@ export class ReportGenerationService {
       orderBy: { LogDateTime: 'desc' }
     });
 
-    return logs.map((log, idx) => {
+    return logs.map((log) => {
       const dateStr = log.LogDateTime
         ? new Date(log.LogDateTime).toLocaleString('en-US', {
           year: 'numeric',
@@ -1962,16 +1962,34 @@ export class ReportGenerationService {
         })
         : '';
         
-      const logText = log.LogText?.toLowerCase() || '';
-      const isFailure = logText.includes('fail') || logText.includes('invalid');
+      let ip = '127.0.0.1';
+      let machine = log.CompName ? `Machine: ${log.CompName}` : 'Unknown';
+      let status = 'Success';
+      
+      const logText = log.LogText || '';
+      if (logText.toLowerCase().includes('fail') || logText.toLowerCase().includes('invalid')) {
+        status = 'Failure';
+      }
+      
+      try {
+        if (logText.startsWith('{')) {
+          const parsed = JSON.parse(logText);
+          if (parsed.ipAddress && parsed.ipAddress !== 'unknown') ip = parsed.ipAddress;
+          if (parsed.userAgent && parsed.userAgent !== 'unknown') machine = parsed.userAgent;
+          if (parsed.eventType) status = parsed.eventType.includes('failure') ? 'Failure' : 'Success';
+        }
+      } catch (e) {
+        // Fallback to default values if JSON parsing fails
+      }
 
       return {
         id: log.SecurityLogNum.toString(),
         username: log.userod?.UserName ?? 'Unknown User',
         date: dateStr,
-        status: isFailure ? 'Failure' : 'Success',
-        ip: '127.0.0.1',
-        machine: log.CompName ? `Machine: ${log.CompName}` : 'Unknown'
+        createdAt: log.LogDateTime ? log.LogDateTime.toISOString() : null,
+        status,
+        ip,
+        machine
       };
     });
   }
@@ -2045,6 +2063,15 @@ export class ReportGenerationService {
       else if (text.includes('appoint') || text.includes('sched')) parsedCategory = 'Schedule';
       else if (text.includes('claim') || text.includes('bill')) parsedCategory = 'Billing';
 
+      let finalMessage = log.LogText ?? 'Success';
+      try {
+        const parsed = JSON.parse(finalMessage);
+        if (parsed.description) finalMessage = parsed.description;
+        else if (parsed.message) finalMessage = parsed.message;
+      } catch (e) {
+        // Not JSON, leave as is
+      }
+
       return {
         id: log.SecurityLogNum.toString(),
         patient: log.patient ? `${log.patient.FName} ${log.patient.LName}` : '',
@@ -2054,7 +2081,7 @@ export class ReportGenerationService {
         action: parsedAction,
         object: parsedObject,
         date: dateStr,
-        message: log.LogText ?? 'Success',
+        message: finalMessage,
         diff: { key: '', old: '', new: '' }
       };
     });
@@ -2189,26 +2216,31 @@ export class ReportGenerationService {
   // ==========================================
 
   private getRangeDates(dateStr?: string, range = 'Daily', customStart?: string, customEnd?: string): { startDate: Date; endDate: Date } {
+    if (customStart && customEnd && customStart !== '' && customEnd !== '') {
+      const start = new Date(customStart);
+      const end = new Date(customEnd);
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+        return { startDate: start, endDate: end };
+      }
+    }
+
     const baseDate = dateStr ? new Date(dateStr) : new Date();
     let startDate = new Date(baseDate);
     let endDate = new Date(baseDate);
-
-    if (range === 'range' || range === 'custom') {
-      startDate = customStart ? new Date(customStart) : new Date(baseDate);
-      endDate = customEnd ? new Date(customEnd) : new Date(baseDate);
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
-      return { startDate, endDate };
-    }
 
     if (range === 'Daily' || range === 'today') {
       startDate.setHours(0, 0, 0, 0);
       endDate.setHours(23, 59, 59, 999);
     } else if (range === 'Weekly' || range === 'this_week') {
       const day = baseDate.getDay();
-      startDate.setDate(baseDate.getDate() - day);
+      const diff = baseDate.getDate() - day + (day === 0 ? -6 : 1);
+      startDate = new Date(baseDate);
+      startDate.setDate(diff);
       startDate.setHours(0, 0, 0, 0);
-      endDate.setDate(baseDate.getDate() + (6 - day));
+      endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 6);
       endDate.setHours(23, 59, 59, 999);
     } else if (range === 'last_7_days') {
       startDate.setDate(baseDate.getDate() - 6);
@@ -2216,9 +2248,12 @@ export class ReportGenerationService {
       endDate.setHours(23, 59, 59, 999);
     } else if (range === 'last_week') {
       const day = baseDate.getDay();
-      startDate.setDate(baseDate.getDate() - day - 7);
+      const diffToLastWeekStart = baseDate.getDate() - day - 7 + (day === 0 ? -6 : 1);
+      startDate = new Date(baseDate);
+      startDate.setDate(diffToLastWeekStart);
       startDate.setHours(0, 0, 0, 0);
-      endDate.setDate(baseDate.getDate() - day - 1);
+      endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 6);
       endDate.setHours(23, 59, 59, 999);
     } else if (range === 'last_4_weeks') {
       startDate.setDate(baseDate.getDate() - 28);
@@ -2252,7 +2287,6 @@ export class ReportGenerationService {
       endDate.setMonth(11, 31);
       endDate.setHours(23, 59, 59, 999);
     } else {
-      // Default to daily
       startDate.setHours(0, 0, 0, 0);
       endDate.setHours(23, 59, 59, 999);
     }
