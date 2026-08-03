@@ -673,7 +673,7 @@ export class DashboardMetricsService {
         patient_treatplan_PatNumTopatient: true,
         treatplanattach: {
           select: {
-            procedurelog: { select: { ProcFee: true } }
+            procedurelog: { select: { ProcFee: true, ProcStatus: true } }
           }
         }
       },
@@ -698,15 +698,38 @@ export class DashboardMetricsService {
     let existingPtAcceptedAmount = 0;
 
     for (const plan of plans) {
-      let meta: any = {};
-      try {
-        meta = JSON.parse(plan.Note || '{}');
-      } catch {
-        meta = {};
+      // Derive status from TPStatus and linked procedure ProcStatus columns
+      const procs = plan.treatplanattach || [];
+      const procStatuses = procs
+        .map((a: any) => a.procedurelog?.ProcStatus)
+        .filter((s: any) => s !== null && s !== undefined);
+      const tpStatus = plan.TPStatus ?? 0;
+
+      let statusKey: string;
+
+      if (procStatuses.includes(6)) {
+        // Has at least one scheduled procedure
+        statusKey = 'scheduled';
+      } else if (procStatuses.length > 0 && procStatuses.every((s: number) => s === 2)) {
+        // All linked procedures are completed
+        statusKey = 'completed';
+      } else if (procStatuses.some((s: number) => s === 2) && procStatuses.some((s: number) => s !== 2)) {
+        // Some completed, some still planned — accepted & in progress
+        statusKey = 'acceptedInProgress';
+      } else if (tpStatus === 1) {
+        // Inactive treatment plan — rejected/declined
+        statusKey = 'rejected';
+      } else if (tpStatus === 2) {
+        // Saved treatment plan — accepted but not yet scheduled
+        statusKey = 'acceptedNotScheduled';
+      } else if (procStatuses.length > 0 && procStatuses.every((s: number) => s === 1)) {
+        // All procedures are treatment-planned — presented to patient
+        statusKey = 'presented';
+      } else {
+        // Active plan with no linked procedures or unknown state
+        statusKey = 'diagnosed';
       }
 
-      // Default status mapping
-      const statusKey = this.mapCaseAcceptanceStatus(meta.status || 'diagnosed');
       const isNewPt = plan.patient_treatplan_PatNumTopatient?.DateFirstVisit &&
         plan.patient_treatplan_PatNumTopatient.DateFirstVisit >= startDate &&
         plan.patient_treatplan_PatNumTopatient.DateFirstVisit <= endDate;
