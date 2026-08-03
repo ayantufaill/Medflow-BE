@@ -19,6 +19,7 @@ import { patientWorkspaceService } from './patient-workspace.service';
 import { emailService } from './email.service';
 import { smsService } from './sms.service';
 import { practiceInfoService } from './practice-info.service';
+import { staffNotificationService } from './staffNotification.service';
 
 /**
  * Generate unique appointment code (e.g., APT001, APT002, etc.)
@@ -1019,6 +1020,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
       'medium'
     );
 
+    await this.notifyStaffAppointmentBooked(String(appointment.AptNum));
+
     return this.mapAppointmentWithMeta(appointment);
   }
 
@@ -1253,6 +1256,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
     );
 
     await this.notifyAppointmentCancelled(appointmentId, cancellationReason);
+    await this.notifyStaffAppointmentCancelled(appointmentId);
 
     return this.mapAppointmentWithMeta(updated);
   }
@@ -1354,6 +1358,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
     );
 
     await this.notifyAppointmentRescheduled(appointmentId, previousAppointmentDateTime);
+    await this.notifyStaffAppointmentRescheduled(appointmentId, previousAppointmentDateTime);
 
     return this.mapAppointmentWithMeta(updated);
   }
@@ -1378,6 +1383,76 @@ async getPatientAppointments(patientId: string, limit = 10) {
     } catch (error) {
       console.error(`Failed to send reschedule email for appointment ${appointmentId}:`, error);
     }
+  }
+
+  /**
+   * Notifies the staff logins linked to the appointment's assigned provider (in-app + real-time).
+   * Failures are logged, not thrown, so a notification hiccup never blocks the appointment mutation.
+   */
+  private async notifyStaffForAppointment(
+    appointmentId: string,
+    type: 'appointment_booked' | 'appointment_cancelled' | 'appointment_rescheduled' | 'appointment_checked_in',
+    title: string,
+    buildBody: (ctx: Awaited<ReturnType<AppointmentService['buildNotificationContext']>>) => string
+  ) {
+    try {
+      const ctx = await this.buildNotificationContext(appointmentId);
+      const provNum = ctx.appointment.ProvNum;
+      if (!provNum) return;
+
+      const recipients = await prisma.userod.findMany({
+        where: { ProvNum: provNum, NOT: { IsHidden: 1 } },
+      });
+
+      for (const staff of recipients) {
+        await staffNotificationService.createAndEmit({
+          userNum: staff.UserNum,
+          type,
+          title,
+          body: buildBody(ctx),
+          relatedType: 'appointment',
+          relatedId: ctx.appointment.AptNum,
+        });
+      }
+    } catch (error) {
+      console.error(`Failed to notify staff (${type}) for appointment ${appointmentId}:`, error);
+    }
+  }
+
+  private async notifyStaffAppointmentBooked(appointmentId: string) {
+    await this.notifyStaffForAppointment(
+      appointmentId,
+      'appointment_booked',
+      'New appointment booked',
+      (ctx) => `${ctx.patient.FName ?? 'A patient'} — ${ctx.appointmentDateTime}`
+    );
+  }
+
+  private async notifyStaffAppointmentCancelled(appointmentId: string) {
+    await this.notifyStaffForAppointment(
+      appointmentId,
+      'appointment_cancelled',
+      'Appointment cancelled',
+      (ctx) => `${ctx.patient.FName ?? 'A patient'} — ${ctx.appointmentDateTime}`
+    );
+  }
+
+  private async notifyStaffAppointmentRescheduled(appointmentId: string, previousAppointmentDateTime: string) {
+    await this.notifyStaffForAppointment(
+      appointmentId,
+      'appointment_rescheduled',
+      'Appointment rescheduled',
+      (ctx) => `${ctx.patient.FName ?? 'A patient'} — now ${ctx.appointmentDateTime} (was ${previousAppointmentDateTime})`
+    );
+  }
+
+  private async notifyStaffAppointmentCheckedIn(appointmentId: string) {
+    await this.notifyStaffForAppointment(
+      appointmentId,
+      'appointment_checked_in',
+      'Patient checked in',
+      (ctx) => `${ctx.patient.FName ?? 'A patient'} has arrived — ${ctx.appointmentDateTime}`
+    );
   }
 
   /**
@@ -1493,6 +1568,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
       undefined,
       'low'
     );
+
+    await this.notifyStaffAppointmentCheckedIn(appointmentId);
 
     return this.mapAppointmentWithMeta(updated);
   }

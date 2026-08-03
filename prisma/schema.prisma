@@ -6183,6 +6183,23 @@ model securityloghash {
   securitylog        securitylog? @relation(fields: [SecurityLogNum], references: [SecurityLogNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_securityloghash_1_SecurityLogNum")
 }
 
+model notification {
+  NotificationNum BigInt    @id
+  UserNum         BigInt?
+  Type            String    @db.VarChar(50)
+  Title           String    @db.VarChar(255)
+  Body            String?   @db.VarChar(1000)
+  RelatedType     String?   @db.VarChar(50)
+  RelatedId       BigInt?
+  IsRead          Boolean   @default(false)
+  DateTimeEntry   DateTime  @default(now())
+  ReadAt          DateTime?
+  userod          userod?   @relation(fields: [UserNum], references: [UserNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_notification_UserNum")
+
+  @@index([UserNum, IsRead])
+  @@index([UserNum, DateTimeEntry])
+}
+
 model sequencecounter {
   CounterNum  BigInt  @id(map: "PK__sequence__ED2848802A98C884")
   CounterName String? @db.VarChar(255)
@@ -7095,6 +7112,7 @@ model userod {
   journalentry_journalentry_SecUserNumEntryTouserod journalentry[]     @relation("journalentry_SecUserNumEntryTouserod")
   journalentry_journalentry_SecUserNumEditTouserod  journalentry[]     @relation("journalentry_SecUserNumEditTouserod")
   mobileappdevice                                   mobileappdevice[]
+  notification                                      notification[]
   orthocase                                         orthocase[]
   orthochart                                        orthochart[]
   orthochartlog                                     orthochartlog[]
