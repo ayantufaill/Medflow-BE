@@ -99,6 +99,7 @@ export class InvoiceService {
       serviceId: item.CodeNum?.toString() ?? meta.serviceId ?? null,
       cptCode: meta.cptCode ?? code?.ProcCode ?? null,
       description: meta.description ?? code?.Descript ?? 'Service',
+      date: item.ProcDate ? new Date(item.ProcDate).toISOString() : null,
       quantity,
       unitPrice,
       totalPrice,
@@ -862,6 +863,10 @@ export class InvoiceService {
       insPortion: number;
       ptPortion: number;
       writeoff: number;
+      date?: string;
+      provider?: string;
+      site?: string;
+      dbi?: boolean;
     }>,
     userId: string
   ) {
@@ -903,6 +908,7 @@ export class InvoiceService {
         CodeNum: service?.CodeNum ?? item.CodeNum ?? null,
         UnitQty: quantity,
         ProcFee: totalPrice,
+        ...(updates.date !== undefined && { ProcDate: updates.date ? new Date(updates.date) : null }),
         BillingNote: buildJson({
           ...currentMeta,
           description: updates.description ?? currentMeta.description ?? service?.Descript ?? 'Service',
@@ -913,6 +919,9 @@ export class InvoiceService {
           ...(updates.insPortion !== undefined && { insPortion: updates.insPortion }),
           ...(updates.ptPortion !== undefined && { ptPortion: updates.ptPortion }),
           ...(updates.writeoff !== undefined && { writeoff: updates.writeoff }),
+          ...(updates.provider !== undefined && { provider: updates.provider }),
+          ...(updates.site !== undefined && { site: updates.site }),
+          ...(updates.dbi !== undefined && { dbi: updates.dbi }),
         }),
       },
     });
