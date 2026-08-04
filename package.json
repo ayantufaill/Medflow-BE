@@ -26,6 +26,7 @@
     "seed:feeschedules": "tsx src/scripts/seedFeeSchedules.ts",
     "seed:claims:clean": "tsx src/scripts/seedClaimsComplete.ts",
     "seed:operatories": "tsx src/scripts/seedOperatories.ts",
+    "seed:branches": "tsx src/scripts/seedBranches.ts",
     "seed:clinical": "tsx src/scripts/seedClinicalManagement.ts",
     "docker:seed:patients": "docker exec medflow-be-api-1 npm run seed:patients",
     "docker:seed:providers": "docker exec medflow-be-api-1 npm run seed:providers",
