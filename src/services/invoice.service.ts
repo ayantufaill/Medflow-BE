@@ -675,6 +675,7 @@ export class InvoiceService {
       providerId?: string;
       notes?: string;
       copayAmount?: number;
+      addClaim?: boolean;
     },
     createdBy: string
   ) {
@@ -767,8 +768,10 @@ export class InvoiceService {
       'low'
     );
 
-    // AUTO-GENERATE CLAIM — runs in background
-    this.triggerClaimGeneration(statement.StatementNum, statement.PatNum, createdBy);
+    // GENERATE CLAIM ONLY IF EXPLICITLY REQUESTED
+    if (data.addClaim) {
+      this.triggerClaimGeneration(statement.StatementNum, statement.PatNum, createdBy);
+    }
 
     return this.mapStatementToInvoice(statement, meta);
   }
@@ -856,6 +859,9 @@ export class InvoiceService {
       unitPrice: number;
       description: string;
       cptCode: string;
+      insPortion: number;
+      ptPortion: number;
+      writeoff: number;
     }>,
     userId: string
   ) {
@@ -898,11 +904,15 @@ export class InvoiceService {
         UnitQty: quantity,
         ProcFee: totalPrice,
         BillingNote: buildJson({
+          ...currentMeta,
           description: updates.description ?? currentMeta.description ?? service?.Descript ?? 'Service',
           unitPrice,
           quantity,
           cptCode: updates.cptCode ?? currentMeta.cptCode ?? service?.ProcCode ?? null,
           serviceId: service?.CodeNum?.toString() ?? currentMeta.serviceId ?? null,
+          ...(updates.insPortion !== undefined && { insPortion: updates.insPortion }),
+          ...(updates.ptPortion !== undefined && { ptPortion: updates.ptPortion }),
+          ...(updates.writeoff !== undefined && { writeoff: updates.writeoff }),
         }),
       },
     });
@@ -1099,9 +1109,6 @@ export class InvoiceService {
 
     await logActivity(userId, 'updated', 'invoices', invoiceId, this.mapStatementToInvoice(invoice, meta), this.mapStatementToInvoice(updated, nextMeta), undefined, undefined, 'low');
 
-    // AUTO-GENERATE CLAIM after finalization (covers any scenario where items were added later)
-    this.triggerClaimGeneration(invoice.StatementNum, invoice.PatNum, userId);
-
     return this.mapStatementToInvoice(updated, nextMeta);
   }
 
@@ -1140,6 +1147,7 @@ export class InvoiceService {
         dbi?: boolean;
         completed?: boolean;
       }>;
+      addClaim?: boolean;
     },
     createdBy: string
   ) {
@@ -1269,8 +1277,10 @@ export class InvoiceService {
 
     await logActivity(createdBy, 'created', 'invoices', statementNum.toString(), undefined, this.mapStatementToInvoice(finalStatement, finalMeta), undefined, undefined, 'medium');
 
-    // AUTO-GENERATE CLAIM — runs in background
-    this.triggerClaimGeneration(statementNum, patientId, createdBy);
+    // GENERATE CLAIM ONLY IF EXPLICITLY REQUESTED
+    if (data.addClaim) {
+      this.triggerClaimGeneration(statementNum, patientId, createdBy);
+    }
 
     await agingService.updatePatientAging(patientId);
 

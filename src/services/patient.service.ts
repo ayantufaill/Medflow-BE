@@ -1583,6 +1583,96 @@ async getPatientHistoryAggregate(patientId: string) {
       appointments
     };
   }
+
+  async purchaseProducts(patientId: string, products: any[]) {
+    const patNum = BigInt(patientId);
+    const patient = await prisma.patient.findUnique({ where: { PatNum: patNum } });
+    if (!patient) {
+      throw new NotFoundError('Patient not found');
+    }
+
+    const createdProcedures = [];
+
+    for (const product of products) {
+      const { productName, providerName, quantity, price } = product;
+
+      let provNum = patient.PriProv;
+      if (providerName) {
+        const parts = providerName.split(' ');
+        const first = parts[0] || '';
+        const last = parts.slice(1).join(' ') || first;
+        
+        const prov = await prisma.provider.findFirst({
+          where: {
+            OR: [
+              { LName: { contains: last } },
+              { FName: { contains: first } }
+            ]
+          }
+        });
+        if (prov) {
+          provNum = prov.ProvNum;
+        }
+      }
+
+      let procedureCode = await prisma.procedurecode.findFirst({
+        where: {
+          Descript: productName,
+          ProcCode: { startsWith: 'PROD' }
+        }
+      });
+
+      if (!procedureCode) {
+        procedureCode = await prisma.procedurecode.findFirst({
+          where: { Descript: productName }
+        });
+      }
+
+      if (!procedureCode) {
+        const codeNum = await getNextId('procedurecode', 'CodeNum');
+        const procCodeStr = "PROD" + codeNum.toString();
+        procedureCode = await prisma.procedurecode.create({
+          data: {
+            CodeNum: codeNum,
+            ProcCode: procCodeStr,
+            Descript: productName,
+            AbbrDesc: productName.substring(0, 50),
+            ProcTime: '/0',
+            ProcCat: BigInt(0),
+            MedicalCode: '',
+            SubstitutionCode: ''
+          }
+        });
+      }
+
+      const procNum = await getNextId('procedurelog', 'ProcNum');
+      const fee = parseFloat(price) * parseInt(quantity, 10);
+      
+      const procedure = await prisma.procedurelog.create({
+        data: {
+          ProcNum: procNum,
+          PatNum: patNum,
+          ProvNum: provNum,
+          ProcStatus: 2, 
+          CodeNum: procedureCode.CodeNum,
+          ProcFee: fee,
+          ProcDate: new Date(),
+          UnitQty: parseInt(quantity, 10),
+          DateEntryC: new Date()
+        }
+      });
+      createdProcedures.push({
+        ...procedure,
+        ProcNum: procedure.ProcNum.toString(),
+        PatNum: procedure.PatNum?.toString(),
+        ProvNum: procedure.ProvNum?.toString(),
+        CodeNum: procedure.CodeNum?.toString()
+      });
+    }
+
+    return createdProcedures;
+  }
 }
 
 export const patientService = new PatientService();
+

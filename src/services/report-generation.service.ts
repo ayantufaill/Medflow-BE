@@ -179,15 +179,15 @@ export class ReportGenerationService {
    * Process and compile other system reports
    */
   async getOthersReport(reportName: string, query: any) {
-    const { startDate, endDate } = this.getRangeDates(query.date, query.range || 'Daily');
+    const { startDate, endDate } = this.getRangeDates(query.date, query.range || 'Daily', query.startDate, query.endDate);
     const name = String(reportName).toLowerCase();
 
     switch (name) {
       case 'login':
-        return this.getLoginReport(startDate, endDate);
+        return this.getLoginReport(startDate, endDate, query);
 
       case 'audit':
-        return this.getAuditReport(startDate, endDate);
+        return this.getAuditReport(startDate, endDate, query);
 
       default:
         return [
@@ -1929,16 +1929,30 @@ export class ReportGenerationService {
   // OTHERS REPORTS QUERY HELPERS
   // ==========================================
 
-  private async getLoginReport(start: Date, end: Date) {
-    const instances = await prisma.activeinstance.findMany({
-      where: { DateTimeLastActive: { gte: start, lte: end } },
-      include: { userod: true, computer: true },
-      take: 50
+  private async getLoginReport(start: Date, end: Date, query: any = {}) {
+    const searchParams = query.search || query.searchQuery || '';
+    
+    const whereClause: any = {
+      LogDateTime: { gte: start, lte: end },
+      LogText: { contains: 'log', mode: 'insensitive' },
+    };
+
+    if (searchParams) {
+      whereClause.userod = {
+        UserName: { contains: searchParams, mode: 'insensitive' }
+      };
+    }
+
+    const logs = await prisma.securitylog.findMany({
+      where: whereClause,
+      include: { userod: true },
+      take: 200,
+      orderBy: { LogDateTime: 'desc' }
     });
 
-    const report = instances.map((i, idx) => {
-      const dateStr = i.DateTimeLastActive
-        ? (i.DateTimeLastActive as Date).toLocaleString('en-US', {
+    return logs.map((log) => {
+      const dateStr = log.LogDateTime
+        ? new Date(log.LogDateTime).toLocaleString('en-US', {
           year: 'numeric',
           month: '2-digit',
           day: '2-digit',
@@ -1947,40 +1961,140 @@ export class ReportGenerationService {
           hour12: true
         })
         : '';
+        
+      let ip = '127.0.0.1';
+      let machine = log.CompName ? `Machine: ${log.CompName}` : 'Unknown';
+      let status = 'Success';
+      
+      const logText = log.LogText || '';
+      if (logText.toLowerCase().includes('fail') || logText.toLowerCase().includes('invalid')) {
+        status = 'Failure';
+      }
+      
+      try {
+        if (logText.startsWith('{')) {
+          const parsed = JSON.parse(logText);
+          if (parsed.ipAddress && parsed.ipAddress !== 'unknown') ip = parsed.ipAddress;
+          if (parsed.userAgent && parsed.userAgent !== 'unknown') machine = parsed.userAgent;
+          if (parsed.eventType) status = parsed.eventType.includes('failure') ? 'Failure' : 'Success';
+        }
+      } catch (e) {
+        // Fallback to default values if JSON parsing fails
+      }
 
       return {
-        id: i.ActiveInstanceNum ? Number(i.ActiveInstanceNum) : idx + 1,
-        username: i.userod?.UserName ?? 'Unknown User',
+        id: log.SecurityLogNum.toString(),
+        username: log.userod?.UserName ?? 'Unknown User',
         date: dateStr,
-        status: 'Success',
-        ip: '127.0.0.1',
-        machine: i.computer?.CompName ? `Machine: ${i.computer.CompName}` : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        createdAt: log.LogDateTime ? log.LogDateTime.toISOString() : null,
+        status,
+        ip,
+        machine
+      };
+    });
+  }
+
+  private async getAuditReport(start: Date, end: Date, query: any = {}) {
+    const searchUser = query.searchUser || '';
+    const searchPatient = query.searchPatient || '';
+    const actionFilter = query.action || 'None';
+    const categoryFilter = query.category || 'None';
+
+    const whereClause: any = {
+      LogDateTime: { gte: start, lte: end },
+    };
+
+    if (searchUser) {
+      whereClause.userod = {
+        UserName: { contains: searchUser, mode: 'insensitive' }
+      };
+    }
+
+    if (searchPatient) {
+      const terms = searchPatient.split(' ').filter(Boolean);
+      if (terms.length > 0) {
+        if (terms.length === 1) {
+           whereClause.patient = {
+             OR: [
+               { FName: { contains: terms[0], mode: 'insensitive' } },
+               { LName: { contains: terms[0], mode: 'insensitive' } }
+             ]
+           };
+        } else {
+           whereClause.patient = {
+             FName: { contains: terms[0], mode: 'insensitive' },
+             LName: { contains: terms[1], mode: 'insensitive' }
+           };
+        }
+      }
+    }
+
+    const logs = await prisma.securitylog.findMany({
+      where: whereClause,
+      include: { userod: true, patient: true },
+      take: 200,
+      orderBy: { LogDateTime: 'desc' }
+    });
+
+    let report = logs.map((log) => {
+      const dateStr = log.LogDateTime
+        ? new Date(log.LogDateTime).toLocaleString('en-US', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        })
+        : '';
+        
+      let parsedAction = 'Action Performed';
+      let parsedCategory = 'General';
+      let parsedObject = 'System Record';
+
+      const text = log.LogText?.toLowerCase() || '';
+      if (text.includes('create') || text.includes('add')) parsedAction = 'Create';
+      else if (text.includes('update') || text.includes('edit') || text.includes('change')) parsedAction = 'Update';
+      else if (text.includes('delete') || text.includes('remove')) parsedAction = 'Delete';
+      else if (text.includes('view') || text.includes('print')) parsedAction = 'View';
+
+      if (text.includes('report')) parsedCategory = 'Report';
+      else if (text.includes('patient') || log.PatNum) parsedCategory = 'Patient';
+      else if (text.includes('appoint') || text.includes('sched')) parsedCategory = 'Schedule';
+      else if (text.includes('claim') || text.includes('bill')) parsedCategory = 'Billing';
+
+      let finalMessage = log.LogText ?? 'Success';
+      try {
+        const parsed = JSON.parse(finalMessage);
+        if (parsed.description) finalMessage = parsed.description;
+        else if (parsed.message) finalMessage = parsed.message;
+      } catch (e) {
+        // Not JSON, leave as is
+      }
+
+      return {
+        id: log.SecurityLogNum.toString(),
+        patient: log.patient ? `${log.patient.FName} ${log.patient.LName}` : '',
+        user: log.userod?.UserName ?? 'System',
+        category: parsedCategory,
+        subcategory: parsedCategory,
+        action: parsedAction,
+        object: parsedObject,
+        date: dateStr,
+        message: finalMessage,
+        diff: { key: '', old: '', new: '' }
       };
     });
 
-    if (report.length === 0) {
-      return [
-        { id: 1, username: 'Babar Magsi', date: '05/08/2026 2:20 PM', status: 'Success', ip: '125.209.73.246', machine: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36' },
-        { id: 2, username: 'Dr. Smith', date: '05/08/2026 1:07 PM', status: 'Success', ip: '125.209.73.246', machine: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36' },
-        { id: 3, username: 'Hygienist A', date: '05/08/2026 1:05 PM', status: 'Success', ip: '182.188.108.206', machine: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36' },
-        { id: 4, username: 'Staff B', date: '05/08/2026 1:02 PM', status: 'Success', ip: '162.251.62.66', machine: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36' },
-        { id: 5, username: 'Babar Magsi', date: '05/08/2026 12:42 PM', status: 'Success', ip: '182.188.108.206', machine: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36' }
-      ];
+    if (actionFilter !== 'None') {
+      report = report.filter(r => r.action.toLowerCase() === actionFilter.toLowerCase());
+    }
+
+    if (categoryFilter !== 'None') {
+      report = report.filter(r => r.category.toLowerCase() === categoryFilter.toLowerCase());
     }
 
     return report;
-  }
-
-  private async getAuditReport(start: Date, end: Date) {
-    return [
-      { id: 1, patient: '', user: 'Babar Magsi', category: 'Report', subcategory: 'Report', action: 'Action Performed', object: 'User Login Report', date: '05/08/2026 02:26 PM', message: 'Success, duration=171ms, params=startDate=2026-5-8 & endDate=2026-5-8', diff: { key: '', old: '', new: '' } },
-      { id: 2, patient: '', user: 'Babar Magsi', category: 'Report', subcategory: 'Report', action: 'Action Performed', object: 'Recare List Report', date: '05/08/2026 02:25 PM', message: 'Success, duration=40ms, params={"currentPage":1,"pageSize":15,"includeAppointed":false,"patientList":[],"includeFlags":null,"flagIds":null}', diff: { key: '', old: '', new: '' } },
-      { id: 3, patient: '', user: 'Babar Magsi', category: 'Report', subcategory: 'Report', action: 'Action Performed', object: 'Recare List Report', date: '05/08/2026 02:25 PM', message: 'Success, duration=38ms, params={"currentPage":1,"pageSize":15,"includeAppointed":false,"patientList":[],"includeFlags":null,"flagIds":null}', diff: { key: '', old: '', new: '' } },
-      { id: 4, patient: '', user: 'Babar Magsi', category: 'Report', subcategory: 'Report', action: 'Action Performed', object: 'Rx Report', date: '05/08/2026 02:25 PM', message: 'Success, duration=20ms, params=startDate=2026-5-7 & endDate=2026-5-8', diff: { key: '', old: '', new: '' } },
-      { id: 5, patient: '', user: 'Y... S...', category: 'Report', subcategory: 'Report', action: 'Action Performed', object: 'Payment Lines Report', date: '05/08/2026 02:23 PM', message: 'Success, duration=24ms', diff: { key: '', old: '', new: '' } },
-      { id: 6, patient: '', user: 'Babar Magsi', category: 'Report', subcategory: 'Report', action: 'Action Performed', object: 'Unsigned Progress Notes Report', date: '05/08/2026 02:23 PM', message: 'Success, duration=656ms, params=date=2026-4-8 & endDate=2026-5-8', diff: { key: '', old: '', new: '' } },
-      { id: 7, patient: '', user: 'Babar Magsi', category: 'Report', subcategory: 'Report', action: 'Action Performed', object: 'Advanced Report', date: '05/08/2026 02:23 PM', message: 'Success, duration=281ms', diff: { key: '', old: '', new: '' } }
-    ];
   }
 
   private async getReferralProductionReport(start: Date, end: Date) {
@@ -2101,33 +2215,79 @@ export class ReportGenerationService {
   // DATE BOUNDARY RESOLUTION UTILITY
   // ==========================================
 
-  private getRangeDates(dateStr?: string, range = 'Daily'): { startDate: Date; endDate: Date } {
+  private getRangeDates(dateStr?: string, range = 'Daily', customStart?: string, customEnd?: string): { startDate: Date; endDate: Date } {
+    if (customStart && customEnd && customStart !== '' && customEnd !== '') {
+      const start = new Date(customStart);
+      const end = new Date(customEnd);
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+        return { startDate: start, endDate: end };
+      }
+    }
+
     const baseDate = dateStr ? new Date(dateStr) : new Date();
     let startDate = new Date(baseDate);
     let endDate = new Date(baseDate);
 
-    if (range === 'Daily') {
+    if (range === 'Daily' || range === 'today') {
       startDate.setHours(0, 0, 0, 0);
       endDate.setHours(23, 59, 59, 999);
-    } else if (range === 'Weekly') {
+    } else if (range === 'Weekly' || range === 'this_week') {
       const day = baseDate.getDay();
-      startDate.setDate(baseDate.getDate() - day);
+      const diff = baseDate.getDate() - day + (day === 0 ? -6 : 1);
+      startDate = new Date(baseDate);
+      startDate.setDate(diff);
       startDate.setHours(0, 0, 0, 0);
-
-      endDate.setDate(baseDate.getDate() + (6 - day));
+      endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 6);
       endDate.setHours(23, 59, 59, 999);
-    } else if (range === 'Monthly') {
+    } else if (range === 'last_7_days') {
+      startDate.setDate(baseDate.getDate() - 6);
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (range === 'last_week') {
+      const day = baseDate.getDay();
+      const diffToLastWeekStart = baseDate.getDate() - day - 7 + (day === 0 ? -6 : 1);
+      startDate = new Date(baseDate);
+      startDate.setDate(diffToLastWeekStart);
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 6);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (range === 'last_4_weeks') {
+      startDate.setDate(baseDate.getDate() - 28);
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (range === 'Monthly' || range === 'this_month') {
       startDate.setDate(1);
       startDate.setHours(0, 0, 0, 0);
-
-      endDate.setMonth(baseDate.getMonth() + 1);
-      endDate.setDate(0);
+      endDate.setMonth(baseDate.getMonth() + 1, 0);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (range === 'last_month') {
+      startDate.setMonth(baseDate.getMonth() - 1, 1);
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setMonth(baseDate.getMonth(), 0);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (range === 'last_3_months') {
+      startDate.setMonth(baseDate.getMonth() - 3);
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (range === 'last_12_months') {
+      startDate.setFullYear(baseDate.getFullYear() - 1);
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (range === 'year_to_date') {
+      startDate.setMonth(0, 1);
+      startDate.setHours(0, 0, 0, 0);
       endDate.setHours(23, 59, 59, 999);
     } else if (range === 'Yearly') {
       startDate.setMonth(0, 1);
       startDate.setHours(0, 0, 0, 0);
-
       endDate.setMonth(11, 31);
+      endDate.setHours(23, 59, 59, 999);
+    } else {
+      startDate.setHours(0, 0, 0, 0);
       endDate.setHours(23, 59, 59, 999);
     }
 

@@ -5,7 +5,7 @@ import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
   appointmentIdValidator, providerIdValidator, createAppointmentValidator,
-  updateAppointmentValidator, rescheduleAppointmentValidator, cancelAppointmentValidator,
+  dayTasksQueryValidator, updateAppointmentValidator, rescheduleAppointmentValidator, cancelAppointmentValidator,
   appointmentQueryValidator, scheduleQueryValidator, availableSlotsQueryValidator,
   appointmentWorkspaceValidator, appointmentProcedureValidator, appointmentTagValidator,
   appointmentLabOrderValidator, appointmentCommunicationValidator,
@@ -15,6 +15,27 @@ import {
 const router = Router();
 router.use(authenticate);
 router.use(resolveBranchAccess);
+
+/**
+ * @swagger
+ * /appointments/day-tasks:
+ *   get:
+ *     summary: Get all day tasks
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: date
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: date
+ *     responses:
+ *       200:
+ *         description: Success
+ */
+router.get('/day-tasks', validate(dayTasksQueryValidator), appointmentController.getDayTasks.bind(appointmentController));
 
 /**
  * @swagger
