@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { claimController } from '../controllers/claim.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { createManualClaimValidator } from '../validators/claim.validator';
 import { validate } from '../middleware/validation.middleware';
@@ -53,6 +55,8 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.read'),
   validate(claimSearchValidator),
   claimController.getAllClaims.bind(claimController)
@@ -75,6 +79,8 @@ router.get(
 router.get(
   '/tab-summary',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.read'),
   claimController.getTabSummary.bind(claimController)
 );
@@ -110,6 +116,8 @@ router.get(
 router.get(
   '/outstanding',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.read'),
   claimController.getOutstandingClaims.bind(claimController)
 );
@@ -133,6 +141,8 @@ router.get(
 router.get(
   '/outstanding-for-allocation',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.read'),
   claimController.getOutstandingClaimsForAllocation.bind(claimController)
 );
@@ -165,6 +175,8 @@ router.get(
 router.get(
   '/predeterminations',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.read'),
   claimController.getPredeterminations.bind(claimController)
 );
@@ -184,6 +196,8 @@ router.get(
 router.get(
   '/dentical-reports',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.read'),
   claimController.getDenticalReports.bind(claimController)
 );
@@ -216,6 +230,8 @@ router.get(
 router.get(
   '/era-reports',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.read'),
   claimController.getEraReports.bind(claimController)
 );
@@ -235,6 +251,8 @@ router.get(
 router.get(
   '/pending-procedures',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.read'),
   claimController.getPendingProcedures.bind(claimController)
 );
@@ -264,6 +282,8 @@ router.get(
 router.get(
   '/batch-payments',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.read'),
   claimController.getBatchPayments.bind(claimController)
 );
@@ -299,6 +319,8 @@ router.get(
 router.post(
   '/batch-submit',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.process'),
   validate(batchSubmitValidator),
   claimController.batchSubmitClaims.bind(claimController)
@@ -466,6 +488,8 @@ router.post(
 router.post(
   '/batch-payment',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.process'),
   validate(recordBatchPaymentValidator),
   claimController.recordBatchPayment.bind(claimController)
@@ -504,6 +528,8 @@ router.post(
 router.post(
   '/batch-payment/:paymentId/eob',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.update'),
   validate(paymentIdParamValidator),
   uploadDocumentMiddleware.any(),
@@ -638,6 +664,8 @@ router.post(
 router.post(
   '/batch-invoices',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.create'),
   validate(batchInvoicesValidator),
   claimController.generateBatchInvoices.bind(claimController)
@@ -777,6 +805,8 @@ router.post(
 router.post(
   '/procedures/uncomplete',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.update'),
   validate(uncompleteProceduresValidator),
   claimController.uncompleteProcedures.bind(claimController)
@@ -803,6 +833,8 @@ router.post(
 router.get(
   '/:claimId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.read'),
   validate(claimIdValidator),
   claimController.getClaimById.bind(claimController)
@@ -841,6 +873,8 @@ router.get(
 router.get(
   '/:claimId/pdf',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.read'),
   validate(claimIdValidator),
   claimController.getClaimPdf.bind(claimController)
@@ -877,6 +911,8 @@ router.get(
 router.post(
   '/from-invoice/:invoiceId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.create'),
   validate([...invoiceIdParamValidator, ...createClaimFromInvoiceValidator]),
   claimController.createClaimFromInvoice.bind(claimController)
@@ -915,6 +951,8 @@ router.post(
 router.patch(
   '/:claimId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.update'),
   validate([...claimIdValidator, ...updateClaimValidator]),
   claimController.updateClaim.bind(claimController)
@@ -942,6 +980,8 @@ router.patch(
 router.post(
   '/:claimId/validate',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.process'),
   validate(claimIdValidator),
   claimController.validateClaim.bind(claimController)
@@ -969,6 +1009,8 @@ router.post(
 router.post(
   '/:claimId/submit',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.process'),
   validate(claimIdValidator),
   claimController.submitClaim.bind(claimController)
@@ -994,6 +1036,8 @@ router.post(
 router.get(
   '/:claimId/status-history',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.read'),
   validate(claimIdValidator),
   claimController.getClaimStatusHistory.bind(claimController)
@@ -1030,6 +1074,8 @@ router.get(
 router.post(
   '/:claimId/resubmit',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.update'),
   validate([...claimIdValidator, ...resubmitClaimValidator]),
   claimController.resubmitClaim.bind(claimController)
@@ -1067,6 +1113,8 @@ router.post(
 router.post(
   '/:claimId/documents',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.update'),
   validate(claimIdValidator),
   uploadDocumentMiddleware.any(),
@@ -1105,6 +1153,8 @@ router.post(
 router.post(
   '/:claimId/attachments',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.update'),
   validate(claimIdValidator),
   uploadDocumentMiddleware.array('attachments'),
@@ -1132,6 +1182,8 @@ router.post(
 router.get(
   '/:claimId/documents',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.read'),
   validate(claimIdValidator),
   claimController.getClaimDocuments.bind(claimController)
@@ -1161,6 +1213,8 @@ router.get(
 router.delete(
   '/:claimId/documents/:documentId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.update'),
   validate([...claimIdValidator, ...claimDocumentIdValidator]),
   claimController.removeClaimDocument.bind(claimController)
@@ -1186,6 +1240,8 @@ router.delete(
 router.get(
   '/:claimId/clearinghouse',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.read'),
   validate(claimIdValidator),
   claimController.getClearinghouseStatus.bind(claimController)
@@ -1413,6 +1469,8 @@ router.get(
 router.post(
   '/:claimId/quick-status',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.update'),
   validate([...claimIdValidator, ...quickStatusUpdateValidator]),
   claimController.quickStatusUpdate.bind(claimController)
@@ -1578,6 +1636,8 @@ router.post(
 router.post(
   '/manual',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('claims.create'),
   validate(createManualClaimValidator),
   claimController.createManualClaim.bind(claimController)

@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { clinicalNoteController } from '../controllers/clinical-note.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -48,6 +50,8 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.read'),
   validate(clinicalNoteQueryValidator),
   clinicalNoteController.getAllClinicalNotes
@@ -79,6 +83,8 @@ router.get(
 router.get(
   '/patient/:patientId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.read'),
   validate([...patientIdParamValidator, ...paginationQueryValidator]),
   clinicalNoteController.getClinicalNotesByPatient
@@ -104,6 +110,8 @@ router.get(
 router.get(
   '/patient/:patientId/medical-history',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.read'),
   validate(patientIdParamValidator),
   clinicalNoteController.getPatientMedicalHistory
@@ -131,6 +139,8 @@ router.get(
 router.get(
   '/appointment/:appointmentId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.read'),
   validate(appointmentIdParamValidator),
   clinicalNoteController.getClinicalNoteByAppointment
@@ -156,6 +166,8 @@ router.get(
 router.get(
   '/unsigned/:providerId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.read'),
   validate(providerIdParamValidator),
   clinicalNoteController.getUnsignedNotes
@@ -183,6 +195,8 @@ router.get(
 router.get(
   '/:clinicalNoteId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.read'),
   validate(clinicalNoteIdValidator),
   clinicalNoteController.getClinicalNoteById
@@ -225,6 +239,8 @@ router.get(
 router.post(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.create'),
   validate(createClinicalNoteValidator),
   clinicalNoteController.createClinicalNote
@@ -266,6 +282,8 @@ router.post(
 router.post(
   '/from-template/:templateId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.create'),
   validate([...templateIdParamValidator, ...createFromTemplateValidator]),
   clinicalNoteController.createNoteFromTemplate
@@ -308,6 +326,8 @@ router.post(
 router.put(
   '/:clinicalNoteId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.update'),
   validate([...clinicalNoteIdValidator, ...updateClinicalNoteValidator]),
   clinicalNoteController.updateClinicalNote
@@ -342,6 +362,8 @@ router.put(
 router.put(
   '/:clinicalNoteId/draft',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.update'),
   validate([...clinicalNoteIdValidator, ...saveDraftValidator]),
   clinicalNoteController.saveDraft
@@ -371,6 +393,8 @@ router.put(
 router.post(
   '/:clinicalNoteId/sign',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.sign'),
   validate(clinicalNoteIdValidator),
   clinicalNoteController.signClinicalNote
@@ -407,6 +431,8 @@ router.post(
 router.post(
   '/:clinicalNoteId/attachments',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.update'),
   validate([...clinicalNoteIdValidator, ...attachmentValidator]),
   clinicalNoteController.addAttachment
@@ -443,6 +469,8 @@ router.post(
 router.delete(
   '/:clinicalNoteId/attachments',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.update'),
   validate([...clinicalNoteIdValidator, ...attachmentValidator]),
   clinicalNoteController.removeAttachment
@@ -470,6 +498,8 @@ router.delete(
 router.delete(
   '/:clinicalNoteId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.delete'),
   validate(clinicalNoteIdValidator),
   clinicalNoteController.deleteClinicalNote

@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { kpiController } from '../controllers/kpi.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 
 const router = Router();
@@ -33,6 +35,8 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.read'),
   kpiController.getMainKpis.bind(kpiController)
 );
@@ -52,6 +56,8 @@ router.get(
 router.get(
   '/summary',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.read'),
   kpiController.getKpiSummary.bind(kpiController)
 );
@@ -84,6 +90,8 @@ router.get(
 router.get(
   '/providers',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.read'),
   kpiController.getProviderKpis.bind(kpiController)
 );

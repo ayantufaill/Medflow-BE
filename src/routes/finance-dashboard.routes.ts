@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { financeDashboardController } from '../controllers/finance-dashboard.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { patientIdParamValidator } from '../validators/finance-dashboard.validator';
@@ -29,6 +31,8 @@ const router = Router();
 router.get(
   '/ledger/:patientId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.read'),
   validate(patientIdParamValidator),
   financeDashboardController.getLedger.bind(financeDashboardController)
@@ -56,6 +60,8 @@ router.get(
 router.get(
   '/aging/:patientId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.read'),
   validate(patientIdParamValidator),
   financeDashboardController.getAging.bind(financeDashboardController)
@@ -76,6 +82,8 @@ router.get(
 router.get(
   '/overview',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.read'),
   financeDashboardController.getGlobalOverview.bind(financeDashboardController)
 );
