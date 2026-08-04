@@ -1635,6 +1635,24 @@ async getPatientHistoryAggregate(patientId: string) {
       if (!procedureCode) {
         const codeNum = await getNextId('procedurecode', 'CodeNum');
         const procCodeStr = "PROD" + codeNum.toString();
+
+        let procCatDefNum = BigInt(0);
+
+        // Find existing "Products" category
+        const prodCat = await prisma.definition.findFirst({
+          where: { Category: 11, ItemName: { contains: 'Product' } }
+        });
+
+        if (prodCat) {
+          procCatDefNum = prodCat.DefNum;
+        } else {
+          // Fallback to first available category
+          const fallbackCat = await prisma.definition.findFirst({ where: { Category: 11 } });
+          if (fallbackCat) {
+            procCatDefNum = fallbackCat.DefNum;
+          }
+        }
+
         procedureCode = await prisma.procedurecode.create({
           data: {
             CodeNum: codeNum,
@@ -1642,7 +1660,7 @@ async getPatientHistoryAggregate(patientId: string) {
             Descript: productName,
             AbbrDesc: productName.substring(0, 50),
             ProcTime: '/0',
-            ProcCat: BigInt(0),
+            ProcCat: procCatDefNum,
             MedicalCode: '',
             SubstitutionCode: ''
           }
