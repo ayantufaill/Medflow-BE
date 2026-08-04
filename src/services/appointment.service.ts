@@ -1026,6 +1026,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
     appointmentId: string,
     updates: {
       appointmentTypeId?: string;
+      providerId?: string;
       appointmentDate?: Date;
       startTime?: string;
       endTime?: string;
@@ -1053,8 +1054,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
     const targetStatus = updates.status !== undefined ? updates.status : mapAppointmentStatusFromDb(appointment.AptStatus);
     const isInactiveStatus = targetStatus === 'no_show' || targetStatus === 'cancelled' || targetStatus === 'pending';
 
-    // If updating date/time, check for conflicts (including buffers and room)
-    if (!isInactiveStatus && (updates.appointmentDate || updates.startTime || updates.endTime)) {
+    // If updating date/time or provider, check for conflicts (including buffers and room)
+    if (!isInactiveStatus && (updates.appointmentDate || updates.startTime || updates.endTime || updates.providerId)) {
       const appointmentDate = updates.appointmentDate || appointment.AptDateTime || new Date();
       const startTime = updates.startTime || (appointment.AptDateTime ? formatMinutesToTime(
         appointment.AptDateTime.getHours() * 60 + appointment.AptDateTime.getMinutes()
@@ -1065,9 +1066,10 @@ async getPatientAppointments(patientId: string, limit = 10) {
       const appointmentTypeId =
         updates.appointmentTypeId || (appointment.AppointmentTypeNum ? appointment.AppointmentTypeNum.toString() : undefined);
       const roomId = updates.roomId !== undefined ? updates.roomId : appointment.Op?.toString();
+      const providerId = updates.providerId || appointment.ProvNum?.toString() || '';
 
       const conflictCheck = await checkConflicts(
-        appointment.ProvNum?.toString() ?? '',
+        providerId,
         appointmentDate instanceof Date ? appointmentDate : new Date(String(appointmentDate)),
         String(startTime),
         String(endTime),
@@ -1086,6 +1088,16 @@ async getPatientAppointments(patientId: string, limit = 10) {
           ? 'Patient already has an appointment booked for this time slot'
           : 'Updated appointment conflicts with existing appointment';
         throw new ConflictError(conflictType);
+      }
+    }
+
+    // Validate provider if updating
+    if (updates.providerId) {
+      const provider = await prisma.provider.findUnique({
+        where: { ProvNum: BigInt(updates.providerId) },
+      });
+      if (!provider || provider.IsHidden) {
+        throw new NotFoundError('Provider not found or inactive');
       }
     }
 
@@ -1142,6 +1154,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
       data: {
         AppointmentTypeNum:
           updates.appointmentTypeId !== undefined ? BigInt(updates.appointmentTypeId) : undefined,
+        ProvNum:
+          updates.providerId !== undefined ? BigInt(updates.providerId) : undefined,
         AptDateTime: aptDateTime ?? undefined,
         Pattern: durationMinutes,
         ProcDescript: updates.chiefComplaint ?? undefined,
@@ -1154,6 +1168,24 @@ async getPatientAppointments(patientId: string, limit = 10) {
     });
 
     const existingMeta = await getAppointmentMeta(appointment.AptNum);
+    const dbStatus = mapAppointmentStatusFromDb(appointment.AptStatus);
+    const currentStatus =
+      dbStatus === 'completed' || dbStatus === 'cancelled' || dbStatus === 'no_show'
+        ? dbStatus
+        : (existingMeta.status ?? dbStatus);
+
+    const hasStatusChanged = updates.status !== undefined && updates.status !== currentStatus;
+    const nextSystemEvents = [...(existingMeta.systemEvents ?? [])];
+    if (hasStatusChanged) {
+      nextSystemEvents.push({
+        id: `event-${Date.now()}`,
+        type: 'status_changed',
+        message: `Status updated to ${updates.status}`,
+        createdAt: new Date().toISOString(),
+        createdBy: updatedBy,
+      });
+    }
+
     const nextMeta = {
       status: updates.status ?? existingMeta.status ?? mapAppointmentStatusFromDb(updated.AptStatus),
       requiresInterpreter: updates.requiresInterpreter ?? existingMeta.requiresInterpreter ?? false,
@@ -1169,7 +1201,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       tags: existingMeta.tags ?? [],
       participants: existingMeta.participants ?? [],
       workspaceNotes: existingMeta.workspaceNotes ?? [],
-      systemEvents: existingMeta.systemEvents ?? [],
+      systemEvents: nextSystemEvents,
       referralSource: existingMeta.referralSource ?? null,
       checkInAt:
         updates.status === 'checked_in'
@@ -1228,10 +1260,18 @@ async getPatientAppointments(patientId: string, limit = 10) {
       },
     });
     const existingMeta = await getAppointmentMeta(updated.AptNum);
+    const newEvent = {
+      id: `event-${Date.now()}`,
+      type: 'status_changed',
+      message: 'Status updated to cancelled',
+      createdAt: new Date().toISOString(),
+      createdBy: cancelledBy,
+    };
     await setAppointmentMeta(updated.AptNum, {
       ...existingMeta,
       status: 'cancelled',
       cancellationReason: cancellationReason ?? existingMeta.cancellationReason ?? null,
+      systemEvents: [...(existingMeta.systemEvents ?? []), newEvent],
     });
 
     // Log activity
@@ -1356,10 +1396,18 @@ async getPatientAppointments(patientId: string, limit = 10) {
       },
     });
     const existingMeta = await getAppointmentMeta(updated.AptNum);
+    const newEvent = {
+      id: `event-${Date.now()}`,
+      type: 'status_changed',
+      message: 'Status updated to checked_in',
+      createdAt: new Date().toISOString(),
+      createdBy: checkedInBy,
+    };
     await setAppointmentMeta(updated.AptNum, {
       ...existingMeta,
       status: 'checked_in',
       checkInAt: updated.DateTimeArrived ? updated.DateTimeArrived.toISOString() : existingMeta.checkInAt ?? null,
+      systemEvents: [...(existingMeta.systemEvents ?? []), newEvent],
     });
 
     // Log activity
@@ -1727,12 +1775,20 @@ async getPatientAppointments(patientId: string, limit = 10) {
       },
     });
     const existingMeta = await getAppointmentMeta(updated.AptNum);
+    const newEvent = {
+      id: `event-${Date.now()}`,
+      type: 'status_changed',
+      message: 'Status updated to completed',
+      createdAt: new Date().toISOString(),
+      createdBy: checkedOutBy,
+    };
     await setAppointmentMeta(updated.AptNum, {
       ...existingMeta,
       status: 'completed',
       completedAt:
         updated.DateTimeDismissed?.toISOString() ?? new Date().toISOString(),
       cancellationReason: null,
+      systemEvents: [...(existingMeta.systemEvents ?? []), newEvent],
     });
 
     await logActivity(

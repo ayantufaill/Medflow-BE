@@ -147,6 +147,10 @@ export const updateAppointmentValidator: ValidationChain[] = [
       'pending'
     ])
     .withMessage('Invalid appointment status'),
+  body('providerId')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Invalid provider ID format'),
   body('chiefComplaint')
     .optional()
     .trim()

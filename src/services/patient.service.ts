@@ -834,13 +834,17 @@ async getPatientLastVisit(patientId: string) {
         updates.referralSource !== undefined
           ? updates.referralSource.trim() || null
           : currentMeta.referralSource ?? null,
-      customFields: updates.customFields ?? currentMeta.customFields ?? {},
+      customFields: updates.customFields !== undefined
+        ? { ...(currentMeta.customFields || {}), ...updates.customFields }
+        : currentMeta.customFields ?? {},
       preferredDentistId: updates.preferredDentistId !== undefined ? updates.preferredDentistId : currentMeta.preferredDentistId ?? null,
       preferredHygienistId: updates.preferredHygienistId !== undefined ? updates.preferredHygienistId : currentMeta.preferredHygienistId ?? null,
       headOfCommunication: updates.headOfCommunication !== undefined ? updates.headOfCommunication : currentMeta.headOfCommunication ?? null,
       household: updates.household !== undefined ? updates.household : currentMeta.household ?? [],
       spouseInfo: updates.spouseInfo !== undefined ? updates.spouseInfo : currentMeta.spouseInfo ?? null,
-      assignmentAndRelease: updates.assignmentAndRelease !== undefined ? updates.assignmentAndRelease : currentMeta.assignmentAndRelease ?? null,
+      assignmentAndRelease: updates.assignmentAndRelease !== undefined
+        ? { ...(currentMeta.assignmentAndRelease || {}), ...updates.assignmentAndRelease }
+        : currentMeta.assignmentAndRelease ?? null,
       patientFlags: updates.patientFlags !== undefined ? updates.patientFlags : currentMeta.patientFlags ?? [],
       financialResponsibility: updates.financialResponsibility !== undefined ? updates.financialResponsibility : currentMeta.financialResponsibility ?? null,
       sexAtBirth:
