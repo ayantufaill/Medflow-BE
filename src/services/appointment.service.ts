@@ -1180,7 +1180,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       nextSystemEvents.push({
         id: `event-${Date.now()}`,
         type: 'status_changed',
-        message: `Status updated to ${updates.status}`,
+        message: `Status changed to ${updates.status}`,
         createdAt: new Date().toISOString(),
         createdBy: updatedBy,
       });
@@ -1263,7 +1263,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
     const newEvent = {
       id: `event-${Date.now()}`,
       type: 'status_changed',
-      message: 'Status updated to cancelled',
+      message: 'Status changed to cancelled',
       createdAt: new Date().toISOString(),
       createdBy: cancelledBy,
     };
@@ -1399,7 +1399,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
     const newEvent = {
       id: `event-${Date.now()}`,
       type: 'status_changed',
-      message: 'Status updated to checked_in',
+      message: 'Status changed to checked_in',
       createdAt: new Date().toISOString(),
       createdBy: checkedInBy,
     };
@@ -1778,7 +1778,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
     const newEvent = {
       id: `event-${Date.now()}`,
       type: 'status_changed',
-      message: 'Status updated to completed',
+      message: 'Status changed to completed',
       createdAt: new Date().toISOString(),
       createdBy: checkedOutBy,
     };
