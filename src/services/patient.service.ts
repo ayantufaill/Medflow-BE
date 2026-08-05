@@ -1163,6 +1163,7 @@ async getPatientLastVisit(patientId: string) {
       reviewStatus: Boolean(dentalHistory.review.reviewedWithPatient),
       lastUpdateDate: dentalHistory.review.reviewedAt ?? patient.DateTStamp ?? null,
       review: dentalHistory.review,
+      isSaved: !!patientMeta.dentalHistory,
     };
   }
 
