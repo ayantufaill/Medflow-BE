@@ -982,6 +982,12 @@ async getPatientAppointments(patientId: string, limit = 10) {
         SecUserNumEntry: createdBy ? BigInt(createdBy) : null,
         SecDateTEntry: new Date(),
       },
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        appointmenttype: true,
+        userod: true,
+      },
     });
 
     await setAppointmentMeta(appointment.AptNum, {
@@ -1003,6 +1009,13 @@ async getPatientAppointments(patientId: string, limit = 10) {
       checklists: (data as any).checklists ?? { preAppt: {}, checkIn: {}, checkOut: {} },
     });
 
+    const mapped = await this.mapAppointmentWithMeta(appointment, {
+      patient: appointment.patient,
+      provider: appointment.provider_appointment_ProvNumToprovider,
+      appointmentType: appointment.appointmenttype,
+      createdBy: appointment.userod,
+    });
+
     // Log activity
     await logActivity(
       createdBy,
@@ -1010,13 +1023,13 @@ async getPatientAppointments(patientId: string, limit = 10) {
       'appointments',
       String(appointment.AptNum),
       undefined,
-      await this.mapAppointmentWithMeta(appointment),
+      mapped,
       undefined,
       undefined,
       'medium'
     );
 
-    return this.mapAppointmentWithMeta(appointment);
+    return mapped;
   }
 
   /**
@@ -1165,6 +1178,12 @@ async getPatientAppointments(patientId: string, limit = 10) {
         DateTimeArrived: updates.status === 'checked_in' ? new Date() : undefined,
         DateTimeDismissed: updates.status === 'completed' ? new Date() : undefined,
       },
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        appointmenttype: true,
+        userod: true,
+      },
     });
 
     const existingMeta = await getAppointmentMeta(appointment.AptNum);
@@ -1215,6 +1234,13 @@ async getPatientAppointments(patientId: string, limit = 10) {
     };
     await setAppointmentMeta(updated.AptNum, nextMeta);
 
+    const mapped = await this.mapAppointmentWithMeta(updated, {
+      patient: updated.patient,
+      provider: updated.provider_appointment_ProvNumToprovider,
+      appointmentType: updated.appointmenttype,
+      createdBy: updated.userod,
+    });
+
     // Log activity
     await logActivity(
       updatedBy,
@@ -1222,13 +1248,13 @@ async getPatientAppointments(patientId: string, limit = 10) {
       'appointments',
       appointmentId,
       oldData,
-      await this.mapAppointmentWithMeta(updated),
+      mapped,
       undefined,
       undefined,
       'medium'
     );
 
-    return this.mapAppointmentWithMeta(updated);
+    return mapped;
   }
 
   /**
@@ -1258,6 +1284,12 @@ async getPatientAppointments(patientId: string, limit = 10) {
         AptStatus: mapAppointmentStatusToDb('cancelled'),
         Note: cancellationReason ? `${appointment.Note || ''}\nCancellation: ${cancellationReason}` : appointment.Note,
       },
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        appointmenttype: true,
+        userod: true,
+      },
     });
     const existingMeta = await getAppointmentMeta(updated.AptNum);
     const newEvent = {
@@ -1274,6 +1306,13 @@ async getPatientAppointments(patientId: string, limit = 10) {
       systemEvents: [...(existingMeta.systemEvents ?? []), newEvent],
     });
 
+    const mapped = await this.mapAppointmentWithMeta(updated, {
+      patient: updated.patient,
+      provider: updated.provider_appointment_ProvNumToprovider,
+      appointmentType: updated.appointmenttype,
+      createdBy: updated.userod,
+    });
+
     // Log activity
     await logActivity(
       cancelledBy,
@@ -1281,13 +1320,13 @@ async getPatientAppointments(patientId: string, limit = 10) {
       'appointments',
       appointmentId,
       oldData,
-      await this.mapAppointmentWithMeta(updated),
+      mapped,
       undefined,
       undefined,
       'medium'
     );
 
-    return this.mapAppointmentWithMeta(updated);
+    return mapped;
   }
 
   /**
@@ -1345,6 +1384,19 @@ async getPatientAppointments(patientId: string, limit = 10) {
         AptDateTime: toDateTime(newDate, newStartTime),
         Pattern: String(parseTimeToMinutes(newEndTime) - parseTimeToMinutes(newStartTime)),
       },
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        appointmenttype: true,
+        userod: true,
+      },
+    });
+
+    const mapped = await this.mapAppointmentWithMeta(updated, {
+      patient: updated.patient,
+      provider: updated.provider_appointment_ProvNumToprovider,
+      appointmentType: updated.appointmenttype,
+      createdBy: updated.userod,
     });
 
     // Log activity
@@ -1354,13 +1406,13 @@ async getPatientAppointments(patientId: string, limit = 10) {
       'appointments',
       appointmentId,
       oldData,
-      await this.mapAppointmentWithMeta(updated),
+      mapped,
       undefined,
       undefined,
       'medium'
     );
 
-    return this.mapAppointmentWithMeta(updated);
+    return mapped;
   }
 
   /**
@@ -1394,6 +1446,12 @@ async getPatientAppointments(patientId: string, limit = 10) {
         AptStatus: mapAppointmentStatusToDb('checked_in'),
         DateTimeArrived: new Date(),
       },
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        appointmenttype: true,
+        userod: true,
+      },
     });
     const existingMeta = await getAppointmentMeta(updated.AptNum);
     const newEvent = {
@@ -1410,6 +1468,13 @@ async getPatientAppointments(patientId: string, limit = 10) {
       systemEvents: [...(existingMeta.systemEvents ?? []), newEvent],
     });
 
+    const mapped = await this.mapAppointmentWithMeta(updated, {
+      patient: updated.patient,
+      provider: updated.provider_appointment_ProvNumToprovider,
+      appointmentType: updated.appointmenttype,
+      createdBy: updated.userod,
+    });
+
     // Log activity
     await logActivity(
       checkedInBy,
@@ -1417,13 +1482,13 @@ async getPatientAppointments(patientId: string, limit = 10) {
       'appointments',
       appointmentId,
       oldData,
-      await this.mapAppointmentWithMeta(updated),
+      mapped,
       undefined,
       undefined,
       'low'
     );
 
-    return this.mapAppointmentWithMeta(updated);
+    return mapped;
   }
 
   /**
