@@ -526,8 +526,10 @@ export class InvoiceService {
   }
 
   private async getStatementById(statementId: string) {
+    const statementNum = toBigInt(statementId);
+    if (!statementNum) return null;
     return prisma.statement.findUnique({
-      where: { StatementNum: BigInt(statementId) },
+      where: { StatementNum: statementNum },
     });
   }
 
@@ -876,7 +878,10 @@ export class InvoiceService {
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
     if (String(meta.status) !== 'draft') throw new BadRequestError('Only draft invoices can be modified');
 
-    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: BigInt(itemId) } });
+    const procNum = toBigInt(itemId);
+    if (!procNum) throw new NotFoundError('Invoice item not found');
+
+    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
     if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
 
     let service = null;
@@ -903,7 +908,7 @@ export class InvoiceService {
     const totalPrice = roundCurrency(unitPrice * quantity);
 
     const updated = await prisma.procedurelog.update({
-      where: { ProcNum: BigInt(itemId) },
+      where: { ProcNum: procNum },
       data: {
         CodeNum: service?.CodeNum ?? item.CodeNum ?? null,
         UnitQty: quantity,
@@ -927,7 +932,7 @@ export class InvoiceService {
     });
 
     await this.recalculateInvoice(invoiceId);
-    const reFetchedUpdated = await prisma.procedurelog.findUnique({ where: { ProcNum: BigInt(itemId) } });
+    const reFetchedUpdated = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
     await logActivity(userId, 'updated', 'invoice_items', itemId, item, reFetchedUpdated || updated, undefined, undefined, 'low');
     return this.mapProcedureLogToInvoiceItem(reFetchedUpdated || updated, invoiceId, service);
   }
@@ -939,10 +944,13 @@ export class InvoiceService {
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
     if (String(meta.status) !== 'draft') throw new BadRequestError('Only draft invoices can be modified');
 
-    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: BigInt(itemId) } });
+    const procNum = toBigInt(itemId);
+    if (!procNum) throw new NotFoundError('Invoice item not found');
+
+    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
     if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
 
-    await prisma.procedurelog.delete({ where: { ProcNum: BigInt(itemId) } });
+    await prisma.procedurelog.delete({ where: { ProcNum: procNum } });
     await this.recalculateInvoice(invoiceId);
     await logActivity(userId, 'deleted', 'invoice_items', itemId, item, undefined, undefined, undefined, 'low');
     return { message: 'Invoice item deleted successfully' };
@@ -1303,7 +1311,10 @@ export class InvoiceService {
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
     if (String(meta.status) === 'void') throw new BadRequestError('Cannot pay a voided invoice');
 
-    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: BigInt(itemId) } });
+    const procNum = toBigInt(itemId);
+    if (!procNum) throw new NotFoundError('Invoice item not found');
+
+    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
     if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
 
     const itemMeta = parseJson<ItemMeta>(item.BillingNote);
@@ -1311,7 +1322,7 @@ export class InvoiceService {
     const newPaid = roundCurrency(currentPaid + amount);
 
     await prisma.procedurelog.update({
-      where: { ProcNum: BigInt(itemId) },
+      where: { ProcNum: procNum },
       data: { BillingNote: buildJson({ ...itemMeta, paidAmount: newPaid }) },
     });
 
@@ -1331,7 +1342,10 @@ export class InvoiceService {
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
     if (String(meta.status) === 'void') throw new BadRequestError('Cannot transfer on a voided invoice');
 
-    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: BigInt(itemId) } });
+    const procNum = toBigInt(itemId);
+    if (!procNum) throw new NotFoundError('Invoice item not found');
+
+    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
     if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
 
     const itemMeta = parseJson<any>(item.BillingNote);
@@ -1346,7 +1360,7 @@ export class InvoiceService {
     const updatedItemMeta = { ...itemMeta, insPortion: 0, ptPortion: newPtPortion };
 
     await prisma.procedurelog.update({
-      where: { ProcNum: BigInt(itemId) },
+      where: { ProcNum: procNum },
       data: { BillingNote: buildJson(updatedItemMeta) },
     });
 
