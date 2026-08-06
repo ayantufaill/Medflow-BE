@@ -1319,6 +1319,88 @@ export class InvoiceService {
     return { success: true, message: 'Item payment recorded', itemId, paidAmount: newPaid };
   }
 
+  /**
+   * Transfer the outstanding insurance estimate for a line item to the patient balance.
+   * Sets insPortion = 0 and increases ptPortion by that amount in the procedure's BillingNote,
+   * then recalculates the invoice. Also updates the underlying claim (InsPayEst / DedApplied) if one exists.
+   */
+  async transferOutstandingToPatient(invoiceId: string, itemId: string, performedBy: string) {
+    const invoice = await this.getStatementById(invoiceId);
+    if (!invoice) throw new NotFoundError('Invoice not found');
+
+    const meta = parseJson<StatementMeta>(invoice.NoteBold);
+    if (String(meta.status) === 'void') throw new BadRequestError('Cannot transfer on a voided invoice');
+
+    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: BigInt(itemId) } });
+    if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
+
+    const itemMeta = parseJson<any>(item.BillingNote);
+    const outstandingInsurance = roundCurrency(Number(itemMeta.insPortion || 0));
+
+    if (outstandingInsurance <= 0) {
+      throw new BadRequestError('No outstanding insurance estimate to transfer for this item');
+    }
+
+    // Shift the amount from insurance portion to patient portion
+    const newPtPortion = roundCurrency((Number(itemMeta.ptPortion) || 0) + outstandingInsurance);
+    const updatedItemMeta = { ...itemMeta, insPortion: 0, ptPortion: newPtPortion };
+
+    await prisma.procedurelog.update({
+      where: { ProcNum: BigInt(itemId) },
+      data: { BillingNote: buildJson(updatedItemMeta) },
+    });
+
+    // Also update the underlying claim if one is linked to this invoice
+    const claimId = meta.claimId;
+    if (claimId && /^\d+$/.test(claimId)) {
+      const claim = await prisma.claim.findUnique({ where: { ClaimNum: BigInt(claimId) } });
+      if (claim) {
+        const currentInsPayEst = roundCurrency(Number(claim.InsPayEst) || 0);
+        const currentDedApplied = roundCurrency(Number(claim.DedApplied) || 0);
+
+        // Only reduce if the claim value covers what we are transferring
+        const reduceBy = Math.min(outstandingInsurance, currentInsPayEst);
+        await prisma.claim.update({
+          where: { ClaimNum: BigInt(claimId) },
+          data: {
+            InsPayEst: roundCurrency(currentInsPayEst - reduceBy),
+            DedApplied: roundCurrency(currentDedApplied + reduceBy),
+          },
+        });
+      }
+    }
+
+    // Recalculate invoice totals
+    await this.recalculateInvoice(invoiceId);
+
+    const patientId = invoice.PatNum?.toString();
+    if (patientId) {
+      await agingService.updatePatientAging(patientId);
+    }
+
+    const updatedInvoice = await this.getStatementById(invoiceId);
+    const updatedMeta = parseJson<StatementMeta>(updatedInvoice?.NoteBold);
+
+    await logActivity(
+      performedBy,
+      'updated',
+      'invoices',
+      invoiceId,
+      undefined,
+      { action: 'transfer_outstanding_to_patient', itemId, transferredAmount: outstandingInsurance },
+      undefined,
+      undefined,
+      'medium'
+    );
+
+    return {
+      success: true,
+      message: `$${outstandingInsurance.toFixed(2)} transferred from insurance to patient balance`,
+      transferredAmount: outstandingInsurance,
+      invoice: this.mapStatementToInvoice(updatedInvoice, updatedMeta),
+    };
+  }
+
   async getPatientCompositeLedger(patientId: string) {
     const invoiceRows = await prisma.statement.findMany({
       where: { PatNum: BigInt(patientId), IsInvoice: 1 },
