@@ -7,8 +7,10 @@ export class DashboardMetricsController {
       const date = req.query.date ? String(req.query.date) : new Date().toISOString().split('T')[0];
       const range = req.query.range ? String(req.query.range) : 'Daily';
       const providerId = req.query.providerId ? String(req.query.providerId) : 'All';
+      const startDate = req.query.startDate ? String(req.query.startDate) : undefined;
+      const endDate = req.query.endDate ? String(req.query.endDate) : undefined;
 
-      const data = await dashboardMetricsService.getDashboardMetrics(date, range, providerId);
+      const data = await dashboardMetricsService.getDashboardMetrics(date, range, providerId, startDate, endDate);
       
       res.status(200).json({
         success: true,

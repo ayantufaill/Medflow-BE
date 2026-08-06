@@ -1,6 +1,8 @@
 import type { Request, Response, NextFunction } from 'express';
 import { communicationService } from '../services/communication.service';
 import { logActivityFromRequest } from '../utils/activity-logger.util';
+import { smsService } from '../services/sms.service';
+import { prisma } from '../config/db';
 
 export class CommunicationController {
   /* ─── Communication Settings ─── */
@@ -362,6 +364,53 @@ export class CommunicationController {
         success: true,
         data: result,
         message: 'Review settings updated successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /* ─── Bulk Text ─── */
+  async sendBulkText(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientIds, message } = req.body;
+
+      if (!patientIds || !Array.isArray(patientIds) || patientIds.length === 0) {
+        return res.status(400).json({ success: false, message: 'patientIds array is required' });
+      }
+
+      // Convert patientIds to BigInt
+      const patNums = patientIds.map((id: string) => BigInt(id));
+
+      const patients = await prisma.patient.findMany({
+        where: { PatNum: { in: patNums } },
+        select: { PatNum: true, WirelessPhone: true, HmPhone: true }
+      });
+
+      const promises = patients.map(async (patient) => {
+        const phone = patient.WirelessPhone || patient.HmPhone;
+        if (phone) {
+          // Fire and forget asynchronously as per the plan
+          return smsService.sendSms(phone, message).catch(err => {
+            console.error(`Failed to send SMS to patient ${patient.PatNum}:`, err);
+          });
+        }
+      });
+
+      // We won't block the request on all SMS sending, but we can start them.
+      // Wait for all to finish if we want, or just start them. Plan says "fire them all asynchronously".
+      // Let's await Promise.allSettled to not leak unhandled rejections, but return success immediately?
+      // Actually, plan says "fire them all asynchronously in a single loop", so we can just do Promise.all and not worry if it takes a bit, or run it in background.
+      // Running it in background:
+      Promise.allSettled(promises);
+
+      if (req.userId) {
+        await logActivityFromRequest(req, 'created', 'bulk-text', 'multiple');
+      }
+
+      res.status(200).json({
+        success: true,
+        message: `Bulk text dispatch initiated for ${patients.length} patients.`
       });
     } catch (error) {
       next(error);

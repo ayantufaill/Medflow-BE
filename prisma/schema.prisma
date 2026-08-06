@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 enum TreatmentArea {
@@ -7781,6 +7782,15 @@ model clinicalitem {
   isQuickList   Boolean?
   isRecommended Boolean?
   subCategory   clinicalsubcategory @relation(fields: [subCategoryId], references: [id], onDelete: Cascade)
+}
+
+// ─── ID sequence counter for src/utils/opendental-ids.util.ts's getNextId() ─
+// Was a raw, ad-hoc `CREATE TABLE IF NOT EXISTS` bootstrapped at runtime;
+// modeled here instead so `prisma db push` creates/preserves it like any
+// other table, rather than treating it as drift to drop.
+model medflow_sequences {
+  table_name String @id @db.VarChar(255)
+  next_id    BigInt
 }
 
 // ─── Practice Group: organization hierarchy over clinic (branch) rows ──────

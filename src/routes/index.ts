@@ -60,6 +60,7 @@ import productivityRoutes from './productivity.routes';
 import shortlistRoutes from './shortlist.routes';
 import notificationRoutes from './notification.routes';
 import branchRoutes from './branch.routes';
+import practiceGroupRoutes from './practice-group.routes';
 
 const router = Router();
 
@@ -126,6 +127,6 @@ router.use('/productivity', productivityRoutes);
 router.use('/shortlist', shortlistRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/branches', branchRoutes);
+router.use('/practice-groups', practiceGroupRoutes);
 
 export default router;
-

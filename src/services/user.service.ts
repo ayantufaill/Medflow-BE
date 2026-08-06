@@ -470,51 +470,149 @@ export class UserService {
     return { message: 'User deactivated successfully' };
   }
 
-  async getUserActivity(userId: string, page = 1, limit = 10) {
-    const skip = (page - 1) * limit;
+  async getUserActivity(
+    userId: string,
+    page = 1,
+    limit = 20,
+    search?: string,
+    startDate?: string,
+    endDate?: string
+  ) {
+    const where: any = { UserNum: BigInt(userId) };
+    if (startDate || endDate) {
+      where.LogDateTime = {};
+      if (startDate) where.LogDateTime.gte = new Date(`${startDate}T00:00:00.000Z`);
+      if (endDate) where.LogDateTime.lte = new Date(`${endDate}T23:59:59.999Z`);
+    }
+
     const logs = await prisma.securitylog.findMany({
-      where: { UserNum: BigInt(userId) },
+      where,
       orderBy: { LogDateTime: 'desc' },
-      skip,
-      take: limit,
+      take: 1000,
     });
 
-    const activities = logs
+    const allActivities = logs
       .map((log) => {
         try {
           const payload = JSON.parse(log.LogText || '{}');
-          return { ...payload, occurredAt: log.LogDateTime };
+          if (payload.type === 'security_event' || payload.type === 'notification') {
+            return null;
+          }
+          return {
+            ...payload,
+            _id: log.SecurityLogNum?.toString() || Math.random().toString(),
+            id: log.SecurityLogNum?.toString() || Math.random().toString(),
+            action: payload.action || payload.description || 'Activity',
+            tableName: payload.tableName || payload.type || 'System',
+            recordId: payload.recordId || '',
+            ipAddress: payload.ipAddress || '-',
+            riskLevel: payload.riskLevel || 'low',
+            occurredAt: log.LogDateTime,
+            createdAt: log.LogDateTime,
+          };
         } catch {
-          return null;
+          if (log.LogText?.toLowerCase().includes('login') || log.LogText?.toLowerCase().includes('security')) {
+            return null;
+          }
+          return {
+            _id: log.SecurityLogNum?.toString() || Math.random().toString(),
+            id: log.SecurityLogNum?.toString() || Math.random().toString(),
+            action: log.LogText || 'Activity',
+            tableName: 'System',
+            recordId: '',
+            ipAddress: '-',
+            riskLevel: 'low',
+            occurredAt: log.LogDateTime,
+            createdAt: log.LogDateTime,
+          };
         }
       })
-      .filter(Boolean);
+      .filter((item): item is NonNullable<typeof item> => {
+        if (!item) return false;
+        if (search) {
+          const s = search.toLowerCase().trim();
+          const target = JSON.stringify(item).toLowerCase();
+          if (!target.includes(s)) return false;
+        }
+        return true;
+      });
 
-    return { activities, pagination: { page, limit, total: activities.length, pages: Math.ceil(activities.length / limit) } };
+    const total = allActivities.length;
+    const pages = Math.max(1, Math.ceil(total / limit));
+    const skip = (page - 1) * limit;
+    const activities = allActivities.slice(skip, skip + limit);
+
+    return { activities, pagination: { page, limit, total, pages } };
   }
 
-  async getUserLoginHistory(userId: string, page = 1, limit = 10) {
-    const skip = (page - 1) * limit;
+  async getUserLoginHistory(
+    userId: string,
+    page = 1,
+    limit = 20,
+    search?: string,
+    startDate?: string,
+    endDate?: string
+  ) {
+    const where: any = { UserNum: BigInt(userId) };
+    if (startDate || endDate) {
+      where.LogDateTime = {};
+      if (startDate) where.LogDateTime.gte = new Date(`${startDate}T00:00:00.000Z`);
+      if (endDate) where.LogDateTime.lte = new Date(`${endDate}T23:59:59.999Z`);
+    }
+
     const logs = await prisma.securitylog.findMany({
-      where: { UserNum: BigInt(userId) },
+      where,
       orderBy: { LogDateTime: 'desc' },
-      skip,
-      take: limit,
+      take: 1000,
     });
 
-    const history = logs
+    const allHistory = logs
       .map((log) => {
         try {
           const payload = JSON.parse(log.LogText || '{}');
-          if (payload.type !== 'security_event') return null;
-          return { ...payload, occurredAt: log.LogDateTime };
+          const isSec = payload.type === 'security_event' || payload.eventType || log.LogText?.toLowerCase().includes('login');
+          if (!isSec) return null;
+          return {
+            ...payload,
+            _id: log.SecurityLogNum?.toString() || Math.random().toString(),
+            id: log.SecurityLogNum?.toString() || Math.random().toString(),
+            eventType: payload.eventType || 'login_success',
+            description: payload.description || 'Successful login session',
+            ipAddress: payload.ipAddress || '-',
+            riskLevel: payload.riskLevel || 'low',
+            occurredAt: log.LogDateTime,
+            createdAt: log.LogDateTime,
+          };
         } catch {
-          return null;
+          if (!log.LogText?.toLowerCase().includes('login')) return null;
+          return {
+            _id: log.SecurityLogNum?.toString() || Math.random().toString(),
+            id: log.SecurityLogNum?.toString() || Math.random().toString(),
+            eventType: 'login_success',
+            description: log.LogText || 'Successful login session',
+            ipAddress: '-',
+            riskLevel: 'low',
+            occurredAt: log.LogDateTime,
+            createdAt: log.LogDateTime,
+          };
         }
       })
-      .filter(Boolean);
+      .filter((item): item is NonNullable<typeof item> => {
+        if (!item) return false;
+        if (search) {
+          const s = search.toLowerCase().trim();
+          const target = JSON.stringify(item).toLowerCase();
+          if (!target.includes(s)) return false;
+        }
+        return true;
+      });
 
-    return { history, pagination: { page, limit, total: history.length, pages: Math.ceil(history.length / limit) } };
+    const total = allHistory.length;
+    const pages = Math.max(1, Math.ceil(total / limit));
+    const skip = (page - 1) * limit;
+    const history = allHistory.slice(skip, skip + limit);
+
+    return { loginHistory: history, history, pagination: { page, limit, total, pages } };
   }
 
   async assignUserRoles(userId: string, roleIds: string[]): Promise<void> {

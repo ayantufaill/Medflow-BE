@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { authorizationController } from '../controllers/authorization.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -42,6 +44,8 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('authorizations.read'),
   validate(authorizationSearchValidator),
   authorizationController.getAllAuthorizations.bind(authorizationController)
@@ -69,6 +73,8 @@ router.get(
 router.get(
   '/:authorizationId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('authorizations.read'),
   validate(authorizationIdValidator),
   authorizationController.getAuthorizationById.bind(authorizationController)
@@ -108,6 +114,8 @@ router.get(
 router.post(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('authorizations.create'),
   validate(createAuthorizationValidator),
   authorizationController.requestAuthorization.bind(authorizationController)
@@ -149,6 +157,8 @@ router.post(
 router.patch(
   '/:authorizationId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('authorizations.update'),
   validate([...authorizationIdValidator, ...updateAuthorizationValidator]),
   authorizationController.updateAuthorization.bind(authorizationController)
@@ -174,6 +184,8 @@ router.patch(
 router.get(
   '/:authorizationId/status-history',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('authorizations.read'),
   validate(authorizationIdValidator),
   authorizationController.getAuthorizationStatusHistory.bind(authorizationController)
@@ -204,6 +216,8 @@ router.get(
 router.get(
   '/:authorizationId/print',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('authorizations.read'),
   validate(authorizationIdValidator),
   authorizationController.printAuthorizationForm.bind(authorizationController)

@@ -2,12 +2,14 @@ import { Router } from 'express';
 import { branchController } from '../controllers/branch.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { branchAnalyticsValidator } from '../validators/branch.validator';
 
 const router = Router();
 router.use(authenticate);
 router.use(resolveBranchAccess);
+router.use(enterTenantContext);
 
 /**
  * @swagger

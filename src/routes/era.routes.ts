@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { eraController } from '../controllers/era.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { uploadEraFile } from '../middleware/upload.middleware';
@@ -47,6 +49,8 @@ const router = Router();
 router.post(
   '/import',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('era.create'),
   uploadEraFile.any(),
   eraController.importERAFile.bind(eraController)
@@ -83,6 +87,8 @@ router.post(
 router.get(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('era.read'),
   validate(eraSearchValidator),
   eraController.getAllERAs.bind(eraController)
@@ -113,6 +119,8 @@ router.get(
 router.get(
   '/unmatched',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('era.read'),
   validate(unmatchedSearchValidator),
   eraController.getUnmatchedItems.bind(eraController)
@@ -153,6 +161,8 @@ router.get(
 router.post(
   '/items/:eraItemId/match',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('era.update'),
   validate([...eraItemIdValidator, ...matchEraItemValidator]),
   eraController.matchERAItem.bind(eraController)
@@ -180,6 +190,8 @@ router.post(
 router.get(
   '/:eraId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('era.read'),
   validate(eraIdValidator),
   eraController.getERAById.bind(eraController)
@@ -208,6 +220,8 @@ router.get(
 router.get(
   '/:eraId/items',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('era.read'),
   validate(eraIdValidator),
   eraController.getERAItems.bind(eraController)
@@ -235,6 +249,8 @@ router.get(
 router.post(
   '/:eraId/auto-post',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('era.update'),
   validate(eraIdValidator),
   eraController.autoPostPayments.bind(eraController)

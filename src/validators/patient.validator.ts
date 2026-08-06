@@ -833,3 +833,13 @@ export const patientSearchValidator: ValidationChain[] = [
     .isIn(['asc', 'desc'])
     .withMessage('sortOrder must be asc or desc'),
 ];
+
+export const purchaseProductsValidator: ValidationChain[] = [
+  ...patientIdValidator,
+  body('products').isArray().withMessage('Products must be an array'),
+  body('products.*.productName').isString().notEmpty().withMessage('Product name is required'),
+  body('products.*.providerName').optional({ values: 'falsy' }).isString(),
+  body('products.*.quantity').isNumeric().withMessage('Quantity must be a number'),
+  body('products.*.price').isNumeric().withMessage('Price must be a number')
+];
+

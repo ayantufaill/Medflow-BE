@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { serviceController } from '../controllers/service.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -42,6 +44,8 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('services.read'),
   validate(serviceSearchValidator),
   serviceController.getAllServices.bind(serviceController)
@@ -62,6 +66,8 @@ router.get(
 router.get(
   '/categories',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('services.read'),
   serviceController.getCategories.bind(serviceController)
 );
@@ -88,6 +94,8 @@ router.get(
 router.get(
   '/:serviceId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('services.read'),
   validate(serviceIdValidator),
   serviceController.getServiceById.bind(serviceController)
@@ -130,6 +138,8 @@ router.get(
 router.post(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('services.create'),
   validate(createServiceValidator),
   serviceController.createService.bind(serviceController)
@@ -174,6 +184,8 @@ router.post(
 router.put(
   '/:serviceId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('services.update'),
   validate([...serviceIdValidator, ...updateServiceValidator]),
   serviceController.updateService.bind(serviceController)
@@ -201,6 +213,8 @@ router.put(
 router.delete(
   '/:serviceId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('services.delete'),
   validate(serviceIdValidator),
   serviceController.deleteService.bind(serviceController)
@@ -226,6 +240,8 @@ router.delete(
 router.patch(
   '/:serviceId/activate',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('services.update'),
   validate(serviceIdValidator),
   serviceController.activateService.bind(serviceController)
@@ -251,6 +267,8 @@ router.patch(
 router.patch(
   '/:serviceId/deactivate',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('services.update'),
   validate(serviceIdValidator),
   serviceController.deactivateService.bind(serviceController)
@@ -276,6 +294,8 @@ router.patch(
 router.patch(
   '/:serviceId/toggle',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('services.update'),
   validate(serviceIdValidator),
   serviceController.toggleServiceStatus.bind(serviceController)

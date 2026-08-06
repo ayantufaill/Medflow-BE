@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { param } from 'express-validator';
 import { communicationController } from '../controllers/communication.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -15,12 +17,15 @@ import {
   gapFillValidator,
   gapFillSettingsValidator,
   updateReviewSettingsValidator,
+  bulkTextValidator,
 } from '../validators/communication.validator';
 
 const router = Router();
 
 // All routes require authentication
 router.use(authenticate);
+router.use(resolveBranchAccess);
+router.use(enterTenantContext);
 
 /**
  * @swagger
@@ -705,6 +710,41 @@ router.put(
   requirePermission('settings.update'),
   validate(updateReviewSettingsValidator),
   communicationController.updateReviewSettings.bind(communicationController)
+);
+
+/**
+ * @swagger
+ * /communication/bulk-text:
+ *   post:
+ *     summary: Send bulk SMS to multiple patients
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - patientIds
+ *               - message
+ *             properties:
+ *               patientIds:
+ *                 type: array
+ *                 items: { type: string }
+ *               message: { type: string }
+ *     responses:
+ *       200:
+ *         description: Bulk texts sent
+ *       400:
+ *         description: Invalid input
+ */
+router.post(
+  '/bulk-text',
+  requirePermission('settings.update'),
+  validate(bulkTextValidator),
+  communicationController.sendBulkText.bind(communicationController)
 );
 
 export default router;
