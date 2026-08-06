@@ -1387,9 +1387,8 @@ export class InvoiceService {
     // Recalculate invoice totals
     await this.recalculateInvoice(invoiceId);
 
-    const patientId = invoice.PatNum?.toString();
-    if (patientId) {
-      await agingService.updatePatientAging(patientId);
+    if (invoice.PatNum) {
+      await agingService.updatePatientAging(invoice.PatNum);
     }
 
     const updatedInvoice = await this.getStatementById(invoiceId);
