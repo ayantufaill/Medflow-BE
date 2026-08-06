@@ -872,7 +872,7 @@ export const DEFAULT_DENTAL_HISTORY = {
     {
       id: 'fillings-crowns',
       number: 37,
-      question: 'Do you have... (Options: Amalgam fillings, Composite fillings, Gold fillings, Crown, 1 to 4 teeth, 5 to 8 teeth, 9 or more teeth)',
+      question: 'Do you have... (Options: Amalgam fillings, Composite fillings, Gold fillings, Crown, ---, 1 to 4 teeth, 5 to 8 teeth, 9 or more teeth)',
       answer: 'No',
       scale: '',
       note: '',

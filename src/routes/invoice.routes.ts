@@ -667,4 +667,40 @@ router.patch(
   invoiceController.markItemPaid.bind(invoiceController)
 );
 
+/**
+ * @swagger
+ * /invoices/{invoiceId}/items/{itemId}/transfer-outstanding:
+ *   post:
+ *     summary: Transfer outstanding insurance estimate to patient balance
+ *     description: Moves the remaining insurance estimate (insPortion) for a line item to the patient's balance (ptPortion). Also updates the linked claim's InsPayEst and DedApplied fields and recalculates invoice totals.
+ *     tags: [Invoices]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: invoiceId
+ *         required: true
+ *         schema: { type: string }
+ *         description: ID of the invoice
+ *       - in: path
+ *         name: itemId
+ *         required: true
+ *         schema: { type: string }
+ *         description: ID of the line item (procedure log)
+ *     responses:
+ *       200:
+ *         description: Insurance estimate transferred to patient balance
+ *       400:
+ *         description: No outstanding insurance estimate to transfer, or invoice is voided
+ *       404:
+ *         description: Invoice or item not found
+ */
+router.post(
+  '/:invoiceId/items/:itemId/transfer-outstanding',
+  authenticate,
+  requirePermission('invoices.update'),
+  validate([...invoiceIdValidator, ...invoiceItemIdValidator]),
+  invoiceController.transferOutstandingToPatient.bind(invoiceController)
+);
+
 export default router;

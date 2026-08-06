@@ -4,7 +4,7 @@ export const invoiceIdValidator: ValidationChain[] = [
   param('invoiceId')
     .notEmpty()
     .withMessage('Invoice ID is required')
-    .isInt({ min: 1 })
+    .isString()
     .withMessage('Invalid invoice ID format'),
 ];
 
@@ -12,7 +12,7 @@ export const invoiceItemIdValidator: ValidationChain[] = [
   param('itemId')
     .notEmpty()
     .withMessage('Invoice item ID is required')
-    .isInt({ min: 1 })
+    .isString()
     .withMessage('Invalid invoice item ID format'),
 ];
 
@@ -175,6 +175,22 @@ export const updateInvoiceItemValidator: ValidationChain[] = [
     .optional()
     .isNumeric()
     .withMessage('writeoff must be numeric'),
+  body('date')
+    .optional()
+    .isISO8601()
+    .withMessage('date must be a valid ISO 8601 date string'),
+  body('provider')
+    .optional()
+    .isString()
+    .withMessage('provider must be a string'),
+  body('site')
+    .optional()
+    .isString()
+    .withMessage('site must be a string'),
+  body('dbi')
+    .optional()
+    .isBoolean()
+    .withMessage('dbi must be a boolean'),
 ];
 
 export const recalculateInvoiceValidator: ValidationChain[] = [

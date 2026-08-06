@@ -561,12 +561,45 @@ export class ClaimService {
   }
 
   async getAllClaims(page = 1, limit = 10, filters: ClaimFilters = {}) {
-    const where: any = {
-      ClaimType: { not: 'PreAuth' },
-    };
+    const where: any = {};
+    if (filters.tab && filters.tab.toLowerCase() === 'predetermination') {
+      where.ClaimType = 'PreAuth';
+    } else {
+      where.ClaimType = { not: 'PreAuth' };
+    }
 
     if (filters.patientId) {
       where.PatNum = BigInt(filters.patientId);
+    }
+
+    if (filters.status && filters.status !== 'all') {
+      const dbStatus = claimStatusToCode(filters.status);
+      where.ClaimStatus = dbStatus;
+    }
+
+    if (filters.tab) {
+      const tab = filters.tab.toLowerCase();
+      if (tab === 'unsent') {
+        where.ClaimStatus = { in: ['H', 'X', 'D'] };
+      } else if (tab === 'errored') {
+        where.ClaimStatus = { in: ['X', 'D'] };
+      } else if (tab === 'rejected') {
+        where.ClaimStatus = 'X';
+      } else if (tab === 'history') {
+        where.ClaimStatus = { not: 'H' };
+      } else if (tab === 'outstanding') {
+        where.ClaimStatus = { in: ['S', 'P', 'R', 'T'] };
+      }
+    }
+
+    if (filters.search) {
+      const searchNum = /^\d+$/.test(filters.search) ? BigInt(filters.search) : null;
+      where.OR = [
+        { PreAuthString: { contains: filters.search, mode: 'insensitive' } },
+        { PriorAuthorizationNumber: { contains: filters.search, mode: 'insensitive' } },
+        { ClaimIdentifier: { contains: filters.search, mode: 'insensitive' } },
+        ...(searchNum !== null ? [{ ClaimNum: searchNum }] : []),
+      ];
     }
 
     if (filters.startDate || filters.endDate) {
