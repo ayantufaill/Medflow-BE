@@ -238,6 +238,9 @@ export class AppointmentService {
       quantity: proc.UnitQty ?? 1,
       fee: proc.ProcFee ?? 0,
       providerId: proc.ProvNum?.toString() ?? null,
+      providerName: proc.provider_procedurelog_ProvNumToprovider 
+        ? `${proc.provider_procedurelog_ProvNumToprovider.FName || ''} ${proc.provider_procedurelog_ProvNumToprovider.LName || ''}`.trim() 
+        : null,
       createdAt: proc.SecDateEntry ?? null,
     };
   }
@@ -1016,6 +1019,27 @@ async getPatientAppointments(patientId: string, limit = 10) {
       createdBy: appointment.userod,
     });
 
+    if (data.customFields?.procedures && Array.isArray(data.customFields.procedures)) {
+      for (const proc of data.customFields.procedures) {
+        try {
+          const fee = proc.charge ? parseFloat(proc.charge.toString().replace(/[^0-9.-]+/g, "")) : 0;
+          await this.addAppointmentProcedure(
+            appointment.AptNum.toString(),
+            {
+              code: proc.code,
+              description: proc.treatment || proc.name || '',
+              fee: isNaN(fee) ? 0 : fee,
+              providerId: proc.provider || data.providerId,
+              tooth: proc.site || '',
+            },
+            createdBy
+          );
+        } catch (error) {
+          console.error(`Failed to add procedure ${proc.code} to appointment ${appointment.AptNum}:`, error);
+        }
+      }
+    }
+
     // Log activity
     await logActivity(
       createdBy,
@@ -1240,6 +1264,31 @@ async getPatientAppointments(patientId: string, limit = 10) {
       appointmentType: updated.appointmenttype,
       createdBy: updated.userod,
     });
+
+    if (updates.customFields?.procedures && Array.isArray(updates.customFields.procedures)) {
+      // For simplicity in MVP, we delete and recreate procedures for the appointment
+      await prisma.procedurelog.deleteMany({
+        where: { AptNum: BigInt(appointmentId) }
+      });
+      for (const proc of updates.customFields.procedures) {
+        try {
+          const fee = proc.charge ? parseFloat(proc.charge.toString().replace(/[^0-9.-]+/g, "")) : 0;
+          await this.addAppointmentProcedure(
+            appointmentId,
+            {
+              code: proc.code,
+              description: proc.treatment || proc.name || '',
+              fee: isNaN(fee) ? 0 : fee,
+              providerId: proc.provider || updates.providerId || appointment.ProvNum?.toString(),
+              tooth: proc.site || '',
+            },
+            updatedBy
+          );
+        } catch (error) {
+          console.error(`Failed to sync procedure ${proc.code} for appointment ${appointmentId}:`, error);
+        }
+      }
+    }
 
     // Log activity
     await logActivity(
@@ -1631,7 +1680,10 @@ async getPatientAppointments(patientId: string, limit = 10) {
     }
     const procedures = await prisma.procedurelog.findMany({
       where: { AptNum: appointment.AptNum },
-      include: { procedurecode_procedurelog_CodeNumToprocedurecode: true },
+      include: { 
+        procedurecode_procedurelog_CodeNumToprocedurecode: true,
+        provider_procedurelog_ProvNumToprovider: true
+      },
       orderBy: { ProcNum: 'asc' },
     });
     return {
