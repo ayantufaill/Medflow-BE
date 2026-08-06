@@ -45,6 +45,11 @@ const buildPatientMapperOptions = (patientMeta: Record<string, any>) => ({
   assignmentAndRelease: patientMeta.assignmentAndRelease ?? null,
 });
 
+const toBigInt = (value?: string | null): bigint | null => {
+  if (!value) return null;
+  return /^\d+$/.test(value) ? BigInt(value) : null;
+};
+
 /**
  * Generate unique patient code (e.g., PAT001, PAT002, etc.)
  */
@@ -1588,9 +1593,11 @@ async getPatientHistoryAggregate(patientId: string) {
       appointments
     };
   }
-
   async purchaseProducts(patientId: string, products: any[]) {
-    const patNum = BigInt(patientId);
+    const patNum = toBigInt(patientId);
+    if (!patNum) {
+      throw new NotFoundError('Patient not found');
+    }
     const patient = await prisma.patient.findUnique({ where: { PatNum: patNum } });
     if (!patient) {
       throw new NotFoundError('Patient not found');
@@ -1603,15 +1610,15 @@ async getPatientHistoryAggregate(patientId: string) {
 
       let provNum = patient.PriProv;
       if (providerName) {
-        const parts = providerName.split(' ');
+        const parts = providerName.trim().split(/\s+/);
         const first = parts[0] || '';
-        const last = parts.slice(1).join(' ') || first;
+        const last = parts.length > 1 ? parts.slice(1).join(' ') : first;
         
         const prov = await prisma.provider.findFirst({
           where: {
             OR: [
-              { LName: { contains: last } },
-              { FName: { contains: first } }
+              { LName: { contains: last, mode: 'insensitive' } },
+              { FName: { contains: first, mode: 'insensitive' } }
             ]
           }
         });
@@ -1622,14 +1629,14 @@ async getPatientHistoryAggregate(patientId: string) {
 
       let procedureCode = await prisma.procedurecode.findFirst({
         where: {
-          Descript: productName,
+          Descript: { equals: productName, mode: 'insensitive' },
           ProcCode: { startsWith: 'PROD' }
         }
       });
 
       if (!procedureCode) {
         procedureCode = await prisma.procedurecode.findFirst({
-          where: { Descript: productName }
+          where: { Descript: { equals: productName, mode: 'insensitive' } }
         });
       }
 
@@ -1637,11 +1644,11 @@ async getPatientHistoryAggregate(patientId: string) {
         const codeNum = await getNextId('procedurecode', 'CodeNum');
         const procCodeStr = "PROD" + codeNum.toString();
 
-        let procCatDefNum = BigInt(0);
+        let procCatDefNum: bigint | null = null;
 
         // Find existing "Products" category
         const prodCat = await prisma.definition.findFirst({
-          where: { Category: 11, ItemName: { contains: 'Product' } }
+          where: { Category: 11, ItemName: { contains: 'Product', mode: 'insensitive' } }
         });
 
         if (prodCat) {
@@ -1662,14 +1669,16 @@ async getPatientHistoryAggregate(patientId: string) {
             AbbrDesc: productName.substring(0, 50),
             ProcTime: '/0',
             ProcCat: procCatDefNum,
-            MedicalCode: '',
-            SubstitutionCode: ''
+            MedicalCode: null,
+            SubstitutionCode: null
           }
         });
       }
 
       const procNum = await getNextId('procedurelog', 'ProcNum');
-      const fee = parseFloat(price) * parseInt(quantity, 10);
+      const qtyNum = parseInt(quantity, 10) || 1;
+      const priceNum = parseFloat(price) || 0;
+      const fee = Number((priceNum * qtyNum).toFixed(2));
       
       const procedure = await prisma.procedurelog.create({
         data: {
@@ -1680,7 +1689,7 @@ async getPatientHistoryAggregate(patientId: string) {
           CodeNum: procedureCode.CodeNum,
           ProcFee: fee,
           ProcDate: new Date(),
-          UnitQty: parseInt(quantity, 10),
+          UnitQty: qtyNum,
           DateEntryC: new Date()
         }
       });
@@ -1689,7 +1698,7 @@ async getPatientHistoryAggregate(patientId: string) {
         ProcNum: procedure.ProcNum.toString(),
         PatNum: procedure.PatNum?.toString(),
         ProvNum: procedure.ProvNum?.toString(),
-        CodeNum: procedure.CodeNum?.toString()
+        CodeNum: procedure.CodeNum?.toString(),
       });
     }
 
