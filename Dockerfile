@@ -6,6 +6,13 @@ RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists
 COPY package.json package-lock.json ./
 RUN npm ci
 
+# ── Stage 1.5: Dev (hot-reload via nodemon + tsx) ────────────────────────────
+FROM deps AS dev
+WORKDIR /app
+ENV NODE_ENV=development
+EXPOSE 5001
+CMD ["npm", "run", "dev"]
+
 # ── Stage 2: Generate Prisma client + compile TypeScript ─────────────────────
 FROM deps AS build
 ENV NODE_OPTIONS=--max-old-space-size=4096

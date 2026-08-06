@@ -10,6 +10,7 @@ import {
 } from '../utils/opendental-mappers.util';
 import {
   getAppointmentMeta,
+  getAppointmentsMeta,
   getProviderMeta,
   mapUser,
   setAppointmentMeta,
@@ -18,6 +19,7 @@ import { patientWorkspaceService } from './patient-workspace.service';
 import { emailService } from './email.service';
 import { smsService } from './sms.service';
 import { practiceInfoService } from './practice-info.service';
+import { staffNotificationService } from './staffNotification.service';
 
 /**
  * Generate unique appointment code (e.g., APT001, APT002, etc.)
@@ -1053,6 +1055,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
       'medium'
     );
 
+    await this.notifyStaffAppointmentBooked(String(appointment.AptNum));
+
     return mapped;
   }
 
@@ -1375,7 +1379,35 @@ async getPatientAppointments(patientId: string, limit = 10) {
       'medium'
     );
 
+    await this.notifyAppointmentCancelled(appointmentId, cancellationReason);
+    await this.notifyStaffAppointmentCancelled(appointmentId);
+
     return mapped;
+  }
+
+  /**
+   * Sends a cancellation email to the patient. Failures are logged, not thrown,
+   * so a notification hiccup never blocks the cancellation itself.
+   */
+  private async notifyAppointmentCancelled(appointmentId: string, cancellationReason?: string) {
+    try {
+      const { patient, appointmentDateTime, providerName, appointmentType, operatoryName, confirmationCode, clinic } =
+        await this.buildNotificationContext(appointmentId);
+      if (!patient.Email) return;
+      await emailService.sendAppointmentCancellation({
+        email: patient.Email,
+        firstName: patient.FName ?? undefined,
+        appointmentDateTime,
+        providerName,
+        appointmentType,
+        operatoryName,
+        confirmationCode,
+        cancellationReason,
+        clinic,
+      });
+    } catch (error) {
+      console.error(`Failed to send cancellation email for appointment ${appointmentId}:`, error);
+    }
   }
 
   /**
@@ -1427,6 +1459,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
     }
 
     const oldData = await this.mapAppointmentWithMeta(appointment);
+    const previousAppointmentDateTime = this.formatAppointmentDateTime(appointment.AptDateTime);
     const updated = await prisma.appointment.update({
       where: { AptNum: BigInt(appointmentId) },
       data: {
@@ -1461,7 +1494,182 @@ async getPatientAppointments(patientId: string, limit = 10) {
       'medium'
     );
 
+    await this.notifyAppointmentRescheduled(appointmentId, previousAppointmentDateTime);
+    await this.notifyStaffAppointmentRescheduled(appointmentId, previousAppointmentDateTime);
+
     return mapped;
+  }
+
+  /** Sends a reschedule email to the patient. Failures are logged, not thrown. */
+  private async notifyAppointmentRescheduled(appointmentId: string, previousAppointmentDateTime: string) {
+    try {
+      const { patient, appointmentDateTime, providerName, appointmentType, operatoryName, confirmationCode, clinic } =
+        await this.buildNotificationContext(appointmentId);
+      if (!patient.Email) return;
+      await emailService.sendAppointmentReschedule({
+        email: patient.Email,
+        firstName: patient.FName ?? undefined,
+        appointmentDateTime,
+        previousAppointmentDateTime,
+        providerName,
+        appointmentType,
+        operatoryName,
+        confirmationCode,
+        clinic,
+      });
+    } catch (error) {
+      console.error(`Failed to send reschedule email for appointment ${appointmentId}:`, error);
+    }
+  }
+
+  /**
+   * Notifies the staff logins linked to the appointment's assigned provider (in-app + real-time).
+   * Failures are logged, not thrown, so a notification hiccup never blocks the appointment mutation.
+   */
+  private async notifyStaffForAppointment(
+    appointmentId: string,
+    type: 'appointment_booked' | 'appointment_cancelled' | 'appointment_rescheduled' | 'appointment_checked_in',
+    title: string,
+    buildBody: (ctx: Awaited<ReturnType<AppointmentService['buildNotificationContext']>>) => string
+  ) {
+    try {
+      const ctx = await this.buildNotificationContext(appointmentId);
+      const provNum = ctx.appointment.ProvNum;
+      if (!provNum) return;
+
+      // Two ways a staff login ends up "assigned" to this provider:
+      // 1. userod.ProvNum set directly (used by seed scripts / direct admin setup)
+      // 2. provider.CustomID = userod.UserNum — the link actually written by the
+      //    app's "Create Provider" screen (src/pages/providers/CreateProviderPage.jsx)
+      const [directMatches, providerRecord] = await Promise.all([
+        prisma.userod.findMany({ where: { ProvNum: provNum, NOT: { IsHidden: 1 } } }),
+        prisma.provider.findUnique({ where: { ProvNum: provNum } }),
+      ]);
+
+      const recipients = [...directMatches];
+      if (providerRecord?.CustomID && /^\d+$/.test(providerRecord.CustomID)) {
+        const linkedUserNum = BigInt(providerRecord.CustomID);
+        if (!recipients.some((u) => u.UserNum === linkedUserNum)) {
+          const linkedUser = await prisma.userod.findUnique({
+            where: { UserNum: linkedUserNum },
+          });
+          if (linkedUser && linkedUser.IsHidden !== 1) {
+            recipients.push(linkedUser);
+          }
+        }
+      }
+
+      for (const staff of recipients) {
+        await staffNotificationService.createAndEmit({
+          userNum: staff.UserNum,
+          type,
+          title,
+          body: buildBody(ctx),
+          relatedType: 'appointment',
+          relatedId: ctx.appointment.AptNum,
+        });
+      }
+    } catch (error) {
+      console.error(`Failed to notify staff (${type}) for appointment ${appointmentId}:`, error);
+    }
+  }
+
+  private async notifyStaffAppointmentBooked(appointmentId: string) {
+    await this.notifyStaffForAppointment(
+      appointmentId,
+      'appointment_booked',
+      'New appointment booked',
+      (ctx) => `${ctx.patient.FName ?? 'A patient'} — ${ctx.appointmentDateTime}`
+    );
+  }
+
+  private async notifyStaffAppointmentCancelled(appointmentId: string) {
+    await this.notifyStaffForAppointment(
+      appointmentId,
+      'appointment_cancelled',
+      'Appointment cancelled',
+      (ctx) => `${ctx.patient.FName ?? 'A patient'} — ${ctx.appointmentDateTime}`
+    );
+  }
+
+  private async notifyStaffAppointmentRescheduled(appointmentId: string, previousAppointmentDateTime: string) {
+    await this.notifyStaffForAppointment(
+      appointmentId,
+      'appointment_rescheduled',
+      'Appointment rescheduled',
+      (ctx) => `${ctx.patient.FName ?? 'A patient'} — now ${ctx.appointmentDateTime} (was ${previousAppointmentDateTime})`
+    );
+  }
+
+  private async notifyStaffAppointmentCheckedIn(appointmentId: string) {
+    await this.notifyStaffForAppointment(
+      appointmentId,
+      'appointment_checked_in',
+      'Patient checked in',
+      (ctx) => `${ctx.patient.FName ?? 'A patient'} has arrived — ${ctx.appointmentDateTime}`
+    );
+  }
+
+  /**
+   * Sends reminder emails for appointments happening within the next 24 hours
+   * that haven't been reminded yet. Meant to be called periodically (cron) -
+   * safe to call repeatedly since each appointment is only reminded once
+   * (tracked via the reminderSent meta flag) and skips patients who opted out
+   * (reminderPreferences.dontSendReminders).
+   */
+  async sendDueReminders(): Promise<{ checked: number; sent: number; skipped: number }> {
+    const now = new Date();
+    const windowEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+    const upcoming = await prisma.appointment.findMany({
+      where: {
+        AptDateTime: { gte: now, lte: windowEnd },
+        AptStatus: { notIn: [4, 6] }, // exclude cancelled, pending
+      },
+      select: { AptNum: true },
+    });
+
+    const metaByAppointment = await getAppointmentsMeta(upcoming.map((a) => a.AptNum));
+
+    let sent = 0;
+    let skipped = 0;
+
+    for (const { AptNum } of upcoming) {
+      const appointmentId = AptNum.toString();
+      const meta = metaByAppointment[appointmentId] ?? {};
+      if (meta.reminderSent || meta.reminderPreferences?.dontSendReminders) {
+        skipped++;
+        continue;
+      }
+
+      try {
+        const { patient, appointmentDateTime, providerName, appointmentType, operatoryName, confirmationCode, clinic } =
+          await this.buildNotificationContext(appointmentId);
+        if (!patient.Email) {
+          skipped++;
+          continue;
+        }
+
+        await emailService.sendAppointmentReminder({
+          email: patient.Email,
+          firstName: patient.FName ?? undefined,
+          appointmentDateTime,
+          providerName,
+          appointmentType,
+          operatoryName,
+          confirmationCode,
+          clinic,
+        });
+
+        await setAppointmentMeta(AptNum, { ...meta, reminderSent: true });
+        sent++;
+      } catch (error) {
+        console.error(`Failed to send reminder for appointment ${appointmentId}:`, error);
+        skipped++;
+      }
+    }
+
+    return { checked: upcoming.length, sent, skipped };
   }
 
   /**
@@ -1536,6 +1744,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
       undefined,
       'low'
     );
+
+    await this.notifyStaffAppointmentCheckedIn(appointmentId);
 
     return mapped;
   }
@@ -1986,6 +2196,19 @@ async getPatientAppointments(patientId: string, limit = 10) {
    * appointment notification (confirmation, reminder, cancellation, reschedule)
    * so each notification type doesn't re-fetch and re-format the same data.
    */
+  private formatAppointmentDateTime(date: Date | null): string {
+    return date
+      ? new Intl.DateTimeFormat('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        }).format(date)
+      : 'your scheduled time';
+  }
+
   private async buildNotificationContext(appointmentId: string) {
     const appointment = await prisma.appointment.findUnique({
       where: { AptNum: BigInt(appointmentId) },
@@ -2004,16 +2227,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       throw new BadRequestError('Appointment does not have a patient');
     }
 
-    const appointmentDateTime = appointment.AptDateTime
-      ? new Intl.DateTimeFormat('en-US', {
-          weekday: 'long',
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric',
-          hour: 'numeric',
-          minute: '2-digit',
-        }).format(appointment.AptDateTime)
-      : 'your scheduled time';
+    const appointmentDateTime = this.formatAppointmentDateTime(appointment.AptDateTime);
     const appointmentDateOnly = appointment.AptDateTime
       ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(appointment.AptDateTime)
       : 'TBD';

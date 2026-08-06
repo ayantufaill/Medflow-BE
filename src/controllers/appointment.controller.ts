@@ -639,6 +639,19 @@ export class AppointmentController {
     }
   }
 
+  /** Manually runs the due-reminders sweep (the same job the cron scheduler calls every 15 min). */
+  async sendDueReminders(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await appointmentService.sendDueReminders();
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async deleteAppointment(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.userId) {

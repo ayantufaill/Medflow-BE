@@ -58,6 +58,7 @@ import procedureCodeRoutes from './procedure-code.routes';
 import patientImageRouter from './patient-image.route';
 import productivityRoutes from './productivity.routes';
 import shortlistRoutes from './shortlist.routes';
+import notificationRoutes from './notification.routes';
 import branchRoutes from './branch.routes';
 import practiceGroupRoutes from './practice-group.routes';
 
@@ -124,6 +125,7 @@ router.use('/schedule-blocks', scheduleBlockRoutes);
 router.use('/patients/:patientId/images', patientImageRouter);
 router.use('/productivity', productivityRoutes);
 router.use('/shortlist', shortlistRoutes);
+router.use('/notifications', notificationRoutes);
 router.use('/branches', branchRoutes);
 router.use('/practice-groups', practiceGroupRoutes);
 
