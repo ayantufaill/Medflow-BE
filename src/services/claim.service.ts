@@ -561,9 +561,12 @@ export class ClaimService {
   }
 
   async getAllClaims(page = 1, limit = 10, filters: ClaimFilters = {}) {
-    const where: any = {
-      ClaimType: { not: 'PreAuth' },
-    };
+    const where: any = {};
+    if (filters.tab && filters.tab.toLowerCase() === 'predetermination') {
+      where.ClaimType = 'PreAuth';
+    } else {
+      where.ClaimType = { not: 'PreAuth' };
+    }
 
     if (filters.patientId) {
       where.PatNum = BigInt(filters.patientId);
