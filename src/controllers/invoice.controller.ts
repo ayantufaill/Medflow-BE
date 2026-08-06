@@ -200,7 +200,7 @@ export class InvoiceController {
       const invoiceId = req.params.invoiceId as string;
       const invoice = await invoiceService.recalculateInvoice(
         invoiceId,
-        req.body.insuranceCoveragePercent
+        req.body?.insuranceCoveragePercent
       );
 
       res.status(200).json({
