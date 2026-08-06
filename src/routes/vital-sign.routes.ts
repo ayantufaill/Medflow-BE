@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { vitalSignController } from '../controllers/vital-sign.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -328,6 +330,8 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('vital-signs.read'),
   validate(vitalSignQueryValidator),
   vitalSignController.getAllVitalSigns
@@ -367,6 +371,8 @@ router.get(
 router.get(
   '/normal-ranges',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('vital-signs.read'),
   validate(vitalSignNormalRangesValidator),
   vitalSignController.getNormalRanges.bind(vitalSignController)
@@ -421,6 +427,8 @@ router.get(
 router.get(
   '/patient/:patientId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('vital-signs.read'),
   validate([...patientIdParamValidator, ...paginationQueryValidator, ...dateFilterQueryValidator]),
   vitalSignController.getVitalSignsByPatient
@@ -457,6 +465,8 @@ router.get(
 router.get(
   '/patient/:patientId/latest',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('vital-signs.read'),
   validate(patientIdParamValidator),
   vitalSignController.getLatestVitalsByPatient
@@ -513,6 +523,8 @@ router.get(
 router.get(
   '/patient/:patientId/trend',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('vital-signs.read'),
   validate(patientIdParamValidator),
   vitalSignController.getVitalsTrend
@@ -549,6 +561,8 @@ router.get(
 router.get(
   '/appointment/:appointmentId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('vital-signs.read'),
   validate(appointmentIdParamValidator),
   vitalSignController.getVitalSignByAppointment
@@ -585,6 +599,8 @@ router.get(
 router.get(
   '/:vitalSignId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('vital-signs.read'),
   validate(vitalSignIdValidator),
   vitalSignController.getVitalSignById.bind(vitalSignController)
@@ -697,6 +713,8 @@ router.get(
 router.post(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('vital-signs.create'),
   validate(createVitalSignValidator),
   vitalSignController.createVitalSign
@@ -781,6 +799,8 @@ router.post(
 router.put(
   '/:vitalSignId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('vital-signs.update'),
   validate([...vitalSignIdValidator, ...updateVitalSignValidator]),
   vitalSignController.updateVitalSign
@@ -824,6 +844,8 @@ router.put(
 router.delete(
   '/:vitalSignId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('vital-signs.delete'),
   validate(vitalSignIdValidator),
   vitalSignController.deleteVitalSign

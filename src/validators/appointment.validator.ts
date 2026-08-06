@@ -8,6 +8,14 @@ export const appointmentIdValidator: ValidationChain[] = [
     .withMessage('Invalid appointment ID format'),
 ];
 
+export const dayTasksQueryValidator: ValidationChain[] = [
+  query('date')
+    .notEmpty()
+    .withMessage('Date is required')
+    .isISO8601()
+    .withMessage('Invalid date format, should be ISO8601 (e.g. YYYY-MM-DD)'),
+];
+
 export const providerIdValidator: ValidationChain[] = [
   param('providerId')
     .notEmpty()
@@ -139,6 +147,10 @@ export const updateAppointmentValidator: ValidationChain[] = [
       'pending'
     ])
     .withMessage('Invalid appointment status'),
+  body('providerId')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Invalid provider ID format'),
   body('chiefComplaint')
     .optional()
     .trim()

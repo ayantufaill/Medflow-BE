@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { invoiceController } from '../controllers/invoice.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -53,6 +55,8 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.read'),
   validate(invoiceSearchValidator),
   invoiceController.getAllInvoices.bind(invoiceController)
@@ -102,6 +106,8 @@ router.get(
 router.post(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.create'),
   validate(createStandaloneInvoiceValidator),
   invoiceController.createStandaloneInvoice.bind(invoiceController)
@@ -110,6 +116,8 @@ router.post(
 router.post(
   '/estimate',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.read'),
   invoiceController.estimateInvoiceItems.bind(invoiceController)
 );
@@ -136,6 +144,8 @@ router.post(
 router.get(
   '/patient/:patientId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.read'),
   validate(patientIdParamValidator),
   invoiceController.getInvoicesByPatient.bind(invoiceController)
@@ -144,6 +154,8 @@ router.get(
 router.get(
   '/patient/:patientId/composite',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.read'),
   validate(patientIdParamValidator),
   invoiceController.getPatientCompositeLedger.bind(invoiceController)
@@ -187,6 +199,8 @@ router.get(
 router.get(
   '/patient/:patientId/balance',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.read'),
   validate(patientIdParamValidator),
   invoiceController.getPatientBalance.bind(invoiceController)
@@ -214,6 +228,8 @@ router.get(
 router.get(
   '/:invoiceId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.read'),
   validate(invoiceIdValidator),
   invoiceController.getInvoiceById.bind(invoiceController)
@@ -253,6 +269,8 @@ router.get(
 router.post(
   '/from-appointment/:appointmentId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.create'),
   validate([...appointmentIdParamValidator, ...createInvoiceFromAppointmentValidator]),
   invoiceController.createInvoiceFromAppointment.bind(invoiceController)
@@ -293,6 +311,8 @@ router.post(
 router.patch(
   '/:invoiceId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.update'),
   validate([...invoiceIdValidator, ...updateInvoiceValidator]),
   invoiceController.updateInvoice.bind(invoiceController)
@@ -322,6 +342,8 @@ router.patch(
 router.delete(
   '/:invoiceId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.delete'),
   validate(invoiceIdValidator),
   invoiceController.deleteInvoice.bind(invoiceController)
@@ -370,6 +392,8 @@ router.delete(
 router.post(
   '/:invoiceId/items',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.update'),
   validate([...invoiceIdValidator, ...createInvoiceItemValidator]),
   invoiceController.addInvoiceItem.bind(invoiceController)
@@ -414,6 +438,8 @@ router.post(
 router.patch(
   '/:invoiceId/items/:itemId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.update'),
   validate([...invoiceIdValidator, ...invoiceItemIdValidator, ...updateInvoiceItemValidator]),
   invoiceController.updateInvoiceItem.bind(invoiceController)
@@ -445,6 +471,8 @@ router.patch(
 router.delete(
   '/:invoiceId/items/:itemId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.update'),
   validate([...invoiceIdValidator, ...invoiceItemIdValidator]),
   invoiceController.deleteInvoiceItem.bind(invoiceController)
@@ -482,6 +510,8 @@ router.delete(
 router.post(
   '/:invoiceId/recalculate',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.update'),
   validate([...invoiceIdValidator, ...recalculateInvoiceValidator]),
   invoiceController.recalculateInvoice.bind(invoiceController)
@@ -511,6 +541,8 @@ router.post(
 router.patch(
   '/:invoiceId/finalize',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.update'),
   validate(invoiceIdValidator),
   invoiceController.finalizeInvoice.bind(invoiceController)
@@ -551,6 +583,8 @@ router.patch(
 router.patch(
   '/:invoiceId/void',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.update'),
   validate([...invoiceIdValidator, ...voidInvoiceValidator]),
   invoiceController.voidInvoice.bind(invoiceController)
@@ -626,9 +660,47 @@ router.patch(
 router.patch(
   '/:invoiceId/items/:itemId/paid',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.update'),
   validate([...invoiceIdValidator, ...invoiceItemIdValidator]),
   invoiceController.markItemPaid.bind(invoiceController)
+);
+
+/**
+ * @swagger
+ * /invoices/{invoiceId}/items/{itemId}/transfer-outstanding:
+ *   post:
+ *     summary: Transfer outstanding insurance estimate to patient balance
+ *     description: Moves the remaining insurance estimate (insPortion) for a line item to the patient's balance (ptPortion). Also updates the linked claim's InsPayEst and DedApplied fields and recalculates invoice totals.
+ *     tags: [Invoices]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: invoiceId
+ *         required: true
+ *         schema: { type: string }
+ *         description: ID of the invoice
+ *       - in: path
+ *         name: itemId
+ *         required: true
+ *         schema: { type: string }
+ *         description: ID of the line item (procedure log)
+ *     responses:
+ *       200:
+ *         description: Insurance estimate transferred to patient balance
+ *       400:
+ *         description: No outstanding insurance estimate to transfer, or invoice is voided
+ *       404:
+ *         description: Invoice or item not found
+ */
+router.post(
+  '/:invoiceId/items/:itemId/transfer-outstanding',
+  authenticate,
+  requirePermission('invoices.update'),
+  validate([...invoiceIdValidator, ...invoiceItemIdValidator]),
+  invoiceController.transferOutstandingToPatient.bind(invoiceController)
 );
 
 export default router;

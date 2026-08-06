@@ -66,16 +66,19 @@ export interface DashboardGoals {
 }
 
 const DEFAULT_GOALS: DashboardGoals = {
-  dentistHourlyGoal: 200,
-  hygienistHourlyGoal: 50,
-  collectionPercentGoal: 98,
-  newPatientsGoal: 25,
-  monthlyVisitsGoal: 60,
-  hygieneVisitsPercent: 40,
-  treatmentVisitsPercent: 60,
-  reappointmentPercentGoal: 100,
-  newPtCaseAcceptPercent: 65,
-  existingPtCaseAcceptPercent: 65,
+  dentistHourlyGoal: 0,
+  hygienistHourlyGoal: 0,
+  collectionPercentGoal: 0,
+  newPatientsGoal: 0,
+  monthlyVisitsGoal: 0,
+  hygieneVisitsPercent: 0,
+  treatmentVisitsPercent: 0,
+  reappointmentPercentGoal: 0,
+  newPtCaseAcceptPercent: 0,
+  existingPtCaseAcceptPercent: 0,
+  totalVisitGoal: 0,
+  dentistVisitGoal: 0,
+  hygienistVisitGoal: 0,
 };
 
 export class DashboardMetricsService {
@@ -173,13 +176,25 @@ export class DashboardMetricsService {
     let singleProviderMode = false;
 
     if (providerId && providerId !== 'All') {
-      const targetProv = providerMap.get(providerId);
-      if (targetProv) {
-        targetProvNums = [targetProv.provNum];
-        filterIsHygienist = targetProv.isHygienist;
-        singleProviderMode = true;
+      if (providerId === 'Hygienist') {
+        targetProvNums = hygienistIds;
+        filterIsHygienist = true;
+      } else if (providerId === 'Dentist') {
+        targetProvNums = dentistIds;
+        filterIsHygienist = false;
       } else {
-        targetProvNums = [BigInt(providerId)];
+        const targetProv = providerMap.get(providerId);
+        if (targetProv) {
+          targetProvNums = [targetProv.provNum];
+          filterIsHygienist = targetProv.isHygienist;
+          singleProviderMode = true;
+        } else {
+          try {
+            targetProvNums = [BigInt(providerId)];
+          } catch {
+            targetProvNums = [];
+          }
+        }
       }
     }
 
@@ -415,7 +430,7 @@ export class DashboardMetricsService {
 
       const pGoal = Number(completedGoal.toFixed(2));
       const gpGoal = Number((completedGoal + plannedGoal).toFixed(2));
-      const collPercent = (goals.collectionPercentGoal || 98) / 100;
+      const collPercent = (goals.collectionPercentGoal || 0) / 100;
       const cGoal = Number((completedGoal * collPercent).toFixed(2));
       const gcGoal = Number((gpGoal * collPercent).toFixed(2));
 
@@ -433,21 +448,21 @@ export class DashboardMetricsService {
       totalCompletedVal, totalPlannedVal, totalCollectionVal,
       scaledTotalCompletedGoal, scaledTotalPlannedGoal,
       hourlyProdTotal, filterIsHygienist ? goals.hygienistHourlyGoal : goals.dentistHourlyGoal,
-      visitProdTotal, 250
+      visitProdTotal, goals.totalVisitGoal || 0
     );
 
     const dentistCard = buildCard(
       dentistCompletedVal, dentistPlannedVal, dentistCollectionVal,
       scaledDentistCompletedGoal, scaledDentistPlannedGoal,
       hourlyProdDentist, goals.dentistHourlyGoal,
-      visitProdDentist, 300
+      visitProdDentist, goals.dentistVisitGoal || 0
     );
 
     const hygienistCard = buildCard(
       hygienistCompletedVal, hygienistPlannedVal, hygienistCollectionVal,
       scaledHygienistCompletedGoal, scaledHygienistPlannedGoal,
       hourlyProdHygienist, goals.hygienistHourlyGoal,
-      visitProdHygienist, 150
+      visitProdHygienist, goals.hygienistVisitGoal || 0
     );
 
 
@@ -658,7 +673,7 @@ export class DashboardMetricsService {
         patient_treatplan_PatNumTopatient: true,
         treatplanattach: {
           select: {
-            procedurelog: { select: { ProcFee: true } }
+            procedurelog: { select: { ProcFee: true, ProcStatus: true } }
           }
         }
       },
@@ -683,15 +698,38 @@ export class DashboardMetricsService {
     let existingPtAcceptedAmount = 0;
 
     for (const plan of plans) {
-      let meta: any = {};
-      try {
-        meta = JSON.parse(plan.Note || '{}');
-      } catch {
-        meta = {};
+      // Derive status from TPStatus and linked procedure ProcStatus columns
+      const procs = plan.treatplanattach || [];
+      const procStatuses = procs
+        .map((a: any) => a.procedurelog?.ProcStatus)
+        .filter((s: any) => s !== null && s !== undefined);
+      const tpStatus = plan.TPStatus ?? 0;
+
+      let statusKey: string;
+
+      if (procStatuses.includes(6)) {
+        // Has at least one scheduled procedure
+        statusKey = 'scheduled';
+      } else if (procStatuses.length > 0 && procStatuses.every((s: number) => s === 2)) {
+        // All linked procedures are completed
+        statusKey = 'completed';
+      } else if (procStatuses.some((s: number) => s === 2) && procStatuses.some((s: number) => s !== 2)) {
+        // Some completed, some still planned — accepted & in progress
+        statusKey = 'acceptedInProgress';
+      } else if (tpStatus === 1) {
+        // Inactive treatment plan — rejected/declined
+        statusKey = 'rejected';
+      } else if (tpStatus === 2) {
+        // Saved treatment plan — accepted but not yet scheduled
+        statusKey = 'acceptedNotScheduled';
+      } else if (procStatuses.length > 0 && procStatuses.every((s: number) => s === 1)) {
+        // All procedures are treatment-planned — presented to patient
+        statusKey = 'presented';
+      } else {
+        // Active plan with no linked procedures or unknown state
+        statusKey = 'diagnosed';
       }
 
-      // Default status mapping
-      const statusKey = this.mapCaseAcceptanceStatus(meta.status || 'diagnosed');
       const isNewPt = plan.patient_treatplan_PatNumTopatient?.DateFirstVisit &&
         plan.patient_treatplan_PatNumTopatient.DateFirstVisit >= startDate &&
         plan.patient_treatplan_PatNumTopatient.DateFirstVisit <= endDate;
@@ -797,17 +835,6 @@ export class DashboardMetricsService {
           onTimeNoPreAppt++;
         }
       }
-    }
-
-    // Dynamic defaults for demo compatibility
-    if (recalls.length === 0) {
-      onTimeNoPreAppt = 23;
-      onTimePreAppt = 187;
-      noRecare = 162;
-      flaggedNoRecare = 1;
-      late12mAppt = 1;
-      late12mBroken = 43;
-      late12mNoAppt = 5;
     }
 
     return {

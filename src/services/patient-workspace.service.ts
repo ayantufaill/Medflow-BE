@@ -179,6 +179,8 @@ export class PatientWorkspaceService {
       workAddress: patientMeta.workAddress ?? null,
       patientProfileType: patientMeta.patientProfileType ?? 'adult',
       medicalHistory: patientMeta.medicalHistory ?? null,
+      communicationPreference: patientMeta.communicationPreference ?? undefined,
+      assignmentAndRelease: patientMeta.assignmentAndRelease ?? null,
     } as any);
   }
 
@@ -476,6 +478,8 @@ export class PatientWorkspaceService {
         workAddress: patientMeta.workAddress ?? null,
         patientProfileType: patientMeta.patientProfileType ?? 'adult',
         medicalHistory: patientMeta.medicalHistory ?? null,
+        communicationPreference: patientMeta.communicationPreference ?? undefined,
+        assignmentAndRelease: patientMeta.assignmentAndRelease ?? null,
       } as any),
       submittedForms: matchingForms,
     };

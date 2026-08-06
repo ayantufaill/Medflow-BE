@@ -40,7 +40,9 @@ describe('Documents', () => {
       .get(`/api/documents/${docNum}`)
       .set(authHeader);
     expect(getRes.status).toBe(200);
-    expect(getRes.body?.data?.document?.patientId).toBe(String(patientId));
+    // getDocumentById always includes the patient relation, so patientId comes back
+    // enriched as { _id, firstName, lastName } rather than a bare PatNum string.
+    expect(getRes.body?.data?.document?.patientId?._id).toBe(String(patientId));
     expect(getRes.body?.data?.document?.documentName).toBe(`Test Document ${token}`);
 
     const listRes = await request(app)

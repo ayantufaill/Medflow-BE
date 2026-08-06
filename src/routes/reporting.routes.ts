@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { reportingController } from '../controllers/reporting.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -27,6 +29,8 @@ const router = Router();
 router.get(
   '/definitions',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.read'),
   reportingController.getSavedReports.bind(reportingController)
 );
@@ -70,6 +74,8 @@ router.get(
 router.post(
   '/definitions',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.write'),
   validate(saveReportValidator),
   reportingController.saveReport.bind(reportingController)
@@ -95,6 +101,8 @@ router.post(
 router.delete(
   '/definitions/:reportId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.write'),
   validate(reportIdParamValidator),
   reportingController.deleteReport.bind(reportingController)
@@ -140,6 +148,8 @@ router.delete(
 router.post(
   '/run',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.read'),
   validate(runReportValidator),
   reportingController.runReport.bind(reportingController)
@@ -180,6 +190,8 @@ import { dashboardMetricsController } from '../controllers/dashboard-metrics.con
 router.get(
   '/dashboard/metrics',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.read'),
   dashboardMetricsController.getMetrics.bind(dashboardMetricsController)
 );
@@ -199,6 +211,8 @@ router.get(
 router.get(
   '/dashboard/goals',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.read'),
   dashboardMetricsController.getGoals.bind(dashboardMetricsController)
 );
@@ -245,6 +259,8 @@ router.get(
 router.put(
   '/dashboard/goals',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.write'),
   dashboardMetricsController.updateGoals.bind(dashboardMetricsController)
 );
@@ -285,6 +301,8 @@ import { reportGenerationController } from '../controllers/report-generation.con
 router.get(
   '/financial/:reportName',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.read'),
   reportGenerationController.getFinancialReport.bind(reportGenerationController)
 );
@@ -323,6 +341,8 @@ router.get(
 router.get(
   '/clinical/:reportName',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.read'),
   reportGenerationController.getClinicalReport.bind(reportGenerationController)
 );
@@ -361,6 +381,8 @@ router.get(
 router.get(
   '/patient/:reportName',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.read'),
   reportGenerationController.getPatientReport.bind(reportGenerationController)
 );
@@ -399,6 +421,8 @@ router.get(
 router.get(
   '/others/:reportName',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.read'),
   reportGenerationController.getOthersReport.bind(reportGenerationController)
 );
@@ -406,6 +430,8 @@ router.get(
 router.post(
   '/archive',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.write'),
   validate(archiveReportValidator),
   reportingController.archiveReport.bind(reportingController)
@@ -414,6 +440,8 @@ router.post(
 router.get(
   '/archive',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.read'),
   reportingController.getArchivedReports.bind(reportingController)
 );
@@ -421,6 +449,8 @@ router.get(
 router.get(
   '/archive/:reportId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.read'),
   validate(reportIdParamValidator),
   reportingController.getArchivedReportById.bind(reportingController)
