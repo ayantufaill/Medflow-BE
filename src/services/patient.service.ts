@@ -45,6 +45,11 @@ const buildPatientMapperOptions = (patientMeta: Record<string, any>) => ({
   assignmentAndRelease: patientMeta.assignmentAndRelease ?? null,
 });
 
+const toBigInt = (value?: string | null): bigint | null => {
+  if (!value) return null;
+  return /^\d+$/.test(value) ? BigInt(value) : null;
+};
+
 /**
  * Generate unique patient code (e.g., PAT001, PAT002, etc.)
  */
@@ -834,13 +839,17 @@ async getPatientLastVisit(patientId: string) {
         updates.referralSource !== undefined
           ? updates.referralSource.trim() || null
           : currentMeta.referralSource ?? null,
-      customFields: updates.customFields ?? currentMeta.customFields ?? {},
+      customFields: updates.customFields !== undefined
+        ? { ...(currentMeta.customFields || {}), ...updates.customFields }
+        : currentMeta.customFields ?? {},
       preferredDentistId: updates.preferredDentistId !== undefined ? updates.preferredDentistId : currentMeta.preferredDentistId ?? null,
       preferredHygienistId: updates.preferredHygienistId !== undefined ? updates.preferredHygienistId : currentMeta.preferredHygienistId ?? null,
       headOfCommunication: updates.headOfCommunication !== undefined ? updates.headOfCommunication : currentMeta.headOfCommunication ?? null,
       household: updates.household !== undefined ? updates.household : currentMeta.household ?? [],
       spouseInfo: updates.spouseInfo !== undefined ? updates.spouseInfo : currentMeta.spouseInfo ?? null,
-      assignmentAndRelease: updates.assignmentAndRelease !== undefined ? updates.assignmentAndRelease : currentMeta.assignmentAndRelease ?? null,
+      assignmentAndRelease: updates.assignmentAndRelease !== undefined
+        ? { ...(currentMeta.assignmentAndRelease || {}), ...updates.assignmentAndRelease }
+        : currentMeta.assignmentAndRelease ?? null,
       patientFlags: updates.patientFlags !== undefined ? updates.patientFlags : currentMeta.patientFlags ?? [],
       financialResponsibility: updates.financialResponsibility !== undefined ? updates.financialResponsibility : currentMeta.financialResponsibility ?? null,
       sexAtBirth:
@@ -1159,6 +1168,7 @@ async getPatientLastVisit(patientId: string) {
       reviewStatus: Boolean(dentalHistory.review.reviewedWithPatient),
       lastUpdateDate: dentalHistory.review.reviewedAt ?? patient.DateTStamp ?? null,
       review: dentalHistory.review,
+      isSaved: !!patientMeta.dentalHistory,
     };
   }
 
@@ -1583,6 +1593,118 @@ async getPatientHistoryAggregate(patientId: string) {
       appointments
     };
   }
+  async purchaseProducts(patientId: string, products: any[]) {
+    const patNum = toBigInt(patientId);
+    if (!patNum) {
+      throw new NotFoundError('Patient not found');
+    }
+    const patient = await prisma.patient.findUnique({ where: { PatNum: patNum } });
+    if (!patient) {
+      throw new NotFoundError('Patient not found');
+    }
+
+    const createdProcedures = [];
+
+    for (const product of products) {
+      const { productName, providerName, quantity, price } = product;
+
+      let provNum = patient.PriProv;
+      if (providerName) {
+        const parts = providerName.trim().split(/\s+/);
+        const first = parts[0] || '';
+        const last = parts.length > 1 ? parts.slice(1).join(' ') : first;
+        
+        const prov = await prisma.provider.findFirst({
+          where: {
+            OR: [
+              { LName: { contains: last, mode: 'insensitive' } },
+              { FName: { contains: first, mode: 'insensitive' } }
+            ]
+          }
+        });
+        if (prov) {
+          provNum = prov.ProvNum;
+        }
+      }
+
+      let procedureCode = await prisma.procedurecode.findFirst({
+        where: {
+          Descript: { equals: productName, mode: 'insensitive' },
+          ProcCode: { startsWith: 'PROD' }
+        }
+      });
+
+      if (!procedureCode) {
+        procedureCode = await prisma.procedurecode.findFirst({
+          where: { Descript: { equals: productName, mode: 'insensitive' } }
+        });
+      }
+
+      if (!procedureCode) {
+        const codeNum = await getNextId('procedurecode', 'CodeNum');
+        const procCodeStr = "PROD" + codeNum.toString();
+
+        let procCatDefNum: bigint | null = null;
+
+        // Find existing "Products" category
+        const prodCat = await prisma.definition.findFirst({
+          where: { Category: 11, ItemName: { contains: 'Product', mode: 'insensitive' } }
+        });
+
+        if (prodCat) {
+          procCatDefNum = prodCat.DefNum;
+        } else {
+          // Fallback to first available category
+          const fallbackCat = await prisma.definition.findFirst({ where: { Category: 11 } });
+          if (fallbackCat) {
+            procCatDefNum = fallbackCat.DefNum;
+          }
+        }
+
+        procedureCode = await prisma.procedurecode.create({
+          data: {
+            CodeNum: codeNum,
+            ProcCode: procCodeStr,
+            Descript: productName,
+            AbbrDesc: productName.substring(0, 50),
+            ProcTime: '/0',
+            ProcCat: procCatDefNum,
+            MedicalCode: null,
+            SubstitutionCode: null
+          }
+        });
+      }
+
+      const procNum = await getNextId('procedurelog', 'ProcNum');
+      const qtyNum = parseInt(quantity, 10) || 1;
+      const priceNum = parseFloat(price) || 0;
+      const fee = Number((priceNum * qtyNum).toFixed(2));
+      
+      const procedure = await prisma.procedurelog.create({
+        data: {
+          ProcNum: procNum,
+          PatNum: patNum,
+          ProvNum: provNum,
+          ProcStatus: 2, 
+          CodeNum: procedureCode.CodeNum,
+          ProcFee: fee,
+          ProcDate: new Date(),
+          UnitQty: qtyNum,
+          DateEntryC: new Date()
+        }
+      });
+      createdProcedures.push({
+        ...procedure,
+        ProcNum: procedure.ProcNum.toString(),
+        PatNum: procedure.PatNum?.toString(),
+        ProvNum: procedure.ProvNum?.toString(),
+        CodeNum: procedure.CodeNum?.toString(),
+      });
+    }
+
+    return createdProcedures;
+  }
 }
 
 export const patientService = new PatientService();
+

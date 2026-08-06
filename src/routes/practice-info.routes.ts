@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { practiceInfoController } from '../controllers/practice-info.controller';
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { validateFormData } from '../middleware/formDataValidation.middleware';
 import { uploadLogo } from '../middleware/upload.middleware';
@@ -18,6 +20,8 @@ const router = Router();
 
 // All practice info routes require authentication
 router.use(authenticate);
+router.use(resolveBranchAccess);
+router.use(enterTenantContext);
 
 /**
  * @swagger

@@ -6,12 +6,14 @@ import { insurancePlanController } from '../controllers/insurance-plan.controlle
 import { allergyController } from '../controllers/allergy.controller';
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
   patientIdValidator, patientRequestIdValidator, createPatientValidator,
   updatePatientValidator, patientSearchValidator, patientWorkspaceMetaValidator,
   createPatientUpdateRequestValidator, applyPatientReconciliationValidator,
   patientCommunicationValidator, patientMedicalHistoryValidator, patientDentalHistoryValidator,
+  purchaseProductsValidator
 } from '../validators/patient.validator';
 import { createPatientInsuranceValidator } from '../validators/insurance.validator';
 import { createPatientAllergyValidator, updateAllergyValidator, allergyIdParamValidator } from '../validators/allergy.validator';
@@ -19,6 +21,52 @@ import { createPatientAllergyValidator, updateAllergyValidator, allergyIdParamVa
 const router = Router();
 router.use(authenticate);
 router.use(resolveBranchAccess);
+router.use(enterTenantContext);
+
+/**
+ * @swagger
+ * /patients/{patientId}/purchase-products:
+ *   post:
+ *     summary: Purchase products for a patient
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               products:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     productName:
+ *                       type: string
+ *                     providerName:
+ *                       type: string
+ *                     quantity:
+ *                       type: number
+ *                     price:
+ *                       type: number
+ *     responses:
+ *       200:
+ *         description: Successfully purchased products
+ */
+router.post(
+  '/:patientId/purchase-products',
+  requireRoles('Admin', 'Provider', 'Front Desk', 'Clinical'),
+  validate(purchaseProductsValidator),
+  patientController.purchaseProducts.bind(patientController)
+);
 
 /**
  * @swagger

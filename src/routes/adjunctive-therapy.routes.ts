@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { adjunctiveTherapyController } from '../controllers/adjunctive-therapy.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { patientIdParamValidator, saveAdjunctiveTherapyValidator } from '../validators/adjunctive-therapy.validator';
 
@@ -8,6 +10,8 @@ const router = Router();
 
 // Secure all endpoints with authentication middleware
 router.use(authenticate);
+router.use(resolveBranchAccess);
+router.use(enterTenantContext);
 
 /**
  * @swagger

@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { adjustmentController } from '../controllers/adjustment.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -46,6 +48,8 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('adjustments.read'),
   validate(adjustmentSearchValidator),
   adjustmentController.getAllAdjustments.bind(adjustmentController)
@@ -71,6 +75,8 @@ router.get(
 router.get(
   '/patient/:patientId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('adjustments.read'),
   validate(patientIdParamValidator),
   adjustmentController.getAdjustmentsByPatient.bind(adjustmentController)
@@ -98,6 +104,8 @@ router.get(
 router.get(
   '/:adjustmentId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('adjustments.read'),
   validate(adjustmentIdValidator),
   adjustmentController.getAdjustmentById.bind(adjustmentController)
@@ -145,6 +153,8 @@ router.get(
 router.post(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('adjustments.create'),
   validate(createAdjustmentValidator),
   adjustmentController.createAdjustment.bind(adjustmentController)
@@ -190,6 +200,8 @@ router.post(
 router.patch(
   '/:adjustmentId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('adjustments.update'),
   validate([...adjustmentIdValidator, ...updateAdjustmentValidator]),
   adjustmentController.updateAdjustment.bind(adjustmentController)
@@ -217,6 +229,8 @@ router.patch(
 router.delete(
   '/:adjustmentId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('adjustments.delete'),
   validate(adjustmentIdValidator),
   adjustmentController.deleteAdjustment.bind(adjustmentController)

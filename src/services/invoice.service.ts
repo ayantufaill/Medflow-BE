@@ -99,6 +99,7 @@ export class InvoiceService {
       serviceId: item.CodeNum?.toString() ?? meta.serviceId ?? null,
       cptCode: meta.cptCode ?? code?.ProcCode ?? null,
       description: meta.description ?? code?.Descript ?? 'Service',
+      date: item.ProcDate ? new Date(item.ProcDate).toISOString() : null,
       quantity,
       unitPrice,
       totalPrice,
@@ -525,8 +526,10 @@ export class InvoiceService {
   }
 
   private async getStatementById(statementId: string) {
+    const statementNum = toBigInt(statementId);
+    if (!statementNum) return null;
     return prisma.statement.findUnique({
-      where: { StatementNum: BigInt(statementId) },
+      where: { StatementNum: statementNum },
     });
   }
 
@@ -675,6 +678,7 @@ export class InvoiceService {
       providerId?: string;
       notes?: string;
       copayAmount?: number;
+      addClaim?: boolean;
     },
     createdBy: string
   ) {
@@ -767,8 +771,10 @@ export class InvoiceService {
       'low'
     );
 
-    // AUTO-GENERATE CLAIM — runs in background
-    this.triggerClaimGeneration(statement.StatementNum, statement.PatNum, createdBy);
+    // GENERATE CLAIM ONLY IF EXPLICITLY REQUESTED
+    if (data.addClaim) {
+      this.triggerClaimGeneration(statement.StatementNum, statement.PatNum, createdBy);
+    }
 
     return this.mapStatementToInvoice(statement, meta);
   }
@@ -856,6 +862,13 @@ export class InvoiceService {
       unitPrice: number;
       description: string;
       cptCode: string;
+      insPortion: number;
+      ptPortion: number;
+      writeoff: number;
+      date?: string;
+      provider?: string;
+      site?: string;
+      dbi?: boolean;
     }>,
     userId: string
   ) {
@@ -865,7 +878,10 @@ export class InvoiceService {
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
     if (String(meta.status) !== 'draft') throw new BadRequestError('Only draft invoices can be modified');
 
-    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: BigInt(itemId) } });
+    const procNum = toBigInt(itemId);
+    if (!procNum) throw new NotFoundError('Invoice item not found');
+
+    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
     if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
 
     let service = null;
@@ -892,23 +908,31 @@ export class InvoiceService {
     const totalPrice = roundCurrency(unitPrice * quantity);
 
     const updated = await prisma.procedurelog.update({
-      where: { ProcNum: BigInt(itemId) },
+      where: { ProcNum: procNum },
       data: {
         CodeNum: service?.CodeNum ?? item.CodeNum ?? null,
         UnitQty: quantity,
         ProcFee: totalPrice,
+        ...(updates.date !== undefined && { ProcDate: updates.date ? new Date(updates.date) : null }),
         BillingNote: buildJson({
+          ...currentMeta,
           description: updates.description ?? currentMeta.description ?? service?.Descript ?? 'Service',
           unitPrice,
           quantity,
           cptCode: updates.cptCode ?? currentMeta.cptCode ?? service?.ProcCode ?? null,
           serviceId: service?.CodeNum?.toString() ?? currentMeta.serviceId ?? null,
+          ...(updates.insPortion !== undefined && { insPortion: updates.insPortion }),
+          ...(updates.ptPortion !== undefined && { ptPortion: updates.ptPortion }),
+          ...(updates.writeoff !== undefined && { writeoff: updates.writeoff }),
+          ...(updates.provider !== undefined && { provider: updates.provider }),
+          ...(updates.site !== undefined && { site: updates.site }),
+          ...(updates.dbi !== undefined && { dbi: updates.dbi }),
         }),
       },
     });
 
     await this.recalculateInvoice(invoiceId);
-    const reFetchedUpdated = await prisma.procedurelog.findUnique({ where: { ProcNum: BigInt(itemId) } });
+    const reFetchedUpdated = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
     await logActivity(userId, 'updated', 'invoice_items', itemId, item, reFetchedUpdated || updated, undefined, undefined, 'low');
     return this.mapProcedureLogToInvoiceItem(reFetchedUpdated || updated, invoiceId, service);
   }
@@ -920,10 +944,13 @@ export class InvoiceService {
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
     if (String(meta.status) !== 'draft') throw new BadRequestError('Only draft invoices can be modified');
 
-    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: BigInt(itemId) } });
+    const procNum = toBigInt(itemId);
+    if (!procNum) throw new NotFoundError('Invoice item not found');
+
+    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
     if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
 
-    await prisma.procedurelog.delete({ where: { ProcNum: BigInt(itemId) } });
+    await prisma.procedurelog.delete({ where: { ProcNum: procNum } });
     await this.recalculateInvoice(invoiceId);
     await logActivity(userId, 'deleted', 'invoice_items', itemId, item, undefined, undefined, undefined, 'low');
     return { message: 'Invoice item deleted successfully' };
@@ -1099,9 +1126,6 @@ export class InvoiceService {
 
     await logActivity(userId, 'updated', 'invoices', invoiceId, this.mapStatementToInvoice(invoice, meta), this.mapStatementToInvoice(updated, nextMeta), undefined, undefined, 'low');
 
-    // AUTO-GENERATE CLAIM after finalization (covers any scenario where items were added later)
-    this.triggerClaimGeneration(invoice.StatementNum, invoice.PatNum, userId);
-
     return this.mapStatementToInvoice(updated, nextMeta);
   }
 
@@ -1140,6 +1164,7 @@ export class InvoiceService {
         dbi?: boolean;
         completed?: boolean;
       }>;
+      addClaim?: boolean;
     },
     createdBy: string
   ) {
@@ -1269,8 +1294,10 @@ export class InvoiceService {
 
     await logActivity(createdBy, 'created', 'invoices', statementNum.toString(), undefined, this.mapStatementToInvoice(finalStatement, finalMeta), undefined, undefined, 'medium');
 
-    // AUTO-GENERATE CLAIM — runs in background
-    this.triggerClaimGeneration(statementNum, patientId, createdBy);
+    // GENERATE CLAIM ONLY IF EXPLICITLY REQUESTED
+    if (data.addClaim) {
+      this.triggerClaimGeneration(statementNum, patientId, createdBy);
+    }
 
     await agingService.updatePatientAging(patientId);
 
@@ -1284,7 +1311,10 @@ export class InvoiceService {
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
     if (String(meta.status) === 'void') throw new BadRequestError('Cannot pay a voided invoice');
 
-    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: BigInt(itemId) } });
+    const procNum = toBigInt(itemId);
+    if (!procNum) throw new NotFoundError('Invoice item not found');
+
+    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
     if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
 
     const itemMeta = parseJson<ItemMeta>(item.BillingNote);
@@ -1292,12 +1322,96 @@ export class InvoiceService {
     const newPaid = roundCurrency(currentPaid + amount);
 
     await prisma.procedurelog.update({
-      where: { ProcNum: BigInt(itemId) },
+      where: { ProcNum: procNum },
       data: { BillingNote: buildJson({ ...itemMeta, paidAmount: newPaid }) },
     });
 
     await this.recalculateInvoice(invoiceId);
     return { success: true, message: 'Item payment recorded', itemId, paidAmount: newPaid };
+  }
+
+  /**
+   * Transfer the outstanding insurance estimate for a line item to the patient balance.
+   * Sets insPortion = 0 and increases ptPortion by that amount in the procedure's BillingNote,
+   * then recalculates the invoice. Also updates the underlying claim (InsPayEst / DedApplied) if one exists.
+   */
+  async transferOutstandingToPatient(invoiceId: string, itemId: string, performedBy: string) {
+    const invoice = await this.getStatementById(invoiceId);
+    if (!invoice) throw new NotFoundError('Invoice not found');
+
+    const meta = parseJson<StatementMeta>(invoice.NoteBold);
+    if (String(meta.status) === 'void') throw new BadRequestError('Cannot transfer on a voided invoice');
+
+    const procNum = toBigInt(itemId);
+    if (!procNum) throw new NotFoundError('Invoice item not found');
+
+    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
+    if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
+
+    const itemMeta = parseJson<any>(item.BillingNote);
+    const outstandingInsurance = roundCurrency(Number(itemMeta.insPortion || 0));
+
+    if (outstandingInsurance <= 0) {
+      throw new BadRequestError('No outstanding insurance estimate to transfer for this item');
+    }
+
+    // Shift the amount from insurance portion to patient portion
+    const newPtPortion = roundCurrency((Number(itemMeta.ptPortion) || 0) + outstandingInsurance);
+    const updatedItemMeta = { ...itemMeta, insPortion: 0, ptPortion: newPtPortion };
+
+    await prisma.procedurelog.update({
+      where: { ProcNum: procNum },
+      data: { BillingNote: buildJson(updatedItemMeta) },
+    });
+
+    // Also update the underlying claim if one is linked to this invoice
+    const claimId = meta.claimId;
+    if (claimId && /^\d+$/.test(claimId)) {
+      const claim = await prisma.claim.findUnique({ where: { ClaimNum: BigInt(claimId) } });
+      if (claim) {
+        const currentInsPayEst = roundCurrency(Number(claim.InsPayEst) || 0);
+        const currentDedApplied = roundCurrency(Number(claim.DedApplied) || 0);
+
+        // Only reduce if the claim value covers what we are transferring
+        const reduceBy = Math.min(outstandingInsurance, currentInsPayEst);
+        await prisma.claim.update({
+          where: { ClaimNum: BigInt(claimId) },
+          data: {
+            InsPayEst: roundCurrency(currentInsPayEst - reduceBy),
+            DedApplied: roundCurrency(currentDedApplied + reduceBy),
+          },
+        });
+      }
+    }
+
+    // Recalculate invoice totals
+    await this.recalculateInvoice(invoiceId);
+
+    if (invoice.PatNum) {
+      await agingService.updatePatientAging(invoice.PatNum);
+    }
+
+    const updatedInvoice = await this.getStatementById(invoiceId);
+    const updatedMeta = parseJson<StatementMeta>(updatedInvoice?.NoteBold);
+
+    await logActivity(
+      performedBy,
+      'updated',
+      'invoices',
+      invoiceId,
+      undefined,
+      { action: 'transfer_outstanding_to_patient', itemId, transferredAmount: outstandingInsurance },
+      undefined,
+      undefined,
+      'medium'
+    );
+
+    return {
+      success: true,
+      message: `$${outstandingInsurance.toFixed(2)} transferred from insurance to patient balance`,
+      transferredAmount: outstandingInsurance,
+      invoice: this.mapStatementToInvoice(updatedInvoice, updatedMeta),
+    };
   }
 
   async getPatientCompositeLedger(patientId: string) {
