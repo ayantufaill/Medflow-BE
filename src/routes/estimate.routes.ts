@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { estimateController } from '../controllers/estimate.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -45,6 +47,8 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.read'),
   validate(estimateSearchValidator),
   estimateController.getAllEstimates.bind(estimateController)
@@ -70,6 +74,8 @@ router.get(
 router.get(
   '/patient/:patientId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.read'),
   validate(patientIdValidator),
   estimateController.getEstimatesByPatient.bind(estimateController)
@@ -97,6 +103,8 @@ router.get(
 router.get(
   '/:estimateId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.read'),
   validate(estimateIdValidator),
   estimateController.getEstimateById.bind(estimateController)
@@ -145,6 +153,8 @@ router.get(
 router.post(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.create'),
   validate(createEstimateValidator),
   estimateController.createEstimate.bind(estimateController)
@@ -185,6 +195,8 @@ router.post(
 router.patch(
   '/:estimateId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.update'),
   validate([...estimateIdValidator, ...updateEstimateValidator]),
   estimateController.updateEstimate.bind(estimateController)
@@ -212,6 +224,8 @@ router.patch(
 router.delete(
   '/:estimateId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.delete'),
   validate(estimateIdValidator),
   estimateController.deleteEstimate.bind(estimateController)
@@ -246,6 +260,8 @@ router.delete(
 router.post(
   '/:estimateId/convert',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.create'),
   validate([...estimateIdValidator, ...convertEstimateValidator]),
   estimateController.convertToInvoice.bind(estimateController)
@@ -273,6 +289,8 @@ router.post(
 router.post(
   '/:estimateId/send',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.update'),
   validate(estimateIdValidator),
   estimateController.sendToPatient.bind(estimateController)
@@ -298,6 +316,8 @@ router.post(
 router.patch(
   '/:estimateId/accept',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.update'),
   validate(estimateIdValidator),
   estimateController.acceptEstimate.bind(estimateController)
@@ -332,6 +352,8 @@ router.patch(
 router.patch(
   '/:estimateId/decline',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.update'),
   validate([...estimateIdValidator, ...declineEstimateValidator]),
   estimateController.declineEstimate.bind(estimateController)
@@ -357,6 +379,8 @@ router.patch(
 router.patch(
   '/:estimateId/expire',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('invoices.update'),
   validate(estimateIdValidator),
   estimateController.expireEstimate.bind(estimateController)

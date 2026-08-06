@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { paymentController } from '../controllers/payment.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -48,6 +50,8 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('payments.read'),
   validate(paymentSearchValidator),
   paymentController.getAllPayments.bind(paymentController)
@@ -73,6 +77,8 @@ router.get(
 router.get(
   '/patient/:patientId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('payments.read'),
   validate(patientIdParamValidator),
   paymentController.getPaymentsByPatient.bind(paymentController)
@@ -98,6 +104,8 @@ router.get(
 router.get(
   '/invoice/:invoiceId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('payments.read'),
   validate(invoiceIdParamValidator),
   paymentController.getPaymentsByInvoice.bind(paymentController)
@@ -125,6 +133,8 @@ router.get(
 router.get(
   '/:paymentId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('payments.read'),
   validate(paymentIdValidator),
   paymentController.getPaymentById.bind(paymentController)
@@ -172,6 +182,8 @@ router.get(
 router.post(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('payments.create'),
   validate(createPaymentValidator),
   paymentController.createPayment.bind(paymentController)
@@ -217,6 +229,8 @@ router.post(
 router.post(
   '/:paymentId/apply',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('payments.update'),
   validate([...paymentIdValidator, ...applyPaymentValidator]),
   paymentController.applyPayment.bind(paymentController)
@@ -257,6 +271,8 @@ router.post(
 router.patch(
   '/:paymentId/void',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('payments.update'),
   validate([...paymentIdValidator, ...voidPaymentValidator]),
   paymentController.voidPayment.bind(paymentController)

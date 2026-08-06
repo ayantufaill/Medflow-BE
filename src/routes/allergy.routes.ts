@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { allergyController } from '../controllers/allergy.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
   createAllergyValidator,
@@ -13,6 +15,8 @@ const router = Router();
 
 // All allergy routes require authentication
 router.use(authenticate);
+router.use(resolveBranchAccess);
+router.use(enterTenantContext);
 
 /**
  * @swagger

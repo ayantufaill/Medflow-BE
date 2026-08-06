@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { rxController } from '../controllers/rx.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -85,6 +87,8 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.read'),
   validate(getRxValidator),
   rxController.getPrescriptions
@@ -173,6 +177,8 @@ router.get(
 router.post(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.update'),
   validate(createRxValidator),
   rxController.createPrescription
@@ -246,6 +252,8 @@ router.post(
 router.get(
   '/:id/print',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.read'),
   rxController.printPrescription
 );

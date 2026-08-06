@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { waitlistController } from '../controllers/waitlist.controller';
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
   waitlistEntryIdValidator,
@@ -14,6 +16,8 @@ const router = Router();
 
 // All waitlist routes require authentication
 router.use(authenticate);
+router.use(resolveBranchAccess);
+router.use(enterTenantContext);
 
 /**
  * @swagger

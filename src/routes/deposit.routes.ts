@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { depositController } from '../controllers/deposit.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -40,6 +42,8 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('deposits.read'),
   validate(depositSearchValidator),
   depositController.getAllDeposits.bind(depositController)
@@ -69,6 +73,8 @@ router.get(
 router.get(
   '/slips',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('deposits.read'),
   validate(depositSearchValidator),
   depositController.getAllDepositSlips.bind(depositController)
@@ -91,6 +97,8 @@ router.get(
 router.get(
   '/slips/un-deposited',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('deposits.read'),
   depositController.getUnDepositedPayments.bind(depositController)
 );
@@ -136,6 +144,8 @@ router.get(
 router.post(
   '/slips',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('deposits.create'),
   validate(createDepositSlipValidator),
   depositController.createDepositSlip.bind(depositController)
@@ -161,6 +171,8 @@ router.post(
 router.get(
   '/patient/:patientId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('deposits.read'),
   validate(patientIdParamValidator),
   depositController.getDepositsByPatient.bind(depositController)
@@ -188,6 +200,8 @@ router.get(
 router.get(
   '/:depositId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('deposits.read'),
   validate(depositIdValidator),
   depositController.getDepositById.bind(depositController)
@@ -237,6 +251,8 @@ router.get(
 router.post(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('deposits.create'),
   validate(createDepositValidator),
   depositController.createDeposit.bind(depositController)
