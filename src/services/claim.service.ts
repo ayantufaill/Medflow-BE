@@ -1925,10 +1925,13 @@ export class ClaimService {
         id: row.DocNum.toString(),
         paymentRef: meta.paymentRef ?? '',
         date: meta.paymentDate ?? row.DateCreated?.toISOString().split('T')[0] ?? '',
+        paymentDate: meta.paymentDate ?? row.DateCreated?.toISOString().split('T')[0] ?? '',
         status: meta.status ?? 'COMPLETED',
         carrier: meta.carrierName ?? 'Unknown Carrier',
+        carrierId: meta.carrierId ?? '',
         patientsText: 'Multiple Patients',
         totalPayments: meta.checkAmount ?? 0,
+        checkAmount: meta.checkAmount ?? 0,
         claims: meta.allocations ?? [],
         eobs: row.FileName ? [{ id: row.DocNum.toString(), filename: row.Description || 'EOB.pdf', uploadDate: row.DateCreated?.toISOString().split('T')[0], size: '124 KB' }] : [],
       };
