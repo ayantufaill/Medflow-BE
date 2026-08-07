@@ -77,6 +77,14 @@ export const createUserValidator: ValidationChain[] = [
     .optional()
     .isIn(['en', 'es', 'fr', 'de'])
     .withMessage('Preferred language must be one of: en, es, fr, de'),
+  body('password')
+    .optional()
+    .isLength({ min: 6 })
+    .withMessage('Password must be at least 6 characters long'),
+  body('isActive')
+    .optional()
+    .isBoolean()
+    .withMessage('isActive must be a boolean'),
   body('roleId')
     .optional()
     .isString()
