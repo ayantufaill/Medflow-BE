@@ -34,6 +34,7 @@ type ClaimMeta = {
   invoiceId?: string;
   treatmentPlanId?: string;
   procedures?: any[];
+  selectedItems?: any[];
   insuranceCompanyId?: string;
   insuranceType?: string;
   status?: ClaimStatus;
@@ -356,6 +357,7 @@ export class ClaimService {
       createdAt: row.SecDateEntry ?? row.DateService ?? null,
       updatedAt: row.SecDateTEdit ?? row.DateService ?? null,
       procedures: context.procedures ?? [],
+      selectedItems: meta.selectedItems || [],
       claimFormat: meta.claimFormat ?? (row.ClaimType === 'Manual' ? 'Paper' : 'E-claim'),
       isHidden: meta.isHidden ?? false,
       providerSignature: meta.providerSignature ?? null,
