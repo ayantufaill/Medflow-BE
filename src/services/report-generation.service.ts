@@ -87,12 +87,12 @@ export class ReportGenerationService {
    * Process and compile clinical reports
    */
   async getClinicalReport(reportName: string, query: any) {
-    const { startDate, endDate } = this.getRangeDates(query.date, query.range || 'Daily');
+    const { startDate, endDate } = this.getRangeDates(query.date, query.range || 'Daily', query.startDate, query.endDate);
     const name = String(reportName).toLowerCase();
 
     switch (name) {
       case 'recare':
-        return this.getRecareReport();
+        return this.getRecareReport(startDate, endDate);
 
       case 'unsigned-progress-notes':
         return this.getUnsignedProgressNotesReport(startDate, endDate);
@@ -1374,11 +1374,20 @@ export class ReportGenerationService {
   // CLINICAL REPORTS QUERY HELPERS
   // ==========================================
 
-  private async getRecareReport() {
+  private async getRecareReport(startDate?: Date, endDate?: Date) {
+    const where: any = { IsDisabled: 0 };
+    if (startDate && endDate) {
+      where.DateDue = { gte: startDate, lte: endDate };
+    } else if (startDate) {
+      where.DateDue = { gte: startDate };
+    } else if (endDate) {
+      where.DateDue = { lte: endDate };
+    }
+
     const recalls = await prisma.recall.findMany({
-      where: { IsDisabled: 0 },
+      where,
       include: { patient: true },
-      take: 50
+      take: 500
     });
 
     const getAge = (birthDate: Date | null) => {
@@ -1416,7 +1425,9 @@ export class ReportGenerationService {
         contactAgain: 'Y',
         followUp: '',
         apptDate: r.DateScheduled ? (r.DateScheduled as Date).toLocaleDateString() : '',
-        contactCount: 0
+        contactCount: 0,
+        dentistId: p?.PriProv ? p.PriProv.toString() : '',
+        hygienistId: p?.SecProv ? p.SecProv.toString() : ''
       };
     });
   }
