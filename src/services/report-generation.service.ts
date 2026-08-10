@@ -135,7 +135,7 @@ export class ReportGenerationService {
         return this.getCancelledOrNoShowAppointments(startDate, endDate, name === 'no-show-appointments');
 
       case 'appointments':
-        return this.getAppointmentsReport(startDate, endDate);
+        return this.getAppointmentsReport(startDate, endDate, query);
 
       case 'duplicate-patients':
         return this.getDuplicatePatients();
@@ -145,13 +145,13 @@ export class ReportGenerationService {
 
       case 'last-appointment':
       case 'next-appointment':
-        return this.getPatientAppointmentMilestones(name === 'next-appointment');
+        return this.getPatientAppointmentMilestones(name === 'next-appointment', query);
 
       case 'referral-document':
-        return this.getReferralDocuments();
+        return this.getReferralDocuments(query);
 
       case 'lab-case':
-        return this.getLabCaseReport(startDate, endDate);
+        return this.getLabCaseReport(startDate, endDate, query);
 
       case 'discount-edited-fee':
         return this.getDiscountEditedFeeReport(startDate, endDate);
@@ -1725,7 +1725,15 @@ export class ReportGenerationService {
   private async getPatientInsuranceCoverage() {
     const plans = await prisma.patplan.findMany({
       include: {
-        patient: true,
+        patient: {
+          include: {
+            appointment: {
+              where: { AptStatus: { in: [1, 2] } },
+              orderBy: { AptDateTime: 'desc' },
+              take: 1
+            }
+          }
+        },
         inssub: {
           include: {
             insplan: {
@@ -1736,7 +1744,7 @@ export class ReportGenerationService {
           }
         }
       },
-      take: 50
+      take: 200
     });
 
     const report = plans.map(p => {
@@ -1749,6 +1757,7 @@ export class ReportGenerationService {
           : 'Standard Insurance';
       const payer = p.inssub?.insplan?.carrier?.CarrierName || 'Standard Insurance';
       const patientNum = p.PatNum ? p.PatNum.toString() : '';
+      const lastAppt = (p.patient as any)?.appointment?.[0]?.AptDateTime;
 
       return {
         number: patientNum,
@@ -1756,7 +1765,7 @@ export class ReportGenerationService {
         email,
         planName: planNameVal,
         payer,
-        lastAppointment: p.patient?.DateFirstVisit ? (p.patient.DateFirstVisit as Date).toLocaleDateString() : '',
+        lastAppointment: lastAppt ? new Date(lastAppt).toLocaleDateString() : '',
         feeSchedule: '',
         planRenewalDate: 'January',
         assignmentStatus: 'Assignment'
@@ -1775,28 +1784,6 @@ export class ReportGenerationService {
           feeSchedule: '',
           planRenewalDate: 'January',
           assignmentStatus: 'Assignment',
-        },
-        {
-          number: '1254',
-          patient: 'Jane Smith',
-          email: 'jane.smith@example.com',
-          planName: 'Walmart (8000-00010000)',
-          payer: 'Delta Dental of Arkansas',
-          lastAppointment: '05/05/2026',
-          feeSchedule: '',
-          planRenewalDate: 'January',
-          assignmentStatus: 'Assignment',
-        },
-        {
-          number: '1247',
-          patient: 'Robert Brown',
-          email: 'robert.b@example.com',
-          planName: 'Blue Cross Blue Shield of Texas (387291)',
-          payer: 'Blue Cross Blue Shield of Texas',
-          lastAppointment: '',
-          feeSchedule: 'Careington PPO Platinum (directly in network)',
-          planRenewalDate: 'January',
-          assignmentStatus: 'Assignment',
         }
       ];
     }
@@ -1805,64 +1792,41 @@ export class ReportGenerationService {
   }
 
   private async getPatientMembershipPlan() {
-    return [
-      {
-        number: '1249',
-        patient: 'John Doe',
-        email: 'john.doe@example.com',
-        planName: 'Foundations (Perio) Program - New Patient',
-        lastAppointment: '',
-        renewalMonth: 'April',
+    const months = ['January','February','March','April','May','June',
+                    'July','August','September','October','November','December'];
+
+    const plans = await prisma.payplan.findMany({
+      where: { IsClosed: 0 },
+      include: {
+        patient_payplan_PatNumTopatient: {
+          include: {
+            appointment: { orderBy: { AptDateTime: 'desc' as const }, take: 1 }
+          }
+        }
       },
-      {
-        number: '1210',
-        patient: 'Jane Smith',
-        email: 'jane.smith@example.com',
-        planName: 'Foundations (Perio) Program - New Patient',
-        lastAppointment: '',
-        renewalMonth: 'February',
-      },
-      {
-        number: '540',
-        patient: 'Robert Brown',
-        email: 'robert.b@example.com',
-        planName: 'Clean + Confident - Existing Patient',
-        lastAppointment: '',
-        renewalMonth: 'March',
-      },
-      {
-        number: '185',
-        patient: 'Michael Johnson',
-        email: 'm.johnson@example.com',
-        planName: 'Foundations (Perio) Program Existing Patient',
-        lastAppointment: '',
-        renewalMonth: 'April',
-      },
-      {
-        number: '181',
-        patient: 'William Davis',
-        email: 'w.davis@example.com',
-        planName: 'Foundations (Perio) Program - New Patient',
-        lastAppointment: '',
-        renewalMonth: 'May',
-      },
-      {
-        number: '62',
-        patient: 'Elizabeth Garcia',
-        email: 'e.garcia@example.com',
-        planName: 'Bright Beginning',
-        lastAppointment: '',
-        renewalMonth: 'February',
-      },
-      {
-        number: '4',
-        patient: 'David Martinez',
-        email: 'd.martinez@example.com',
-        planName: 'Clean + Confident - Existing Patient',
-        lastAppointment: '',
-        renewalMonth: 'February',
-      }
-    ];
+      take: 200
+    });
+
+    if (plans.length === 0) {
+      return [
+        { number: '1249', patient: 'John Doe', email: 'john.doe@example.com', planName: 'Foundations (Perio) Program - New Patient', lastAppointment: '', renewalMonth: 'April' },
+        { number: '540', patient: 'Robert Brown', email: 'robert.b@example.com', planName: 'Clean + Confident - Existing Patient', lastAppointment: '', renewalMonth: 'March' }
+      ];
+    }
+
+    return plans.map(p => {
+      const pat = p.patient_payplan_PatNumTopatient;
+      const lastAppt = pat?.appointment?.[0]?.AptDateTime;
+      const renewalDate = p.PayPlanDate as Date | null;
+      return {
+        number: pat?.PatNum?.toString() || '',
+        patient: pat ? `${pat.FName} ${pat.LName}` : 'Patient',
+        email: pat?.Email || '',
+        planName: (p as any).PlanCategory?.toString() || 'Membership Plan',
+        lastAppointment: lastAppt ? new Date(lastAppt).toLocaleDateString() : '',
+        renewalMonth: renewalDate ? months[new Date(renewalDate).getMonth()] : ''
+      };
+    });
   }
 
   private async getReferralByPatient(start?: Date, end?: Date) {
@@ -1903,9 +1867,32 @@ export class ReportGenerationService {
   }
 
   private async getOnlineSchedulingReferral(start: Date, end: Date) {
-    return [
-      { patient: 'Jane Smith', date: new Date().toLocaleDateString(), referralSource: 'Google Search' }
-    ];
+    const refAttaches = await prisma.refattach.findMany({
+      where: { RefDate: { gte: start, lte: end } },
+      include: { referral: true },
+      take: 500
+    });
+
+    const groups = new Map<string, number>();
+    for (const r of refAttaches) {
+      const source = r.referral?.BusinessName ||
+        `${r.referral?.FName || ''} ${r.referral?.LName || ''}`.trim() || 'Unknown';
+      groups.set(source, (groups.get(source) || 0) + 1);
+    }
+
+    if (groups.size === 0) {
+      return [
+        { referral: 'Google Search', utmSource: '', utmMedium: '', utmCampaign: '', clicks: 0 }
+      ];
+    }
+
+    return Array.from(groups.entries()).map(([source, count]) => ({
+      referral: source,
+      utmSource: '',
+      utmMedium: '',
+      utmCampaign: '',
+      clicks: count
+    }));
   }
 
   private async getPatientByFlag(
@@ -1993,111 +1980,402 @@ export class ReportGenerationService {
     const appointments = await prisma.appointment.findMany({
       where: {
         AptDateTime: { gte: start, lte: end },
-        AptStatus: isNoShow ? 3 : 4 // 3 = NoShow, 4 = Cancelled
+        AptStatus: isNoShow ? 3 : 4
       },
-      include: { patient: true, provider_appointment_ProvNumToprovider: true },
-      take: 30
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        procedurelog_procedurelog_AptNumToappointment: {
+          where: { ProcStatus: { in: [1, 2] } },
+          include: { procedurecode_procedurelog_CodeNumToprocedurecode: true }
+        }
+      },
+      take: 100
     });
 
-    return appointments.map(a => ({
-      id: a.AptNum.toString(),
-      patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Patient',
-      provider: a.provider_appointment_ProvNumToprovider ? `${a.provider_appointment_ProvNumToprovider.FName} ${a.provider_appointment_ProvNumToprovider.LName}` : 'Provider',
-      date: a.AptDateTime?.toLocaleDateString() || '',
-      reason: a.Note ?? 'Patient schedule conflict'
-    }));
+    // Get next appointments for these patients
+    const patNums = [...new Set(appointments.map(a => a.PatNum).filter(Boolean))] as bigint[];
+    const nextAppts = patNums.length > 0 ? await prisma.appointment.findMany({
+      where: {
+        PatNum: { in: patNums },
+        AptDateTime: { gt: new Date() },
+        AptStatus: { in: [1, 2] }
+      },
+      orderBy: { AptDateTime: 'asc' }
+    }) : [];
+    const nextApptMap = new Map<string, string>();
+    for (const na of nextAppts) {
+      const key = na.PatNum?.toString() || '';
+      if (!nextApptMap.has(key)) {
+        nextApptMap.set(key, na.AptDateTime?.toLocaleDateString() || '');
+      }
+    }
+
+    const days = ['Sun', 'Mon', 'Tues', 'Wed', 'Thurs', 'Fri', 'Sat'];
+
+    return appointments.map(a => {
+      const apptDate = a.AptDateTime ? new Date(a.AptDateTime) : null;
+      const aAny = a as any;
+      const procedures = (aAny.procedurelog_procedurelog_AptNumToappointment || [])
+        .map((p: any) => p.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || p.OldCode || '')
+        .filter(Boolean).join(', ');
+      const provAbbr = a.provider_appointment_ProvNumToprovider?.Abbr ||
+        a.provider_appointment_ProvNumToprovider?.FName?.substring(0, 3) || '';
+      const patKey = a.PatNum?.toString() || '';
+
+      return {
+        patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Patient',
+        type: a.IsNewPatient ? 'New Patient' : 'Recare',
+        providers: provAbbr,
+        duration: `${a.Pattern?.length ? a.Pattern.length * 5 : 60} mins`,
+        prefDay: apptDate ? days[apptDate.getDay()] : '',
+        prefTime: apptDate ? apptDate.toLocaleTimeString('en-US',
+          { hour: '2-digit', minute: '2-digit', hour12: true }) : '',
+        procedures,
+        aptDate: apptDate ? apptDate.toLocaleDateString('en-US',
+          { month: 'short', day: '2-digit', year: 'numeric' }) : '',
+        nextAptDate: nextApptMap.get(patKey) || '',
+        reason: a.Note ?? ''
+      };
+    });
   }
 
-  private async getAppointmentsReport(start: Date, end: Date) {
+  private async getAppointmentsReport(start: Date, end: Date, query?: any) {
+    const where: any = { AptDateTime: { gte: start, lte: end } };
+
+    if (query?.provider && query.provider !== 'all') {
+      const provNum = Number(query.provider);
+      if (!isNaN(provNum)) where.ProvNum = provNum;
+    }
+    if (query?.status && query.status !== 'all') {
+      const statusMap: Record<string, number> = {
+        complete: 2, cancelled: 5, scheduled: 1, broken: 3
+      };
+      if (statusMap[query.status]) where.AptStatus = statusMap[query.status];
+    }
+
     const appointments = await prisma.appointment.findMany({
-      where: { AptDateTime: { gte: start, lte: end } },
-      include: { patient: true, provider_appointment_ProvNumToprovider: true },
-      take: 50
+      where,
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        procedurelog_procedurelog_AptNumToappointment: {
+          where: { ProcStatus: { in: [1, 2] } },
+          include: { procedurecode_procedurelog_CodeNumToprocedurecode: true }
+        }
+      },
+      take: 100
     });
 
-    return appointments.map(a => ({
-      id: a.AptNum.toString(),
-      patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Patient',
-      provider: a.provider_appointment_ProvNumToprovider ? `${a.provider_appointment_ProvNumToprovider.FName} ${a.provider_appointment_ProvNumToprovider.LName}` : 'Provider',
-      date: a.AptDateTime?.toLocaleDateString() || '',
-      time: a.AptDateTime?.toLocaleTimeString() || '',
-      status: a.AptStatus === 1 ? 'Completed' : a.AptStatus === 4 ? 'Cancelled' : 'Scheduled'
-    }));
+    const patNums = [...new Set(appointments.map(a => a.PatNum).filter(Boolean))] as bigint[];
+    const meta = await getPatientsMeta(patNums);
+
+    // Next appointments
+    const nextAppts = patNums.length > 0 ? await prisma.appointment.findMany({
+      where: {
+        PatNum: { in: patNums },
+        AptDateTime: { gt: end },
+        AptStatus: { in: [1, 2] }
+      },
+      orderBy: { AptDateTime: 'asc' }
+    }) : [];
+    const nextApptMap = new Map<string, string>();
+    for (const na of nextAppts) {
+      const key = na.PatNum?.toString() || '';
+      if (!nextApptMap.has(key)) {
+        nextApptMap.set(key, na.AptDateTime?.toLocaleDateString('en-US',
+          { month: 'short', day: '2-digit', year: 'numeric' }) || '');
+      }
+    }
+
+    const statusLabels: Record<number, string> = {
+      1: 'Scheduled', 2: 'Checked out complete', 3: 'Broken/No Show',
+      4: 'Cancelled', 5: 'Cancelled Short Notice', 6: 'Unconfirmed'
+    };
+
+    return appointments.map(a => {
+      const apptDate = a.AptDateTime ? new Date(a.AptDateTime) : null;
+      const patKey = a.PatNum?.toString() || '';
+      const flags = (meta as any)[patKey]?.patientFlags || [];
+      const aAny = a as any;
+      const procedures = (aAny.procedurelog_procedurelog_AptNumToappointment || [])
+        .map((p: any) => p.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || p.OldCode || '')
+        .filter(Boolean).join(' / ');
+      const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+      return {
+        patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Patient',
+        flags,
+        type: a.IsNewPatient ? 'New Patient' : 'Recare',
+        status: statusLabels[a.AptStatus ?? 1] || 'Unknown',
+        providers: a.provider_appointment_ProvNumToprovider?.Abbr || '',
+        operatory: `Operatory ${a.Op || ''}`,
+        aptDate: apptDate?.toLocaleDateString('en-US',
+          { month: 'short', day: '2-digit', year: 'numeric' }) || '',
+        time: apptDate ? `${dayNames[apptDate.getDay()]}, ${apptDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}` : '',
+        duration: `${a.Pattern?.length ? a.Pattern.length * 5 : 60} mins`,
+        procedures,
+        nextAptDate: nextApptMap.get(patKey) || ''
+      };
+    });
   }
 
   private async getDuplicatePatients() {
-    const duplicates = await prisma.patient.findMany({
-      take: 20
-    });
+    const duplicates = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT p."PatNum", p."FName", p."LName", p."Birthdate", p."PatStatus",
+        CASE WHEN p."PatNum" = p."Guarantor" THEN 'True' ELSE 'False' END AS "IsSubscriber"
+      FROM patient p
+      INNER JOIN (
+        SELECT "FName", "LName", "Birthdate"
+        FROM patient
+        WHERE "Birthdate" IS NOT NULL AND "Birthdate" > '1900-01-01'
+        GROUP BY "FName", "LName", "Birthdate"
+        HAVING COUNT(*) > 1
+      ) dups ON p."FName" = dups."FName"
+           AND p."LName" = dups."LName"
+           AND p."Birthdate" = dups."Birthdate"
+      ORDER BY p."LName", p."FName", p."Birthdate"
+      LIMIT 200
+    `);
 
-    return duplicates.slice(0, 2).map(p => ({
-      patientId: p.PatNum.toString(),
-      name: `${p.FName} ${p.LName}`,
-      dob: p.Birthdate?.toLocaleDateString() || '',
-      matchesWith: 'Duplicate Record found'
+    const statusMap: Record<number, string> = { 0: 'Active', 1: 'Archived', 2: 'Inactive', 3: 'Deceased' };
+
+    if (duplicates.length === 0) {
+      return [
+        { id: '0', firstName: 'No duplicates', lastName: 'found', dob: '', status: 'Active', subscriber: 'False' }
+      ];
+    }
+
+    return duplicates.map((p: any) => ({
+      id: p.PatNum?.toString() || '',
+      firstName: p.FName || '',
+      lastName: p.LName || '',
+      dob: p.Birthdate ? new Date(p.Birthdate).toLocaleDateString('en-US',
+        { month: 'short', day: '2-digit', year: 'numeric' }) : '',
+      status: statusMap[p.PatStatus] || 'Active',
+      subscriber: p.IsSubscriber || 'False'
     }));
   }
 
   private async getPatientContactPreferences() {
     const patients = await prisma.patient.findMany({
-      select: { PatNum: true, FName: true, LName: true, PreferContactMethod: true },
-      take: 30
+      where: { PatStatus: 0 },
+      select: {
+        PatNum: true, FName: true, LName: true, Email: true,
+        WirelessPhone: true, HmPhone: true, WkPhone: true,
+        TxtMsgOk: true, PreferContactMethod: true
+      },
+      take: 500
     });
 
-    const getPrefMethod = (val?: number | null) => {
-      switch (val) {
-        case 1: return 'Email';
-        case 2: return 'SMS';
-        case 3: return 'Portal';
-        default: return 'Phone';
+    return patients.map(p => ({
+      firstName: p.FName || '',
+      lastName: p.LName || '',
+      email: p.Email || '',
+      phone: p.WirelessPhone || p.HmPhone || p.WkPhone || '',
+      text: p.TxtMsgOk === 1 ? 'Yes' : 'No',
+      emailPerm: p.Email ? 'Yes' : 'No',
+      review: 'Yes'
+    }));
+  }
+
+  private async getPatientAppointmentMilestones(nextAppt = false, query?: any) {
+    const where: any = { PatStatus: 0 };
+    if (query?.filterBy === 'inactive') where.PatStatus = 2;
+    else if (query?.filterBy === 'all') delete where.PatStatus;
+
+    const patients = await prisma.patient.findMany({
+      where,
+      include: {
+        appointment: {
+          where: nextAppt
+            ? { AptDateTime: { gte: new Date() }, AptStatus: { in: [1, 6] } }
+            : { AptDateTime: { lte: new Date() }, AptStatus: { in: [1, 2, 3, 4, 5] } },
+          orderBy: { AptDateTime: nextAppt ? 'asc' : 'desc' },
+          take: 1,
+          include: { provider_appointment_ProvNumToprovider: true }
+        }
+      },
+      take: 200
+    });
+
+    const filtered = patients.filter(p => p.appointment.length > 0);
+
+    let results = filtered;
+    if (query?.startDate || query?.endDate) {
+      const startFilter = query.startDate ? new Date(query.startDate) : null;
+      const endFilter = query.endDate ? new Date(query.endDate) : null;
+      results = filtered.filter(p => {
+        const d = p.appointment[0]?.AptDateTime;
+        if (!d) return false;
+        if (startFilter && d < startFilter) return false;
+        if (endFilter && d > endFilter) return false;
+        return true;
+      });
+    }
+
+    // Get next appointments for "Last Appointment" report
+    let nextApptMap = new Map<string, string>();
+    if (!nextAppt) {
+      const patNums = results.map(p => p.PatNum);
+      if (patNums.length > 0) {
+        const nextAppts = await prisma.appointment.findMany({
+          where: {
+            PatNum: { in: patNums },
+            AptDateTime: { gt: new Date() },
+            AptStatus: { in: [1, 6] }
+          },
+          orderBy: { AptDateTime: 'asc' }
+        });
+        for (const na of nextAppts) {
+          const key = na.PatNum?.toString() || '';
+          if (!nextApptMap.has(key)) {
+            nextApptMap.set(key, na.AptDateTime?.toLocaleDateString('en-US',
+              { month: 'short', day: '2-digit', year: 'numeric' }) || '');
+          }
+        }
       }
+    }
+
+    const statusLabels: Record<number, string> = {
+      1: 'Scheduled', 2: 'CheckedoutCompleted', 3: 'Broken',
+      4: 'Cancelled', 5: 'CancelledShortNotice', 6: 'Unconfirmed'
     };
 
-    return patients.map(p => ({
-      patientId: p.PatNum.toString(),
-      name: `${p.FName} ${p.LName}`,
-      preference: getPrefMethod(p.PreferContactMethod)
-    }));
+    return results.map(p => {
+      const appt = p.appointment[0];
+      const prov = appt?.provider_appointment_ProvNumToprovider;
+      const patKey = p.PatNum.toString();
+
+      return {
+        id: patKey,
+        patient: `${p.FName} ${p.LName}`,
+        status: p.PatStatus === 0 ? 'Active' : 'Inactive',
+        apptDate: appt?.AptDateTime?.toLocaleDateString('en-US',
+          { month: 'short', day: '2-digit', year: 'numeric' }) || '',
+        type: appt?.IsNewPatient ? 'New Patient' : 'Recare',
+        apptStatus: statusLabels[appt?.AptStatus ?? 1] || 'Unknown',
+        nextAppt: nextApptMap.get(patKey) || '',
+        newPatient: appt?.IsNewPatient ? 'Yes' : 'No',
+        provider: prov ? `${prov.FName} ${prov.LName}` : '',
+        email: p.Email || '',
+        phone: p.WirelessPhone || p.HmPhone || '',
+        text: p.TxtMsgOk === 1 ? 'Yes' : 'No',
+        emailPerm: p.Email ? 'Yes' : 'No',
+        review: 'No'
+      };
+    });
   }
 
-  private async getPatientAppointmentMilestones(nextAppt = false) {
-    const patients = await prisma.patient.findMany({
-      select: { PatNum: true, FName: true, LName: true, DateFirstVisit: true },
-      take: 20
+  private async getReferralDocuments(query?: any) {
+    const refAttaches = await prisma.refattach.findMany({
+      include: {
+        patient: true,
+        referral: true
+      },
+      orderBy: { ItemOrder: 'desc' },
+      take: 100
     });
 
-    return patients.map(p => ({
-      patientId: p.PatNum.toString(),
-      name: `${p.FName} ${p.LName}`,
-      date: nextAppt ? new Date().toLocaleDateString() : p.DateFirstVisit?.toLocaleDateString() || ''
+    if (refAttaches.length === 0) {
+      return [
+        { patient: 'No referral documents', provider: '', created: '', due: '', shared: '', status: 'N/A' }
+      ];
+    }
+
+    return refAttaches.map(r => ({
+      patient: r.patient ? `${r.patient.FName} ${r.patient.LName}` : 'Patient',
+      provider: r.referral
+        ? (r.referral.NotPerson
+          ? r.referral.BusinessName
+          : `Dr. ${r.referral.LName}`)
+        : '',
+      created: r.RefDate?.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) || '',
+      due: '',
+      shared: r.DateProcComplete?.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) || '',
+      status: r.IsTransitionOfCare ? 'Sent Out' : 'New'
     }));
   }
 
-  private async getReferralDocuments() {
-    return [
-      { date: new Date().toLocaleDateString(), patient: 'Francis Fuller', documentName: 'referral_slip.pdf' }
-    ];
-  }
-
-  private async getLabCaseReport(start: Date, end: Date) {
+  private async getLabCaseReport(start: Date, end: Date, query?: any) {
     const cases = await prisma.labcase.findMany({
       where: { DateTimeCreated: { gte: start, lte: end } },
-      include: { patient: true },
-      take: 20
+      include: {
+        patient: true,
+        laboratory: true,
+        appointment_labcase_AptNumToappointment: {
+          include: {
+            procedurelog_procedurelog_AptNumToappointment: {
+              include: { procedurecode_procedurelog_CodeNumToprocedurecode: true }
+            }
+          }
+        }
+      },
+      take: 100
     });
 
-    return cases.map(c => ({
-      caseId: c.LabCaseNum.toString(),
-      patient: c.patient ? `${c.patient.FName} ${c.patient.LName}` : 'Patient',
-      dueDate: c.DateTimeDue?.toLocaleDateString() || '',
-      instructions: c.Instructions ?? ''
-    }));
+    if (cases.length === 0) {
+      return [
+        { patient: 'No lab cases', provider: '', procedures: '', dueDate: '', apptDate: '', sharedDate: '', status: 'N/A' }
+      ];
+    }
+
+    return cases.map(c => {
+      const cAny = c as any;
+      const appt = cAny.appointment_labcase_AptNumToappointment;
+      const procedures = appt?.procedurelog_procedurelog_AptNumToappointment
+        ?.map((p: any) => `${p.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || ''} ${p.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || ''}`)
+        .filter(Boolean).join(', ') || '';
+
+      return {
+        patient: c.patient ? `${c.patient.FName} ${c.patient.LName}` : 'Patient',
+        provider: c.laboratory?.Description || '',
+        procedures: procedures ? `- ${procedures}` : '',
+        dueDate: c.DateTimeDue?.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) || '',
+        apptDate: appt?.AptDateTime?.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) || '',
+        sharedDate: c.DateTimeSent?.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) || '',
+        status: c.DateTimeRecd ? 'Quality Checked' : c.DateTimeSent ? 'Sent' : 'Pending'
+      };
+    });
   }
 
   private async getDiscountEditedFeeReport(start: Date, end: Date) {
-    return [
-      { code: 'D1110', originalFee: 150.00, actualFee: 120.00, discount: 30.00, date: new Date().toLocaleDateString() }
-    ];
+    const adjustments = await prisma.adjustment.findMany({
+      where: { AdjDate: { gte: start, lte: end } },
+      include: {
+        patient: true,
+        provider: true,
+        procedurelog: {
+          include: { procedurecode_procedurelog_CodeNumToprocedurecode: true }
+        }
+      },
+      take: 200
+    });
+
+    const linked = adjustments.filter(a => a.procedurelog);
+
+    if (linked.length === 0) {
+      return [
+        { patient: 'No discount/fee edits', date: '', code: '', description: '', fee: '', editedFee: '', discount: '', provider: '' }
+      ];
+    }
+
+    return linked.map(a => {
+      const originalFee = a.procedurelog?.ProcFee ?? 0;
+      const adjAmt = Math.abs(a.AdjAmt ?? 0);
+      const editedFee = originalFee - adjAmt;
+
+      return {
+        patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Patient',
+        date: a.AdjDate?.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) || '',
+        code: a.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || a.procedurelog?.OldCode || '',
+        description: a.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || '',
+        fee: `$${originalFee.toFixed(2)}`,
+        editedFee: `$${editedFee.toFixed(2)}`,
+        discount: `$${adjAmt.toFixed(2)}`,
+        provider: a.provider ? `Dr. ${a.provider.LName}` : ''
+      };
+    });
   }
 
   private async getPatientReviewsReport(start: Date, end: Date) {
