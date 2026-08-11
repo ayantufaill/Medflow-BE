@@ -22,6 +22,23 @@ const safeBigInt = (val: any): bigint => {
   }
 };
 
+const resolveValidFeeSchedNum = async (val: any): Promise<bigint | null> => {
+  if (val === undefined || val === null || val === '') return null;
+  const str = String(val).trim();
+  if (str === 'null' || str === 'undefined' || str === 'none' || str === 'None' || str === '0') return null;
+  let parsed: bigint;
+  try {
+    parsed = BigInt(str);
+  } catch (e) {
+    return null;
+  }
+  if (parsed === 0n) return null;
+  const exists = await prisma.feesched.findUnique({
+    where: { FeeSchedNum: parsed },
+  });
+  return exists ? parsed : null;
+};
+
 export class PatientInsuranceService {
   /**
    * Get all insurances for a patient
@@ -655,6 +672,11 @@ export class PatientInsuranceService {
       });
     }
     if (patplan.inssub?.insplan) {
+      let feeSchedVal: bigint | null | undefined = undefined;
+      if (updates.planFeeGuide !== undefined) {
+        feeSchedVal = await resolveValidFeeSchedNum(updates.planFeeGuide);
+      }
+
       await prisma.insplan.update({
         where: { PlanNum: patplan.inssub.insplan.PlanNum },
         data: {
@@ -662,7 +684,7 @@ export class PatientInsuranceService {
           GroupNum: updates.groupNumber ?? undefined,
           GroupName: updates.groupName ?? undefined,
           PlanNote: updates.notes ?? undefined,
-          FeeSched: updates.planFeeGuide !== undefined ? (updates.planFeeGuide ? safeBigInt(updates.planFeeGuide) : 0n) : undefined,
+          FeeSched: feeSchedVal,
         },
       });
     }
