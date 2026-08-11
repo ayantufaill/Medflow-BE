@@ -675,7 +675,7 @@ export class ClaimService {
     if (filters.tab) {
       const tab = filters.tab.toLowerCase();
       if (tab === 'unsent') {
-        claims = claims.filter((claim) => ['draft', 'error', 'validationError', 'rejected', 'denied'].includes(claim.status));
+        claims = claims.filter((claim) => ['draft', 'error', 'validationError', 'rejected', 'denied', 'readyForSubmission'].includes(claim.status));
       } else if (tab === 'errored') {
         claims = claims.filter((claim) => ['rejected', 'denied', 'validationError', 'error'].includes(claim.status));
       } else if (tab === 'rejected') {
@@ -1600,7 +1600,7 @@ export class ClaimService {
         return;
       }
 
-      if (status === 'draft') {
+      if (['draft', 'error', 'validationError', 'rejected', 'denied', 'readyForSubmission'].includes(status)) {
         unsent++;
       }
 
