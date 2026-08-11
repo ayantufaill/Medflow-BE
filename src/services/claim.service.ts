@@ -135,9 +135,10 @@ const normalizeClaimStatus = (value?: string | null): ClaimStatus => {
 
 const claimStatusToCode = (status?: string | null): string => {
   switch (normalizeClaimStatus(status)) {
+    case 'readyForSubmission':
+      return 'W';
     case 'submitted':
     case 'inProcess':
-    case 'readyForSubmission':
     case 'manualClaim':
     case 'acceptedForProcessing':
       return 'S';
@@ -166,6 +167,8 @@ const claimStatusToCode = (status?: string | null): string => {
 
 const claimCodeToStatus = (code?: string | null): ClaimStatus => {
   switch ((code || '').toUpperCase()) {
+    case 'W':
+      return 'readyForSubmission';
     case 'S':
       return 'submitted';
     case 'P':
@@ -582,7 +585,7 @@ export class ClaimService {
     if (filters.tab) {
       const tab = filters.tab.toLowerCase();
       if (tab === 'unsent') {
-        where.ClaimStatus = { in: ['H', 'X', 'D', 'S'] };
+        where.ClaimStatus = { in: ['H', 'X', 'D', 'W'] };
       } else if (tab === 'errored') {
         where.ClaimStatus = { in: ['X', 'D'] };
       } else if (tab === 'rejected') {
