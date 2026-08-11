@@ -956,18 +956,7 @@ export class ReportGenerationService {
     });
 
     if (logs.length === 0) {
-      return [
-        {
-          id: '1',
-          timestamp: new Date().toISOString(),
-          modifiedBy: 'Dr. Sabour',
-          field: 'Invoice Fee',
-          originalValue: '150.00',
-          newValue: '120.00',
-          patient: 'Francis Fuller',
-          action: 'Updated procedure fee schedule'
-        }
-      ];
+      return [];
     }
 
     return logs.map(log => {
@@ -1143,12 +1132,8 @@ export class ReportGenerationService {
       }
 
       if (patMap.size === 0) {
-        return [
-          { id: '101', name: 'Francis Fuller', patientCollection: '$150.00', insuranceCollection: '$470.00', totalCollection: '$620.00' },
-          { id: '102', name: 'Garry Gilmore', patientCollection: '$120.00', insuranceCollection: '$0.00', totalCollection: '$120.00' },
-          { id: '103', name: 'Zoe Niblock', patientCollection: '$80.00', insuranceCollection: '$200.00', totalCollection: '$280.00' }
-        ];
-      }
+      return [];
+    }
 
       return Array.from(patMap.values()).map(p => ({
         id: p.id,
@@ -1698,21 +1683,7 @@ export class ReportGenerationService {
     }));
 
     if (report.length === 0) {
-      return [
-        {
-          id: 77,
-          provider: 'Dr. Smith',
-          patient: 'Francis Fuller',
-          startDate: '05/07/2026',
-          dose: '5MG',
-          refills: 0,
-          duration: '2 Week',
-          longTerm: 'No',
-          prints: 0,
-          notes: '',
-          drugName: 'FLEXERIL'
-        }
-      ];
+      return [];
     }
 
     return report;
@@ -1773,19 +1744,7 @@ export class ReportGenerationService {
     });
 
     if (report.length === 0) {
-      return [
-        {
-          number: '1262',
-          patient: 'John Doe',
-          email: 'john.doe@example.com',
-          planName: 'Standard Insurance (160-173134-1)',
-          payer: 'Standard Insurance',
-          lastAppointment: '',
-          feeSchedule: '',
-          planRenewalDate: 'January',
-          assignmentStatus: 'Assignment',
-        }
-      ];
+      return [];
     }
 
     return report;
@@ -1808,10 +1767,7 @@ export class ReportGenerationService {
     });
 
     if (plans.length === 0) {
-      return [
-        { number: '1249', patient: 'John Doe', email: 'john.doe@example.com', planName: 'Foundations (Perio) Program - New Patient', lastAppointment: '', renewalMonth: 'April' },
-        { number: '540', patient: 'Robert Brown', email: 'robert.b@example.com', planName: 'Clean + Confident - Existing Patient', lastAppointment: '', renewalMonth: 'March' }
-      ];
+      return [];
     }
 
     return plans.map(p => {
@@ -1881,9 +1837,7 @@ export class ReportGenerationService {
     }
 
     if (groups.size === 0) {
-      return [
-        { referral: 'Google Search', utmSource: '', utmMedium: '', utmCampaign: '', clicks: 0 }
-      ];
+      return [];
     }
 
     return Array.from(groups.entries()).map(([source, count]) => ({
@@ -2141,9 +2095,7 @@ export class ReportGenerationService {
     const statusMap: Record<number, string> = { 0: 'Active', 1: 'Archived', 2: 'Inactive', 3: 'Deceased' };
 
     if (duplicates.length === 0) {
-      return [
-        { id: '0', firstName: 'No duplicates', lastName: 'found', dob: '', status: 'Active', subscriber: 'False' }
-      ];
+      return [];
     }
 
     return duplicates.map((p: any) => ({
@@ -2278,9 +2230,7 @@ export class ReportGenerationService {
     });
 
     if (refAttaches.length === 0) {
-      return [
-        { patient: 'No referral documents', provider: '', created: '', due: '', shared: '', status: 'N/A' }
-      ];
+      return [];
     }
 
     return refAttaches.map(r => ({
@@ -2315,9 +2265,7 @@ export class ReportGenerationService {
     });
 
     if (cases.length === 0) {
-      return [
-        { patient: 'No lab cases', provider: '', procedures: '', dueDate: '', apptDate: '', sharedDate: '', status: 'N/A' }
-      ];
+      return [];
     }
 
     return cases.map(c => {
@@ -2355,9 +2303,7 @@ export class ReportGenerationService {
     const linked = adjustments.filter(a => a.procedurelog);
 
     if (linked.length === 0) {
-      return [
-        { patient: 'No discount/fee edits', date: '', code: '', description: '', fee: '', editedFee: '', discount: '', provider: '' }
-      ];
+      return [];
     }
 
     return linked.map(a => {
@@ -2389,9 +2335,7 @@ export class ReportGenerationService {
     const statusFilter = query?.status && query.status !== 'all' ? query.status : null;
 
     if (commlogs.length === 0) {
-      return [
-        { patientName: 'Francis Fuller', reviewStatus: statusFilter || 'Published', date: new Date().toLocaleDateString('en-US') }
-      ];
+      return [];
     }
 
     return commlogs.map(c => ({
@@ -2422,19 +2366,7 @@ export class ReportGenerationService {
     });
 
     if (commlogs.length === 0) {
-      return [
-        {
-          sentToPatient: 'Francis Fuller',
-          sentToUser: 'Dr. Smith',
-          template: 'Appointment Reminder',
-          status: 'Sent',
-          plannedOn: new Date().toLocaleDateString('en-US'),
-          sentOn: `${new Date().toLocaleDateString('en-US')} 09:00 AM`,
-          info: 'SMS delivered successfully',
-          sentBy: 'System',
-          reply: ''
-        }
-      ];
+      return [];
     }
 
     return commlogs.map(c => {
@@ -2511,17 +2443,7 @@ export class ReportGenerationService {
     };
 
     if (procs.length === 0) {
-      return [
-        {
-          patient: 'Francis Fuller',
-          code: 'D0120',
-          description: 'Periodic Oral Evaluation',
-          status: 'Completed',
-          provider: 'Dr. Smith',
-          created: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }),
-          scheduled: new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
-        }
-      ];
+      return [];
     }
 
     return procs.map(p => {
@@ -2543,23 +2465,7 @@ export class ReportGenerationService {
   }
 
   private async getPatientTrackers(start?: Date, end?: Date, query?: any) {
-    const startDateStr = start ? start.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
-    const endDateStr = end ? end.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
-
-    return [
-      {
-        patient: query?.patientSearch || 'Francis Fuller',
-        trackerName: 'Onboarding Workflow',
-        startDate: startDateStr,
-        endDate: endDateStr,
-        duration: '9 days',
-        description: 'Patient intake and insurance verification completed',
-        status: query?.status || 'Completed',
-        createdBy: query?.createdBy || 'Admin User',
-        completedBy: 'Staff User',
-        deletedBy: ''
-      }
-    ];
+    return [];
   }
 
   // ==========================================
