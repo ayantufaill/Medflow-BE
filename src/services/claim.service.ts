@@ -582,7 +582,7 @@ export class ClaimService {
     if (filters.tab) {
       const tab = filters.tab.toLowerCase();
       if (tab === 'unsent') {
-        where.ClaimStatus = { in: ['H', 'X', 'D'] };
+        where.ClaimStatus = { in: ['H', 'X', 'D', 'S'] };
       } else if (tab === 'errored') {
         where.ClaimStatus = { in: ['X', 'D'] };
       } else if (tab === 'rejected') {
@@ -1604,7 +1604,7 @@ export class ClaimService {
         unsent++;
       }
 
-      if (status === 'rejected' || status === 'denied') {
+      if (['rejected', 'denied', 'validationError', 'error'].includes(status)) {
         errored++;
       }
 
