@@ -56,10 +56,36 @@ export const createClaimFromInvoiceValidator: ValidationChain[] = [
   body('notes').optional().isString().isLength({ max: 2000 }).withMessage('notes must be less than 2000 characters'),
 ];
 
+const isStringOrIdObject = (value: unknown): boolean => {
+  if (typeof value === 'string') {
+    return true;
+  }
+  if (typeof value === 'object' && value !== null) {
+    const obj = value as Record<string, unknown>;
+    const id = obj._id ?? obj.id;
+    if (typeof id === 'string' || typeof id === 'number') {
+      return true;
+    }
+  }
+  return false;
+};
+
 export const updateClaimValidator: ValidationChain[] = [
   body('claimFormat').optional().isString().withMessage('claimFormat must be a string'),
-  body('insuranceCompanyId').optional().isString().withMessage('insuranceCompanyId must be a string'),
-  body('invoiceId').optional().isString().withMessage('invoiceId must be a string'),
+  body('insuranceCompanyId')
+    .optional({ nullable: true })
+    .custom((value) => {
+      if (value === null) return true;
+      return isStringOrIdObject(value);
+    })
+    .withMessage('insuranceCompanyId must be a string or an object with an ID'),
+  body('invoiceId')
+    .optional({ nullable: true })
+    .custom((value) => {
+      if (value === null) return true;
+      return isStringOrIdObject(value);
+    })
+    .withMessage('invoiceId must be a string or an object with an ID'),
   body('insuranceType').optional().isString().withMessage('insuranceType must be a string'),
   body('status').optional().isIn(claimStatusValues).withMessage('Invalid status value'),
   body('claimAmount').optional().isFloat({ min: 0 }).withMessage('claimAmount must be >= 0'),

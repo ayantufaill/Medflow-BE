@@ -1,6 +1,35 @@
 import type { Request, Response, NextFunction } from 'express';
 import { claimService } from '../services/claim.service';
 
+const extractId = (value: unknown): string | undefined => {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return String(value);
+  }
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    const id = obj._id ?? obj.id;
+    if (typeof id === 'string') {
+      return id;
+    }
+    if (typeof id === 'number') {
+      return String(id);
+    }
+    if (id && typeof (id as any).toString === 'function') {
+      const str = (id as any).toString();
+      if (str && str !== '[object Object]') {
+        return str;
+      }
+    }
+  }
+  return undefined;
+};
+
 export class ClaimController {
   async getAllClaims(req: Request, res: Response, next: NextFunction) {
     try {
@@ -82,11 +111,14 @@ export class ClaimController {
   async updateClaim(req: Request, res: Response, next: NextFunction) {
     try {
       const claimId = req.params.claimId as string;
+      const insuranceCompanyId = extractId(req.body.insuranceCompanyId);
+      const invoiceId = extractId(req.body.invoiceId);
+
       const claim = await claimService.updateClaim(
         claimId,
         {
-          insuranceCompanyId: req.body.insuranceCompanyId,
-          invoiceId: req.body.invoiceId,
+          insuranceCompanyId,
+          invoiceId,
           insuranceType: req.body.insuranceType,
           claimFormat: req.body.claimFormat,
           status: req.body.status,
