@@ -2444,7 +2444,7 @@ export class ReportGenerationService {
         sentToPatient: c.patient ? `${c.patient.FName} ${c.patient.LName}` : 'Patient',
         sentToUser: c.userod?.UserName || 'Staff User',
         template: c.definition?.ItemName || 'Standard Reminder',
-        status: cAny.SentStatus === 1 ? 'Sent' : cAny.SentStatus === 2 ? 'Failed' : 'Sent',
+        status: cAny.SentStatus === 1 ? 'Sent' : cAny.SentStatus === 2 ? 'Failed' : 'Pending',
         plannedOn: commDate ? commDate.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '',
         sentOn: commDate ? `${commDate.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })} ${commDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}` : '',
         info: c.Note || 'Notification delivered successfully',
