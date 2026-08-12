@@ -111,15 +111,21 @@ export class ReportGenerationService {
    * Process and compile patient reports
    */
   async getPatientReport(reportName: string, query: any) {
-    const { startDate, endDate } = this.getRangeDates(query.date, query.range || 'Daily');
+    let { startDate, endDate } = this.getRangeDates(query.date, query.range || 'Daily');
+    
+    if (query.startDate) startDate = new Date(query.startDate);
+    if (query.endDate) {
+      endDate = new Date(query.endDate);
+      endDate.setHours(23, 59, 59, 999);
+    }
     const name = String(reportName).toLowerCase();
 
     switch (name) {
       case 'insurance-coverage':
-        return this.getPatientInsuranceCoverage();
+        return this.getPatientInsuranceCoverage(query);
 
       case 'membership-plan':
-        return this.getPatientMembershipPlan();
+        return this.getPatientMembershipPlan(query);
 
       case 'referral-by-patient':
         return this.getReferralByPatient(startDate, endDate);
@@ -132,7 +138,7 @@ export class ReportGenerationService {
 
       case 'cancelled-appointments':
       case 'no-show-appointments':
-        return this.getCancelledOrNoShowAppointments(startDate, endDate, name === 'no-show-appointments');
+        return this.getCancelledOrNoShowAppointments(startDate, endDate, reportName === 'no-show-appointments', query.showInactive === 'true' || query.showInactive === true);
 
       case 'appointments':
         return this.getAppointmentsReport(startDate, endDate, query);
@@ -1693,8 +1699,79 @@ export class ReportGenerationService {
   // PATIENT REPORTS QUERY HELPERS
   // ==========================================
 
-  private async getPatientInsuranceCoverage() {
+  private async getPatientInsuranceCoverage(query: any = {}) {
+    const { searchQuery, assignmentFilter, apptStartDate, apptEndDate, apptSingleDate, showNoCoverage, apptFilterType } = query;
+
+    let whereClause: any = {};
+    whereClause.AND = [];
+
+    if (showNoCoverage === 'true' || showNoCoverage === true) {
+      whereClause.inssub = { is: null };
+    } else if (showNoCoverage === 'false' || showNoCoverage === false) {
+      whereClause.inssub = { isNot: null };
+    }
+
+    if (searchQuery) {
+      let searchOr: any[] = [
+        { patient: { is: { FName: { contains: searchQuery } } } },
+        { patient: { is: { LName: { contains: searchQuery } } } },
+        { inssub: { is: { insplan: { is: { GroupName: { contains: searchQuery } } } } } },
+        { inssub: { is: { insplan: { is: { carrier: { is: { CarrierName: { contains: searchQuery } } } } } } } }
+      ];
+      if (!isNaN(Number(searchQuery))) {
+        searchOr.push({ PatNum: BigInt(searchQuery) });
+      }
+      whereClause.AND.push({ OR: searchOr });
+    }
+
+    if (assignmentFilter === 'assignment') {
+      whereClause.inssub = { ...whereClause.inssub, is: { ...whereClause.inssub?.is, AssignBen: 1 } };
+    } else if (assignmentFilter === 'non-assignment') {
+      whereClause.AND.push({
+        OR: [
+          { inssub: { is: null } },
+          { inssub: { is: { AssignBen: { not: 1 } } } },
+          { inssub: { is: { AssignBen: null } } }
+        ]
+      });
+    }
+
+    if (whereClause.AND.length === 0) {
+      delete whereClause.AND;
+    }
+
+    let apptWhere: any = { AptStatus: { in: [1, 2] } };
+    let hasApptFilter = false;
+
+    if (apptFilterType === 'range') {
+      hasApptFilter = true;
+      apptWhere.AptDateTime = {};
+      if (apptStartDate) apptWhere.AptDateTime.gte = new Date(apptStartDate);
+      if (apptEndDate) {
+        const end = new Date(apptEndDate);
+        end.setHours(23, 59, 59, 999);
+        apptWhere.AptDateTime.lte = end;
+      }
+    } else if (apptFilterType === 'before' && apptSingleDate) {
+      hasApptFilter = true;
+      apptWhere.AptDateTime = { lt: new Date(apptSingleDate) };
+    } else if (apptFilterType === 'after' && apptSingleDate) {
+      hasApptFilter = true;
+      apptWhere.AptDateTime = { gt: new Date(apptSingleDate) };
+    }
+
+    if (hasApptFilter) {
+      whereClause.patient = {
+        ...whereClause.patient,
+        is: {
+          ...whereClause.patient?.is,
+          appointment: { some: apptWhere }
+        }
+      };
+    }
+
     const plans = await prisma.patplan.findMany({
+      where: whereClause,
       include: {
         patient: {
           include: {
@@ -1709,26 +1786,28 @@ export class ReportGenerationService {
           include: {
             insplan: {
               include: {
-                carrier: true
+                carrier: true,
+                feesched_insplan_FeeSchedTofeesched: true
               }
             }
           }
         }
-      },
-      take: 200
+      }
     });
 
     const report = plans.map(p => {
       const patientName = p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Patient';
       const email = p.patient?.Email || '';
       const planNameVal = p.inssub?.insplan?.GroupName
-        ? `${p.inssub.insplan.GroupName} (${p.inssub.insplan.PlanNum.toString()})`
+        ? `${p.inssub.insplan.GroupName} (${p.inssub.insplan.PlanNum?.toString() || ''})`
         : p.inssub?.insplan?.GroupNum
-          ? `${p.inssub.insplan.GroupNum} (${p.inssub.insplan.PlanNum.toString()})`
+          ? `${p.inssub.insplan.GroupNum} (${p.inssub.insplan.PlanNum?.toString() || ''})`
           : 'Standard Insurance';
       const payer = p.inssub?.insplan?.carrier?.CarrierName || 'Standard Insurance';
       const patientNum = p.PatNum ? p.PatNum.toString() : '';
       const lastAppt = (p.patient as any)?.appointment?.[0]?.AptDateTime;
+      const feeSchedDesc = p.inssub?.insplan?.feesched_insplan_FeeSchedTofeesched?.Description || '';
+      const isAssignment = p.inssub?.AssignBen === 1;
 
       return {
         number: patientNum,
@@ -1737,40 +1816,97 @@ export class ReportGenerationService {
         planName: planNameVal,
         payer,
         lastAppointment: lastAppt ? new Date(lastAppt).toLocaleDateString() : '',
-        feeSchedule: '',
+        feeSchedule: feeSchedDesc,
         planRenewalDate: 'January',
-        assignmentStatus: 'Assignment'
+        assignmentStatus: isAssignment ? 'Assignment' : 'Non-Assignment'
       };
     });
-
-    if (report.length === 0) {
-      return [];
-    }
 
     return report;
   }
 
-  private async getPatientMembershipPlan() {
+  private async getPatientMembershipPlan(query: any = {}) {
+    const { searchQuery, renewalMonth, apptFilterType, apptStartDate, apptEndDate, apptSingleDate, showNoPlan } = query;
     const months = ['January','February','March','April','May','June',
                     'July','August','September','October','November','December'];
 
+    let whereClause: any = { IsClosed: 0 };
+    whereClause.AND = [];
+
+    if (showNoPlan === 'true' || showNoPlan === true) {
+      whereClause.AND.push({
+        OR: [
+          { PlanCategory: null },
+          { PlanCategory: 0 }
+        ]
+      });
+    } else if (showNoPlan === 'false' || showNoPlan === false) {
+      whereClause.AND.push({ PlanCategory: { not: null } });
+      whereClause.AND.push({ PlanCategory: { not: 0 } });
+    }
+
+    if (searchQuery) {
+      let searchOr: any[] = [
+        { patient_payplan_PatNumTopatient: { is: { FName: { contains: searchQuery } } } },
+        { patient_payplan_PatNumTopatient: { is: { LName: { contains: searchQuery } } } },
+        { definition: { is: { ItemName: { contains: searchQuery } } } }
+      ];
+      if (!isNaN(Number(searchQuery))) {
+        searchOr.push({ PatNum: BigInt(searchQuery) });
+      }
+      whereClause.AND.push({ OR: searchOr });
+    }
+
+    let apptWhere: any = { AptStatus: { in: [1, 2] } };
+    let hasApptFilter = false;
+
+    if (apptFilterType === 'range') {
+      hasApptFilter = true;
+      apptWhere.AptDateTime = {};
+      if (apptStartDate) apptWhere.AptDateTime.gte = new Date(apptStartDate);
+      if (apptEndDate) {
+        const end = new Date(apptEndDate);
+        end.setHours(23, 59, 59, 999);
+        apptWhere.AptDateTime.lte = end;
+      }
+    } else if (apptFilterType === 'before' && apptSingleDate) {
+      hasApptFilter = true;
+      apptWhere.AptDateTime = { lt: new Date(apptSingleDate) };
+    } else if (apptFilterType === 'after' && apptSingleDate) {
+      hasApptFilter = true;
+      apptWhere.AptDateTime = { gt: new Date(apptSingleDate) };
+    }
+
+    if (hasApptFilter) {
+      whereClause.patient_payplan_PatNumTopatient = {
+        is: {
+          ...whereClause.patient_payplan_PatNumTopatient?.is,
+          appointment: { some: apptWhere }
+        }
+      };
+    }
+
+    if (whereClause.AND.length === 0) {
+      delete whereClause.AND;
+    }
+
     const plans = await prisma.payplan.findMany({
-      where: { IsClosed: 0 },
+      where: whereClause,
       include: {
         patient_payplan_PatNumTopatient: {
           include: {
             appointment: { orderBy: { AptDateTime: 'desc' as const }, take: 1 }
           }
-        }
-      },
-      take: 200
+        },
+        definition: true
+      }
     });
 
     if (plans.length === 0) {
       return [];
     }
 
-    return plans.map(p => {
+    let report = plans.map(p => {
       const pat = p.patient_payplan_PatNumTopatient;
       const lastAppt = pat?.appointment?.[0]?.AptDateTime;
       const renewalDate = p.PayPlanDate as Date | null;
@@ -1778,11 +1914,17 @@ export class ReportGenerationService {
         number: pat?.PatNum?.toString() || '',
         patient: pat ? `${pat.FName} ${pat.LName}` : 'Patient',
         email: pat?.Email || '',
-        planName: (p as any).PlanCategory?.toString() || 'Membership Plan',
+        planName: p.definition?.ItemName || 'Membership Plan',
         lastAppointment: lastAppt ? new Date(lastAppt).toLocaleDateString() : '',
         renewalMonth: renewalDate ? months[new Date(renewalDate).getMonth()] : ''
       };
     });
+
+    if (renewalMonth) {
+      report = report.filter(r => r.renewalMonth === renewalMonth);
+    }
+
+    return report;
   }
 
   private async getReferralByPatient(start?: Date, end?: Date) {
@@ -1800,8 +1942,7 @@ export class ReportGenerationService {
       include: {
         patient: true, // The referred patient
         referral: true // The referral source
-      },
-      take: 50 // Increase limit as needed
+      }
     });
 
     return refAttaches.map((r) => ({
@@ -1825,8 +1966,7 @@ export class ReportGenerationService {
   private async getOnlineSchedulingReferral(start: Date, end: Date) {
     const refAttaches = await prisma.refattach.findMany({
       where: { RefDate: { gte: start, lte: end } },
-      include: { referral: true },
-      take: 500
+      include: { referral: true }
     });
 
     const groups = new Map<string, number>();
@@ -1877,7 +2017,6 @@ export class ReportGenerationService {
 
     const patients = await prisma.patient.findMany({
       where,
-      take: 200,
       select: {
         PatNum: true,
         FName: true,
@@ -1930,12 +2069,18 @@ export class ReportGenerationService {
     return results;
   }
 
-  private async getCancelledOrNoShowAppointments(start: Date, end: Date, isNoShow = false) {
+  private async getCancelledOrNoShowAppointments(start: Date, end: Date, isNoShow = false, showInactive = false) {
+    const whereClause: any = {
+      AptDateTime: { gte: start, lte: end },
+      AptStatus: isNoShow ? 3 : 4
+    };
+
+    if (!showInactive) {
+      whereClause.patient = { PatStatus: 0 };
+    }
+
     const appointments = await prisma.appointment.findMany({
-      where: {
-        AptDateTime: { gte: start, lte: end },
-        AptStatus: isNoShow ? 3 : 4
-      },
+      where: whereClause,
       include: {
         patient: true,
         provider_appointment_ProvNumToprovider: true,
@@ -1943,8 +2088,7 @@ export class ReportGenerationService {
           where: { ProcStatus: { in: [1, 2] } },
           include: { procedurecode_procedurelog_CodeNumToprocedurecode: true }
         }
-      },
-      take: 100
+      }
     });
 
     // Get next appointments for these patients
@@ -1995,7 +2139,12 @@ export class ReportGenerationService {
   }
 
   private async getAppointmentsReport(start: Date, end: Date, query?: any) {
-    const where: any = { AptDateTime: { gte: start, lte: end } };
+    const where: any = {};
+    if (query?.dateType === 'created') {
+      where.SecDateTEntry = { gte: start, lte: end };
+    } else {
+      where.AptDateTime = { gte: start, lte: end };
+    }
 
     if (query?.provider && query.provider !== 'all') {
       const provNum = Number(query.provider);
@@ -2003,9 +2152,16 @@ export class ReportGenerationService {
     }
     if (query?.status && query.status !== 'all') {
       const statusMap: Record<string, number> = {
-        complete: 2, cancelled: 5, scheduled: 1, broken: 3
+        scheduled: 1, complete: 2, broken: 3, cancelled: 4
       };
       if (statusMap[query.status]) where.AptStatus = statusMap[query.status];
+    }
+    if (query?.locationType === 'online') {
+      // Mock filter for online location (e.g. specific clinic num if applicable)
+      where.ClinicNum = { gt: 0 }; 
+    }
+    if (query?.includeShortlisted === 'true' || query?.includeShortlisted === true) {
+      where.UnschedStatus = { not: null };
     }
 
     const appointments = await prisma.appointment.findMany({
@@ -2047,7 +2203,7 @@ export class ReportGenerationService {
       4: 'Cancelled', 5: 'Cancelled Short Notice', 6: 'Unconfirmed'
     };
 
-    return appointments.map(a => {
+    let mappedAppointments = appointments.map(a => {
       const apptDate = a.AptDateTime ? new Date(a.AptDateTime) : null;
       const patKey = a.PatNum?.toString() || '';
       const flags = (meta as any)[patKey]?.patientFlags || [];
@@ -2072,6 +2228,14 @@ export class ReportGenerationService {
         nextAptDate: nextApptMap.get(patKey) || ''
       };
     });
+
+    if (query?.flagFilter === 'withFlags') {
+      mappedAppointments = mappedAppointments.filter(a => a.flags.length > 0);
+    } else if (query?.flagFilter === 'withoutFlags') {
+      mappedAppointments = mappedAppointments.filter(a => a.flags.length === 0);
+    }
+
+    return mappedAppointments;
   }
 
   private async getDuplicatePatients() {
@@ -2154,14 +2318,27 @@ export class ReportGenerationService {
     const filtered = patients.filter(p => p.appointment.length > 0);
 
     let results = filtered;
-    if (query?.startDate || query?.endDate) {
+    if (query?.startDate || query?.endDate || (query?.provider && query.provider !== 'all') || (query?.appointmentStatus && query.appointmentStatus !== 'all')) {
       const startFilter = query.startDate ? new Date(query.startDate) : null;
       const endFilter = query.endDate ? new Date(query.endDate) : null;
       results = filtered.filter(p => {
-        const d = p.appointment[0]?.AptDateTime;
-        if (!d) return false;
-        if (startFilter && d < startFilter) return false;
-        if (endFilter && d > endFilter) return false;
+        const appt = p.appointment[0];
+        if (!appt) return false;
+        
+        const d = appt.AptDateTime;
+        if (d) {
+          if (startFilter && d < startFilter) return false;
+          if (endFilter && d > endFilter) return false;
+        }
+
+        if (query?.provider && query.provider !== 'all') {
+          if (appt.ProvNum !== BigInt(query.provider)) return false;
+        }
+
+        if (query?.appointmentStatus && query.appointmentStatus !== 'all') {
+          if (appt.AptStatus !== Number(query.appointmentStatus)) return false;
+        }
+
         return true;
       });
     }
@@ -2194,14 +2371,18 @@ export class ReportGenerationService {
       4: 'Cancelled', 5: 'CancelledShortNotice', 6: 'Unconfirmed'
     };
 
-    return results.map(p => {
+    const meta = await getPatientsMeta(results.map(p => p.PatNum));
+
+    let mappedResults = results.map(p => {
       const appt = p.appointment[0];
       const prov = appt?.provider_appointment_ProvNumToprovider;
       const patKey = p.PatNum.toString();
+      const flags = (meta as any)[patKey]?.patientFlags || [];
 
       return {
         id: patKey,
         patient: `${p.FName} ${p.LName}`,
+        flags,
         status: p.PatStatus === 0 ? 'Active' : 'Inactive',
         apptDate: appt?.AptDateTime?.toLocaleDateString('en-US',
           { month: 'short', day: '2-digit', year: 'numeric' }) || '',
@@ -2217,6 +2398,14 @@ export class ReportGenerationService {
         review: 'No'
       };
     });
+
+    if (query?.flagsFilter === 'withFlags') {
+      mappedResults = mappedResults.filter(r => r.flags.length > 0);
+    } else if (query?.flagsFilter === 'withoutFlags') {
+      mappedResults = mappedResults.filter(r => r.flags.length === 0);
+    }
+
+    return mappedResults;
   }
 
   private async getReferralDocuments(query?: any) {
@@ -2248,8 +2437,36 @@ export class ReportGenerationService {
   }
 
   private async getLabCaseReport(start: Date, end: Date, query?: any) {
+    const where: any = {};
+
+    if (query?.dateFilterType === 'Lab Due Date') {
+      where.DateTimeDue = { gte: start, lte: end };
+    } else if (query?.dateFilterType === 'Shared Date') {
+      where.DateTimeSent = { gte: start, lte: end };
+    } else if (query?.dateFilterType === 'Appointment Date') {
+      where.appointment_labcase_AptNumToappointment = {
+        AptDateTime: { gte: start, lte: end }
+      };
+    } else {
+      where.DateTimeCreated = { gte: start, lte: end };
+    }
+
+    if (query?.status === 'qc') {
+      where.DateTimeRecd = { not: null };
+    } else if (query?.status === 'sent') {
+      where.DateTimeSent = { not: null };
+      where.DateTimeRecd = null;
+    } else if (query?.status === 'pending') {
+      where.DateTimeSent = null;
+      where.DateTimeRecd = null;
+    }
+
+    if (query?.includeInactive !== 'true' && query?.includeInactive !== true) {
+      where.patient = { PatStatus: 0 };
+    }
+
     const cases = await prisma.labcase.findMany({
-      where: { DateTimeCreated: { gte: start, lte: end } },
+      where,
       include: {
         patient: true,
         laboratory: true,
@@ -2325,33 +2542,73 @@ export class ReportGenerationService {
   }
 
   private async getPatientReviewsReport(start: Date, end: Date, query?: any) {
+    const where: any = { CommDateTime: { gte: start, lte: end } };
+
+    if (query?.status === 'pending') {
+      where.SentOrReceived = 1;
+    } else if (query?.status === 'completed') {
+      where.SentOrReceived = 2;
+    }
+
     const commlogs = await prisma.commlog.findMany({
-      where: { CommDateTime: { gte: start, lte: end } },
+      where,
       include: { patient: true },
       orderBy: { CommDateTime: 'desc' },
       take: 100
     });
 
-    const statusFilter = query?.status && query.status !== 'all' ? query.status : null;
-
     if (commlogs.length === 0) {
       return [];
     }
 
-    return commlogs.map(c => ({
-      patientName: c.patient ? `${c.patient.FName} ${c.patient.LName}` : 'Patient',
-      reviewStatus: statusFilter || 'Published',
-      date: c.CommDateTime ? new Date(c.CommDateTime).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : new Date().toLocaleDateString('en-US')
-    }));
+    return commlogs.map(c => {
+      let actualStatus = 'Published';
+      if (c.SentOrReceived === 1) actualStatus = 'Pending';
+      if (c.SentOrReceived === 2) actualStatus = 'Completed';
+
+      return {
+        patientName: c.patient ? `${c.patient.FName} ${c.patient.LName}` : 'Patient',
+        reviewStatus: actualStatus,
+        date: c.CommDateTime ? new Date(c.CommDateTime).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : new Date().toLocaleDateString('en-US')
+      };
+    });
   }
 
   private async getPatientNotificationsReport(start: Date, end: Date, query?: any) {
     const where: any = {};
-    const sentStart = query?.sentStart ? new Date(query.sentStart) : start;
-    const sentEnd = query?.sentEnd ? new Date(query.sentEnd) : end;
 
-    if (sentStart && sentEnd) {
-      where.CommDateTime = { gte: sentStart, lte: sentEnd };
+    if (query?.sentStart && query?.sentEnd) {
+      where.CommDateTime = { 
+        gte: new Date(query.sentStart), 
+        lte: new Date(query.sentEnd) 
+      };
+    } else if (start && end) {
+      where.CommDateTime = { gte: start, lte: end };
+    }
+
+    if (query?.plannedStart && query?.plannedEnd) {
+      where.DateTimeEnd = { 
+        gte: new Date(query.plannedStart), 
+        lte: new Date(query.plannedEnd) 
+      };
+    }
+
+    if (query?.status && query.status !== 'none') {
+      if (query.status === 'sent') where.SentOrReceived = 1;
+      else if (query.status === 'failed') where.SentOrReceived = 2;
+      else if (query.status === 'pending') where.SentOrReceived = { notIn: [1, 2] };
+    }
+
+    if (query?.notificationType === 'patient') {
+      where.PatNum = { not: null };
+    } else if (query?.notificationType === 'internal') {
+      where.PatNum = null;
+    }
+
+    if (query?.template && query.template !== 'none') {
+      if (query.template === 'welcome') where.definition = { ItemName: { contains: 'Welcome' } };
+      else if (query.template === 'save') where.definition = { ItemName: { contains: 'Save' } };
+      else if (query.template === 'custom') where.definition = { ItemName: { contains: 'Custom' } };
     }
 
     const commlogs = await prisma.commlog.findMany({
@@ -2372,12 +2629,14 @@ export class ReportGenerationService {
     return commlogs.map(c => {
       const cAny = c as any;
       const commDate = c.CommDateTime ? new Date(c.CommDateTime) : null;
+      const plannedDate = c.DateTimeEnd ? new Date(c.DateTimeEnd) : commDate;
+      
       return {
         sentToPatient: c.patient ? `${c.patient.FName} ${c.patient.LName}` : 'Patient',
         sentToUser: c.userod?.UserName || 'Staff User',
         template: c.definition?.ItemName || 'Standard Reminder',
-        status: cAny.SentStatus === 1 ? 'Sent' : cAny.SentStatus === 2 ? 'Failed' : 'Pending',
-        plannedOn: commDate ? commDate.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '',
+        status: c.SentOrReceived === 1 ? 'Sent' : c.SentOrReceived === 2 ? 'Failed' : 'Pending',
+        plannedOn: plannedDate ? plannedDate.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '',
         sentOn: commDate ? `${commDate.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })} ${commDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}` : '',
         info: c.Note || 'Notification delivered successfully',
         sentBy: c.userod?.UserName || 'System',
@@ -2465,7 +2724,66 @@ export class ReportGenerationService {
   }
 
   private async getPatientTrackers(start?: Date, end?: Date, query?: any) {
-    return [];
+    const where: any = { ObjectType: 1 };
+
+    if (start && end) {
+      where.DateTimeEntry = { gte: start, lte: end };
+    }
+
+    if (query?.patientSearch) {
+      where.patient = {
+        OR: [
+          { FName: { contains: query.patientSearch, mode: 'insensitive' } },
+          { LName: { contains: query.patientSearch, mode: 'insensitive' } }
+        ]
+      };
+    } else {
+      where.patient = { isNot: null };
+    }
+
+    if (query?.status && query.status !== 'all') {
+      if (query.status === 'completed') {
+        where.TaskStatus = 2;
+      } else if (query.status === 'ontrack') {
+        where.TaskStatus = { not: 2 };
+      }
+    }
+
+    if (query?.createdBy === 'admin') {
+      where.userod = { UserName: { equals: 'admin', mode: 'insensitive' } };
+    }
+
+    const tasks = await prisma.task.findMany({
+      where,
+      include: { patient: true, userod: true },
+      orderBy: { DateTimeEntry: 'desc' },
+      take: 100
+    });
+
+    if (tasks.length === 0) return [];
+
+    return tasks.map(t => {
+      const tStart = t.DateTimeEntry ? new Date(t.DateTimeEntry) : null;
+      const tEnd = t.DateTimeFinished ? new Date(t.DateTimeFinished) : null;
+      let duration = '--';
+      if (tStart && tEnd) {
+        const diffDays = Math.ceil(Math.abs(tEnd.getTime() - tStart.getTime()) / (1000 * 60 * 60 * 24));
+        duration = `${diffDays} days`;
+      }
+
+      return {
+        patient: t.patient ? `${t.patient.FName} ${t.patient.LName}` : 'Unknown',
+        trackerName: t.Descript?.split('\n')[0] || 'Patient Tracker',
+        startDate: tStart ? tStart.toLocaleDateString() : '',
+        endDate: tEnd ? tEnd.toLocaleDateString() : 'Active',
+        duration,
+        description: t.DescriptOverride || t.Descript || '',
+        status: t.TaskStatus === 2 ? 'Completed' : 'On Track',
+        createdBy: t.userod?.UserName || 'System',
+        completedBy: t.TaskStatus === 2 ? (t.userod?.UserName || 'System') : '--',
+        deletedBy: '--'
+      };
+    });
   }
 
   // ==========================================
