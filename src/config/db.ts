@@ -47,6 +47,9 @@ const getExtendedPrisma = () => {
             return base.$transaction(async (tx) => {
               await tx.$executeRawUnsafe(`SET LOCAL app.clinic_ids = '${clinicIdsLiteral}'`);
               return (tx as any)[model][operation](args);
+            }, {
+              maxWait: 10000,
+              timeout: 30000,
             });
           },
         },

@@ -34,6 +34,7 @@ type ClaimMeta = {
   invoiceId?: string;
   treatmentPlanId?: string;
   procedures?: any[];
+  selectedItems?: any[];
   insuranceCompanyId?: string;
   insuranceType?: string;
   status?: ClaimStatus;
@@ -134,9 +135,10 @@ const normalizeClaimStatus = (value?: string | null): ClaimStatus => {
 
 const claimStatusToCode = (status?: string | null): string => {
   switch (normalizeClaimStatus(status)) {
+    case 'readyForSubmission':
+      return 'W';
     case 'submitted':
     case 'inProcess':
-    case 'readyForSubmission':
     case 'manualClaim':
     case 'acceptedForProcessing':
       return 'S';
@@ -165,6 +167,8 @@ const claimStatusToCode = (status?: string | null): string => {
 
 const claimCodeToStatus = (code?: string | null): ClaimStatus => {
   switch ((code || '').toUpperCase()) {
+    case 'W':
+      return 'readyForSubmission';
     case 'S':
       return 'submitted';
     case 'P':
@@ -356,6 +360,7 @@ export class ClaimService {
       createdAt: row.SecDateEntry ?? row.DateService ?? null,
       updatedAt: row.SecDateTEdit ?? row.DateService ?? null,
       procedures: context.procedures ?? [],
+      selectedItems: meta.selectedItems || [],
       claimFormat: meta.claimFormat ?? (row.ClaimType === 'Manual' ? 'Paper' : 'E-claim'),
       isHidden: meta.isHidden ?? false,
       providerSignature: meta.providerSignature ?? null,
@@ -580,7 +585,7 @@ export class ClaimService {
     if (filters.tab) {
       const tab = filters.tab.toLowerCase();
       if (tab === 'unsent') {
-        where.ClaimStatus = { in: ['H', 'X', 'D'] };
+        where.ClaimStatus = { in: ['H', 'X', 'D', 'W'] };
       } else if (tab === 'errored') {
         where.ClaimStatus = { in: ['X', 'D'] };
       } else if (tab === 'rejected') {
@@ -673,7 +678,7 @@ export class ClaimService {
     if (filters.tab) {
       const tab = filters.tab.toLowerCase();
       if (tab === 'unsent') {
-        claims = claims.filter((claim) => ['draft', 'error', 'validationError', 'rejected', 'denied'].includes(claim.status));
+        claims = claims.filter((claim) => ['draft', 'error', 'validationError', 'rejected', 'denied', 'readyForSubmission'].includes(claim.status));
       } else if (tab === 'errored') {
         claims = claims.filter((claim) => ['rejected', 'denied', 'validationError', 'error'].includes(claim.status));
       } else if (tab === 'rejected') {
@@ -1598,11 +1603,11 @@ export class ClaimService {
         return;
       }
 
-      if (status === 'draft') {
+      if (['draft', 'error', 'validationError', 'rejected', 'denied', 'readyForSubmission'].includes(status)) {
         unsent++;
       }
 
-      if (status === 'rejected' || status === 'denied') {
+      if (['rejected', 'denied', 'validationError', 'error'].includes(status)) {
         errored++;
       }
 
@@ -1925,10 +1930,13 @@ export class ClaimService {
         id: row.DocNum.toString(),
         paymentRef: meta.paymentRef ?? '',
         date: meta.paymentDate ?? row.DateCreated?.toISOString().split('T')[0] ?? '',
+        paymentDate: meta.paymentDate ?? row.DateCreated?.toISOString().split('T')[0] ?? '',
         status: meta.status ?? 'COMPLETED',
         carrier: meta.carrierName ?? 'Unknown Carrier',
+        carrierId: meta.carrierId ?? '',
         patientsText: 'Multiple Patients',
         totalPayments: meta.checkAmount ?? 0,
+        checkAmount: meta.checkAmount ?? 0,
         claims: meta.allocations ?? [],
         eobs: row.FileName ? [{ id: row.DocNum.toString(), filename: row.Description || 'EOB.pdf', uploadDate: row.DateCreated?.toISOString().split('T')[0], size: '124 KB' }] : [],
       };

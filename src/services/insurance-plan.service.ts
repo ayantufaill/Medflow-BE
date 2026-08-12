@@ -14,6 +14,23 @@ type CoverageTemplateMeta = {
   createdAt: string;
 };
 
+const resolveValidFeeSchedNum = async (val: any): Promise<bigint | null> => {
+  if (val === undefined || val === null || val === '') return null;
+  const str = String(val).trim();
+  if (str === 'null' || str === 'undefined' || str === 'none' || str === 'None' || str === '0') return null;
+  let parsed: bigint;
+  try {
+    parsed = BigInt(str);
+  } catch (e) {
+    return null;
+  }
+  if (parsed === 0n) return null;
+  const exists = await prisma.feesched.findUnique({
+    where: { FeeSchedNum: parsed },
+  });
+  return exists ? parsed : null;
+};
+
 export class InsurancePlanService {
   private mapBenefit(benefit: any) {
     return {
@@ -171,6 +188,10 @@ export class InsurancePlanService {
     }
 
     const planNum = await getNextId('insplan', 'PlanNum');
+    const feeSched = await resolveValidFeeSchedNum(data.feeSched);
+    const allowedFeeSched = await resolveValidFeeSchedNum(data.allowedFeeSched);
+    const copayFeeSched = await resolveValidFeeSchedNum(data.copayFeeSched);
+
     await prisma.insplan.create({
       data: {
         PlanNum: planNum,
@@ -178,9 +199,9 @@ export class InsurancePlanService {
         GroupName: data.name,
         GroupNum: data.groupNumber ?? null,
         PlanNote: data.notes ?? null,
-        FeeSched: data.feeSched ? BigInt(data.feeSched) : null,
-        AllowedFeeSched: data.allowedFeeSched ? BigInt(data.allowedFeeSched) : null,
-        CopayFeeSched: data.copayFeeSched ? BigInt(data.copayFeeSched) : null,
+        FeeSched: feeSched,
+        AllowedFeeSched: allowedFeeSched,
+        CopayFeeSched: copayFeeSched,
         FilingCode: data.filingCode ? BigInt(data.filingCode) : null,
         FilingCodeSubtype: data.filingCodeSubtype ? BigInt(data.filingCodeSubtype) : null,
         PlanType: data.planType ?? null,
@@ -239,15 +260,19 @@ export class InsurancePlanService {
       throw new NotFoundError('Insurance plan not found');
     }
 
+    const feeSched = updates.feeSched !== undefined ? await resolveValidFeeSchedNum(updates.feeSched) : undefined;
+    const allowedFeeSched = updates.allowedFeeSched !== undefined ? await resolveValidFeeSchedNum(updates.allowedFeeSched) : undefined;
+    const copayFeeSched = updates.copayFeeSched !== undefined ? await resolveValidFeeSchedNum(updates.copayFeeSched) : undefined;
+
     await prisma.insplan.update({
       where: { PlanNum: BigInt(planId) },
       data: {
         GroupName: updates.name ?? undefined,
         GroupNum: updates.groupNumber ?? undefined,
         PlanNote: updates.notes ?? undefined,
-        FeeSched: updates.feeSched ? BigInt(updates.feeSched) : undefined,
-        AllowedFeeSched: updates.allowedFeeSched ? BigInt(updates.allowedFeeSched) : undefined,
-        CopayFeeSched: updates.copayFeeSched ? BigInt(updates.copayFeeSched) : undefined,
+        FeeSched: feeSched,
+        AllowedFeeSched: allowedFeeSched,
+        CopayFeeSched: copayFeeSched,
         FilingCode: updates.filingCode ? BigInt(updates.filingCode) : undefined,
         FilingCodeSubtype: updates.filingCodeSubtype ? BigInt(updates.filingCodeSubtype) : undefined,
         PlanType: updates.planType ?? undefined,

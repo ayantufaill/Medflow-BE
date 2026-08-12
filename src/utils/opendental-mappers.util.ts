@@ -392,19 +392,28 @@ export const mapAppointmentStatusToDb = (status?: string | null): number => {
 };
 
 export const mapInsuranceTypeToOrdinal = (value?: string | null): number => {
-  switch ((value || '').toLowerCase()) {
+  if (!value) return 1;
+  const lower = value.trim().toLowerCase();
+  switch (lower) {
     case 'primary':
       return 1;
     case 'secondary':
       return 2;
     case 'tertiary':
       return 3;
-    default:
+    default: {
+      const match = lower.match(/\d+/);
+      if (match) {
+        const parsed = parseInt(match[0], 10);
+        if (Number.isFinite(parsed) && parsed > 0) return parsed;
+      }
       return 1;
+    }
   }
 };
 
 export const mapOrdinalToInsuranceType = (value?: number | null): string => {
+  if (!value || value <= 0) return 'primary';
   switch (value) {
     case 1:
       return 'primary';
@@ -413,7 +422,7 @@ export const mapOrdinalToInsuranceType = (value?: number | null): string => {
     case 3:
       return 'tertiary';
     default:
-      return 'primary';
+      return `Coverage #${value}`;
   }
 };
 

@@ -56,23 +56,49 @@ export const createClaimFromInvoiceValidator: ValidationChain[] = [
   body('notes').optional().isString().isLength({ max: 2000 }).withMessage('notes must be less than 2000 characters'),
 ];
 
+const isStringOrIdObject = (value: unknown): boolean => {
+  if (typeof value === 'string') {
+    return true;
+  }
+  if (typeof value === 'object' && value !== null) {
+    const obj = value as Record<string, unknown>;
+    const id = obj._id ?? obj.id;
+    if (typeof id === 'string' || typeof id === 'number') {
+      return true;
+    }
+  }
+  return false;
+};
+
 export const updateClaimValidator: ValidationChain[] = [
-  body('claimFormat').optional().isString().withMessage('claimFormat must be a string'),
-  body('insuranceCompanyId').optional().isString().withMessage('insuranceCompanyId must be a string'),
-  body('invoiceId').optional().isString().withMessage('invoiceId must be a string'),
-  body('insuranceType').optional().isString().withMessage('insuranceType must be a string'),
+  body('claimFormat').optional({ nullable: true }).isString().withMessage('claimFormat must be a string'),
+  body('insuranceCompanyId')
+    .optional({ nullable: true })
+    .custom((value) => {
+      if (value === null) return true;
+      return isStringOrIdObject(value);
+    })
+    .withMessage('insuranceCompanyId must be a string or an object with an ID'),
+  body('invoiceId')
+    .optional({ nullable: true })
+    .custom((value) => {
+      if (value === null) return true;
+      return isStringOrIdObject(value);
+    })
+    .withMessage('invoiceId must be a string or an object with an ID'),
+  body('insuranceType').optional({ nullable: true }).isString().withMessage('insuranceType must be a string'),
   body('status').optional().isIn(claimStatusValues).withMessage('Invalid status value'),
   body('claimAmount').optional().isFloat({ min: 0 }).withMessage('claimAmount must be >= 0'),
   body('submittedAmount').optional().isFloat({ min: 0 }).withMessage('submittedAmount must be >= 0'),
   body('totalAmount').optional().isFloat({ min: 0 }).withMessage('totalAmount must be >= 0'),
   body('paidAmount').optional().isFloat({ min: 0 }).withMessage('paidAmount must be >= 0'),
   body('patientResponsibility').optional().isFloat({ min: 0 }).withMessage('patientResponsibility must be >= 0'),
-  body('policyNumber').optional().isString().withMessage('policyNumber must be a string'),
-  body('notes').optional().isString().isLength({ max: 2000 }).withMessage('notes must be less than 2000 characters'),
-  body('submissionDate').optional().isISO8601().withMessage('submissionDate must be a valid date'),
-  body('deniedDate').optional({ nullable: true }).isISO8601().withMessage('deniedDate must be a valid date'),
+  body('policyNumber').optional({ nullable: true }).isString().withMessage('policyNumber must be a string'),
+  body('notes').optional({ nullable: true }).isString().isLength({ max: 2000 }).withMessage('notes must be less than 2000 characters'),
+  body('submissionDate').optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage('submissionDate must be a valid date'),
+  body('deniedDate').optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage('deniedDate must be a valid date'),
   body('denialReason').optional({ nullable: true }).isString().withMessage('denialReason must be a string'),
-  body('paidDate').optional().isISO8601().withMessage('paidDate must be a valid date'),
+  body('paidDate').optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage('paidDate must be a valid date'),
 ];
 
 export const resubmitClaimValidator: ValidationChain[] = [

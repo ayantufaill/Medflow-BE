@@ -312,6 +312,8 @@ export class UserService {
       email: string;
       firstName: string;
       lastName: string;
+      password?: string;
+      isActive?: boolean;
       phone?: string;
       preferredLanguage?: string;
       roleIds?: string[];
@@ -325,8 +327,9 @@ export class UserService {
       throw new ConflictError('User with this email already exists');
     }
 
-    const tempPassword = crypto.randomBytes(32).toString('hex');
-    const passwordHash = await hashPassword(tempPassword);
+    const effectivePassword = data.password || crypto.randomBytes(32).toString('hex');
+    const passwordHash = await hashPassword(effectivePassword);
+    const isAccountActive = data.isActive ?? false;
 
     const nextId = await getNextId('userod', 'UserNum');
     const user = await prisma.userod.create({
@@ -334,7 +337,7 @@ export class UserService {
         UserNum: nextId,
         UserName: data.email.toLowerCase(),
         Password: passwordHash,
-        IsHidden: 1,
+        IsHidden: isAccountActive ? 0 : 1,
       },
     });
 
@@ -345,7 +348,7 @@ export class UserService {
       lastName: data.lastName,
       phone: data.phone ?? null,
       preferredLanguage: data.preferredLanguage || 'en',
-      isActive: false,
+      isActive: isAccountActive,
       tokenVersion: 0,
     });
 

@@ -124,7 +124,7 @@ export const updateInvoiceValidator: ValidationChain[] = [
 export const createInvoiceItemValidator: ValidationChain[] = [
   body('serviceId')
     .optional() // Optional - allows manual line items without a service
-    .isInt({ min: 1 })
+    .isString()
     .withMessage('Invalid service ID format'),
   body('quantity')
     .optional()
@@ -135,20 +135,19 @@ export const createInvoiceItemValidator: ValidationChain[] = [
     .isFloat({ min: 0 })
     .withMessage('Unit price must be a positive number'),
   body('description')
-    .notEmpty()
-    .withMessage('Description is required when no service ID is provided')
+    .optional()
     .isString()
     .withMessage('Description must be a string'),
   body('cptCode')
     .optional()
-    .isLength({ min: 4, max: 10 })
-    .withMessage('CPT code must be between 4 and 10 characters'),
+    .isLength({ min: 1, max: 20 })
+    .withMessage('CPT code format is invalid'),
 ];
 
 export const updateInvoiceItemValidator: ValidationChain[] = [
   body('serviceId')
     .optional()
-    .isInt({ min: 1 })
+    .isString()
     .withMessage('Invalid service ID format'),
   body('quantity')
     .optional()
