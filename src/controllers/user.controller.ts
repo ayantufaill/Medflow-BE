@@ -357,7 +357,7 @@ export class UserController {
 
   async createUser(req: Request, res: Response, next: NextFunction) {
     try {
-      const { email, firstName, lastName, phone, preferredLanguage, roleIds, roleId } = req.body;
+      const { email, firstName, lastName, password, isActive, phone, preferredLanguage, roleIds, roleId } = req.body;
 
       if (!req.userId) {
         return res.status(401).json({
@@ -370,6 +370,8 @@ export class UserController {
         email: string;
         firstName: string;
         lastName: string;
+        password?: string;
+        isActive?: boolean;
         phone?: string;
         preferredLanguage?: string;
         roleIds?: string[];
@@ -379,6 +381,8 @@ export class UserController {
         lastName,
       };
       
+      if (password) userData.password = password;
+      if (typeof isActive === 'boolean') userData.isActive = isActive;
       if (phone) userData.phone = phone;
       if (preferredLanguage) userData.preferredLanguage = preferredLanguage;
       const normalizedRoleIds: string[] = [];

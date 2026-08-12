@@ -85,13 +85,17 @@ describe('Reports Section APIs', () => {
       }
     });
 
-    it('gets recare report', async () => {
+    it('gets recare report with date range filters', async () => {
       const res = await request(app)
-        .get('/api/reports/clinical/recare')
+        .get('/api/reports/clinical/recare?startDate=2026-01-01&endDate=2026-12-31')
         .set(authHeader);
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(Array.isArray(res.body.data)).toBe(true);
+      if (res.body.data.length > 0) {
+        expect(res.body.data[0].dentistId).toBeDefined();
+        expect(res.body.data[0].hygienistId).toBeDefined();
+      }
     });
   });
 

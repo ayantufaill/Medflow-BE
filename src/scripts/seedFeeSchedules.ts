@@ -2,9 +2,14 @@ import { prisma } from '../config/db';
 import { getNextId } from '../utils/opendental-ids.util';
 
 const feeSchedules = [
-  { name: 'Standard UCR Fee Schedule', type: 0 }, // 0 = Normal
-  { name: 'Delta Dental PPO', type: 1 },         // 1 = Copay/PPO
-  { name: 'Medicaid State', type: 2 }            // 2 = Allowed
+  { name: 'Standard UCR Fee Schedule', type: 0 },
+  { name: 'Delta Dental PPO Fee Guide', type: 1 },
+  { name: 'Cigna Dental Preferred Fee Schedule', type: 1 },
+  { name: 'MetLife PDP Plus Fee Guide', type: 1 },
+  { name: 'Aetna Dental PPO Schedule', type: 1 },
+  { name: 'Guardian Dental Choice Fee Guide', type: 1 },
+  { name: 'Humana Dental PPO Schedule', type: 1 },
+  { name: 'Medicaid State Fee Guide', type: 2 }
 ];
 
 const sampleCodesAndFees = [
@@ -47,8 +52,17 @@ const seedFeeSchedules = async () => {
         schedulesCreated++;
         console.log(`Created Fee Schedule: ${fs.name}`);
       } else {
-        console.log(`Fee Schedule already exists: ${fs.name}`);
+        await prisma.feesched.update({
+          where: { FeeSchedNum: feeSchedRecord.FeeSchedNum },
+          data: { IsHidden: 0 }
+        });
+        console.log(`Updated Fee Schedule to visible: ${fs.name}`);
       }
+
+      await prisma.feesched.updateMany({
+        where: { IsHidden: 1 },
+        data: { IsHidden: 0 }
+      });
 
       // Now add fees for this schedule if it doesn't already have them
       for (const item of sampleCodesAndFees) {

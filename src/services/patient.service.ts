@@ -241,12 +241,20 @@ export class PatientService {
               }
             }
           },
-          appointment: true,
+          appointment: {
+            select: {
+              AptDateTime: true,
+              AptStatus: true,
+            },
+          },
           procedurelog: {
             where: {
-              ProcStatus: { in: [1, 2] }
-            }
-          }
+              ProcStatus: { in: [1, 2] },
+            },
+            select: {
+              ProcStatus: true,
+            },
+          },
         },
       }),
       prisma.patient.count({ where }),

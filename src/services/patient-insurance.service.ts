@@ -22,6 +22,23 @@ const safeBigInt = (val: any): bigint => {
   }
 };
 
+const resolveValidFeeSchedNum = async (val: any): Promise<bigint | null> => {
+  if (val === undefined || val === null || val === '') return null;
+  const str = String(val).trim();
+  if (str === 'null' || str === 'undefined' || str === 'none' || str === 'None' || str === '0') return null;
+  let parsed: bigint;
+  try {
+    parsed = BigInt(str);
+  } catch (e) {
+    return null;
+  }
+  if (parsed === 0n) return null;
+  const exists = await prisma.feesched.findUnique({
+    where: { FeeSchedNum: parsed },
+  });
+  return exists ? parsed : null;
+};
+
 export class PatientInsuranceService {
   /**
    * Get all insurances for a patient
@@ -431,38 +448,13 @@ export class PatientInsuranceService {
       throw new NotFoundError('Insurance company not found');
     }
 
-    // Check if patient already has all three insurance types active
+    // Calculate maxOrdinal for existing active plans and assign next available ordinal
     const activePatPlans = await prisma.patplan.findMany({
       where: { PatNum: BigInt(patientId), IsPending: 0 },
+      select: { Ordinal: true },
     });
-
-    const activeTypes = activePatPlans.map((plan) =>
-      mapOrdinalToInsuranceType(plan.Ordinal || 1)
-    );
-    const allTypesPresent =
-      activeTypes.includes('primary') &&
-      activeTypes.includes('secondary') &&
-      activeTypes.includes('tertiary');
-
-    // Check if patient already has this specific insurance type active
-    const existingInsuranceOfSameType = activePatPlans.find(
-      (plan) => mapOrdinalToInsuranceType(plan.Ordinal || 1) === data.insuranceType.toLowerCase()
-    );
-
-    if (allTypesPresent && !existingInsuranceOfSameType) {
-      throw new ConflictError(
-        'Patient already has all three insurance types (Primary, Secondary, and Tertiary). ' +
-        'Please deactivate an existing insurance before adding a new one, or update an existing insurance instead.'
-      );
-    }
-
-    if (existingInsuranceOfSameType) {
-      // Deactivate existing insurance of same type
-      await prisma.patplan.update({
-        where: { PatPlanNum: existingInsuranceOfSameType.PatPlanNum },
-        data: { IsPending: 1 },
-      });
-    }
+    const maxOrdinal = activePatPlans.reduce((max, plan) => Math.max(max, plan.Ordinal || 0), 0);
+    const nextOrdinal = maxOrdinal + 1;
 
     const patPlanNum = await getNextId('patplan', 'PatPlanNum');
 
@@ -527,7 +519,7 @@ export class PatientInsuranceService {
       data: {
         PatPlanNum: patPlanNum,
         PatNum: BigInt(patientId),
-        Ordinal: mapInsuranceTypeToOrdinal(data.insuranceType),
+        Ordinal: nextOrdinal,
         IsPending: 0,
         Relationship: mapRelationshipToDb(data.relationshipToPatient),
         InsSubNum: insSubNum,
@@ -660,23 +652,6 @@ export class PatientInsuranceService {
       }
     }
 
-    // If changing insurance type, check for conflicts
-    if (updates.insuranceType) {
-      const existingInsurance = await prisma.patplan.findFirst({
-        where: {
-          PatNum: patplan.PatNum ?? undefined,
-          Ordinal: mapInsuranceTypeToOrdinal(updates.insuranceType),
-          IsPending: 0,
-          PatPlanNum: { not: safeBigInt(patientInsuranceId) },
-        },
-      });
-
-      if (existingInsurance) {
-        throw new ConflictError(
-          `Patient already has an active ${updates.insuranceType} insurance`
-        );
-      }
-    }
 
     const oldValues = {
       policyNumber: patplan.inssub?.SubscriberID,
@@ -697,6 +672,11 @@ export class PatientInsuranceService {
       });
     }
     if (patplan.inssub?.insplan) {
+      let feeSchedVal: bigint | null | undefined = undefined;
+      if (updates.planFeeGuide !== undefined) {
+        feeSchedVal = await resolveValidFeeSchedNum(updates.planFeeGuide);
+      }
+
       await prisma.insplan.update({
         where: { PlanNum: patplan.inssub.insplan.PlanNum },
         data: {
@@ -704,7 +684,7 @@ export class PatientInsuranceService {
           GroupNum: updates.groupNumber ?? undefined,
           GroupName: updates.groupName ?? undefined,
           PlanNote: updates.notes ?? undefined,
-          FeeSched: updates.planFeeGuide !== undefined ? (updates.planFeeGuide ? safeBigInt(updates.planFeeGuide) : 0n) : undefined,
+          FeeSched: feeSchedVal,
         },
       });
     }
@@ -736,6 +716,10 @@ export class PatientInsuranceService {
             : undefined,
       },
     });
+
+    if (updates.isActive !== undefined) {
+      await this.resequenceActiveInsurances(patientId);
+    }
 
     await setPatientInsuranceMeta(patplan.PatPlanNum, {
       subscriberName: updates.subscriberName ?? currentMeta.subscriberName ?? null,
@@ -804,6 +788,9 @@ export class PatientInsuranceService {
     await prisma.patplan.delete({
       where: { PatPlanNum: BigInt(patientInsuranceId) },
     });
+
+    // Auto-resequence remaining active coverages
+    await this.resequenceActiveInsurances(patientId);
 
     // Log activity
     if (deletedBy) {
@@ -905,6 +892,35 @@ async setPrimaryInsurance(patientId: string, patientInsuranceId: string) {
     });
 
     return this.getPatientInsurances(patientId);
+  }
+
+  /**
+   * Recalculate ordinal sequence for active coverages to close any gaps (1, 2, 3...)
+   */
+  private async resequenceActiveInsurances(patientId: string) {
+    const activePlans = await prisma.patplan.findMany({
+      where: { PatNum: BigInt(patientId), IsPending: 0 },
+      orderBy: { Ordinal: 'asc' },
+    });
+
+    if (activePlans.length === 0) return;
+
+    await prisma.$transaction(async (tx) => {
+      // Step A: Shift to temporary high ordinals to prevent constraint conflicts
+      for (let i = 0; i < activePlans.length; i++) {
+        await tx.patplan.update({
+          where: { PatPlanNum: activePlans[i].PatPlanNum },
+          data: { Ordinal: 1000 + i },
+        });
+      }
+      // Step B: Set final sequential ordinals starting from 1
+      for (let i = 0; i < activePlans.length; i++) {
+        await tx.patplan.update({
+          where: { PatPlanNum: activePlans[i].PatPlanNum },
+          data: { Ordinal: i + 1 },
+        });
+      }
+    });
   }
 }
 
