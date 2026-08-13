@@ -97,6 +97,10 @@ export const createProviderValidator: ValidationChain[] = [
     .optional()
     .isBoolean()
     .withMessage('telehealthEnabled must be a boolean'),
+  body('color')
+    .optional()
+    .isString()
+    .withMessage('color must be a string'),
 ];
 
 export const updateProviderValidator: ValidationChain[] = [
@@ -185,6 +189,10 @@ export const updateProviderValidator: ValidationChain[] = [
     .optional()
     .isBoolean()
     .withMessage('isActive must be a boolean'),
+  body('color')
+    .optional()
+    .isString()
+    .withMessage('color must be a string'),
 ];
 
 export const providerQueryValidator: ValidationChain[] = [

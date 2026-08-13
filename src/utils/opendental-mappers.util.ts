@@ -314,6 +314,7 @@ export const mapProviderToApi = (
     consultationFee?: number | null;
     isAcceptingNewPatients?: boolean | null;
     telehealthEnabled?: boolean | null;
+    color?: string | null;
   }
 ) => ({
   _id: row.ProvNum.toString(),
@@ -322,6 +323,7 @@ export const mapProviderToApi = (
   licenseNumber: row.StateLicense ?? null,
   specialty: options?.specialtyName ? [options.specialtyName] : [],
   title: row.Suffix ?? null,
+  color: options?.color ?? null,
   userId: options?.user
     ? {
         _id: options.user._id,
