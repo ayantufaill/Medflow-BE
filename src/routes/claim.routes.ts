@@ -536,6 +536,16 @@ router.post(
   claimController.uploadEOB.bind(claimController)
 );
 
+router.delete(
+  '/batch-payment/:paymentId/eob/:eobId',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('claims.update'),
+  validate(paymentIdParamValidator),
+  claimController.deleteEOB.bind(claimController)
+);
+
 /**
  * @swagger
  * /claims/batch-invoices:

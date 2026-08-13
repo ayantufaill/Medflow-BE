@@ -86,6 +86,7 @@ export const createInvoiceFromAppointmentValidator: ValidationChain[] = [
 
 export const updateInvoiceValidator: ValidationChain[] = [
   body('dueDate').optional().isISO8601().withMessage('Due date must be a valid date'),
+  body('invoiceDate').optional().isISO8601().withMessage('Invoice date must be a valid date'),
   body('insuranceCompanyId')
     .optional()
     .isInt({ min: 1 })

@@ -435,6 +435,28 @@ export class ClaimController {
     }
   }
 
+  async deleteEOB(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const paymentId = req.params.paymentId as string;
+      const eobId = req.params.eobId as string;
+
+      const result = await claimService.deleteEOB(paymentId, eobId);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getDenticalReports(req: Request, res: Response, next: NextFunction) {
     try {
       const reports = await claimService.getDenticalReports();

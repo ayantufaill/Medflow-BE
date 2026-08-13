@@ -1926,6 +1926,17 @@ export class ClaimService {
 
     let payments = rows.map((row) => {
       const meta = parseJson<any>(row.Note);
+      const eobs = Array.isArray(meta.eobs) && meta.eobs.length > 0
+        ? meta.eobs.map((eob: any, idx: number) => ({
+            id: eob.id || `eob-${row.DocNum.toString()}-${idx}`,
+            filename: eob.filename || eob.fileName || 'EOB.pdf',
+            storagePath: eob.storagePath || '',
+            uploadDate: eob.uploadedAt ? new Date(eob.uploadedAt).toISOString().split('T')[0] : (eob.uploadDate || row.DateCreated?.toISOString().split('T')[0] || ''),
+            uploadedAt: eob.uploadedAt || row.DateCreated?.toISOString() || '',
+            size: eob.size || '124 KB',
+          }))
+        : (row.FileName ? [{ id: row.DocNum.toString(), filename: row.Description || 'EOB.pdf', uploadDate: row.DateCreated?.toISOString().split('T')[0], size: '124 KB' }] : []);
+
       return {
         id: row.DocNum.toString(),
         paymentRef: meta.paymentRef ?? '',
@@ -1938,7 +1949,7 @@ export class ClaimService {
         totalPayments: meta.checkAmount ?? 0,
         checkAmount: meta.checkAmount ?? 0,
         claims: meta.allocations ?? [],
-        eobs: row.FileName ? [{ id: row.DocNum.toString(), filename: row.Description || 'EOB.pdf', uploadDate: row.DateCreated?.toISOString().split('T')[0], size: '124 KB' }] : [],
+        eobs,
       };
     });
 
@@ -1969,12 +1980,16 @@ export class ClaimService {
     const storagePath = await uploadToS3(file, 'claim-documents');
     const meta = parseJson<any>(doc.Note);
     meta.eobs = meta.eobs || [];
-    meta.eobs.push({
-      id: doc.DocNum.toString(),
+    
+    const newEob = {
+      id: `eob-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       filename: file.originalname,
       storagePath,
       uploadedAt: new Date().toISOString(),
-    });
+      size: `${Math.round(file.size / 1024)} KB`,
+    };
+    
+    meta.eobs.push(newEob);
 
     await prisma.document.update({
       where: { DocNum: doc.DocNum },
@@ -1985,7 +2000,31 @@ export class ClaimService {
       },
     });
 
-    return { message: 'EOB uploaded successfully', storagePath };
+    return { message: 'EOB uploaded successfully', storagePath, eob: newEob, eobs: meta.eobs };
+  }
+
+  async deleteEOB(paymentId: string, eobId: string) {
+    const doc = await prisma.document.findUnique({
+      where: { DocNum: BigInt(paymentId) },
+    });
+
+    if (!doc) {
+      throw new NotFoundError('Batch payment not found');
+    }
+
+    const meta = parseJson<any>(doc.Note);
+    if (Array.isArray(meta.eobs)) {
+      meta.eobs = meta.eobs.filter((e: any) => e.id !== eobId);
+    }
+
+    await prisma.document.update({
+      where: { DocNum: doc.DocNum },
+      data: {
+        Note: JSON.stringify(meta),
+      },
+    });
+
+    return { message: 'EOB deleted successfully', eobs: meta.eobs || [] };
   }
 
   async getDenticalReports() {
