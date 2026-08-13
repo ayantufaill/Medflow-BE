@@ -55,12 +55,12 @@ export class CoverageGroupService {
   async getCoverageGroups(filters?: { patientId?: string; planId?: string }) {
     const entries = await getCommlogJsonEntries<CoverageGroupMeta>({
       patientId: filters?.patientId,
-      contains: '"type":"coverage_group"',
+      contains: 'coverage_group',
     });
 
     return entries
       .map(({ meta }) => meta)
-      .filter((meta) => meta.type === 'coverage_group')
+      .filter((meta) => meta && (meta.type === 'coverage_group' || meta.groupId))
       .filter((meta) => (filters?.planId ? meta.planId === filters.planId : true));
   }
 
