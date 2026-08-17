@@ -137,6 +137,7 @@ export class PatientInsuranceService {
         // Family Coverage Fields
         isFamilyPlan,
         members,
+        patientsCovered: Math.max(members.length, 1),
 
         // Advanced Dentistry Fields
         deductiblesGrid: meta?.deductiblesGrid ?? [],
@@ -365,6 +366,7 @@ export class PatientInsuranceService {
       // Family Coverage Fields
       isFamilyPlan,
       members,
+      patientsCovered: Math.max(members.length, 1),
 
       // Advanced Dentistry Fields
       deductiblesGrid: insuranceMeta.deductiblesGrid ?? [],

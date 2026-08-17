@@ -54,6 +54,7 @@ type ClaimMeta = {
   isHidden?: boolean;
   providerSignature?: string;
   patientSignature?: string;
+  eobs?: { id: string; filename: string; storagePath: string; uploadedAt: string; size: string; url?: string }[];
 };
 
 type ClaimFilters = {
@@ -365,6 +366,7 @@ export class ClaimService {
       isHidden: meta.isHidden ?? false,
       providerSignature: meta.providerSignature ?? null,
       patientSignature: meta.patientSignature ?? null,
+      eobs: meta.eobs || [],
     };
   }
 
@@ -2021,6 +2023,63 @@ export class ClaimService {
       where: { DocNum: doc.DocNum },
       data: {
         Note: JSON.stringify(meta),
+      },
+    });
+
+    return { message: 'EOB deleted successfully', eobs: meta.eobs || [] };
+  }
+
+  async uploadClaimEOB(claimId: string, file: Express.Multer.File, description?: string, userId?: string) {
+    const claim = await prisma.claim.findUnique({
+      where: { ClaimNum: BigInt(claimId) },
+    });
+
+    if (!claim) {
+      throw new NotFoundError('Claim not found');
+    }
+
+    const storagePath = await uploadToS3(file, 'claim-documents');
+    const meta = parseJson<ClaimMeta>(claim.Narrative);
+    meta.eobs = meta.eobs || [];
+
+    const newEob = {
+      id: `eob-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      filename: file.originalname,
+      storagePath,
+      uploadedAt: new Date().toISOString(),
+      size: `${Math.round(file.size / 1024)} KB`,
+    };
+
+    meta.eobs.push(newEob);
+
+    await prisma.claim.update({
+      where: { ClaimNum: claim.ClaimNum },
+      data: {
+        Narrative: JSON.stringify(meta),
+      },
+    });
+
+    return { message: 'EOB uploaded successfully', storagePath, eob: newEob, eobs: meta.eobs };
+  }
+
+  async deleteClaimEOB(claimId: string, eobId: string) {
+    const claim = await prisma.claim.findUnique({
+      where: { ClaimNum: BigInt(claimId) },
+    });
+
+    if (!claim) {
+      throw new NotFoundError('Claim not found');
+    }
+
+    const meta = parseJson<ClaimMeta>(claim.Narrative);
+    if (Array.isArray(meta.eobs)) {
+      meta.eobs = meta.eobs.filter((e: any) => e.id !== eobId);
+    }
+
+    await prisma.claim.update({
+      where: { ClaimNum: claim.ClaimNum },
+      data: {
+        Narrative: JSON.stringify(meta),
       },
     });
 

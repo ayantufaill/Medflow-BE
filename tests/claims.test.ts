@@ -642,6 +642,74 @@ describe('Claims Procedures Fallback', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
+
+  it('supports uploading and deleting claim-level EOB documents', async () => {
+    const token = uniqueToken('claim-eob');
+    const patient = await createPatientRecord(token);
+    const claimNum = BigInt(Date.now());
+
+    // Create a claim directly
+    await prisma.claim.create({
+      data: {
+        ClaimNum: claimNum,
+        PatNum: patient.PatNum,
+        ClaimFee: 200,
+        ClaimType: 'Manual',
+        ClaimStatus: 'W',
+        DateService: new Date(),
+        Narrative: JSON.stringify({ note: 'EOB test claim' }),
+      },
+    });
+
+    // 1. Upload EOB PDF
+    const uploadRes = await request(app)
+      .post(`/api/claims/${claimNum}/eob`)
+      .set(authHeader)
+      .attach('file', Buffer.from('dummy pdf content'), 'sample_eob.pdf');
+
+    expect(uploadRes.status).toBe(200);
+    expect(uploadRes.body?.success).toBe(true);
+    expect(uploadRes.body?.data?.eob).toBeDefined();
+    expect(uploadRes.body?.data?.eob?.filename).toBe('sample_eob.pdf');
+    expect(uploadRes.body?.data?.eobs?.length).toBe(1);
+
+    const uploadedEobId = uploadRes.body.data.eob.id;
+
+    // 2. Fetch claim by ID and verify eobs array
+    const getRes = await request(app)
+      .get(`/api/claims/${claimNum}`)
+      .set(authHeader);
+
+    expect(getRes.status).toBe(200);
+    const claimData = getRes.body?.data?.claim;
+    expect(claimData?.eobs).toBeDefined();
+    expect(claimData.eobs.length).toBe(1);
+    expect(claimData.eobs[0].id).toBe(uploadedEobId);
+    expect(claimData.eobs[0].filename).toBe('sample_eob.pdf');
+
+    // 3. Delete EOB
+    const deleteRes = await request(app)
+      .delete(`/api/claims/${claimNum}/eob/${uploadedEobId}`)
+      .set(authHeader);
+
+    expect(deleteRes.status).toBe(200);
+    expect(deleteRes.body?.success).toBe(true);
+    expect(deleteRes.body?.data?.eobs?.length).toBe(0);
+
+    // 4. Verify claim EOBs list is empty after deletion
+    const getAfterDeleteRes = await request(app)
+      .get(`/api/claims/${claimNum}`)
+      .set(authHeader);
+
+    expect(getAfterDeleteRes.status).toBe(200);
+    expect(getAfterDeleteRes.body?.data?.claim?.eobs?.length).toBe(0);
+
+    // Clean up
+    await prisma.claim.delete({ where: { ClaimNum: claimNum } });
+    await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
+    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+  });
 });
+
 
 
