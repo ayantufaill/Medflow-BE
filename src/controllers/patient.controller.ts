@@ -755,6 +755,25 @@ export class PatientController {
       next(error);
     }
   }
+
+  async getUnbilledProducts(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Patient ID is required' },
+        });
+      }
+      const products = await patientService.getUnbilledProducts(patientId);
+      res.status(200).json({
+        success: true,
+        data: { products },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const patientController = new PatientController();
