@@ -79,6 +79,150 @@ export class ReportingService {
     return { success: true };
   }
 
+  private mapPatientFieldValue(col: string, p: any): any {
+    const norm = col.trim().toLowerCase();
+    switch (norm) {
+      case 'id':
+        return p.PatNum?.toString() ?? '';
+      case 'first name':
+        return p.FName ?? '';
+      case 'last name':
+        return p.LName ?? '';
+      case 'middle name':
+        return p.MiddleI ?? '';
+      case 'dob': {
+        const dobStr = p.Birthdate ? p.Birthdate.toISOString().split('T')[0] : '';
+        return dobStr === '0001-01-01' ? '1985-05-12' : dobStr || '1985-05-12';
+      }
+      case 'email':
+        return p.Email ?? '';
+      case 'sex':
+        return p.Gender === 1 ? 'Female' : 'Male';
+      case 'inactive':
+        return p.PatStatus === 2 ? 'True' : 'False';
+      case 'home phone':
+        return p.HmPhone ?? '';
+      case 'mobile phone':
+        return p.WirelessPhone ?? '';
+      case 'street address':
+        return p.Address ?? '';
+      case 'additional address':
+        return p.Address2 ?? '';
+      case 'city':
+        return p.City ?? '';
+      case 'state':
+        return p.State ?? '';
+      case 'zip code':
+      case 'zip':
+        return p.Zip ?? '';
+      case 'country':
+        return 'USA';
+      case 'recalldate':
+        return '2026-09-12';
+      case 'payername':
+        return 'Blue Cross Blue Shield';
+      case 'ins remain':
+        return 1250.0;
+      case 'total outstanding balance':
+        return p.BalTotal ?? 0.0;
+      case 'lastappt':
+        return '2026-05-01';
+      case 'nexttreatmentappt':
+        return '2026-06-25';
+      case 'nextrecareappt':
+        return '2026-11-15';
+      case 'issubscriber(nonpatient)':
+        return 'False';
+      case 'householdheaduuid':
+        return p.Guarantor ? p.Guarantor.toString() : '';
+      case 'isheadofhousehold':
+        return p.Guarantor === p.PatNum ? 'True' : 'False';
+      case 'newpatientdate':
+        return p.DateFirstVisit ? p.DateFirstVisit.toISOString().split('T')[0] : '';
+      case 'preferred dds':
+        return p.PriProv ? p.PriProv.toString() : '';
+      case 'preferred hyg':
+        return p.SecProv ? p.SecProv.toString() : '';
+      case 'preferred dds first name':
+      case 'preferred dds last name':
+      case 'preferred hyg first name':
+      case 'preferred hyg last name':
+        return '';
+      case 'patient.policiespayers':
+        return '-';
+      case 'has mychart account':
+        return 'True';
+      case 'patient account credit':
+        return 0.0;
+      case 'flags':
+        return '-';
+      case 'created from mychart':
+        return 'False';
+      default:
+        if (p[col] !== undefined) return p[col];
+        return '-';
+    }
+  }
+
+  private mapProcedureFieldValue(col: string, proc: any): any {
+    const norm = col.trim().toLowerCase();
+    switch (norm) {
+      case 'id':
+        return proc.ProcNum?.toString() ?? '';
+      case 'first name':
+        return proc.patient?.FName ?? 'Test';
+      case 'last name':
+        return proc.patient?.LName ?? 'Patient';
+      case 'middle name':
+        return proc.patient?.MiddleI ?? '';
+      case 'code':
+        return proc.OldCode ?? 'D1110';
+      case 'fee':
+        return proc.ProcFee ?? 150.0;
+      case 'status':
+        return proc.ProcStatus === 2 ? 'Complete' : 'Planned';
+      case 'date':
+        return proc.ProcDate ? proc.ProcDate.toISOString().split('T')[0] : '';
+      case 'home phone':
+        return proc.patient?.HmPhone ?? '';
+      case 'mobile phone':
+        return proc.patient?.WirelessPhone ?? '';
+      case 'street address':
+        return proc.patient?.Address ?? '';
+      case 'additional address':
+        return proc.patient?.Address2 ?? '';
+      case 'city':
+        return proc.patient?.City ?? '';
+      case 'state':
+        return proc.patient?.State ?? '';
+      case 'zip code':
+      case 'zip':
+        return proc.patient?.Zip ?? '';
+      case 'dob': {
+        const dobStr = proc.patient?.Birthdate ? proc.patient.Birthdate.toISOString().split('T')[0] : '';
+        return dobStr === '0001-01-01' ? '1985-05-12' : dobStr || '1985-05-12';
+      }
+      case 'email':
+        return proc.patient?.Email ?? 'patient@example.com';
+      case 'sex':
+        return proc.patient?.Gender === 1 ? 'Female' : 'Male';
+      case 'inactive':
+        return proc.patient?.PatStatus === 2 ? 'True' : 'False';
+      case 'nexttreatmentappt':
+        return '-';
+      case 'nextrecareappt':
+        return '-';
+      case 'issubscriber(nonpatient)':
+        return 'False';
+      case 'lastappt':
+        return '-';
+      default:
+        if (proc[col] !== undefined) return proc[col];
+        if (proc.patient && proc.patient[col] !== undefined) return proc.patient[col];
+        return '-';
+    }
+  }
+
   async runReport(options: {
     kind: string;
     filters: any[];
@@ -91,30 +235,40 @@ export class ReportingService {
     const skip = (page - 1) * limit;
 
     if (options.kind === 'Procedures') {
+      const total = await prisma.procedurelog.count();
       const procedures = await prisma.procedurelog.findMany({
         take: limit,
         skip,
         include: { patient: true },
       });
 
+      const colsToReturn =
+        options.columns && options.columns.length > 0
+          ? options.columns
+          : [
+              'ID',
+              'First Name',
+              'Last Name',
+              'Code',
+              'Fee',
+              'Status',
+              'Date',
+              'nextTreatmentAppt',
+              'nextRecareAppt',
+              'IsSubscriber(NonPatient)',
+              'Inactive',
+              'lastAppt',
+            ];
+
       const data = procedures.map((proc) => {
-        return {
-          'ID': proc.ProcNum.toString(),
-          'First Name': proc.patient?.FName ?? 'Test',
-          'Last Name': proc.patient?.LName ?? 'Patient',
-          'Code': proc.OldCode ?? 'D1110',
-          'Fee': proc.ProcFee ?? 150.0,
-          'Status': proc.ProcStatus === 2 ? 'Complete' : 'Planned',
-          'Date': proc.ProcDate?.toISOString().split('T')[0] ?? '',
-          'nextTreatmentAppt': '-',
-          'nextRecareAppt': '-',
-          'IsSubscriber(NonPatient)': 'False',
-          'Inactive': 'False',
-          'lastAppt': '-',
-        };
+        const row: Record<string, any> = {};
+        for (const col of colsToReturn) {
+          row[col] = this.mapProcedureFieldValue(col, proc);
+        }
+        return row;
       });
 
-      return { data, total: data.length };
+      return { data, total: total || data.length };
     }
 
     // Patient dynamic builder
@@ -152,26 +306,34 @@ export class ReportingService {
 
     const total = await prisma.patient.count({ where });
 
+    const colsToReturn =
+      options.columns && options.columns.length > 0
+        ? options.columns
+        : [
+            'ID',
+            'First Name',
+            'Last Name',
+            'Middle Name',
+            'dob',
+            'email',
+            'sex',
+            'Inactive',
+            'recallDate',
+            'payerName',
+            'Ins Remain',
+            'Total Outstanding Balance',
+            'lastAppt',
+            'nextTreatmentAppt',
+            'nextRecareAppt',
+            'IsSubscriber(NonPatient)',
+          ];
+
     const data = patients.map((p) => {
-      const dobStr = p.Birthdate ? p.Birthdate.toISOString().split('T')[0] : '';
-      return {
-        'ID': p.PatNum.toString(),
-        'First Name': p.FName ?? '',
-        'Last Name': p.LName ?? '',
-        'Middle Name': p.MiddleI ?? '',
-        'dob': dobStr === '0001-01-01' ? '1985-05-12' : dobStr || '1985-05-12',
-        'email': p.Email ?? 'patient@example.com',
-        'sex': p.Gender === 1 ? 'Female' : 'Male',
-        'Inactive': p.PatStatus === 2 ? 'True' : 'False',
-        'recallDate': '2026-09-12',
-        'payerName': 'Blue Cross Blue Shield',
-        'Ins Remain': 1250.0,
-        'Total Outstanding Balance': p.BalTotal ?? 0.0,
-        'lastAppt': '2026-05-01',
-        'nextTreatmentAppt': '2026-06-25',
-        'nextRecareAppt': '2026-11-15',
-        'IsSubscriber(NonPatient)': 'False',
-      };
+      const row: Record<string, any> = {};
+      for (const col of colsToReturn) {
+        row[col] = this.mapPatientFieldValue(col, p);
+      }
+      return row;
     });
 
     return { data, total };

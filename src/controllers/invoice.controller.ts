@@ -228,6 +228,11 @@ export class InvoiceController {
       } else {
         delete updates.dueDate;
       }
+      if (req.body.invoiceDate) {
+        updates.invoiceDate = new Date(req.body.invoiceDate);
+      } else {
+        delete updates.invoiceDate;
+      }
 
       const invoice = await invoiceService.updateInvoice(
         invoiceId,

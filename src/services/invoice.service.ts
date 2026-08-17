@@ -975,6 +975,7 @@ export class InvoiceService {
     invoiceId: string,
     updates: Partial<{
       dueDate: Date;
+      invoiceDate: Date;
       insuranceCompanyId: string;
       providerId: string;
       notes: string;
@@ -1013,6 +1014,7 @@ export class InvoiceService {
       data: {
         Note: updates.notes ?? undefined,
         DateRangeTo: updates.dueDate ?? undefined,
+        DateSent: updates.invoiceDate ?? undefined,
         StatementType: updates.status ?? undefined,
         NoteBold: buildJson(nextMeta),
       },
@@ -1059,11 +1061,16 @@ export class InvoiceService {
       const enrichedSimulatedItems = await this.calculateInsuranceEstimates(invoice.PatNum, simulatedItems);
       
       for (let i = 0; i < enrichedSimulatedItems.length; i++) {
-        insurancePortion += Number(enrichedSimulatedItems[i].insPortion || 0);
-        
         const originalItem = items[i];
         const enrichedItem = enrichedSimulatedItems[i];
         const originalMeta = parseJson<any>(originalItem.BillingNote);
+        
+        if (originalMeta.isManuallyAdjusted) {
+          insurancePortion += Number(originalMeta.insPortion || 0);
+          continue;
+        }
+
+        insurancePortion += Number(enrichedItem.insPortion || 0);
         
         if (originalMeta.insPortion !== enrichedItem.insPortion || originalMeta.ptPortion !== enrichedItem.ptPortion) {
           originalMeta.insPortion = enrichedItem.insPortion;
@@ -1357,7 +1364,12 @@ export class InvoiceService {
 
     // Shift the amount from insurance portion to patient portion
     const newPtPortion = roundCurrency((Number(itemMeta.ptPortion) || 0) + outstandingInsurance);
-    const updatedItemMeta = { ...itemMeta, insPortion: 0, ptPortion: newPtPortion };
+    const updatedItemMeta = {
+      ...itemMeta,
+      insPortion: 0,
+      ptPortion: newPtPortion,
+      isManuallyAdjusted: true,
+    };
 
     await prisma.procedurelog.update({
       where: { ProcNum: procNum },
