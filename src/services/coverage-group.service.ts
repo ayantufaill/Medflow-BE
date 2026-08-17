@@ -2,6 +2,7 @@ import { createCommlogJson, getCommlogJsonEntries } from '../utils/commlog-json.
 import { prisma } from '../config/db';
 
 export interface CoverageGroupMeta {
+  [key: string]: any;
   type: 'coverage_group';
   groupId: string;
   name: string;

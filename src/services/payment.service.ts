@@ -212,9 +212,6 @@ export class PaymentService {
       notes?: string;
       status?: string;
       paidAt?: Date;
-      notes?: string;
-      status?: string;
-      paidAt?: Date;
       paymentDate?: string;
       procedures?: Array<{
         id?: string;

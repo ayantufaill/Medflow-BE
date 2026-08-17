@@ -237,6 +237,7 @@ export class AppointmentService {
       tooth: proc.ToothNum ?? null,
       surface: proc.Surf ?? null,
       status: proc.ProcStatus ?? null,
+      completed: proc.ProcStatus === 2,
       quantity: proc.UnitQty ?? 1,
       fee: proc.ProcFee ?? 0,
       providerId: proc.ProvNum?.toString() ?? null,
@@ -1033,6 +1034,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
               fee: isNaN(fee) ? 0 : fee,
               providerId: proc.provider || data.providerId,
               tooth: proc.site || '',
+              status: proc.completed ? '2' : (proc.status !== undefined && proc.status !== null ? String(proc.status) : '1'),
             },
             createdBy
           );
@@ -1285,6 +1287,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
               fee: isNaN(fee) ? 0 : fee,
               providerId: proc.provider || updates.providerId || appointment.ProvNum?.toString(),
               tooth: proc.site || '',
+              status: proc.completed ? '2' : (proc.status !== undefined && proc.status !== null ? String(proc.status) : '1'),
             },
             updatedBy
           );
