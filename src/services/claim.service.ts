@@ -2661,6 +2661,135 @@ private mapClaimStatus(status: string | null): string {
 
     return attachments;
   }
+
+  /**
+   * Moves a procedure from its current claim to a new draft claim.
+   */
+  async moveProcedureToNewClaim(procId: string, currentClaimId?: string, userId?: string) {
+    const procNum = toBigInt(procId);
+    if (!procNum) {
+      throw new BadRequestError('Invalid procedure ID');
+    }
+
+    const procedure = await prisma.procedurelog.findUnique({
+      where: { ProcNum: procNum },
+      include: {
+        procedurecode_procedurelog_CodeNumToprocedurecode: true,
+      },
+    });
+
+    if (!procedure) {
+      throw new NotFoundError('Procedure not found');
+    }
+
+    const existingClaimProc = await prisma.claimproc.findFirst({
+      where: {
+        ProcNum: procNum,
+        ...(currentClaimId ? { ClaimNum: toBigInt(currentClaimId) ?? undefined } : {}),
+      },
+    });
+
+    const oldClaimNum = existingClaimProc?.ClaimNum;
+
+    const patPlan = procedure.PatNum
+      ? await prisma.patplan.findFirst({
+          where: { PatNum: procedure.PatNum, Ordinal: 1 },
+          include: { inssub: true },
+        })
+      : null;
+
+    const claimNum = await getNextId('claim', 'ClaimNum');
+    const claimNumber = `CLM-${claimNum}`;
+    const procFee = procedure.ProcFee ?? 0;
+
+    const claimMeta: ClaimMeta = {
+      invoiceId: procedure.StatementNum?.toString() ?? undefined,
+      procedures: [
+        {
+          id: procedure.ProcNum.toString(),
+          code: procedure.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? procedure.OldCode ?? '',
+          name: procedure.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? procedure.BillingNote ?? 'Procedure',
+          fee: procFee,
+        },
+      ],
+      status: 'draft',
+      claimAmount: procFee,
+      submittedAmount: procFee,
+      totalAmount: procFee,
+      notes: oldClaimNum ? `Procedure moved from claim #${oldClaimNum}` : 'Procedure moved to new claim',
+    };
+
+    const newClaim = await prisma.claim.create({
+      data: {
+        ClaimNum: claimNum,
+        PatNum: procedure.PatNum ?? null,
+        PlanNum: patPlan?.inssub?.PlanNum ?? null,
+        InsSubNum: patPlan?.InsSubNum ?? null,
+        ProvTreat: procedure.ProvNum ?? null,
+        ProvBill: procedure.ProvNum ?? null,
+        ClaimType: 'Primary',
+        ClaimStatus: claimStatusToCode('draft'),
+        DateService: procedure.ProcDate ?? new Date(),
+        ClaimFee: procFee,
+        InsPayEst: procFee,
+        InsPayAmt: 0,
+        DedApplied: 0,
+        PreAuthString: claimNumber,
+        PriorAuthorizationNumber: claimNumber,
+        ClaimIdentifier: claimNumber,
+        ClaimNote: claimMeta.notes ?? null,
+        Narrative: buildJson(claimMeta),
+      },
+    });
+
+    if (existingClaimProc) {
+      await prisma.claimproc.update({
+        where: { ClaimProcNum: existingClaimProc.ClaimProcNum },
+        data: { ClaimNum: newClaim.ClaimNum },
+      });
+    } else {
+      const claimProcNum = await getNextId('claimproc', 'ClaimProcNum');
+      let insPortion = procFee;
+      let ptPortion = 0;
+      if (procedure.BillingNote) {
+        try {
+          const bn = JSON.parse(procedure.BillingNote);
+          if (bn.insPortion !== undefined) insPortion = Number(bn.insPortion);
+          if (bn.ptPortion !== undefined) ptPortion = Number(bn.ptPortion);
+        } catch (e) {}
+      }
+      await prisma.claimproc.create({
+        data: {
+          ClaimProcNum: claimProcNum,
+          ClaimNum: newClaim.ClaimNum,
+          ProcNum: procedure.ProcNum,
+          PatNum: procedure.PatNum,
+          ProvNum: procedure.ProvNum,
+          PlanNum: newClaim.PlanNum,
+          InsSubNum: newClaim.InsSubNum,
+          ClinicNum: procedure.ClinicNum,
+          DateCP: new Date(),
+          ProcDate: procedure.ProcDate,
+          DateEntry: new Date(),
+          Status: 0,
+          FeeBilled: procFee,
+          InsPayEst: insPortion,
+          DedApplied: ptPortion,
+        },
+      });
+    }
+
+    if (userId) {
+      await this.createStatusHistoryEntry(
+        newClaim.ClaimNum.toString(),
+        'draft',
+        `Claim created by moving procedure #${procId}`,
+        userId
+      );
+    }
+
+    return this.getClaimById(newClaim.ClaimNum.toString());
+  }
 }
 
 export const claimService = new ClaimService();
