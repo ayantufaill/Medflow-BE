@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { communicationService } from '../services/communication.service';
 import { logActivityFromRequest } from '../utils/activity-logger.util';
 import { smsService } from '../services/sms.service';
+import { emailService } from '../services/email.service';
 import { prisma } from '../config/db';
 
 export class CommunicationController {
@@ -411,6 +412,46 @@ export class CommunicationController {
       res.status(200).json({
         success: true,
         message: `Bulk text dispatch initiated for ${patients.length} patients.`
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /* ─── Bulk Email ─── */
+  async sendBulkEmail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientIds, subject, message } = req.body;
+
+      if (!patientIds || !Array.isArray(patientIds) || patientIds.length === 0) {
+        return res.status(400).json({ success: false, message: 'patientIds array is required' });
+      }
+
+      const patNums = patientIds.map((id: string) => BigInt(id));
+
+      const patients = await prisma.patient.findMany({
+        where: { PatNum: { in: patNums } },
+        select: { PatNum: true, Email: true, FName: true, LName: true }
+      });
+
+      const promises = patients.map(async (patient) => {
+        const email = patient.Email;
+        if (email) {
+          return emailService.sendBulkEmail(email, subject || 'Message from MedFlow', message).catch((err) => {
+            console.error(`Failed to send bulk email to patient ${patient.PatNum}:`, err);
+          });
+        }
+      });
+
+      Promise.allSettled(promises);
+
+      if (req.userId) {
+        await logActivityFromRequest(req, 'created', 'bulk-email', 'multiple');
+      }
+
+      res.status(200).json({
+        success: true,
+        message: `Bulk email dispatch initiated for ${patients.length} patients.`
       });
     } catch (error) {
       next(error);

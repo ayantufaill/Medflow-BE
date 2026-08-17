@@ -792,6 +792,69 @@ ${clinicName}${addressLine ? `\n${addressLine}` : ''}${clinic?.phone ? `\n${clin
 </html>
     `.trim();
   }
+
+  /**
+   * Send custom bulk email to a patient
+   */
+  async sendBulkEmail(email: string, subject: string, textBody: string): Promise<boolean> {
+    const fromEmail = process.env.FROM_EMAIL || 'noreply@medflow.com';
+    const fromName = process.env.FROM_NAME || 'MedFlow';
+    const emailSubject = subject || 'Message from MedFlow';
+
+    const htmlBody = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; }
+    .header { background-color: #2563eb; color: white; padding: 15px 20px; text-align: center; border-radius: 6px 6px 0 0; }
+    .content { padding: 20px; background-color: #ffffff; white-space: pre-wrap; font-size: 14px; }
+    .footer { text-align: center; padding: 15px; color: #64748b; font-size: 12px; border-top: 1px solid #e2e8f0; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h2 style="margin:0;">MedFlow Practice Communication</h2>
+    </div>
+    <div class="content">${textBody}</div>
+    <div class="footer">
+      <p style="margin:0;">Best regards,<br>MedFlow Dental Team</p>
+    </div>
+  </div>
+</body>
+</html>
+    `.trim();
+
+    if (!this.transporter) {
+      console.log('='.repeat(50));
+      console.log('BULK EMAIL (Console Mode)');
+      console.log('='.repeat(50));
+      console.log(`To: ${email}`);
+      console.log(`From: ${fromName} <${fromEmail}>`);
+      console.log(`Subject: ${emailSubject}`);
+      console.log(`Body:\n${textBody}`);
+      console.log('='.repeat(50));
+      return true;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: `"${fromName}" <${fromEmail}>`,
+        to: email,
+        subject: emailSubject,
+        text: textBody,
+        html: htmlBody,
+      });
+      console.log(`Bulk email sent successfully to ${email}`);
+      return true;
+    } catch (error) {
+      console.error(`Error sending bulk email to ${email}:`, error);
+      return false;
+    }
+  }
 }
 
 export const emailService = new EmailService();
