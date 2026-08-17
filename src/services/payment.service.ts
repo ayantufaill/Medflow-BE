@@ -281,10 +281,15 @@ export class PaymentService {
 
         // 1. Update allowed fee if checkbox checked
         if (updateAllowedFee && allowed !== undefined && !isNaN(allowed)) {
-          await prisma.procedurelog.update({
-            where: { ProcNum: procNum },
-            data: { FeeAllowed: allowed },
-          });
+          const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
+          if (item) {
+            const itemMeta = parseJson<Record<string, any>>(item.BillingNote);
+            const updatedMeta = { ...itemMeta, feeAllowed: allowed };
+            await prisma.procedurelog.update({
+              where: { ProcNum: procNum },
+              data: { BillingNote: JSON.stringify(updatedMeta) },
+            });
+          }
           await prisma.claimproc.updateMany({
             where: { ProcNum: procNum },
             data: { AllowedOverride: allowed },
