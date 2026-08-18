@@ -414,7 +414,7 @@ export class UserController {
   async assignUserRoles(req: Request, res: Response, next: NextFunction) {
     try {
       const { userId } = req.params;
-      const { roleIds } = req.body;
+      const { roleIds, roleId } = req.body;
 
       if (!userId) {
         return res.status(400).json({
@@ -423,14 +423,19 @@ export class UserController {
         });
       }
 
-      if (!Array.isArray(roleIds)) {
+      let finalRoleIds: string[] = [];
+      if (Array.isArray(roleIds)) {
+        finalRoleIds = roleIds.map(String);
+      } else if (roleId !== undefined && roleId !== null) {
+        finalRoleIds = [String(roleId)];
+      } else {
         return res.status(400).json({
           success: false,
-          error: { message: 'roleIds must be an array of strings' },
+          error: { message: 'roleIds must be an array or roleId must be provided' },
         });
       }
 
-      await userService.assignUserRoles(userId, roleIds);
+      await userService.assignUserRoles(userId, finalRoleIds);
 
       res.status(200).json({
         success: true,

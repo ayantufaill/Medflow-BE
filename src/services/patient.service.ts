@@ -1712,6 +1712,79 @@ async getPatientHistoryAggregate(patientId: string) {
 
     return createdProcedures;
   }
+
+  async getUnbilledProducts(patientId: string) {
+    const patNum = toBigInt(patientId);
+    if (!patNum) {
+      throw new NotFoundError('Patient not found');
+    }
+    const patient = await prisma.patient.findUnique({ where: { PatNum: patNum } });
+    if (!patient) {
+      throw new NotFoundError('Patient not found');
+    }
+
+    const unbilledProcs = await prisma.procedurelog.findMany({
+      where: {
+        PatNum: patNum,
+        ProcStatus: 2,
+        AND: [
+          {
+            OR: [
+              { StatementNum: null },
+              { StatementNum: BigInt(0) }
+            ]
+          },
+          {
+            OR: [
+              { AptNum: null },
+              { AptNum: BigInt(0) }
+            ]
+          }
+        ]
+      },
+      include: {
+        procedurecode_procedurelog_CodeNumToprocedurecode: true,
+        provider_procedurelog_ProvNumToprovider: true,
+      },
+      orderBy: {
+        ProcDate: 'desc',
+      },
+    });
+
+    return unbilledProcs.map((proc) => {
+      const code = proc.procedurecode_procedurelog_CodeNumToprocedurecode;
+      const prov = proc.provider_procedurelog_ProvNumToprovider;
+
+      let billingNoteData: any = {};
+      if (proc.BillingNote) {
+        try {
+          billingNoteData = JSON.parse(proc.BillingNote);
+        } catch (_) {}
+      }
+
+      const description = code?.Descript || code?.AbbrDesc || billingNoteData.name || 'Product Item';
+      const procedureCodeStr = code?.ProcCode || billingNoteData.code || 'PROD';
+      const providerName = prov ? `${prov.FName || ''} ${prov.LName || ''}`.trim() : (billingNoteData.providerName || '');
+
+      return {
+        id: proc.ProcNum.toString(),
+        procNum: proc.ProcNum.toString(),
+        patientId: proc.PatNum?.toString() || patientId,
+        code: procedureCodeStr,
+        codeNum: proc.CodeNum?.toString() || null,
+        description,
+        fee: proc.ProcFee || 0,
+        amount: proc.ProcFee || 0,
+        quantity: proc.UnitQty || 1,
+        procDate: proc.ProcDate,
+        providerName,
+        provNum: proc.ProvNum?.toString() || null,
+        isProduct: true,
+        aptNum: proc.AptNum?.toString() || null,
+        statementNum: proc.StatementNum?.toString() || null,
+      };
+    });
+  }
 }
 
 export const patientService = new PatientService();

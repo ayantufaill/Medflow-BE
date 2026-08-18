@@ -18,6 +18,7 @@ import {
   gapFillSettingsValidator,
   updateReviewSettingsValidator,
   bulkTextValidator,
+  bulkEmailValidator,
 } from '../validators/communication.validator';
 
 const router = Router();
@@ -745,6 +746,43 @@ router.post(
   requirePermission('settings.update'),
   validate(bulkTextValidator),
   communicationController.sendBulkText.bind(communicationController)
+);
+
+/**
+ * @swagger
+ * /communication/bulk-email:
+ *   post:
+ *     summary: Send bulk email to multiple patients
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - patientIds
+ *               - subject
+ *               - message
+ *             properties:
+ *               patientIds:
+ *                 type: array
+ *                 items: { type: string }
+ *               subject: { type: string }
+ *               message: { type: string }
+ *     responses:
+ *       200:
+ *         description: Bulk email dispatch initiated
+ *       400:
+ *         description: Invalid input
+ */
+router.post(
+  '/bulk-email',
+  requirePermission('settings.update'),
+  validate(bulkEmailValidator),
+  communicationController.sendBulkEmail.bind(communicationController)
 );
 
 export default router;

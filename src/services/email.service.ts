@@ -78,9 +78,16 @@ const NOTIFICATION_COPY: Record<
 
 export class EmailService {
   private transporter: nodemailer.Transporter | null = null;
+  private initialized = false;
 
   constructor() {
+    // Defer initialization so dotenv has time to load process.env
+  }
+
+  private ensureTransporter() {
+    if (this.initialized) return;
     this.initializeTransporter();
+    this.initialized = true;
   }
 
   /**
@@ -200,6 +207,8 @@ MedFlow Team
     const fromEmail = process.env.FROM_EMAIL || 'noreply@medflow.com';
     const fromName = process.env.FROM_NAME || 'MedFlow';
 
+    this.ensureTransporter();
+
     // If transporter is not initialized (console mode), log to console
     if (!this.transporter) {
       console.log('='.repeat(50));
@@ -258,6 +267,8 @@ MedFlow Team
     const fromEmail = process.env.FROM_EMAIL || 'noreply@medflow.com';
     const fromName = process.env.FROM_NAME || 'MedFlow';
 
+    this.ensureTransporter();
+
     // If transporter is not initialized (console mode), log to console
     if (!this.transporter) {
       console.log('='.repeat(50));
@@ -285,6 +296,168 @@ MedFlow Team
       console.error('Error sending password reset email:', error);
       throw new Error('Failed to send password reset email. Please try again later.');
     }
+  }
+
+  /**
+   * Send cost estimate to patient by email
+   * @param respondToken - optional; if provided, approve/decline links are included
+   * @param respondBaseUrl - base URL for respond links (e.g. https://api.medflow.com/api)
+   */
+  async sendEstimateToPatient(
+    email: string,
+    firstName: string,
+    estimateNumber: string,
+    description: string,
+    total: number,
+    insurancePortion: number,
+    patientPortion: number,
+    validUntil: string,
+    respondToken?: string,
+    respondBaseUrl?: string
+  ): Promise<void> {
+    const subject = `MedFlow - Cost Estimate ${estimateNumber}`;
+    const formatCurrency = (n: number) =>
+      new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+    const approveUrl =
+      respondToken && respondBaseUrl
+        ? `${respondBaseUrl.replace(/\/$/, '')}/public/estimates/respond?token=${encodeURIComponent(respondToken)}&action=approve`
+        : '';
+    const declineUrl =
+      respondToken && respondBaseUrl
+        ? `${respondBaseUrl.replace(/\/$/, '')}/public/estimates/respond?token=${encodeURIComponent(respondToken)}&action=decline`
+        : '';
+    const respondBlock =
+      approveUrl && declineUrl
+        ? `
+
+To approve this estimate, click: ${approveUrl}
+
+To decline, click: ${declineUrl}
+`
+        : `
+
+Please contact the practice if you have questions or wish to approve this estimate.
+`;
+    const textBody = `
+Hello ${firstName},
+
+Your healthcare provider has shared a cost estimate with you.
+
+Estimate: ${estimateNumber}
+Description: ${description}
+
+Total: ${formatCurrency(total)}
+Insurance portion: ${formatCurrency(insurancePortion)}
+Your portion: ${formatCurrency(patientPortion)}
+
+Valid until: ${validUntil}
+${respondBlock}
+Best regards,
+MedFlow
+    `.trim();
+
+    const htmlParams: Parameters<EmailService['generateEstimateEmailHTML']>[0] = {
+      firstName,
+      estimateNumber,
+      description,
+      total: formatCurrency(total),
+      insurancePortion: formatCurrency(insurancePortion),
+      patientPortion: formatCurrency(patientPortion),
+      validUntil,
+    };
+    if (approveUrl) htmlParams.approveUrl = approveUrl;
+    if (declineUrl) htmlParams.declineUrl = declineUrl;
+    const htmlBody = this.generateEstimateEmailHTML(htmlParams);
+    const fromEmail = process.env.FROM_EMAIL || 'noreply@medflow.com';
+    const fromName = process.env.FROM_NAME || 'MedFlow';
+
+    this.ensureTransporter();
+
+    if (!this.transporter) {
+      console.log('='.repeat(50));
+      console.log('ESTIMATE SENT TO PATIENT (Console Mode)');
+      console.log('='.repeat(50));
+      console.log(`To: ${email}`);
+      console.log(`Subject: ${subject}`);
+      console.log(`Body:\n${textBody}`);
+      console.log('='.repeat(50));
+      return;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: `"${fromName}" <${fromEmail}>`,
+        to: email,
+        subject,
+        text: textBody,
+        html: htmlBody,
+      });
+      console.log(`Estimate email sent successfully to ${email}`);
+    } catch (error) {
+      console.error('Error sending estimate email:', error);
+      throw new Error('Failed to send estimate to patient. Please try again later.');
+    }
+  }
+
+  private generateEstimateEmailHTML(params: {
+    firstName: string;
+    estimateNumber: string;
+    description: string;
+    total: string;
+    insurancePortion: string;
+    patientPortion: string;
+    validUntil: string;
+    approveUrl?: string;
+    declineUrl?: string;
+  }): string {
+    const respondSection =
+      params.approveUrl && params.declineUrl
+        ? `
+      <p><strong>Respond to this estimate:</strong></p>
+      <p>
+        <a href="${params.approveUrl}" style="display:inline-block;background:#2e7d32;color:white;padding:10px 20px;text-decoration:none;border-radius:4px;margin-right:10px;">I Approve</a>
+        <a href="${params.declineUrl}" style="display:inline-block;background:#666;color:white;padding:10px 20px;text-decoration:none;border-radius:4px;">Decline</a>
+      </p>
+      `
+        : `
+      <p>Please contact the practice if you have questions or wish to approve this estimate.</p>
+      `;
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+    .header { background-color: #1976d2; color: white; padding: 20px; text-align: center; }
+    .content { padding: 20px; background-color: #f9f9f9; }
+    table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+    th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+    .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header"><h1>MedFlow - Cost Estimate</h1></div>
+    <div class="content">
+      <h2>Hello ${params.firstName},</h2>
+      <p>Your healthcare provider has shared a cost estimate with you.</p>
+      <p><strong>Estimate:</strong> ${params.estimateNumber}</p>
+      <p><strong>Description:</strong> ${params.description}</p>
+      <table>
+        <tr><th>Total</th><td>${params.total}</td></tr>
+        <tr><th>Insurance portion</th><td>${params.insurancePortion}</td></tr>
+        <tr><th>Your portion</th><td>${params.patientPortion}</td></tr>
+      </table>
+      <p><strong>Valid until:</strong> ${params.validUntil}</p>
+      ${respondSection}
+    </div>
+    <div class="footer"><p>Best regards,<br>MedFlow</p></div>
+  </div>
+</body>
+</html>
+    `.trim();
   }
 
   /**
@@ -361,6 +534,8 @@ MedFlow Team
     const fromEmail = process.env.FROM_EMAIL || 'noreply@medflow.com';
     const fromName = process.env.FROM_NAME || 'MedFlow';
 
+    this.ensureTransporter();
+
     // If transporter is not initialized (console mode), log to console
     if (!this.transporter) {
       console.log('='.repeat(50));
@@ -424,6 +599,8 @@ MedFlow Team
     const htmlBody = this.generateRegistrationVerificationLinkEmailHTML(verificationLink, firstName);
     const fromEmail = process.env.FROM_EMAIL || 'noreply@medflow.com';
     const fromName = process.env.FROM_NAME || 'MedFlow';
+
+    this.ensureTransporter();
 
     // If transporter is not initialized (console mode), log to console
     if (!this.transporter) {
@@ -602,6 +779,8 @@ ${clinicName}${addressLine ? `\n${addressLine}` : ''}${clinic?.phone ? `\n${clin
     const htmlBody = this.generateAppointmentNotificationHTML(details, kind);
     const fromEmail = process.env.FROM_EMAIL || 'noreply@medflow.com';
     const fromName = clinicName;
+
+    this.ensureTransporter();
 
     if (!this.transporter) {
       console.log('='.repeat(50));
@@ -791,6 +970,71 @@ ${clinicName}${addressLine ? `\n${addressLine}` : ''}${clinic?.phone ? `\n${clin
 </body>
 </html>
     `.trim();
+  }
+
+  /**
+   * Send custom bulk email to a patient
+   */
+  async sendBulkEmail(email: string, subject: string, textBody: string): Promise<boolean> {
+    const fromEmail = process.env.FROM_EMAIL || 'noreply@medflow.com';
+    const fromName = process.env.FROM_NAME || 'MedFlow';
+    const emailSubject = subject || 'Message from MedFlow';
+
+    const htmlBody = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; }
+    .header { background-color: #2563eb; color: white; padding: 15px 20px; text-align: center; border-radius: 6px 6px 0 0; }
+    .content { padding: 20px; background-color: #ffffff; white-space: pre-wrap; font-size: 14px; }
+    .footer { text-align: center; padding: 15px; color: #64748b; font-size: 12px; border-top: 1px solid #e2e8f0; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h2 style="margin:0;">MedFlow Practice Communication</h2>
+    </div>
+    <div class="content">${textBody}</div>
+    <div class="footer">
+      <p style="margin:0;">Best regards,<br>MedFlow Dental Team</p>
+    </div>
+  </div>
+</body>
+</html>
+    `.trim();
+
+    this.ensureTransporter();
+
+    if (!this.transporter) {
+      console.log('='.repeat(50));
+      console.log('BULK EMAIL (Console Mode)');
+      console.log('='.repeat(50));
+      console.log(`To: ${email}`);
+      console.log(`From: ${fromName} <${fromEmail}>`);
+      console.log(`Subject: ${emailSubject}`);
+      console.log(`Body:\n${textBody}`);
+      console.log('='.repeat(50));
+      return true;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: `"${fromName}" <${fromEmail}>`,
+        to: email,
+        subject: emailSubject,
+        text: textBody,
+        html: htmlBody,
+      });
+      console.log(`Bulk email sent successfully to ${email}`);
+      return true;
+    } catch (error) {
+      console.error(`Error sending bulk email to ${email}:`, error);
+      return false;
+    }
   }
 }
 

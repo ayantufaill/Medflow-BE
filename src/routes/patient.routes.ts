@@ -70,6 +70,31 @@ router.post(
 
 /**
  * @swagger
+ * /patients/{patientId}/unbilled-products:
+ *   get:
+ *     summary: Get unbilled products/standalone procedures for a patient
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of unbilled products
+ */
+router.get(
+  '/:patientId/unbilled-products',
+  requireRoles('Admin', 'Provider', 'Front Desk', 'Clinical', 'Billing'),
+  validate(patientIdValidator),
+  patientController.getUnbilledProducts.bind(patientController)
+);
+
+/**
+ * @swagger
  * /patients:
  *   get:
  *     summary: Get all patients

@@ -242,7 +242,13 @@ export const appointmentQueryValidator: ValidationChain[] = [
     .withMessage('Invalid patient ID format'),
   query('status')
     .optional()
-    .isIn(['scheduled', 'confirmed', 'checked_in', 'completed', 'cancelled', 'no_show', 'pending'])
+    .isIn([
+      'scheduled', 'unconfirmed', 'preconfirmed', 'confirmed', 'checked_in', 'arrived',
+      'ready_to_be_seated', 'seated', 'ready_for_doctor', 'in_treatment', 'ready_for_checkout',
+      'checked_out_incomplete', 'checked_out_complete', 'checkout complete', 'completed',
+      'no_show', 'call', 'left_message', 'running_late', 'sent_email_or_text', 'late',
+      'cancelled', 'rescheduled', 'pending'
+    ])
     .withMessage('Invalid status'),
   query('startDate')
     .optional()
