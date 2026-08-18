@@ -333,7 +333,7 @@ router.post(
   '/:userId/roles',
   requireRoles('Admin'),
   validate(assignRoleValidator),
-  userController.assignRole.bind(userController)
+  userController.assignUserRoles.bind(userController)
 );
 
 /**

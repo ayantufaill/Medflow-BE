@@ -437,21 +437,38 @@ export class CommunicationController {
       const promises = patients.map(async (patient) => {
         const email = patient.Email;
         if (email) {
-          return emailService.sendBulkEmail(email, subject || 'Message from MedFlow', message).catch((err) => {
+          // Replace placeholders like [Patient: Preferred Name] with the actual patient's name
+          let personalizedMessage = message;
+          const patientName = patient.FName || 'Patient';
+          personalizedMessage = personalizedMessage.replace(/\[Patient:\s*Preferred\s*Name\]/gi, patientName);
+
+          return emailService.sendBulkEmail(email, subject || 'Message from MedFlow', personalizedMessage).catch((err) => {
             console.error(`Failed to send bulk email to patient ${patient.PatNum}:`, err);
+            return false;
           });
         }
+        return false;
       });
 
-      Promise.allSettled(promises);
+      // Await all emails to finish so we can give accurate feedback
+      const results = await Promise.all(promises);
+      const successfulEmails = results.filter(Boolean).length;
+      const failedEmails = patients.length - successfulEmails;
 
       if (req.userId) {
         await logActivityFromRequest(req, 'created', 'bulk-email', 'multiple');
       }
 
+      if (successfulEmails === 0 && patients.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Failed to send emails. Ensure the patients have valid email addresses and your Gmail credentials are correct. Check backend logs for details.`
+        });
+      }
+
       res.status(200).json({
         success: true,
-        message: `Bulk email dispatch initiated for ${patients.length} patients.`
+        message: `Successfully sent ${successfulEmails} email(s). ${failedEmails > 0 ? "Failed to send to " + failedEmails + " patient(s)." : ""}`
       });
     } catch (error) {
       next(error);

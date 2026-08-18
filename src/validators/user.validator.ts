@@ -44,10 +44,11 @@ export const userIdValidator: ValidationChain[] = [
 
 export const assignRoleValidator: ValidationChain[] = [
   body('roleId')
-    .notEmpty()
-    .withMessage('Role ID is required')
-    .isInt({ min: 1 })
-    .withMessage('Invalid role ID format'),
+    .optional(),
+  body('roleIds')
+    .optional()
+    .isArray()
+    .withMessage('roleIds must be an array'),
 ];
 
 export const createUserValidator: ValidationChain[] = [
