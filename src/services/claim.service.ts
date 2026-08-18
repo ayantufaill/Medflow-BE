@@ -322,8 +322,8 @@ export class ClaimService {
     return {
       _id: row.ClaimNum.toString(),
       id: row.ClaimNum.toString(),
-      claimNumber: row.PreAuthString ?? row.PriorAuthorizationNumber ?? row.ClaimIdentifier ?? row.ClaimNum.toString(),
-      claimCode: row.PreAuthString ?? row.PriorAuthorizationNumber ?? row.ClaimIdentifier ?? row.ClaimNum.toString(),
+      claimNumber: row.PreAuthString ?? row.PriorAuthorizationNumber ?? row.ClaimIdentifier ?? `CLM${row.ClaimNum.toString().padStart(6, '0')}`,
+      claimCode: row.PreAuthString ?? row.PriorAuthorizationNumber ?? row.ClaimIdentifier ?? `CLM${row.ClaimNum.toString().padStart(6, '0')}`,
       patientRefId: row.PatNum?.toString() ?? null,
       patientId: patient ?? row.PatNum?.toString() ?? null,
       patient,
@@ -335,7 +335,10 @@ export class ClaimService {
       invoice: context.invoice ?? null,
       insuranceCompanyRefId: meta.insuranceCompanyId ?? null,
       insuranceCompanyId: context.insurance ?? meta.insuranceCompanyId ?? null,
-      insuranceCompany: context.insurance ?? null,
+      insuranceCompany: context.insurance ?? (row.insplan_claim_PlanNumToinsplan?.carrier ? {
+        name: row.insplan_claim_PlanNumToinsplan.carrier.CarrierName,
+        payerId: row.insplan_claim_PlanNumToinsplan.carrier.ElectID || '00000',
+      } : null),
       insuranceType: meta.insuranceType ?? 'primary',
       status,
       submissionDate: meta.submissionDate ? new Date(meta.submissionDate) : row.DateSent ?? row.DateService ?? null,
@@ -556,7 +559,11 @@ export class ClaimService {
             patient: true,
           }
         },
-        insplan_claim_PlanNumToinsplan: true,
+        insplan_claim_PlanNumToinsplan: {
+          include: {
+            carrier: true,
+          },
+        },
       },
     });
 
@@ -617,7 +624,13 @@ export class ClaimService {
 
     const rows = await prisma.claim.findMany({
       where,
-      include: { patient: true, provider_claim_ProvTreatToprovider: true },
+      include: { 
+        patient: true, 
+        provider_claim_ProvTreatToprovider: true,
+        insplan_claim_PlanNumToinsplan: {
+          include: { carrier: true },
+        },
+      },
       orderBy: { DateService: 'desc' },
     });
 
