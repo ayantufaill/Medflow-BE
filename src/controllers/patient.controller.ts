@@ -193,6 +193,16 @@ export class PatientController {
         req.body.lastVisitDate = new Date(req.body.lastVisitDate);
       }
 
+      if (req.body.branchId && req.branchAccess && req.branchAccess.clinicIds.length > 0) {
+        const requestedClinicNum = BigInt(req.body.branchId);
+        if (!req.branchAccess.clinicIds.includes(requestedClinicNum)) {
+          return res.status(403).json({
+            success: false,
+            error: { message: 'You do not have access to this branch.' },
+          });
+        }
+      }
+
       const result = await patientService.createPatient(req.body, req.userId);
       res.status(201).json({
         success: true,
@@ -226,6 +236,16 @@ export class PatientController {
       }
       if (req.body.lastVisitDate && typeof req.body.lastVisitDate === 'string') {
         req.body.lastVisitDate = new Date(req.body.lastVisitDate);
+      }
+
+      if (req.body.branchId && req.branchAccess && req.branchAccess.clinicIds.length > 0) {
+        const requestedClinicNum = BigInt(req.body.branchId);
+        if (!req.branchAccess.clinicIds.includes(requestedClinicNum)) {
+          return res.status(403).json({
+            success: false,
+            error: { message: 'You do not have access to this branch.' },
+          });
+        }
       }
 
       const result = await patientService.updatePatient(patientId, req.body, req.userId);
