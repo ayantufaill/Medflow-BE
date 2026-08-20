@@ -118,36 +118,38 @@ export class DepositService {
     
     const unearnedTypeDefNum = data.depositType === 'insurance' ? 2 : 1; // Arbitrary defnums for prepayments
 
-    // Transaction to ensure both payment and paysplit are created
-    const [payment, split] = await prisma.$transaction([
-      prisma.payment.create({
-        data: {
-          PayNum: payNum,
-          PatNum: BigInt(data.patientId),
-          PayAmt: data.amount,
-          PayDate: resolvedDate,
-          PayNote: buildJson({
-            paymentMethod: data.paymentMethod,
-            depositType: data.depositType,
-            notes: data.notes ?? null,
-            isDeposit: true
-          }),
-          SecUserNumEntry: BigInt(userId),
+    // Create payment with nested paysplit write to guarantee sequence and foreign key integrity
+    const payment = await prisma.payment.create({
+      data: {
+        PayNum: payNum,
+        PatNum: BigInt(data.patientId),
+        PayAmt: data.amount,
+        PayDate: resolvedDate,
+        PayNote: buildJson({
+          paymentMethod: data.paymentMethod,
+          depositType: data.depositType,
+          notes: data.notes ?? null,
+          isDeposit: true,
+        }),
+        SecUserNumEntry: BigInt(userId),
+        paysplit: {
+          create: {
+            SplitNum: splitNum,
+            SplitAmt: data.amount,
+            PatNum: BigInt(data.patientId),
+            DatePay: resolvedDate,
+            UnearnedType: BigInt(unearnedTypeDefNum),
+            DateEntry: new Date(),
+            SecUserNumEntry: BigInt(userId),
+          },
         },
-      }),
-      prisma.paysplit.create({
-        data: {
-          SplitNum: splitNum,
-          SplitAmt: data.amount,
-          PatNum: BigInt(data.patientId),
-          DatePay: resolvedDate,
-          PayNum: payNum,
-          UnearnedType: BigInt(unearnedTypeDefNum),
-          DateEntry: new Date(),
-          SecUserNumEntry: BigInt(userId),
-        },
-      })
-    ]);
+      },
+      include: {
+        paysplit: true,
+      },
+    });
+
+    const split = payment.paysplit[0];
 
     await logActivity(userId, 'created', 'deposits', split.SplitNum.toString(), undefined, { payment, split });
 
