@@ -258,7 +258,6 @@ export class PaymentService {
         create: [
           {
             SplitNum: splitNum1,
-            PayNum: payNum,
             PatNum: BigInt(data.patientId),
             SplitAmt: -data.amount,
             UnearnedType: BigInt(1), // Deduction from patient deposit pool
@@ -268,10 +267,8 @@ export class PaymentService {
           },
           {
             SplitNum: splitNum2,
-            PayNum: payNum,
             PatNum: BigInt(data.patientId),
             SplitAmt: data.amount,
-            UnearnedType: BigInt(0), // Application to procedure/invoice
             DatePay: resolvedPaidAt,
             DateEntry: new Date(),
             SecUserNumEntry: BigInt(userId),
