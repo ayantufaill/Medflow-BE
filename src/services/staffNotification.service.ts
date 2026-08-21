@@ -36,6 +36,7 @@ export class StaffNotificationService {
     relatedType?: string;
     relatedId?: bigint;
   }) {
+    if (!prisma.notification) return null;
     const id = await getNextId('notification', 'NotificationNum');
     const notification = await prisma.notification.create({
       data: {

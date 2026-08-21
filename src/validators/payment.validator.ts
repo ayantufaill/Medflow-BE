@@ -67,8 +67,14 @@ export const createPaymentValidator: ValidationChain[] = [
   body('paymentMethod')
     .notEmpty()
     .withMessage('Payment method is required')
-    .isIn(['cash', 'check', 'card', 'ach', 'insurance', 'payment_plan'])
-    .withMessage('Invalid payment method'),
+    .custom((val) => {
+      const norm = String(val || '').toLowerCase().trim();
+      const allowed = ['cash', 'check', 'card', 'ach', 'insurance', 'payment_plan', 'account_credit', 'account credit', 'credit', 'patient credit'];
+      if (!allowed.includes(norm)) {
+        throw new Error('Invalid payment method');
+      }
+      return true;
+    }),
   body('paymentSource')
     .optional()
     .isIn(['patient', 'insurance_company', 'other'])
