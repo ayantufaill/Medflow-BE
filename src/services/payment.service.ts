@@ -240,12 +240,51 @@ export class PaymentService {
     const resolvedPaidAt =
       data.paidAt ?? (data.paymentDate ? new Date(data.paymentDate) : undefined) ?? new Date();
 
+    const methodNormalized = String(resolvedMethod || '').toLowerCase().trim();
+    const isAccountCredit =
+      methodNormalized.includes('account credit') ||
+      methodNormalized.includes('account_credit') ||
+      methodNormalized.includes('patient credit') ||
+      methodNormalized === 'credit';
+
     const payNum = await getNextId('payment', 'PayNum');
+
+    let paysplitData: any = undefined;
+
+    if (isAccountCredit) {
+      const splitNum1 = await getNextId('paysplit', 'SplitNum');
+      const splitNum2 = await getNextId('paysplit', 'SplitNum');
+      paysplitData = {
+        create: [
+          {
+            SplitNum: splitNum1,
+            PayNum: payNum,
+            PatNum: BigInt(data.patientId),
+            SplitAmt: -data.amount,
+            UnearnedType: BigInt(1), // Deduction from patient deposit pool
+            DatePay: resolvedPaidAt,
+            DateEntry: new Date(),
+            SecUserNumEntry: BigInt(userId),
+          },
+          {
+            SplitNum: splitNum2,
+            PayNum: payNum,
+            PatNum: BigInt(data.patientId),
+            SplitAmt: data.amount,
+            UnearnedType: BigInt(0), // Application to procedure/invoice
+            DatePay: resolvedPaidAt,
+            DateEntry: new Date(),
+            SecUserNumEntry: BigInt(userId),
+          },
+        ],
+      };
+    }
+
     const payment = await prisma.payment.create({
       data: {
         PayNum: payNum,
         PatNum: BigInt(data.patientId),
-        PayAmt: data.amount,
+        PayAmt: isAccountCredit ? 0 : data.amount,
         PayDate: resolvedPaidAt,
         PayNote: buildJson({
           invoiceId: data.invoiceId ?? null,
@@ -257,8 +296,11 @@ export class PaymentService {
           paidAt: resolvedPaidAt.toISOString(),
           status: data.status ?? 'completed',
           notes: data.notes ?? null,
+          isAccountCredit,
+          appliedCreditAmount: isAccountCredit ? data.amount : undefined,
         }),
         SecUserNumEntry: BigInt(userId),
+        ...(paysplitData ? { paysplit: paysplitData } : {}),
       },
     });
 
