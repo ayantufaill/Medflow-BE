@@ -301,10 +301,38 @@ export class FinanceDashboardService {
       total: round2(balBucket0_30 + outBucket31_60 + outBucket61_90 + outBucket90Plus)
     };
 
+    // ─────────────────────────────────────────────────────────────
+    // 4. Patient & Insurance Unallocated Credits (Prepayments)
+    // ─────────────────────────────────────────────────────────────
+    const unearnedPaysplits = await prisma.paysplit.findMany({
+      where: {
+        PatNum: { in: patNums },
+        UnearnedType: { gt: 0 }
+      }
+    });
+
+    let patientAccountCredit = 0;
+    let insuranceAccountCredit = 0;
+
+    for (const split of unearnedPaysplits) {
+      const splitAmt = Number(split.SplitAmt) || 0;
+      const unearnedType = Number(split.UnearnedType) || 0;
+      if (unearnedType === 2) {
+        insuranceAccountCredit += splitAmt;
+      } else {
+        patientAccountCredit += splitAmt;
+      }
+    }
+
+    patientAccountCredit = round2(patientAccountCredit);
+    insuranceAccountCredit = round2(insuranceAccountCredit);
+
     return {
       familyOutstanding,
       familyBalance,
-      insuranceBalance
+      insuranceBalance,
+      patientAccountCredit,
+      insuranceAccountCredit
     };
   }
 
