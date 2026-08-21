@@ -68,6 +68,13 @@ export interface UserWithRoles extends Omit<AppUser, 'passwordHash'> {
 // Group Admins have access strictly to operational and financial rollups.
 // They do NOT have access to raw clinical PHI across branches.
 
+export const PLATFORM_ADMIN_PERMISSIONS = {
+  MANAGE_PRACTICE_GROUPS: 'platform:manage_practice_groups',
+} as const;
+
+export type PlatformAdminPermission =
+  (typeof PLATFORM_ADMIN_PERMISSIONS)[keyof typeof PLATFORM_ADMIN_PERMISSIONS];
+
 export const GROUP_ADMIN_PERMISSIONS = {
   /** View aggregated operational & financial reports across all branches in the group */
   VIEW_ANALYTICS: 'group:view_analytics',
