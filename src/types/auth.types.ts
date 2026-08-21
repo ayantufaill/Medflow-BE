@@ -74,12 +74,6 @@ export interface AuthResponse {
 
 export interface UserWithRoles extends Omit<AppUser, 'passwordHash'> {
   roles: AppRole[];
-  /** Branches this user is actually assigned to (via userclinic) — not their access scope. */
-  branchIds: string[];
-  /** The practicegroup their assigned branch(es) belong to, if resolvable. */
-  groupId: number | null;
-  /** True if they hold any GROUP_ADMIN_PERMISSIONS permission (or '*'). */
-  isGroupAdmin: boolean;
 }
 
 // ─── Group Admin Permission Keys ──────────────────────────────────────────────
@@ -99,37 +93,6 @@ export const GROUP_ADMIN_PERMISSIONS = {
 
 export type GroupAdminPermission =
   (typeof GROUP_ADMIN_PERMISSIONS)[keyof typeof GROUP_ADMIN_PERMISSIONS];
-
-// ─── Platform Admin Permission Keys ───────────────────────────────────────────
-//
-// Operates the platform itself, not any one customer's practice. Scope is
-// every practicegroup, cross-tenant. Distinct from the plain 'Admin' role,
-// which is a per-practice role that today incorrectly also gates practice
-// group provisioning — 'Admin' keeps working via its '*' wildcard, but new
-// deployments should grant this permission specifically, not the 'Admin' role.
-
-export const PLATFORM_ADMIN_PERMISSIONS = {
-  /** Create, view, and deactivate practice groups (onboard/offboard practices) */
-  MANAGE_PRACTICE_GROUPS: 'platform:manage_practice_groups',
-} as const;
-
-export type PlatformAdminPermission =
-  (typeof PLATFORM_ADMIN_PERMISSIONS)[keyof typeof PLATFORM_ADMIN_PERMISSIONS];
-
-// ─── Branch Admin Permission Keys ─────────────────────────────────────────────
-//
-// The narrower sibling of Group Admin — scope is the caller's own assigned
-// branch(es) only, never expanded group-wide. No special handling is needed
-// in getBranchAccess for this: a Branch Admin's clinicIds are already just
-// their ordinary userclinic assignment, same as any branch-scoped staff.
-
-export const BRANCH_ADMIN_PERMISSIONS = {
-  /** Manage users assigned to the caller's own branch */
-  MANAGE_USERS: 'branch:manage_users',
-} as const;
-
-export type BranchAdminPermission =
-  (typeof BRANCH_ADMIN_PERMISSIONS)[keyof typeof BRANCH_ADMIN_PERMISSIONS];
 
 // ─── Branch Access ─────────────────────────────────────────────────────────
 //

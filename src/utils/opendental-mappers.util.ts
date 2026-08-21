@@ -122,7 +122,6 @@ export const mapRoomToApi = (row: operatory) => ({
   name: row.OpName ?? row.Abbrev ?? '',
   itemOrder: row.ItemOrder ?? 0,
   isActive: !row.IsHidden,
-  branchId: row.ClinicNum?.toString() ?? null,
 });
 
 export const mapServiceToApi = (
@@ -239,7 +238,6 @@ export const mapPatientToApi = (
   return {
   id: row.PatNum.toString(),
   _id: row.PatNum.toString(),
-  branchId: row.ClinicNum?.toString() ?? null,
   patientCode: row.ChartNumber ?? `PAT${row.PatNum.toString()}`,
   title: row.Title ?? null,
   firstName: row.FName ?? '',
@@ -319,7 +317,6 @@ export const mapProviderToApi = (
     isAcceptingNewPatients?: boolean | null;
     telehealthEnabled?: boolean | null;
     color?: string | null;
-    branchIds?: string[] | null;
   }
 ) => ({
   _id: row.ProvNum.toString(),
@@ -328,7 +325,6 @@ export const mapProviderToApi = (
   licenseNumber: row.StateLicense ?? null,
   specialty: options?.specialtyName ? [options.specialtyName] : [],
   title: row.Suffix ?? null,
-  branchIds: options?.branchIds ?? [],
   color: options?.color ?? null,
   userId: options?.user
     ? {
@@ -502,7 +498,6 @@ export const mapAppointmentToApi = (
     durationMinutes,
     appointmentType: 'consultation',
     roomId: row.Op?.toString() ?? '1',
-    branchId: row.ClinicNum?.toString() ?? null,
     createdBy: options?.createdBy ? mapUserToApi(options.createdBy) : row.SecUserNumEntry?.toString() ?? null,
     status: mapAppointmentStatusFromDb(row.AptStatus),
     chiefComplaint: row.ProcDescript ?? null,

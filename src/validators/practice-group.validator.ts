@@ -23,18 +23,6 @@ export const createBranchValidator = [
   body('phone').optional().isString(),
 ];
 
-export const updateGroupValidator = [
-  ...groupIdParamValidator,
-  body('name')
-    .optional()
-    .trim()
-    .notEmpty()
-    .withMessage('name cannot be empty')
-    .isLength({ max: 255 })
-    .withMessage('name must be at most 255 characters'),
-  body('isActive').optional().isBoolean().withMessage('isActive must be a boolean'),
-];
-
 export const createGroupAdminValidator = [
   ...groupIdParamValidator,
   body('email').isEmail().withMessage('A valid email is required').normalizeEmail(),

@@ -7,7 +7,7 @@ import { validate } from '../middleware/validation.middleware';
 import {
   providerIdValidator, createProviderValidator,
   updateProviderValidator, providerQueryValidator,
-  providerAvailabilityQueryValidator, updateProviderBranchesValidator,
+  providerAvailabilityQueryValidator,
 } from '../validators/provider.validator';
 
 const router = Router();
@@ -314,45 +314,6 @@ router.get('/:providerId', validate(providerIdValidator), providerController.get
  */
 
 router.put('/:providerId', requireRoles('Admin'), validate([...providerIdValidator, ...updateProviderValidator]), providerController.updateProvider.bind(providerController));
-
-/**
- * @swagger
- * /providers/{providerId}/branches:
- *   patch:
- *     summary: Reassign an existing provider's branch(es)
- *     description: Super Admin may target any provider/branch. Group Admin may only move a provider between branches within their own group.
- *     tags: [Providers]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: providerId
- *         required: true
- *         schema: { type: string }
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [branchIds]
- *             properties:
- *               branchIds:
- *                 type: array
- *                 items: { type: string }
- *     responses:
- *       200:
- *         description: Provider's branch assignment updated
- *       403:
- *         description: Not authorized to manage this branch assignment
- *       404:
- *         description: Provider or branch not found
- */
-router.patch(
-  '/:providerId/branches',
-  validate(updateProviderBranchesValidator),
-  providerController.updateProviderBranches.bind(providerController)
-);
 /**
  * @swagger
  * /providers/{providerId}:

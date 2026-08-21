@@ -615,7 +615,6 @@ async getPatientLastVisit(patientId: string) {
       preferredDentistId?: string;
       preferredHygienistId?: string;
       guarantorId?: string;
-      branchId?: string;
     },
     createdBy?: string
   ) {
@@ -802,7 +801,6 @@ async getPatientLastVisit(patientId: string) {
       patientFlags?: any[];
       financialResponsibility?: Record<string, any> | null;
       guarantorId?: string;
-      branchId?: string;
     },
     updatedBy?: string
   ) {

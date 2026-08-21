@@ -2,7 +2,6 @@ import { prisma } from '../config/db';
 import { hashPassword, comparePassword } from '../utils/password.util';
 import { generateTokens } from '../utils/jwt.util';
 import { AuthenticationError, NotFoundError, ConflictError } from '../utils/error.util';
-import { PermissionService } from './permission.service';
 import { emailService } from './email.service';
 import { logSecurityEvent } from '../utils/activity-logger.util';
 import crypto from 'crypto';
@@ -261,17 +260,9 @@ export class AuthService {
         .map((r) => mapRole(r))
     );
 
-    const [branchIds, branchAccess] = await Promise.all([
-      PermissionService.getAssignedBranchIds(userId),
-      PermissionService.getBranchAccess(userId),
-    ]);
-
     return {
       ...(await this.sanitizeUser(mapped)),
       roles,
-      branchIds,
-      groupId: branchAccess.groupId,
-      isGroupAdmin: branchAccess.isGroupAdmin,
     } as UserWithRoles;
   }
 

@@ -3,9 +3,7 @@ import { NotFoundError, ConflictError } from '../utils/error.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { RoleService } from './role.service';
 import { userService } from './user.service';
-import { PermissionService } from './permission.service';
 import { GROUP_ADMIN_PERMISSIONS } from '../types/auth.types';
-import { mapUser } from '../utils/opendental-auth.util';
 
 const roleService = new RoleService();
 const GROUP_ADMIN_ROLE_NAME = 'Group Admin';
@@ -74,61 +72,6 @@ export class PracticeGroupService {
       throw new NotFoundError('Practice group not found.');
     }
     return { id: group.id, name: group.name, isActive: group.isActive, branches: group.clinic.map(mapBranch) };
-  }
-
-  /** Renames a group and/or deactivates it (offboarding) — never hard-deletes. */
-  async updateGroup(groupId: number, data: { name?: string; isActive?: boolean }): Promise<PracticeGroupSummary> {
-    const group = await prisma.practicegroup.findUnique({ where: { id: groupId } });
-    if (!group) {
-      throw new NotFoundError('Practice group not found.');
-    }
-    if (data.name && data.name !== group.name) {
-      const existing = await prisma.practicegroup.findFirst({ where: { name: data.name } });
-      if (existing) {
-        throw new ConflictError(`A practice group named "${data.name}" already exists.`);
-      }
-    }
-
-    await prisma.practicegroup.update({
-      where: { id: groupId },
-      data: { name: data.name, isActive: data.isActive },
-    });
-
-    return this.getGroupById(groupId);
-  }
-
-  /** Every user assigned to any branch within this group. */
-  async getGroupUsers(groupId: number) {
-    const group = await prisma.practicegroup.findUnique({ where: { id: groupId } });
-    if (!group) {
-      throw new NotFoundError('Practice group not found.');
-    }
-
-    const clinics = await prisma.clinic.findMany({ where: { GroupNum: groupId }, select: { ClinicNum: true } });
-    const clinicNums = clinics.map((c) => c.ClinicNum);
-    if (clinicNums.length === 0) return [];
-
-    const assignments = await prisma.userclinic.findMany({
-      where: { ClinicNum: { in: clinicNums } },
-      select: { UserNum: true },
-    });
-    const userNums = Array.from(
-      new Set(assignments.map((a) => a.UserNum).filter((n): n is bigint => n !== null))
-    );
-    if (userNums.length === 0) return [];
-
-    const users = await prisma.userod.findMany({ where: { UserNum: { in: userNums } } });
-    const branchIdsByUser = await PermissionService.getAssignedBranchIdsBatch(
-      userNums.map((n) => n.toString())
-    );
-
-    return Promise.all(
-      users.map(async (u) => {
-        const mapped = await mapUser(u);
-        const { passwordHash, ...rest } = mapped;
-        return { ...rest, branchIds: branchIdsByUser.get(u.UserNum.toString()) ?? [] };
-      })
-    );
   }
 
   /** Provisions a new branch (clinic row) under an existing practice group — no schema cloning. */
