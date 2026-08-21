@@ -213,3 +213,22 @@ export const bulkTextValidator: ValidationChain[] = [
     .isString()
     .withMessage('message must be a string'),
 ];
+
+export const bulkEmailValidator: ValidationChain[] = [
+  body('patientIds')
+    .isArray({ min: 1 })
+    .withMessage('patientIds must be a non-empty array of strings'),
+  body('patientIds.*')
+    .isString()
+    .withMessage('Each patientId must be a string'),
+  body('subject')
+    .notEmpty()
+    .withMessage('subject is required')
+    .isString()
+    .withMessage('subject must be a string'),
+  body('message')
+    .notEmpty()
+    .withMessage('message is required')
+    .isString()
+    .withMessage('message must be a string'),
+];

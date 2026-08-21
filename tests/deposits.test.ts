@@ -170,4 +170,27 @@ describe('Deposits & Deposit Slips API', () => {
       expect(res.body.success).toBe(false);
     });
   });
+
+  describe('POST /api/deposits', () => {
+    it('successfully creates a prepayment deposit and corresponding paysplit', async () => {
+      const token = uniqueToken('dep_create');
+      const patient = await createPatientRecord(token);
+
+      const res = await request(app)
+        .post('/api/deposits')
+        .set(authHeader)
+        .send({
+          patientId: patient.PatNum.toString(),
+          amount: 200.0,
+          paymentMethod: 'Check',
+          depositType: 'patient',
+          notes: 'Test Prepayment Deposit',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toBeDefined();
+      expect(res.body.data.amount).toBe(200.0);
+    });
+  });
 });

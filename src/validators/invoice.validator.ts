@@ -4,7 +4,7 @@ export const invoiceIdValidator: ValidationChain[] = [
   param('invoiceId')
     .notEmpty()
     .withMessage('Invoice ID is required')
-    .isString()
+    .isInt({ min: 1 })
     .withMessage('Invalid invoice ID format'),
 ];
 
@@ -12,7 +12,7 @@ export const invoiceItemIdValidator: ValidationChain[] = [
   param('itemId')
     .notEmpty()
     .withMessage('Invoice item ID is required')
-    .isString()
+    .isInt({ min: 1 })
     .withMessage('Invalid invoice item ID format'),
 ];
 
@@ -86,6 +86,7 @@ export const createInvoiceFromAppointmentValidator: ValidationChain[] = [
 
 export const updateInvoiceValidator: ValidationChain[] = [
   body('dueDate').optional().isISO8601().withMessage('Due date must be a valid date'),
+  body('invoiceDate').optional().isISO8601().withMessage('Invoice date must be a valid date'),
   body('insuranceCompanyId')
     .optional()
     .isInt({ min: 1 })

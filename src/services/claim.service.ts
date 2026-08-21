@@ -54,6 +54,7 @@ type ClaimMeta = {
   isHidden?: boolean;
   providerSignature?: string;
   patientSignature?: string;
+  eobs?: { id: string; filename: string; storagePath: string; uploadedAt: string; size: string; url?: string }[];
 };
 
 type ClaimFilters = {
@@ -321,8 +322,8 @@ export class ClaimService {
     return {
       _id: row.ClaimNum.toString(),
       id: row.ClaimNum.toString(),
-      claimNumber: row.PreAuthString ?? row.PriorAuthorizationNumber ?? row.ClaimIdentifier ?? row.ClaimNum.toString(),
-      claimCode: row.PreAuthString ?? row.PriorAuthorizationNumber ?? row.ClaimIdentifier ?? row.ClaimNum.toString(),
+      claimNumber: row.PreAuthString ?? row.PriorAuthorizationNumber ?? row.ClaimIdentifier ?? `CLM${row.ClaimNum.toString().padStart(6, '0')}`,
+      claimCode: row.PreAuthString ?? row.PriorAuthorizationNumber ?? row.ClaimIdentifier ?? `CLM${row.ClaimNum.toString().padStart(6, '0')}`,
       patientRefId: row.PatNum?.toString() ?? null,
       patientId: patient ?? row.PatNum?.toString() ?? null,
       patient,
@@ -334,7 +335,10 @@ export class ClaimService {
       invoice: context.invoice ?? null,
       insuranceCompanyRefId: meta.insuranceCompanyId ?? null,
       insuranceCompanyId: context.insurance ?? meta.insuranceCompanyId ?? null,
-      insuranceCompany: context.insurance ?? null,
+      insuranceCompany: context.insurance ?? (row.insplan_claim_PlanNumToinsplan?.carrier ? {
+        name: row.insplan_claim_PlanNumToinsplan.carrier.CarrierName,
+        payerId: row.insplan_claim_PlanNumToinsplan.carrier.ElectID || '00000',
+      } : null),
       insuranceType: meta.insuranceType ?? 'primary',
       status,
       submissionDate: meta.submissionDate ? new Date(meta.submissionDate) : row.DateSent ?? row.DateService ?? null,
@@ -365,6 +369,7 @@ export class ClaimService {
       isHidden: meta.isHidden ?? false,
       providerSignature: meta.providerSignature ?? null,
       patientSignature: meta.patientSignature ?? null,
+      eobs: meta.eobs || [],
     };
   }
 
@@ -554,7 +559,11 @@ export class ClaimService {
             patient: true,
           }
         },
-        insplan_claim_PlanNumToinsplan: true,
+        insplan_claim_PlanNumToinsplan: {
+          include: {
+            carrier: true,
+          },
+        },
       },
     });
 
@@ -615,7 +624,13 @@ export class ClaimService {
 
     const rows = await prisma.claim.findMany({
       where,
-      include: { patient: true, provider_claim_ProvTreatToprovider: true },
+      include: { 
+        patient: true, 
+        provider_claim_ProvTreatToprovider: true,
+        insplan_claim_PlanNumToinsplan: {
+          include: { carrier: true },
+        },
+      },
       orderBy: { DateService: 'desc' },
     });
 
@@ -1926,6 +1941,17 @@ export class ClaimService {
 
     let payments = rows.map((row) => {
       const meta = parseJson<any>(row.Note);
+      const eobs = Array.isArray(meta.eobs) && meta.eobs.length > 0
+        ? meta.eobs.map((eob: any, idx: number) => ({
+            id: eob.id || `eob-${row.DocNum.toString()}-${idx}`,
+            filename: eob.filename || eob.fileName || 'EOB.pdf',
+            storagePath: eob.storagePath || '',
+            uploadDate: eob.uploadedAt ? new Date(eob.uploadedAt).toISOString().split('T')[0] : (eob.uploadDate || row.DateCreated?.toISOString().split('T')[0] || ''),
+            uploadedAt: eob.uploadedAt || row.DateCreated?.toISOString() || '',
+            size: eob.size || '124 KB',
+          }))
+        : (row.FileName ? [{ id: row.DocNum.toString(), filename: row.Description || 'EOB.pdf', uploadDate: row.DateCreated?.toISOString().split('T')[0], size: '124 KB' }] : []);
+
       return {
         id: row.DocNum.toString(),
         paymentRef: meta.paymentRef ?? '',
@@ -1938,7 +1964,7 @@ export class ClaimService {
         totalPayments: meta.checkAmount ?? 0,
         checkAmount: meta.checkAmount ?? 0,
         claims: meta.allocations ?? [],
-        eobs: row.FileName ? [{ id: row.DocNum.toString(), filename: row.Description || 'EOB.pdf', uploadDate: row.DateCreated?.toISOString().split('T')[0], size: '124 KB' }] : [],
+        eobs,
       };
     });
 
@@ -1969,12 +1995,16 @@ export class ClaimService {
     const storagePath = await uploadToS3(file, 'claim-documents');
     const meta = parseJson<any>(doc.Note);
     meta.eobs = meta.eobs || [];
-    meta.eobs.push({
-      id: doc.DocNum.toString(),
+    
+    const newEob = {
+      id: `eob-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       filename: file.originalname,
       storagePath,
       uploadedAt: new Date().toISOString(),
-    });
+      size: `${Math.round(file.size / 1024)} KB`,
+    };
+    
+    meta.eobs.push(newEob);
 
     await prisma.document.update({
       where: { DocNum: doc.DocNum },
@@ -1985,7 +2015,88 @@ export class ClaimService {
       },
     });
 
-    return { message: 'EOB uploaded successfully', storagePath };
+    return { message: 'EOB uploaded successfully', storagePath, eob: newEob, eobs: meta.eobs };
+  }
+
+  async deleteEOB(paymentId: string, eobId: string) {
+    const doc = await prisma.document.findUnique({
+      where: { DocNum: BigInt(paymentId) },
+    });
+
+    if (!doc) {
+      throw new NotFoundError('Batch payment not found');
+    }
+
+    const meta = parseJson<any>(doc.Note);
+    if (Array.isArray(meta.eobs)) {
+      meta.eobs = meta.eobs.filter((e: any) => e.id !== eobId);
+    }
+
+    await prisma.document.update({
+      where: { DocNum: doc.DocNum },
+      data: {
+        Note: JSON.stringify(meta),
+      },
+    });
+
+    return { message: 'EOB deleted successfully', eobs: meta.eobs || [] };
+  }
+
+  async uploadClaimEOB(claimId: string, file: Express.Multer.File, description?: string, userId?: string) {
+    const claim = await prisma.claim.findUnique({
+      where: { ClaimNum: BigInt(claimId) },
+    });
+
+    if (!claim) {
+      throw new NotFoundError('Claim not found');
+    }
+
+    const storagePath = await uploadToS3(file, 'claim-documents');
+    const meta = parseJson<ClaimMeta>(claim.Narrative);
+    meta.eobs = meta.eobs || [];
+
+    const newEob = {
+      id: `eob-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      filename: file.originalname,
+      storagePath,
+      uploadedAt: new Date().toISOString(),
+      size: `${Math.round(file.size / 1024)} KB`,
+    };
+
+    meta.eobs.push(newEob);
+
+    await prisma.claim.update({
+      where: { ClaimNum: claim.ClaimNum },
+      data: {
+        Narrative: JSON.stringify(meta),
+      },
+    });
+
+    return { message: 'EOB uploaded successfully', storagePath, eob: newEob, eobs: meta.eobs };
+  }
+
+  async deleteClaimEOB(claimId: string, eobId: string) {
+    const claim = await prisma.claim.findUnique({
+      where: { ClaimNum: BigInt(claimId) },
+    });
+
+    if (!claim) {
+      throw new NotFoundError('Claim not found');
+    }
+
+    const meta = parseJson<ClaimMeta>(claim.Narrative);
+    if (Array.isArray(meta.eobs)) {
+      meta.eobs = meta.eobs.filter((e: any) => e.id !== eobId);
+    }
+
+    await prisma.claim.update({
+      where: { ClaimNum: claim.ClaimNum },
+      data: {
+        Narrative: JSON.stringify(meta),
+      },
+    });
+
+    return { message: 'EOB deleted successfully', eobs: meta.eobs || [] };
   }
 
   async getDenticalReports() {
@@ -2562,6 +2673,135 @@ private mapClaimStatus(status: string | null): string {
     }
 
     return attachments;
+  }
+
+  /**
+   * Moves a procedure from its current claim to a new draft claim.
+   */
+  async moveProcedureToNewClaim(procId: string, currentClaimId?: string, userId?: string) {
+    const procNum = toBigInt(procId);
+    if (!procNum) {
+      throw new BadRequestError('Invalid procedure ID');
+    }
+
+    const procedure = await prisma.procedurelog.findUnique({
+      where: { ProcNum: procNum },
+      include: {
+        procedurecode_procedurelog_CodeNumToprocedurecode: true,
+      },
+    });
+
+    if (!procedure) {
+      throw new NotFoundError('Procedure not found');
+    }
+
+    const existingClaimProc = await prisma.claimproc.findFirst({
+      where: {
+        ProcNum: procNum,
+        ...(currentClaimId ? { ClaimNum: toBigInt(currentClaimId) ?? undefined } : {}),
+      },
+    });
+
+    const oldClaimNum = existingClaimProc?.ClaimNum;
+
+    const patPlan = procedure.PatNum
+      ? await prisma.patplan.findFirst({
+          where: { PatNum: procedure.PatNum, Ordinal: 1 },
+          include: { inssub: true },
+        })
+      : null;
+
+    const claimNum = await getNextId('claim', 'ClaimNum');
+    const claimNumber = `CLM-${claimNum}`;
+    const procFee = procedure.ProcFee ?? 0;
+
+    const claimMeta: ClaimMeta = {
+      invoiceId: procedure.StatementNum?.toString() ?? undefined,
+      procedures: [
+        {
+          id: procedure.ProcNum.toString(),
+          code: procedure.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? procedure.OldCode ?? '',
+          name: procedure.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? procedure.BillingNote ?? 'Procedure',
+          fee: procFee,
+        },
+      ],
+      status: 'draft',
+      claimAmount: procFee,
+      submittedAmount: procFee,
+      totalAmount: procFee,
+      notes: oldClaimNum ? `Procedure moved from claim #${oldClaimNum}` : 'Procedure moved to new claim',
+    };
+
+    const newClaim = await prisma.claim.create({
+      data: {
+        ClaimNum: claimNum,
+        PatNum: procedure.PatNum ?? null,
+        PlanNum: patPlan?.inssub?.PlanNum ?? null,
+        InsSubNum: patPlan?.InsSubNum ?? null,
+        ProvTreat: procedure.ProvNum ?? null,
+        ProvBill: procedure.ProvNum ?? null,
+        ClaimType: 'Primary',
+        ClaimStatus: claimStatusToCode('draft'),
+        DateService: procedure.ProcDate ?? new Date(),
+        ClaimFee: procFee,
+        InsPayEst: procFee,
+        InsPayAmt: 0,
+        DedApplied: 0,
+        PreAuthString: claimNumber,
+        PriorAuthorizationNumber: claimNumber,
+        ClaimIdentifier: claimNumber,
+        ClaimNote: claimMeta.notes ?? null,
+        Narrative: buildJson(claimMeta),
+      },
+    });
+
+    if (existingClaimProc) {
+      await prisma.claimproc.update({
+        where: { ClaimProcNum: existingClaimProc.ClaimProcNum },
+        data: { ClaimNum: newClaim.ClaimNum },
+      });
+    } else {
+      const claimProcNum = await getNextId('claimproc', 'ClaimProcNum');
+      let insPortion = procFee;
+      let ptPortion = 0;
+      if (procedure.BillingNote) {
+        try {
+          const bn = JSON.parse(procedure.BillingNote);
+          if (bn.insPortion !== undefined) insPortion = Number(bn.insPortion);
+          if (bn.ptPortion !== undefined) ptPortion = Number(bn.ptPortion);
+        } catch (e) {}
+      }
+      await prisma.claimproc.create({
+        data: {
+          ClaimProcNum: claimProcNum,
+          ClaimNum: newClaim.ClaimNum,
+          ProcNum: procedure.ProcNum,
+          PatNum: procedure.PatNum,
+          ProvNum: procedure.ProvNum,
+          PlanNum: newClaim.PlanNum,
+          InsSubNum: newClaim.InsSubNum,
+          ClinicNum: procedure.ClinicNum,
+          DateCP: new Date(),
+          ProcDate: procedure.ProcDate,
+          DateEntry: new Date(),
+          Status: 0,
+          FeeBilled: procFee,
+          InsPayEst: insPortion,
+          DedApplied: ptPortion,
+        },
+      });
+    }
+
+    if (userId) {
+      await this.createStatusHistoryEntry(
+        newClaim.ClaimNum.toString(),
+        'draft',
+        `Claim created by moving procedure #${procId}`,
+        userId
+      );
+    }
+
+    return this.getClaimById(newClaim.ClaimNum.toString());
   }
 }
 

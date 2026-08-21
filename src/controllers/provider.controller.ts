@@ -84,6 +84,7 @@ export class ProviderController {
         isAcceptingNewPatients,
         workingHours,
         telehealthEnabled,
+        color,
       } = req.body;
 
       const provider = await providerService.createProvider(
@@ -101,6 +102,7 @@ export class ProviderController {
           isAcceptingNewPatients,
           workingHours,
           telehealthEnabled,
+          color,
         },
         req.userId
       );

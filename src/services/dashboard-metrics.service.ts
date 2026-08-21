@@ -581,7 +581,7 @@ export class DashboardMetricsService {
     txGoal: number,
     hygGoal: number
   ) {
-    const trendPoints = 20;
+    const trendPoints = (range === 'Monthly' || range === 'Yearly') ? 12 : 20;
     const intervalMs = (endDate.getTime() - startDate.getTime()) / trendPoints;
 
     const labels: string[] = [];

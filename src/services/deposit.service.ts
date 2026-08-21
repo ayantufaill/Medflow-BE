@@ -50,7 +50,7 @@ export class DepositService {
     } = {}
   ) {
     const skip = (page - 1) * limit;
-    
+
     // In OpenDental schema, unallocated deposits are paysplits with UnearnedType > 0
     const where: any = {
       UnearnedType: { gt: 0 },
@@ -115,39 +115,41 @@ export class DepositService {
 
     const payNum = await getNextId('payment', 'PayNum');
     const splitNum = await getNextId('paysplit', 'SplitNum');
-    
+
     const unearnedTypeDefNum = data.depositType === 'insurance' ? 2 : 1; // Arbitrary defnums for prepayments
 
-    // Transaction to ensure both payment and paysplit are created
-    const [payment, split] = await prisma.$transaction([
-      prisma.payment.create({
-        data: {
-          PayNum: payNum,
-          PatNum: BigInt(data.patientId),
-          PayAmt: data.amount,
-          PayDate: resolvedDate,
-          PayNote: buildJson({
-            paymentMethod: data.paymentMethod,
-            depositType: data.depositType,
-            notes: data.notes ?? null,
-            isDeposit: true
-          }),
-          SecUserNumEntry: BigInt(userId),
+    // Create payment with nested paysplit write to guarantee sequence and foreign key integrity
+    const payment = await prisma.payment.create({
+      data: {
+        PayNum: payNum,
+        PatNum: BigInt(data.patientId),
+        PayAmt: data.amount,
+        PayDate: resolvedDate,
+        PayNote: buildJson({
+          paymentMethod: data.paymentMethod,
+          depositType: data.depositType,
+          notes: data.notes ?? null,
+          isDeposit: true,
+        }),
+        SecUserNumEntry: BigInt(userId),
+        paysplit: {
+          create: {
+            SplitNum: splitNum,
+            SplitAmt: data.amount,
+            PatNum: BigInt(data.patientId),
+            DatePay: resolvedDate,
+            UnearnedType: BigInt(unearnedTypeDefNum),
+            DateEntry: new Date(),
+            SecUserNumEntry: BigInt(userId),
+          },
         },
-      }),
-      prisma.paysplit.create({
-        data: {
-          SplitNum: splitNum,
-          SplitAmt: data.amount,
-          PatNum: BigInt(data.patientId),
-          DatePay: resolvedDate,
-          PayNum: payNum,
-          UnearnedType: BigInt(unearnedTypeDefNum),
-          DateEntry: new Date(),
-          SecUserNumEntry: BigInt(userId),
-        },
-      })
-    ]);
+      },
+      include: {
+        paysplit: true,
+      },
+    });
+
+    const split = payment.paysplit[0];
 
     await logActivity(userId, 'created', 'deposits', split.SplitNum.toString(), undefined, { payment, split });
 
@@ -220,12 +222,12 @@ export class DepositService {
     const mapPaymentMethod = (methodStr: string | undefined | null, isInsurance: boolean): string => {
       if (!methodStr) return isInsurance ? 'Insurance Check' : 'Patient Check';
       const lower = methodStr.toLowerCase().trim();
-      
+
       if (lower === 'card' || lower === 'credit_card') return 'Credit Card';
       if (lower === 'cash') return 'Cash';
       if (lower === 'ach' || lower === 'eft') return 'EFT';
       if (lower === 'check') return isInsurance ? 'Insurance Check' : 'Patient Check';
-      
+
       // For older legacy payments that use OpenDental strings like "Visa Card"
       return methodStr;
     };

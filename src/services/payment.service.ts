@@ -4,6 +4,14 @@ import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { mapPatientToApi } from '../utils/opendental-mappers.util';
 import { staffNotificationService } from './staffNotification.service';
+import { invoiceService } from './invoice.service';
+import { claimService } from './claim.service';
+
+const toBigInt = (value?: string | number | bigint | null): bigint | null => {
+  if (value === undefined || value === null || value === '') return null;
+  const str = String(value).trim();
+  return /^\d+$/.test(str) ? BigInt(str) : null;
+};
 
 const parseJson = <T>(value?: string | null): T => {
   if (!value) return {} as T;
@@ -205,6 +213,22 @@ export class PaymentService {
       status?: string;
       paidAt?: Date;
       paymentDate?: string;
+      procedures?: Array<{
+        id?: string;
+        procId?: string;
+        procedureId?: string;
+        allowed?: number;
+        wo?: number;
+        writeoff?: number;
+        pay?: number;
+        insPay?: number;
+        ded?: number;
+        deductible?: number;
+        updateAllowedFee?: boolean;
+        updateInsFlatPortion?: boolean;
+        moveToNewClaim?: boolean;
+        claimId?: string;
+      }>;
     },
     userId: string
   ) {
@@ -216,12 +240,48 @@ export class PaymentService {
     const resolvedPaidAt =
       data.paidAt ?? (data.paymentDate ? new Date(data.paymentDate) : undefined) ?? new Date();
 
+    const methodNormalized = String(resolvedMethod || '').toLowerCase().trim();
+    const isAccountCredit =
+      methodNormalized.includes('account credit') ||
+      methodNormalized.includes('account_credit') ||
+      methodNormalized.includes('patient credit') ||
+      methodNormalized === 'credit';
+
     const payNum = await getNextId('payment', 'PayNum');
+
+    let paysplitData: any = undefined;
+
+    if (isAccountCredit) {
+      const splitNum1 = await getNextId('paysplit', 'SplitNum');
+      const splitNum2 = await getNextId('paysplit', 'SplitNum');
+      paysplitData = {
+        create: [
+          {
+            SplitNum: splitNum1,
+            PatNum: BigInt(data.patientId),
+            SplitAmt: -data.amount,
+            UnearnedType: BigInt(1), // Deduction from patient deposit pool
+            DatePay: resolvedPaidAt,
+            DateEntry: new Date(),
+            SecUserNumEntry: BigInt(userId),
+          },
+          {
+            SplitNum: splitNum2,
+            PatNum: BigInt(data.patientId),
+            SplitAmt: data.amount,
+            DatePay: resolvedPaidAt,
+            DateEntry: new Date(),
+            SecUserNumEntry: BigInt(userId),
+          },
+        ],
+      };
+    }
+
     const payment = await prisma.payment.create({
       data: {
         PayNum: payNum,
         PatNum: BigInt(data.patientId),
-        PayAmt: data.amount,
+        PayAmt: isAccountCredit ? 0 : data.amount,
         PayDate: resolvedPaidAt,
         PayNote: buildJson({
           invoiceId: data.invoiceId ?? null,
@@ -233,10 +293,80 @@ export class PaymentService {
           paidAt: resolvedPaidAt.toISOString(),
           status: data.status ?? 'completed',
           notes: data.notes ?? null,
+          isAccountCredit,
+          appliedCreditAmount: isAccountCredit ? data.amount : undefined,
         }),
         SecUserNumEntry: BigInt(userId),
+        ...(paysplitData ? { paysplit: paysplitData } : {}),
       },
     });
+
+    // Process procedure-level flags & payments
+    if (data.procedures && Array.isArray(data.procedures) && data.procedures.length > 0) {
+      for (const procItem of data.procedures) {
+        const procId = procItem.id || procItem.procId || procItem.procedureId;
+        if (!procId) continue;
+        const procNum = toBigInt(procId);
+        if (!procNum) continue;
+
+        const allowed = procItem.allowed !== undefined ? Number(procItem.allowed) : undefined;
+        const pay = procItem.pay !== undefined ? Number(procItem.pay) : (procItem.insPay !== undefined ? Number(procItem.insPay) : undefined);
+        const updateAllowedFee = Boolean(procItem.updateAllowedFee);
+        const updateInsFlatPortion = Boolean(procItem.updateInsFlatPortion);
+        const moveToNewClaim = Boolean(procItem.moveToNewClaim);
+
+        // 1. Update allowed fee if checkbox checked
+        if (updateAllowedFee && allowed !== undefined && !isNaN(allowed)) {
+          const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
+          if (item) {
+            const itemMeta = parseJson<Record<string, any>>(item.BillingNote);
+            const updatedMeta = { ...itemMeta, feeAllowed: allowed };
+            await prisma.procedurelog.update({
+              where: { ProcNum: procNum },
+              data: { BillingNote: JSON.stringify(updatedMeta) },
+            });
+          }
+          await prisma.claimproc.updateMany({
+            where: { ProcNum: procNum },
+            data: { AllowedOverride: allowed },
+          });
+        }
+
+        // 2. Update Ins. Flat Portion if checkbox checked
+        if (updateInsFlatPortion && pay !== undefined && !isNaN(pay)) {
+          const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
+          if (item) {
+            const itemMeta = parseJson<Record<string, any>>(item.BillingNote);
+            const updatedMeta = { ...itemMeta, insPortion: pay };
+            await prisma.procedurelog.update({
+              where: { ProcNum: procNum },
+              data: { BillingNote: buildJson(updatedMeta) },
+            });
+          }
+        }
+
+        // 3. Move to new claim if checkbox checked
+        if (moveToNewClaim) {
+          await claimService.moveProcedureToNewClaim(procId, procItem.claimId, userId);
+        }
+
+        // 4. Record procedure payment if pay > 0
+        if (pay !== undefined && !isNaN(pay) && pay > 0) {
+          let targetInvoiceId = data.invoiceId;
+          if (!targetInvoiceId) {
+            const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
+            targetInvoiceId = item?.StatementNum?.toString();
+          }
+          if (targetInvoiceId) {
+            try {
+              await invoiceService.markItemPaid(targetInvoiceId, procId, pay);
+            } catch (e) {
+              // Ignore if already marked or invoice structure differs
+            }
+          }
+        }
+      }
+    }
 
     await logActivity(userId, 'created', 'payments', payment.PayNum.toString(), undefined, payment);
 

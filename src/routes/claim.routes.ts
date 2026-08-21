@@ -536,6 +536,16 @@ router.post(
   claimController.uploadEOB.bind(claimController)
 );
 
+router.delete(
+  '/batch-payment/:paymentId/eob/:eobId',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('claims.update'),
+  validate(paymentIdParamValidator),
+  claimController.deleteEOB.bind(claimController)
+);
+
 /**
  * @swagger
  * /claims/batch-invoices:
@@ -1119,6 +1129,79 @@ router.post(
   validate(claimIdValidator),
   uploadDocumentMiddleware.any(),
   claimController.attachDocument.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/{claimId}/eob:
+ *   post:
+ *     summary: Upload EOB document directly for a claim
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: claimId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - file
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *               description:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: EOB document uploaded successfully
+ */
+router.post(
+  '/:claimId/eob',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('claims.update'),
+  validate(claimIdValidator),
+  uploadDocumentMiddleware.any(),
+  claimController.uploadClaimEOB.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/{claimId}/eob/{eobId}:
+ *   delete:
+ *     summary: Delete EOB document directly from a claim
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: claimId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: path
+ *         name: eobId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: EOB document deleted successfully
+ */
+router.delete(
+  '/:claimId/eob/:eobId',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('claims.update'),
+  validate(claimIdValidator),
+  claimController.deleteClaimEOB.bind(claimController)
 );
 
 /**

@@ -61,8 +61,10 @@ import shortlistRoutes from './shortlist.routes';
 import notificationRoutes from './notification.routes';
 import branchRoutes from './branch.routes';
 import practiceGroupRoutes from './practice-group.routes';
+import coverageGroupRoutes from './coverage-group.routes';
 
 const router = Router();
+router.use('/coverage-groups', coverageGroupRoutes);
 
 
 

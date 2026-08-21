@@ -435,6 +435,87 @@ export class ClaimController {
     }
   }
 
+  async deleteEOB(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const paymentId = req.params.paymentId as string;
+      const eobId = req.params.eobId as string;
+
+      const result = await claimService.deleteEOB(paymentId, eobId);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async uploadClaimEOB(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const claimId = req.params.claimId as string;
+      const uploadedFile =
+        req.file ?? (Array.isArray(req.files) ? (req.files[0] as Express.Multer.File | undefined) : undefined);
+
+      if (!uploadedFile) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'No file uploaded' },
+        });
+      }
+
+      const result = await claimService.uploadClaimEOB(
+        claimId,
+        uploadedFile,
+        req.body.description,
+        req.userId
+      );
+
+      res.status(200).json({
+        success: true,
+        data: result,
+        message: 'EOB uploaded successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deleteClaimEOB(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const claimId = req.params.claimId as string;
+      const eobId = req.params.eobId as string;
+
+      const result = await claimService.deleteClaimEOB(claimId, eobId);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+        message: 'EOB deleted successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getDenticalReports(req: Request, res: Response, next: NextFunction) {
     try {
       const reports = await claimService.getDenticalReports();

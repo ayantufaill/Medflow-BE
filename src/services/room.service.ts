@@ -70,9 +70,10 @@ export class RoomService {
     },
     createdBy: string
   ) {
-    // Check if name already exists
+    // Check if name already exists among active rooms
     const existing = await prisma.operatory.findFirst({
       where: {
+        IsHidden: 0,
         OR: [{ OpName: data.name }, { Abbrev: data.name }],
       },
     });
@@ -138,11 +139,12 @@ export class RoomService {
       throw new NotFoundError('Room not found');
     }
 
-    // Check if name is already in use by another room
+    // Check if name is already in use by another active room
     if (updates.name && updates.name !== (room.OpName ?? room.Abbrev ?? '')) {
       const existing = await prisma.operatory.findFirst({
         where: {
           OperatoryNum: { not: BigInt(roomId) },
+          IsHidden: 0,
           OR: [{ OpName: updates.name }, { Abbrev: updates.name }],
         },
       });
@@ -195,9 +197,10 @@ export class RoomService {
 
     const oldData = mapRoomToApi(room);
 
-    // Hard delete - remove from database
-    await prisma.operatory.delete({
+    // Soft delete - mark as hidden
+    await prisma.operatory.update({
       where: { OperatoryNum: BigInt(roomId) },
+      data: { IsHidden: 1 },
     });
 
     // Log activity
