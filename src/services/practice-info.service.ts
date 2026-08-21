@@ -234,7 +234,6 @@ export class PracticeInfoService {
   private mapClinicToPracticeInfo(row: clinic, meta: PracticeInfoMeta) {
     return {
       _id: row.ClinicNum.toString(),
-      branchId: row.ClinicNum.toString(),
       practiceName: row.Description ?? '',
       taxId: meta.taxId ?? null,
       licenseNumber: meta.licenseNumber ?? null,
@@ -455,17 +454,10 @@ export class PracticeInfoService {
     return this.mapClinicToPracticeInfo(row, metaMap.get(row.ClinicNum.toString()) ?? {});
   }
 
-  /**
-   * branchId picks a specific branch's practice info. Omitted falls back to
-   * whichever clinic the highest ClinicNum happens to be — a last resort for
-   * callers with no resolvable branch (e.g. true system Admin) — callers
-   * should normally pass their own resolved branch (see
-   * practice-info.controller.ts) rather than relying on this fallback.
-   */
-  async getPracticeInfo(branchId?: string) {
-    const row = branchId
-      ? await prisma.clinic.findUnique({ where: { ClinicNum: BigInt(branchId) } })
-      : await prisma.clinic.findFirst({ orderBy: { ClinicNum: 'desc' } });
+  async getPracticeInfo() {
+    const row = await prisma.clinic.findFirst({
+      orderBy: { ClinicNum: 'desc' },
+    });
     if (!row) return null;
 
     const metaMap = await this.getClinicMetaMap([row.ClinicNum]);

@@ -601,7 +601,6 @@ async getPatientLastVisit(patientId: string) {
       preferredDentistId?: string;
       preferredHygienistId?: string;
       guarantorId?: string;
-      branchId?: string;
     },
     createdBy?: string
   ) {
@@ -660,7 +659,6 @@ async getPatientLastVisit(patientId: string) {
         DateFirstVisit: data.lastVisitDate ?? null,
         AddrNote: data.notes?.trim() || null,
         Guarantor: data.guarantorId ? BigInt(data.guarantorId) : nextId,
-        ClinicNum: data.branchId ? BigInt(data.branchId) : null,
       },
     });
 
@@ -775,7 +773,6 @@ async getPatientLastVisit(patientId: string) {
       patientFlags?: any[];
       financialResponsibility?: Record<string, any> | null;
       guarantorId?: string;
-      branchId?: string;
     },
     updatedBy?: string
   ) {
@@ -798,7 +795,6 @@ async getPatientLastVisit(patientId: string) {
     const updated = await prisma.patient.update({
       where: { PatNum: BigInt(patientId) },
       data: {
-        ClinicNum: updates.branchId !== undefined ? (updates.branchId ? BigInt(updates.branchId) : null) : undefined,
         FName: updates.firstName ?? undefined,
         LName: updates.lastName ?? undefined,
         MiddleI: updates.middleName !== undefined ? (updates.middleName.trim() || null) : undefined,

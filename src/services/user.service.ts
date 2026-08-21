@@ -98,8 +98,6 @@ export class UserService {
     );
     const roleMetaMap = await getRolesMeta(allRoleNums);
 
-    const branchIdsByUser = await PermissionService.getAssignedBranchIdsBatch(users.map((u) => u._id));
-
     const usersWithRoles = await Promise.all(
       users.map(async (user) => {
         const roleGroups = userRoles
@@ -109,7 +107,7 @@ export class UserService {
         const roles = await Promise.all(
           roleGroups.map((role) => mapRole(role, roleMetaMap[role.UserGroupNum.toString()] ?? {}))
         );
-        return { ...sanitizeUser(user), roles, branchIds: branchIdsByUser.get(user._id) ?? [] };
+        return { ...sanitizeUser(user), roles };
       })
     );
 
@@ -164,18 +162,7 @@ export class UserService {
         .map((r) => mapRole(r, roleMetaMap[r.UserGroupNum.toString()] ?? {}))
     );
 
-    const [branchIds, branchAccess] = await Promise.all([
-      PermissionService.getAssignedBranchIds(userId),
-      PermissionService.getBranchAccess(userId),
-    ]);
-
-    return {
-      ...sanitizeUser(mapped),
-      roles,
-      branchIds,
-      groupId: branchAccess.groupId,
-      isGroupAdmin: branchAccess.isGroupAdmin,
-    } as UserWithRoles;
+    return { ...sanitizeUser(mapped), roles } as UserWithRoles;
   }
 
   async updateUser(
@@ -700,39 +687,6 @@ export class UserService {
     await setUserMeta(BigInt(userId), { ...meta, currentBranchId: branchId });
 
     return { branchId };
-  }
-
-  /**
-   * Resyncs an *existing* user's userclinic rows to exactly branchIds.
-   * Authorization (who may do this, for which branches) is the caller's
-   * responsibility — see PermissionService.assertCanManageBranchAssignment,
-   * checked in the controller before this runs.
-   */
-  async updateUserBranches(userId: string, branchIds: string[]): Promise<{ branchIds: string[] }> {
-    const user = await prisma.userod.findUnique({ where: { UserNum: BigInt(userId) } });
-    if (!user) {
-      throw new NotFoundError('User not found');
-    }
-
-    const uniqueBranchIds = Array.from(new Set(branchIds));
-    if (uniqueBranchIds.length > 0) {
-      const clinics = await prisma.clinic.findMany({
-        where: { ClinicNum: { in: uniqueBranchIds.map((id) => BigInt(id)) } },
-      });
-      if (clinics.length !== uniqueBranchIds.length) {
-        throw new NotFoundError('One or more branches were not found.');
-      }
-    }
-
-    await prisma.userclinic.deleteMany({ where: { UserNum: BigInt(userId) } });
-    for (const branchId of uniqueBranchIds) {
-      const nextId = await getNextId('userclinic', 'UserClinicNum');
-      await prisma.userclinic.create({
-        data: { UserClinicNum: nextId, UserNum: BigInt(userId), ClinicNum: BigInt(branchId) },
-      });
-    }
-
-    return { branchIds: uniqueBranchIds };
   }
 }
 

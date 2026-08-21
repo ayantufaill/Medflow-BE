@@ -1,8 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { userService } from '../services/user.service';
 import { logActivityFromRequest, getClientIp, getUserAgent } from '../utils/activity-logger.util';
-import { PermissionService } from '../services/permission.service';
-import { GROUP_ADMIN_PERMISSIONS } from '../types/auth.types';
 
 export class UserController {
   async getAllUsers(req: Request, res: Response, next: NextFunction) {
@@ -148,34 +146,6 @@ export class UserController {
 
       const { branchId } = req.body;
       const data = await userService.updateCurrentBranch(req.userId, branchId);
-      res.status(200).json({ success: true, data });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  /** Reassigns an existing user's branch(es) — Super Admin, Group Admin (own group), or Branch Admin (own branch). */
-  async updateUserBranches(req: Request, res: Response, next: NextFunction) {
-    try {
-      if (!req.userId) {
-        return res.status(401).json({
-          success: false,
-          error: { message: 'User not authenticated' },
-        });
-      }
-
-      const { userId } = req.params;
-      const { branchIds } = req.body;
-
-      const currentBranchIds = await PermissionService.getAssignedBranchIds(userId);
-      await PermissionService.assertCanManageBranchAssignment(
-        req.userId,
-        currentBranchIds,
-        branchIds,
-        GROUP_ADMIN_PERMISSIONS.MANAGE_USERS
-      );
-
-      const data = await userService.updateUserBranches(userId, branchIds);
       res.status(200).json({ success: true, data });
     } catch (error) {
       next(error);

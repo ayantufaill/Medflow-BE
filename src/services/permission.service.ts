@@ -1,8 +1,7 @@
 import { prisma } from '../config/db';
 import type { AppRole, BranchAccess } from '../types/auth.types';
-import { GROUP_ADMIN_PERMISSIONS, PLATFORM_ADMIN_PERMISSIONS, BRANCH_ADMIN_PERMISSIONS } from '../types/auth.types';
+import { GROUP_ADMIN_PERMISSIONS } from '../types/auth.types';
 import { mapRole } from '../utils/opendental-auth.util';
-import { AuthorizationError } from '../utils/error.util';
 
 // Resource types scoped by clinic.ClinicNum, and how to look up their clinic.
 const CLINIC_SCOPED_RESOURCES: Record<string, { findClinicNum: (id: bigint) => Promise<bigint | null> }> = {
@@ -108,101 +107,6 @@ export class PermissionService {
     const roles = await prisma.usergroup.findMany();
     const mapped = await Promise.all(roles.map((r) => mapRole(r)));
     return mapped.filter((role) => role.isActive !== false);
-  }
-
-  /**
-   * Raw branch *assignment* (not access scope) — which clinics this user is
-   * actually tied to via `userclinic`/`userod.ClinicNum`, with no group-admin
-   * expansion. Distinct from getBranchAccess: a Group Admin's access scope
-   * expands to their whole group, but their assignment is still just their
-   * own home branch — this is what a "which branch is this user in" UI wants.
-   */
-  static async getAssignedBranchIds(userId: string): Promise<string[]> {
-    const map = await this.getAssignedBranchIdsBatch([userId]);
-    return map.get(userId) ?? [];
-  }
-
-  static async getAssignedBranchIdsBatch(userIds: string[]): Promise<Map<string, string[]>> {
-    const userNums = userIds.map((id) => BigInt(id));
-    const result = new Map<string, string[]>(userIds.map((id) => [id, []]));
-
-    const assignments = await prisma.userclinic.findMany({
-      where: { UserNum: { in: userNums } },
-      select: { UserNum: true, ClinicNum: true },
-    });
-    for (const a of assignments) {
-      if (!a.UserNum || !a.ClinicNum) continue;
-      const key = a.UserNum.toString();
-      const list = result.get(key) ?? [];
-      const clinicIdStr = a.ClinicNum.toString();
-      if (!list.includes(clinicIdStr)) list.push(clinicIdStr);
-      result.set(key, list);
-    }
-
-    const users = await prisma.userod.findMany({
-      where: { UserNum: { in: userNums } },
-      select: { UserNum: true, ClinicNum: true },
-    });
-    for (const u of users) {
-      if (!u.ClinicNum) continue;
-      const key = u.UserNum.toString();
-      const list = result.get(key) ?? [];
-      const clinicIdStr = u.ClinicNum.toString();
-      if (!list.includes(clinicIdStr)) list.push(clinicIdStr);
-      result.set(key, list);
-    }
-
-    return result;
-  }
-
-  /**
-   * Authorizes reassigning a resource's branch(es) — shared by both the
-   * user-branch and provider-branch reassignment endpoints, since the rule is
-   * identical: who may move something from `currentBranchIds` to
-   * `newBranchIds`.
-   *
-   * - Super Admin (platform:manage_practice_groups): any branch, any group.
-   * - Group Admin (groupPermission, e.g. group:manage_users /
-   *   group:reassign_providers): only if BOTH the current and the requested
-   *   branches are entirely within the caller's own group — prevents pulling
-   *   a resource out of, or into, a group that isn't theirs.
-   * - Branch Admin (branch:manage_users): only if BOTH the current and the
-   *   requested branches are exactly the caller's own assigned branch(es) —
-   *   no group-wide reach at all.
-   *
-   * Throws AuthorizationError if none apply.
-   */
-  static async assertCanManageBranchAssignment(
-    callerId: string,
-    currentBranchIds: string[],
-    newBranchIds: string[],
-    groupPermission: string
-  ): Promise<void> {
-    const hasPlatformPermission = await this.hasPermission(
-      callerId,
-      PLATFORM_ADMIN_PERMISSIONS.MANAGE_PRACTICE_GROUPS
-    );
-    if (hasPlatformPermission) return;
-
-    const callerAccess = await this.getBranchAccess(callerId);
-    const hasGroupPermission = await this.hasPermission(callerId, groupPermission);
-    if (hasGroupPermission && callerAccess.isGroupAdmin && callerAccess.groupId !== null) {
-      const allowed = new Set(callerAccess.clinicIds.map((id) => id.toString()));
-      const newOk = newBranchIds.length > 0 && newBranchIds.every((id) => allowed.has(id));
-      const currentOk = currentBranchIds.length === 0 || currentBranchIds.every((id) => allowed.has(id));
-      if (newOk && currentOk) return;
-    }
-
-    const hasBranchPermission = await this.hasPermission(callerId, BRANCH_ADMIN_PERMISSIONS.MANAGE_USERS);
-    if (hasBranchPermission) {
-      const ownBranches = await this.getAssignedBranchIds(callerId);
-      const allowed = new Set(ownBranches);
-      const newOk = newBranchIds.length > 0 && newBranchIds.every((id) => allowed.has(id));
-      const currentOk = currentBranchIds.length === 0 || currentBranchIds.every((id) => allowed.has(id));
-      if (newOk && currentOk) return;
-    }
-
-    throw new AuthorizationError('You do not have access to manage this branch assignment.');
   }
 
   /**

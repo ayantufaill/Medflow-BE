@@ -12,7 +12,6 @@ import {
   createUserValidator,
   assignUserRolesValidator,
   updateCurrentBranchValidator,
-  updateUserBranchesValidator,
 } from '../validators/user.validator';
 
 // Validator for activity and login history endpoints
@@ -262,45 +261,6 @@ router.patch(
   '/me/branch',
   validate(updateCurrentBranchValidator),
   userController.updateCurrentBranch.bind(userController)
-);
-
-/**
- * @swagger
- * /users/{userId}/branches:
- *   patch:
- *     summary: Reassign an existing user's branch(es)
- *     description: Super Admin may target any user/branch. Group Admin may only move a user between branches within their own group. Branch Admin may only assign a user to their own branch.
- *     tags: [Users]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: userId
- *         required: true
- *         schema: { type: string }
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [branchIds]
- *             properties:
- *               branchIds:
- *                 type: array
- *                 items: { type: string }
- *     responses:
- *       200:
- *         description: User's branch assignment updated
- *       403:
- *         description: Not authorized to manage this branch assignment
- *       404:
- *         description: User or branch not found
- */
-router.patch(
-  '/:userId/branches',
-  validate(updateUserBranchesValidator),
-  userController.updateUserBranches.bind(userController)
 );
 
 /**

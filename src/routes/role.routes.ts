@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { roleController } from '../controllers/role.controller';
-import { authenticate, requireRoles, requireAnyRole } from '../middleware/auth.middleware';
+import { authenticate, requireRoles } from '../middleware/auth.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { body, param, query } from 'express-validator';
@@ -146,7 +146,7 @@ router.use(authenticate);
  */
 router.get(
   '/',
-  requireAnyRole('Admin', 'Super Admin'),
+  requireRoles('Admin'),
   validate([
     query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
     query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100'),
@@ -185,7 +185,7 @@ router.get(
  */
 router.get(
   '/:roleId',
-  requireAnyRole('Admin', 'Super Admin'),
+  requireRoles('Admin'),
   validate([
     param('roleId').isString().trim().notEmpty().withMessage('Role ID is required'),
   ]),
@@ -249,7 +249,7 @@ router.get(
  */
 router.post(
   '/',
-  requireAnyRole('Admin', 'Super Admin'),
+  requireRoles('Admin'),
   requirePermission('roles.create'),
   validate([
     body('name')
@@ -323,7 +323,7 @@ router.post(
  */
 router.put(
   '/:roleId',
-  requireAnyRole('Admin', 'Super Admin'),
+  requireRoles('Admin'),
   requirePermission('roles.update'),
   validate([
     param('roleId').isString().trim().notEmpty().withMessage('Role ID is required'),
@@ -374,7 +374,7 @@ router.put(
  */
 router.delete(
   '/:roleId',
-  requireAnyRole('Admin', 'Super Admin'),
+  requireRoles('Admin'),
   requirePermission('roles.delete'),
   validate([
     param('roleId').isString().trim().notEmpty().withMessage('Role ID is required'),
@@ -422,7 +422,7 @@ router.delete(
  */
 router.get(
   '/:roleId/users',
-  requireAnyRole('Admin', 'Super Admin'),
+  requireRoles('Admin'),
   validate([
     param('roleId').isString().trim().notEmpty().withMessage('Role ID is required'),
     query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),

@@ -895,7 +895,6 @@ async getPatientAppointments(patientId: string, limit = 10) {
     chiefComplaint?: string;
     notes?: string;
     roomId?: string;
-    branchId?: string;
     requiresInterpreter?: boolean;
     insuranceVerified?: boolean;
     copayCollected?: number;
@@ -962,23 +961,15 @@ async getPatientAppointments(patientId: string, limit = 10) {
     const durationMinutes = data.durationMinutes || 30;
 
     let opId: bigint;
-    let opClinicNum: bigint | null = null;
     if (data.roomId) {
       opId = BigInt(data.roomId);
-      const room = await prisma.operatory.findUnique({ where: { OperatoryNum: opId } });
-      opClinicNum = room?.ClinicNum ?? null;
     } else {
       const defaultOp = await prisma.operatory.findFirst({
         where: { IsHidden: 0 },
         orderBy: { ItemOrder: 'asc' },
       });
       opId = defaultOp?.OperatoryNum ?? BigInt(1);
-      opClinicNum = defaultOp?.ClinicNum ?? null;
     }
-
-    // branchId is explicit if given; otherwise falls back to the room's
-    // branch, since a booking physically happens wherever its room is.
-    const clinicNum = data.branchId ? BigInt(data.branchId) : opClinicNum;
 
     const appointment = await prisma.appointment.create({
       data: {
@@ -991,7 +982,6 @@ async getPatientAppointments(patientId: string, limit = 10) {
         ProcDescript: data.chiefComplaint ?? null,
         Note: data.notes ?? null,
         Op: opId,
-        ClinicNum: clinicNum,
         AptStatus: mapAppointmentStatusToDb(data.status ?? 'scheduled'),
         DateTimeArrived: null,
         DateTimeDismissed: null,

@@ -8,12 +8,6 @@ export const updateCurrentBranchValidator: ValidationChain[] = [
     .withMessage('branchId is required'),
 ];
 
-export const updateUserBranchesValidator: ValidationChain[] = [
-  param('userId').isString().trim().notEmpty().withMessage('userId is required'),
-  body('branchIds').isArray().withMessage('branchIds must be an array of branch id strings'),
-  body('branchIds.*').isString().withMessage('Each branchId must be a string'),
-];
-
 export const updateUserValidator: ValidationChain[] = [
   body('firstName')
     .optional()
