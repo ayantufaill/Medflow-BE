@@ -67,11 +67,28 @@ describe('Finance Dashboard Aging Breakdown Service Tests', () => {
       }
     ] as any);
 
+    vi.spyOn(prisma.paysplit, 'findMany').mockResolvedValue([
+      {
+        SplitNum: 1n,
+        PatNum: patNum,
+        SplitAmt: 200.0,
+        UnearnedType: 1n,
+      },
+      {
+        SplitNum: 2n,
+        PatNum: patNum,
+        SplitAmt: 50.0,
+        UnearnedType: 2n,
+      }
+    ] as any);
+
     const result = await financeDashboardService.getAgingByPatient(patNum.toString());
 
     expect(result).toHaveProperty('familyOutstanding');
     expect(result).toHaveProperty('familyBalance');
     expect(result).toHaveProperty('insuranceBalance');
+    expect(result).toHaveProperty('patientAccountCredit');
+    expect(result).toHaveProperty('insuranceAccountCredit');
 
     expect(result.insuranceBalance['0_30']).toBe(150.0);
     expect(result.insuranceBalance.total).toBe(150.0);
@@ -81,5 +98,8 @@ describe('Finance Dashboard Aging Breakdown Service Tests', () => {
 
     expect(result.familyBalance['0_30']).toBe(420.0);
     expect(result.familyBalance.total).toBe(420.0);
+
+    expect(result.patientAccountCredit).toBe(200.0);
+    expect(result.insuranceAccountCredit).toBe(50.0);
   });
 });
