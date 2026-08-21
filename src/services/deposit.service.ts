@@ -50,7 +50,7 @@ export class DepositService {
     } = {}
   ) {
     const skip = (page - 1) * limit;
-    
+
     // In OpenDental schema, unallocated deposits are paysplits with UnearnedType > 0
     const where: any = {
       UnearnedType: { gt: 0 },
@@ -115,7 +115,7 @@ export class DepositService {
 
     const payNum = await getNextId('payment', 'PayNum');
     const splitNum = await getNextId('paysplit', 'SplitNum');
-    
+
     const unearnedTypeDefNum = data.depositType === 'insurance' ? 2 : 1; // Arbitrary defnums for prepayments
 
     // Create payment with nested paysplit write to guarantee sequence and foreign key integrity
@@ -135,7 +135,6 @@ export class DepositService {
         paysplit: {
           create: {
             SplitNum: splitNum,
-            PayNum: payNum,
             SplitAmt: data.amount,
             PatNum: BigInt(data.patientId),
             DatePay: resolvedDate,
@@ -223,12 +222,12 @@ export class DepositService {
     const mapPaymentMethod = (methodStr: string | undefined | null, isInsurance: boolean): string => {
       if (!methodStr) return isInsurance ? 'Insurance Check' : 'Patient Check';
       const lower = methodStr.toLowerCase().trim();
-      
+
       if (lower === 'card' || lower === 'credit_card') return 'Credit Card';
       if (lower === 'cash') return 'Cash';
       if (lower === 'ach' || lower === 'eft') return 'EFT';
       if (lower === 'check') return isInsurance ? 'Insurance Check' : 'Patient Check';
-      
+
       // For older legacy payments that use OpenDental strings like "Visa Card"
       return methodStr;
     };
