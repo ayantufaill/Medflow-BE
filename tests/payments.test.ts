@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import app from '../src/app';
+import { prisma } from '../src/config/db';
 import { getAdminAuthHeader } from './helpers/auth';
 import { uniqueToken } from './helpers/unique';
-import { createPatientRecord, createPaymentRecord } from './helpers/fixtures';
+import { createPatientRecord, createPaymentRecord, createInvoiceStatement } from './helpers/fixtures';
 
 describe('Payments', () => {
   let authHeader: { Authorization: string };
@@ -29,7 +30,7 @@ describe('Payments', () => {
     });
 
     const res = await request(app)
-      .get('/api/payments')
+      .get('/api/payments?limit=1000')
       .set(authHeader);
     expect(res.status).toBe(200);
     const payments = res.body?.data?.payments ?? [];
@@ -64,23 +65,29 @@ describe('Payments', () => {
   it('creates an Account Credit payment with $0 PayAmt and offsetting paysplits', async () => {
     const token = uniqueToken('acct_cred_pay');
     const patient = await createPatientRecord(token);
+    const statement = await createInvoiceStatement({
+      patientId: patient.PatNum,
+      token,
+    });
 
     const res = await request(app)
       .post('/api/payments')
       .set(authHeader)
       .send({
+        invoiceId: statement.StatementNum.toString(),
         patientId: patient.PatNum.toString(),
         amount: 50.0,
         paymentMethod: 'Account Credit',
+        paymentDate: new Date().toISOString(),
         notes: 'Deduct from patient account credit',
       });
 
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
-    expect(res.body.data).toBeDefined();
+    expect(res.body.data?.payment).toBeDefined();
 
     // Verify payment in DB has PayAmt = 0
-    const createdPayNum = BigInt(res.body.data._id);
+    const createdPayNum = BigInt(res.body.data.payment._id);
     const dbPayment = await prisma.payment.findUnique({
       where: { PayNum: createdPayNum },
       include: { paysplit: true },
