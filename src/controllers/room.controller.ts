@@ -9,12 +9,14 @@ export class RoomController {
       const limit = parseInt(req.query.limit as string) || 10;
       const search = req.query.search as string | undefined;
       const isActive = req.query.isActive === 'true' ? true : req.query.isActive === 'false' ? false : undefined;
+      const branchId = req.query.branchId as string | undefined;
 
       const result = await roomService.getAllRooms(
         page,
         limit,
         search || undefined,
-        isActive
+        isActive,
+        branchId
       );
 
       res.status(200).json({
@@ -61,11 +63,12 @@ export class RoomController {
         });
       }
 
-      const { name } = req.body;
+      const { name, branchId } = req.body;
 
       const room = await roomService.createRoom(
         {
           name,
+          branchId,
         },
         req.userId
       );

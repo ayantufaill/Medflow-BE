@@ -44,6 +44,10 @@ export const createPatientValidator: ValidationChain[] = [
     .withMessage('Last name is required')
     .isLength({ min: 2, max: 50 })
     .withMessage('Last name must be between 2 and 50 characters'),
+  body('branchId')
+    .optional()
+    .isString()
+    .withMessage('branchId must be a string'),
   body('middleName')
     .optional()
     .trim()
@@ -309,6 +313,10 @@ export const updatePatientValidator: ValidationChain[] = [
     .trim()
     .isLength({ min: 2, max: 50 })
     .withMessage('Last name must be between 2 and 50 characters'),
+  body('branchId')
+    .optional()
+    .isString()
+    .withMessage('branchId must be a string'),
   body('middleName')
     .optional()
     .trim()

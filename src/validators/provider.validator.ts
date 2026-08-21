@@ -8,6 +8,12 @@ export const providerIdValidator: ValidationChain[] = [
     .withMessage('Invalid provider ID format'),
 ];
 
+export const updateProviderBranchesValidator: ValidationChain[] = [
+  ...providerIdValidator,
+  body('branchIds').isArray().withMessage('branchIds must be an array of branch id strings'),
+  body('branchIds.*').isString().withMessage('Each branchId must be a string'),
+];
+
 export const createProviderValidator: ValidationChain[] = [
   body('userId')
     .optional({ values: 'falsy' })
@@ -101,6 +107,13 @@ export const createProviderValidator: ValidationChain[] = [
     .optional()
     .isString()
     .withMessage('color must be a string'),
+  body('branchIds')
+    .optional()
+    .isArray()
+    .withMessage('branchIds must be an array of branch id strings'),
+  body('branchIds.*')
+    .isString()
+    .withMessage('Each branchId must be a string'),
 ];
 
 export const updateProviderValidator: ValidationChain[] = [
@@ -193,6 +206,13 @@ export const updateProviderValidator: ValidationChain[] = [
     .optional()
     .isString()
     .withMessage('color must be a string'),
+  body('branchIds')
+    .optional()
+    .isArray()
+    .withMessage('branchIds must be an array of branch id strings'),
+  body('branchIds.*')
+    .isString()
+    .withMessage('Each branchId must be a string'),
 ];
 
 export const providerQueryValidator: ValidationChain[] = [

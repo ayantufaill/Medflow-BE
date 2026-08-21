@@ -58,6 +58,10 @@ export const createAppointmentValidator: ValidationChain[] = [
     .optional()
     .isInt({ min: 5 })
     .withMessage('Duration must be at least 5 minutes'),
+  body('branchId')
+    .optional()
+    .isString()
+    .withMessage('branchId must be a string'),
   body('chiefComplaint')
     .optional()
     .trim()

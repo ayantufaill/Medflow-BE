@@ -1,8 +1,38 @@
 import type { Request, Response, NextFunction } from 'express';
 import { providerService } from '../services/provider.service';
 import { logActivityFromRequest } from '../utils/activity-logger.util';
+import { PermissionService } from '../services/permission.service';
+import { GROUP_ADMIN_PERMISSIONS } from '../types/auth.types';
 
 export class ProviderController {
+  /** Reassigns an existing provider's branch(es) — Super Admin, or Group Admin within their own group. */
+  async updateProviderBranches(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const { providerId } = req.params;
+      const { branchIds } = req.body;
+
+      const provider = await providerService.getProviderById(providerId);
+      await PermissionService.assertCanManageBranchAssignment(
+        req.userId,
+        provider.branchIds,
+        branchIds,
+        GROUP_ADMIN_PERMISSIONS.REASSIGN_PROVIDERS
+      );
+
+      const data = await providerService.updateProviderBranches(providerId, branchIds);
+      res.status(200).json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getAllProviders(req: Request, res: Response, next: NextFunction) {
     try {
       const page = parseInt(req.query.page as string) || 1;
@@ -10,8 +40,9 @@ export class ProviderController {
       const search = req.query.search as string | undefined;
       const isActive = req.query.isActive === 'true' ? true : req.query.isActive === 'false' ? false : undefined;
       const specialty = req.query.specialty as string | undefined;
+      const branchId = req.query.branchId as string | undefined;
 
-      const result = await providerService.getAllProviders(page, limit, search, isActive, specialty);
+      const result = await providerService.getAllProviders(page, limit, search, isActive, specialty, branchId);
 
       res.status(200).json({
         success: true,
@@ -85,6 +116,7 @@ export class ProviderController {
         workingHours,
         telehealthEnabled,
         color,
+        branchIds,
       } = req.body;
 
       const provider = await providerService.createProvider(
@@ -103,6 +135,7 @@ export class ProviderController {
           workingHours,
           telehealthEnabled,
           color,
+          branchIds,
         },
         req.userId
       );

@@ -25,6 +25,10 @@ export const createRoomValidator: ValidationChain[] = [
     .optional()
     .isInt()
     .withMessage('itemOrder must be an integer'),
+  body('branchId')
+    .optional()
+    .isString()
+    .withMessage('branchId must be a string'),
 ];
 
 export const updateRoomValidator: ValidationChain[] = [

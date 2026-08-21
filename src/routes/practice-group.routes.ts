@@ -1,25 +1,28 @@
 import { Router } from 'express';
 import { practiceGroupController } from '../controllers/practice-group.controller';
-import { authenticate, requireRoles } from '../middleware/auth.middleware';
+import { authenticate } from '../middleware/auth.middleware';
+import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
+import { PLATFORM_ADMIN_PERMISSIONS } from '../types/auth.types';
 import {
   createPracticeGroupValidator,
   groupIdParamValidator,
   createBranchValidator,
   createGroupAdminValidator,
+  updateGroupValidator,
 } from '../validators/practice-group.validator';
 
 const router = Router();
 router.use(authenticate);
 
-// NOTE: gated to the existing 'Admin' role for now, same as the rest of this
-// app's most sensitive endpoints. In a real multi-tenant cloud deployment,
-// provisioning a brand-new, unrelated practice should be gated to a distinct
-// platform/super-admin permission instead — 'Admin' today is a per-practice
-// role, so any existing practice's Admin could otherwise provision other,
-// unrelated practices. Flagging as a known gap rather than inventing a new
-// role tier that wasn't asked for.
-router.use(requireRoles('Admin'));
+// Onboarding/offboarding a practice and cross-group listing are Super Admin
+// only (platform:manage_practice_groups — 'Admin' still passes via its '*'
+// wildcard, so this isn't a regression for existing deployments).
+// GET /:groupId and GET /:groupId/users are the exception: a Group Admin may
+// also reach those, but only for their own group — enforced inside the
+// controller (assertCanOperateOnGroup), not by this middleware, since the
+// permission alone can't express "only if it's your group".
+const requirePlatformAdmin = requirePermission(PLATFORM_ADMIN_PERMISSIONS.MANAGE_PRACTICE_GROUPS);
 
 /**
  * @swagger
@@ -45,6 +48,7 @@ router.use(requireRoles('Admin'));
  */
 router.post(
   '/',
+  requirePlatformAdmin,
   validate(createPracticeGroupValidator),
   practiceGroupController.createGroup.bind(practiceGroupController)
 );
@@ -61,7 +65,7 @@ router.post(
  *       200:
  *         description: List of practice groups
  */
-router.get('/', practiceGroupController.getAllGroups.bind(practiceGroupController));
+router.get('/', requirePlatformAdmin, practiceGroupController.getAllGroups.bind(practiceGroupController));
 
 /**
  * @swagger
@@ -86,6 +90,67 @@ router.get(
   '/:groupId',
   validate(groupIdParamValidator),
   practiceGroupController.getGroupById.bind(practiceGroupController)
+);
+
+/**
+ * @swagger
+ * /practice-groups/{groupId}:
+ *   patch:
+ *     summary: Rename and/or deactivate a practice group (offboarding — never hard-deletes)
+ *     tags: [Practice Groups]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: groupId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name: { type: string }
+ *               isActive: { type: boolean }
+ *     responses:
+ *       200:
+ *         description: Practice group updated
+ *       404:
+ *         description: Practice group not found
+ */
+router.patch(
+  '/:groupId',
+  requirePlatformAdmin,
+  validate(updateGroupValidator),
+  practiceGroupController.updateGroup.bind(practiceGroupController)
+);
+
+/**
+ * @swagger
+ * /practice-groups/{groupId}/users:
+ *   get:
+ *     summary: List every user assigned to a branch within this group
+ *     tags: [Practice Groups]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: groupId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Users in this group
+ *       403:
+ *         description: Not a Super Admin or this group's Group Admin
+ *       404:
+ *         description: Practice group not found
+ */
+router.get(
+  '/:groupId/users',
+  validate(groupIdParamValidator),
+  practiceGroupController.getGroupUsers.bind(practiceGroupController)
 );
 
 /**
@@ -123,6 +188,7 @@ router.get(
  */
 router.post(
   '/:groupId/branches',
+  requirePlatformAdmin,
   validate(createBranchValidator),
   practiceGroupController.createBranch.bind(practiceGroupController)
 );
@@ -162,6 +228,7 @@ router.post(
  */
 router.post(
   '/:groupId/admin',
+  requirePlatformAdmin,
   validate(createGroupAdminValidator),
   practiceGroupController.createGroupAdmin.bind(practiceGroupController)
 );

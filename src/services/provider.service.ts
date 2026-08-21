@@ -18,6 +18,17 @@ function normalizeSpecialtyInput(value: unknown): string[] {
   return Array.from(new Set(trimmed));
 }
 
+/** Resyncs a provider's providerclinic rows to exactly match branchIds. */
+async function syncProviderClinics(provNum: bigint, branchIds: string[]): Promise<void> {
+  await prisma.providerclinic.deleteMany({ where: { ProvNum: provNum } });
+  for (const branchId of Array.from(new Set(branchIds))) {
+    const nextId = await getNextId('providerclinic', 'ProviderClinicNum');
+    await prisma.providerclinic.create({
+      data: { ProviderClinicNum: nextId, ProvNum: provNum, ClinicNum: BigInt(branchId) },
+    });
+  }
+}
+
 /**
  * Generate unique provider code (e.g., PROV001, PROV002, etc.)
  */
@@ -61,10 +72,15 @@ export class ProviderService {
     limit = 10,
     search?: string,
     isActive?: boolean,
-    specialty?: string
+    specialty?: string,
+    branchId?: string
   ) {
     const skip = (page - 1) * limit;
     const where: any = {};
+
+    if (branchId) {
+      where.providerclinic = { some: { ClinicNum: BigInt(branchId) } };
+    }
 
     if (isActive !== undefined) {
       where.IsHidden = isActive ? 0 : 1;
@@ -137,6 +153,21 @@ export class ProviderService {
     const providerNums = providers.map((p) => p.ProvNum);
     const providersMeta = await getProvidersMeta(providerNums);
 
+    const clinicLinks = providerNums.length
+      ? await prisma.providerclinic.findMany({
+          where: { ProvNum: { in: providerNums } },
+          select: { ProvNum: true, ClinicNum: true },
+        })
+      : [];
+    const branchIdsByProvider = new Map<string, string[]>();
+    for (const link of clinicLinks) {
+      if (!link.ProvNum || !link.ClinicNum) continue;
+      const key = link.ProvNum.toString();
+      const list = branchIdsByProvider.get(key) ?? [];
+      list.push(link.ClinicNum.toString());
+      branchIdsByProvider.set(key, list);
+    }
+
     return {
       providers: providers.map((p) => {
         const meta = providersMeta[p.ProvNum.toString()] ?? {};
@@ -151,6 +182,7 @@ export class ProviderService {
           isAcceptingNewPatients: meta.isAcceptingNewPatients ?? true,
           telehealthEnabled: meta.telehealthEnabled ?? false,
           color: meta.color ?? null,
+          branchIds: branchIdsByProvider.get(p.ProvNum.toString()) ?? [],
         });
       }),
       pagination: {
@@ -194,6 +226,11 @@ export class ProviderService {
 
     const providerMeta = await getProviderMeta(provider.ProvNum);
 
+    const clinicLinks = await prisma.providerclinic.findMany({
+      where: { ProvNum: provider.ProvNum },
+      select: { ClinicNum: true },
+    });
+
     return mapProviderToApi(provider, {
       specialtyName: provider.definition?.ItemName ?? null,
       userId: provider.CustomID ?? null,
@@ -205,7 +242,34 @@ export class ProviderService {
       isAcceptingNewPatients: providerMeta.isAcceptingNewPatients ?? true,
       telehealthEnabled: providerMeta.telehealthEnabled ?? false,
       color: providerMeta.color ?? null,
+      branchIds: clinicLinks.map((l) => l.ClinicNum?.toString()).filter((id): id is string => Boolean(id)),
     });
+  }
+
+  /**
+   * Reassigns an existing provider's branch(es). Authorization (who may do
+   * this, for which branches) is the caller's responsibility — see
+   * PermissionService.assertCanManageBranchAssignment, checked in the
+   * controller before this runs.
+   */
+  async updateProviderBranches(providerId: string, branchIds: string[]): Promise<{ branchIds: string[] }> {
+    const provider = await prisma.provider.findUnique({ where: { ProvNum: BigInt(providerId) } });
+    if (!provider) {
+      throw new NotFoundError('Provider not found');
+    }
+
+    const uniqueBranchIds = Array.from(new Set(branchIds));
+    if (uniqueBranchIds.length > 0) {
+      const clinics = await prisma.clinic.findMany({
+        where: { ClinicNum: { in: uniqueBranchIds.map((id) => BigInt(id)) } },
+      });
+      if (clinics.length !== uniqueBranchIds.length) {
+        throw new NotFoundError('One or more branches were not found.');
+      }
+    }
+
+    await syncProviderClinics(provider.ProvNum, uniqueBranchIds);
+    return { branchIds: uniqueBranchIds };
   }
 
   /**
@@ -232,6 +296,7 @@ export class ProviderService {
       }>;
       telehealthEnabled?: boolean;
       color?: string;
+      branchIds?: string[];
     },
     createdBy: string
   ) {
@@ -291,6 +356,10 @@ export class ProviderService {
       color: data.color ?? null,
     });
 
+    if (data.branchIds && data.branchIds.length > 0) {
+      await syncProviderClinics(provider.ProvNum, data.branchIds);
+    }
+
     // Log activity
     await logActivity(
       createdBy,
@@ -318,6 +387,7 @@ export class ProviderService {
       isAcceptingNewPatients: data.isAcceptingNewPatients ?? true,
       telehealthEnabled: data.telehealthEnabled ?? false,
       color: data.color ?? null,
+      branchIds: data.branchIds ?? [],
     });
   }
 
@@ -346,6 +416,7 @@ export class ProviderService {
       telehealthEnabled?: boolean;
       isActive?: boolean;
       color?: string;
+      branchIds?: string[];
     },
     updatedBy: string
   ) {
@@ -412,6 +483,10 @@ export class ProviderService {
       color: updates.color !== undefined ? updates.color : (currentMeta.color ?? null),
     });
 
+    if (updates.branchIds !== undefined) {
+      await syncProviderClinics(provider.ProvNum, updates.branchIds);
+    }
+
     // Log activity
     await logActivity(
       updatedBy,
@@ -429,6 +504,11 @@ export class ProviderService {
       'medium'
     );
 
+    const currentClinicLinks = await prisma.providerclinic.findMany({
+      where: { ProvNum: provider.ProvNum },
+      select: { ClinicNum: true },
+    });
+
     return mapProviderToApi(updated, {
       specialtyName: updates.specialty?.[0] ?? provider.definition?.ItemName ?? null,
       userId: provider.CustomID ?? null,
@@ -439,6 +519,7 @@ export class ProviderService {
       isAcceptingNewPatients: updates.isAcceptingNewPatients ?? currentMeta.isAcceptingNewPatients ?? true,
       telehealthEnabled: updates.telehealthEnabled ?? currentMeta.telehealthEnabled ?? false,
       color: updates.color !== undefined ? updates.color : (currentMeta.color ?? null),
+      branchIds: currentClinicLinks.map((l) => l.ClinicNum?.toString()).filter((id): id is string => Boolean(id)),
     });
   }
 

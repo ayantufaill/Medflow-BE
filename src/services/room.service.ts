@@ -8,7 +8,7 @@ export class RoomService {
   /**
    * Get all rooms with pagination and search
    */
-  async getAllRooms(page = 1, limit = 10, search?: string, isActive?: boolean) {
+  async getAllRooms(page = 1, limit = 10, search?: string, isActive?: boolean, branchId?: string) {
     const skip = (page - 1) * limit;
     const where: any = {};
 
@@ -22,6 +22,10 @@ export class RoomService {
 
     if (isActive !== undefined) {
       where.IsHidden = isActive ? 0 : 1;
+    }
+
+    if (branchId) {
+      where.ClinicNum = BigInt(branchId);
     }
 
     const [rows, total] = await Promise.all([
@@ -67,6 +71,7 @@ export class RoomService {
     data: {
       name: string;
       itemOrder?: number;
+      branchId?: string;
     },
     createdBy: string
   ) {
@@ -99,6 +104,7 @@ export class RoomService {
         Abbrev: data.name,
         ItemOrder: itemOrder,
         IsHidden: 0,
+        ClinicNum: data.branchId ? BigInt(data.branchId) : null,
       },
     });
 

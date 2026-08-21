@@ -36,7 +36,11 @@ export class PracticeInfoController {
    */
   async getPracticeInfo(req: Request, res: Response, next: NextFunction) {
     try {
-      const practiceInfo = await practiceInfoService.getPracticeInfo();
+      // ?branchId= picks a specific branch; otherwise default to the
+      // caller's own resolved branch (if they have exactly/at-least one),
+      // rather than an arbitrary "highest ClinicNum" clinic.
+      const branchId = (req.query.branchId as string | undefined) ?? req.branchAccess?.clinicIds[0]?.toString();
+      const practiceInfo = await practiceInfoService.getPracticeInfo(branchId);
       res.status(200).json({
         success: true,
         data: { practiceInfo },
