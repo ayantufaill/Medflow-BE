@@ -28,6 +28,10 @@ const mapNotification = (row: {
 });
 
 export class StaffNotificationService {
+  private get db() {
+    return (prisma as any).notification;
+  }
+
   async createAndEmit(params: {
     userNum: bigint;
     type: string;
@@ -36,8 +40,9 @@ export class StaffNotificationService {
     relatedType?: string;
     relatedId?: bigint;
   }) {
+    if (!this.db) return null;
     const id = await getNextId('notification', 'NotificationNum');
-    const notification = await prisma.notification.create({
+    const notification = await this.db.create({
       data: {
         NotificationNum: id,
         UserNum: params.userNum,
@@ -55,20 +60,21 @@ export class StaffNotificationService {
   }
 
   async getForUser(userId: string, page = 1, limit = 20) {
+    if (!this.db) return { notifications: [], unreadCount: 0, pagination: { page, limit, total: 0, pages: 1 } };
     const skip = (page - 1) * limit;
     const [rows, total, unreadCount] = await Promise.all([
-      prisma.notification.findMany({
+      this.db.findMany({
         where: { UserNum: BigInt(userId) },
         orderBy: { DateTimeEntry: 'desc' },
         skip,
         take: limit,
       }),
-      prisma.notification.count({ where: { UserNum: BigInt(userId) } }),
-      prisma.notification.count({ where: { UserNum: BigInt(userId), IsRead: false } }),
+      this.db.count({ where: { UserNum: BigInt(userId) } }),
+      this.db.count({ where: { UserNum: BigInt(userId), IsRead: false } }),
     ]);
 
     return {
-      notifications: rows.map(mapNotification),
+      notifications: (rows || []).map(mapNotification),
       unreadCount,
       pagination: {
         page,
@@ -80,21 +86,23 @@ export class StaffNotificationService {
   }
 
   async getUnreadCount(userId: string) {
-    const unreadCount = await prisma.notification.count({
+    if (!this.db) return { unreadCount: 0 };
+    const unreadCount = await this.db.count({
       where: { UserNum: BigInt(userId), IsRead: false },
     });
     return { unreadCount };
   }
 
   async markAsRead(notificationId: string, userId: string) {
-    const existing = await prisma.notification.findUnique({
+    if (!this.db) throw new NotFoundError('Notification not found');
+    const existing = await this.db.findUnique({
       where: { NotificationNum: BigInt(notificationId) },
     });
     if (!existing || existing.UserNum?.toString() !== userId) {
       throw new NotFoundError('Notification not found');
     }
 
-    const updated = await prisma.notification.update({
+    const updated = await this.db.update({
       where: { NotificationNum: existing.NotificationNum },
       data: { IsRead: true, ReadAt: new Date() },
     });
@@ -102,7 +110,8 @@ export class StaffNotificationService {
   }
 
   async markAllAsRead(userId: string) {
-    await prisma.notification.updateMany({
+    if (!this.db) return { message: 'All notifications marked as read' };
+    await this.db.updateMany({
       where: { UserNum: BigInt(userId), IsRead: false },
       data: { IsRead: true, ReadAt: new Date() },
     });

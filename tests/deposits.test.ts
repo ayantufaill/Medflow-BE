@@ -189,8 +189,8 @@ describe('Deposits & Deposit Slips API', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
-      expect(res.body.data).toBeDefined();
-      expect(res.body.data.amount).toBe(200.0);
+      expect(res.body.data?.deposit).toBeDefined();
+      expect(res.body.data.deposit.amount).toBe(200.0);
     });
   });
 });

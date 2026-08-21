@@ -228,6 +228,7 @@ export class AppointmentController {
         chiefComplaint,
         notes,
         roomId,
+        branchId,
         requiresInterpreter,
         insuranceVerified,
         copayCollected,
@@ -235,6 +236,16 @@ export class AppointmentController {
         customFields,
         status,
       } = req.body;
+
+      if (branchId && req.branchAccess && req.branchAccess.clinicIds.length > 0) {
+        const requestedClinicNum = BigInt(branchId);
+        if (!req.branchAccess.clinicIds.includes(requestedClinicNum)) {
+          return res.status(403).json({
+            success: false,
+            error: { message: 'You do not have access to this branch.' },
+          });
+        }
+      }
 
       const appointment = await appointmentService.createAppointment(
         {
@@ -248,6 +259,7 @@ export class AppointmentController {
           chiefComplaint,
           notes,
           roomId,
+          branchId,
           requiresInterpreter,
           insuranceVerified,
           copayCollected,
