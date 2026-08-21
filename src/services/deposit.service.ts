@@ -135,7 +135,6 @@ export class DepositService {
         paysplit: {
           create: {
             SplitNum: splitNum,
-            PayNum: payNum,
             SplitAmt: data.amount,
             PatNum: BigInt(data.patientId),
             DatePay: resolvedDate,
