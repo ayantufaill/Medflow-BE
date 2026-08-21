@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { clinicalManagementService } from '../services/clinical-management.service';
+import { recareService } from '../services/recare.service';
 
 export class ClinicalManagementController {
   // --- PRODUCTS ---
@@ -259,6 +260,16 @@ export class ClinicalManagementController {
     try {
       const config = await clinicalManagementService.updateRecareConfig(req.body);
       res.status(200).json({ success: true, data: config });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** Manually runs the due-recare sweep (the same job the cron scheduler calls daily). */
+  async runRecareSweep(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await recareService.runDueRecareSweep();
+      res.status(200).json({ success: true, data: result });
     } catch (error) {
       next(error);
     }
