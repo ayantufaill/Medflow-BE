@@ -900,6 +900,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
     chiefComplaint?: string;
     notes?: string;
     roomId?: string;
+    branchId?: string;
     requiresInterpreter?: boolean;
     insuranceVerified?: boolean;
     copayCollected?: number;
@@ -987,6 +988,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
         ProcDescript: data.chiefComplaint ?? null,
         Note: data.notes ?? null,
         Op: opId,
+        ClinicNum: data.branchId ? BigInt(data.branchId) : 0n,
         AptStatus: mapAppointmentStatusToDb(data.status ?? 'scheduled'),
         DateTimeArrived: null,
         DateTimeDismissed: null,

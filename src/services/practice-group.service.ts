@@ -153,6 +153,56 @@ export class PracticeGroupService {
 
     return result;
   }
+
+  async updateGroup(groupId: number, data: { name?: string; isActive?: boolean }): Promise<PracticeGroupSummary> {
+    const group = await prisma.practicegroup.findUnique({
+      where: { id: groupId },
+      include: { clinic: { select: { ClinicNum: true, Description: true, City: true, State: true } } },
+    });
+    if (!group) {
+      throw new NotFoundError('Practice group not found.');
+    }
+
+    const updated = await prisma.practicegroup.update({
+      where: { id: groupId },
+      data: {
+        ...(data.name !== undefined ? { name: data.name } : {}),
+        ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+      },
+      include: { clinic: { select: { ClinicNum: true, Description: true, City: true, State: true } } },
+    });
+
+    return { id: updated.id, name: updated.name, isActive: updated.isActive, branches: updated.clinic.map(mapBranch) };
+  }
+
+  async getGroupUsers(groupId: number) {
+    const group = await prisma.practicegroup.findUnique({
+      where: { id: groupId },
+      include: { clinic: { select: { ClinicNum: true } } },
+    });
+    if (!group) {
+      throw new NotFoundError('Practice group not found.');
+    }
+
+    const clinicNums = group.clinic.map((c) => c.ClinicNum);
+    const userClinics = await prisma.userclinic.findMany({
+      where: { ClinicNum: { in: clinicNums } },
+      include: { userod: true },
+    });
+
+    const uniqueUsersMap = new Map<string, any>();
+    for (const uc of userClinics) {
+      if (uc.userod && !uniqueUsersMap.has(uc.userod.UserNum.toString())) {
+        uniqueUsersMap.set(uc.userod.UserNum.toString(), {
+          id: uc.userod.UserNum.toString(),
+          username: uc.userod.UserName ?? '',
+          isDomainUser: Boolean(uc.userod.DomainUser),
+        });
+      }
+    }
+
+    return Array.from(uniqueUsersMap.values());
+  }
 }
 
 export const practiceGroupService = new PracticeGroupService();
