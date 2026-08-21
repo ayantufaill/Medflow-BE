@@ -44,6 +44,8 @@ const buildBillingNote = (data: any) => {
   const payload: Record<string, any> = {};
   if (data.cptCode) payload.cptCode = data.cptCode;
   if (data.writeoff && Number(data.writeoff) > 0) payload.writeoff = Number(data.writeoff);
+  if (data.estimatedWriteOff && Number(data.estimatedWriteOff) > 0) payload.estimatedWriteOff = Number(data.estimatedWriteOff);
+  if (data.allowedFee && Number(data.allowedFee) > 0) payload.allowedFee = Number(data.allowedFee);
   if (data.ptPortion && Number(data.ptPortion) > 0) payload.ptPortion = Number(data.ptPortion);
   if (data.insPortion && Number(data.insPortion) > 0) payload.insPortion = Number(data.insPortion);
   if (data.dbi !== undefined && data.dbi !== null) payload.dbi = Boolean(data.dbi);
@@ -105,7 +107,9 @@ export class InvoiceService {
       totalPrice,
       ptPortion: Number((meta as any).ptPortion || 0),
       insPortion: Number((meta as any).insPortion || 0),
-      writeoff: Number((meta as any).writeoff || 0),
+      writeoff: Number((meta as any).writeoff || (meta as any).estimatedWriteOff || 0),
+      estimatedWriteOff: Number((meta as any).estimatedWriteOff || (meta as any).writeoff || 0),
+      allowedFee: (meta as any).allowedFee ? Number((meta as any).allowedFee) : null,
       paidAmount: Number((meta as any).paidAmount || 0),
       dbi: (meta as any).dbi !== undefined ? Boolean((meta as any).dbi) : null,
       site: (meta as any).site || null,
@@ -122,10 +126,31 @@ export class InvoiceService {
       const patPlan = await prisma.patplan.findFirst({
         where: { PatNum: patientId, IsPending: 0 },
         orderBy: { Ordinal: 'asc' },
-        include: { inssub: true }
+        include: {
+          inssub: {
+            include: {
+              insplan: true
+            }
+          }
+        }
       });
 
       if (!patPlan?.PatPlanNum) return items;
+
+      const insPlan = patPlan?.inssub?.insplan;
+      const allowedFeeMap = new Map<string, number>();
+
+      if (insPlan?.AllowedFeeSched && insPlan.AllowedFeeSched > 0n) {
+        const feeRecords = await prisma.fee.findMany({
+          where: { FeeSched: insPlan.AllowedFeeSched },
+          include: { procedurecode: true }
+        });
+        for (const f of feeRecords) {
+          if (f.procedurecode?.ProcCode && f.Amount !== null && f.Amount !== undefined) {
+            allowedFeeMap.set(f.procedurecode.ProcCode.toUpperCase().trim(), Number(f.Amount));
+          }
+        }
+      }
 
       const meta: any = await getPatientInsuranceMeta(patPlan.PatPlanNum);
       const coverageCategoryTable = meta?.coverageCategoryTable || [];
@@ -281,11 +306,27 @@ export class InvoiceService {
           }
         }
 
+        // Apply Allowed Fee logic if configured
+        const allowedFee = allowedFeeMap.get(cleanCode);
+        let basisFee = charge;
+        let estimatedWriteOff = 0;
+
+        if (allowedFee !== undefined && allowedFee < charge) {
+          estimatedWriteOff = roundCurrency(charge - allowedFee);
+          basisFee = allowedFee;
+          item.allowedFee = allowedFee;
+          item.estimatedWriteOff = estimatedWriteOff;
+          item.writeoff = estimatedWriteOff;
+        }
+
         if (percent !== undefined) {
-          const insPortion = Math.round((charge * percent) / 100);
+          const insPortion = roundCurrency((basisFee * percent) / 100);
           item.insPortion = insPortion;
-          item.ptPortion = Math.max(0, charge - insPortion);
+          item.ptPortion = roundCurrency(Math.max(0, basisFee - insPortion));
           item.coveragePct = percent;
+        } else if (allowedFee !== undefined && allowedFee < charge) {
+          item.insPortion = 0;
+          item.ptPortion = basisFee;
         }
       }
     } catch (err) {
