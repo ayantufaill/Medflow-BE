@@ -143,6 +143,10 @@ export const queryValidator: ValidationChain[] = [
     .optional()
     .isISO8601()
     .withMessage('End date must be a valid ISO 8601 date string'),
+  query('branchId')
+    .optional()
+    .isString()
+    .withMessage('branchId must be a string'),
 ];
 
 export const assignUserRolesValidator: ValidationChain[] = [

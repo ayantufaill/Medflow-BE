@@ -206,6 +206,7 @@ export const mapPatientToApi = (
     household?: Array<Record<string, unknown>>;
     spouseInfo?: Record<string, unknown> | null;
     patientFlags?: string[];
+    medicalAlerts?: string[];
     financialResponsibility?: Record<string, unknown> | null;
     sexAtBirth?: string | null;
     genderIdentity?: string | null;
@@ -277,6 +278,7 @@ export const mapPatientToApi = (
   household: options?.household ?? [],
   spouseInfo: options?.spouseInfo ?? null,
   patientFlags: options?.patientFlags ?? [],
+  medicalAlerts: options?.medicalAlerts ?? [],
   financialResponsibility: options?.financialResponsibility ?? null,
   maritalStatus: options?.maritalStatus ?? null,
   occupation: options?.occupation ?? null,

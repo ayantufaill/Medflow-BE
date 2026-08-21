@@ -5,6 +5,7 @@ import { patientFormService } from './patient-form.service';
 import { notificationService } from './notification.service';
 import { providerService } from './provider.service';
 import { patientWorkspaceService } from './patient-workspace.service';
+import { formTemplateService } from './form-template.service';
 import {
   getPatientMeta,
   mapUser,
@@ -71,30 +72,6 @@ type ProfileUpdateInput = {
   };
   insurance?: ProfileInsuranceInput;
 };
-
-type PendingFormTemplate = {
-  templateId: string;
-  name: string;
-  description: string;
-};
-
-const PENDING_FORM_TEMPLATES: PendingFormTemplate[] = [
-  {
-    templateId: 'demographics-update',
-    name: 'Demographics Update',
-    description: 'Confirm your latest contact and address information.',
-  },
-  {
-    templateId: 'medical-history-update',
-    name: 'Medical History Update',
-    description: 'Update recent medical history, medications, and conditions.',
-  },
-  {
-    templateId: 'consent-acknowledgement',
-    name: 'Consent Acknowledgement',
-    description: 'Complete required pre-visit consent acknowledgements.',
-  },
-];
 
 const parseJson = <T>(value?: string | null): T | null => {
   if (!value) return null;
@@ -981,6 +958,7 @@ export class PortalService {
     const context = await this.getPatientContext(userId);
     const submitted = await patientFormService.getAllForms(1, 200, context.patientId);
     const updateRequests = await patientWorkspaceService.getUpdateRequests(context.patientId);
+    const activeTemplates = await formTemplateService.getAllTemplates();
 
     const submittedTemplateIds = new Set(
       (submitted.forms || [])
@@ -1005,7 +983,13 @@ export class PortalService {
 
     return {
       pendingForms: [
-        ...PENDING_FORM_TEMPLATES.filter((template) => !submittedTemplateIds.has(template.templateId)),
+        ...activeTemplates
+          .filter((template) => !submittedTemplateIds.has(template.templateId))
+          .map((template) => ({
+            templateId: template.templateId,
+            name: template.name,
+            description: template.description ?? '',
+          })),
         ...requestedForms,
       ],
     };

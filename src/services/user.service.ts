@@ -26,7 +26,15 @@ const sanitizeUser = (user: AppUser) => {
 };
 
 export class UserService {
-  async getAllUsers(page = 1, limit = 10, search?: string, roleId?: string, status?: string) {
+  async getAllUsers(
+    page = 1,
+    limit = 10,
+    search?: string,
+    roleId?: string,
+    status?: string,
+    clinicIds?: bigint[],
+    branchId?: string
+  ) {
     const skip = (page - 1) * limit;
 
     let userIdsWithRole: string[] = [];
@@ -53,6 +61,31 @@ export class UserService {
 
     if (status) {
       where.IsHidden = status === 'active' ? 0 : 1;
+    }
+
+    // A user's own branch(es) = their userclinic assignments plus their
+    // userod.ClinicNum home clinic (same definition PermissionService uses
+    // for branchIds reported per user below). branchId narrows to that one
+    // clinic, but never *widens* past the caller's own resolved scope
+    // (clinicIds) — a branchId outside that scope returns an empty result
+    // rather than leaking whether the branch exists. No branchId falls back
+    // to the caller's full scope, same as before; callers with no clinic
+    // assignments yet (clinicIds empty) are left unscoped so existing
+    // single-clinic practices are unaffected.
+    if (branchId) {
+      const requestedClinicNum = BigInt(branchId);
+      const inScope = !clinicIds || clinicIds.length === 0 || clinicIds.includes(requestedClinicNum);
+      where.OR = inScope
+        ? [
+            { ClinicNum: requestedClinicNum },
+            { userclinic: { some: { ClinicNum: requestedClinicNum } } },
+          ]
+        : [{ UserNum: -1n }];
+    } else if (clinicIds && clinicIds.length > 0) {
+      where.OR = [
+        { ClinicNum: { in: clinicIds } },
+        { userclinic: { some: { ClinicNum: { in: clinicIds } } } },
+      ];
     }
 
     const [rows, total] = await Promise.all([

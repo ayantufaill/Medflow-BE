@@ -656,6 +656,10 @@ export const patientWorkspaceMetaValidator: ValidationChain[] = [
     .optional()
     .isArray()
     .withMessage('patientFlags must be an array'),
+  body('medicalAlerts')
+    .optional()
+    .isArray()
+    .withMessage('medicalAlerts must be an array'),
   body('financialResponsibility')
     .optional({ nullable: true })
     .isObject()
@@ -824,6 +828,10 @@ export const patientSearchValidator: ValidationChain[] = [
     .optional()
     .isIn(['active', 'inactive'])
     .withMessage('Status must be either active or inactive'),
+  query('branchId')
+    .optional()
+    .isString()
+    .withMessage('branchId must be a string'),
   query('dobStart')
     .optional()
     .isISO8601()
