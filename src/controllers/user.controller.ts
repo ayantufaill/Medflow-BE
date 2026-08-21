@@ -12,8 +12,9 @@ export class UserController {
       const search = req.query.search as string | undefined;
       const roleId = req.query.roleId as string | undefined;
       const status = req.query.status as string | undefined; // 'active' or 'inactive'
+      const branchId = req.query.branchId as string | undefined;
 
-      const result = await userService.getAllUsers(page, limit, search, roleId, status);
+      const result = await userService.getAllUsers(page, limit, search, roleId, status, req.branchAccess?.clinicIds, branchId);
       res.status(200).json({
         success: true,
         data: result,
