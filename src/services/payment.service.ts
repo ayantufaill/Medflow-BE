@@ -36,6 +36,8 @@ type PaymentMeta = {
   status?: string;
   notes?: string;
   voidReason?: string;
+  isAccountCredit?: boolean;
+  appliedCreditAmount?: number;
 };
 
 export class PaymentService {
@@ -58,6 +60,8 @@ export class PaymentService {
       paidAt: meta.paidAt ? new Date(meta.paidAt) : row.PayDate ?? null,
       paymentDate: meta.paidAt ? new Date(meta.paidAt) : row.PayDate ?? null,
       notes: meta.notes ?? null,
+      isAccountCredit: meta.isAccountCredit ?? false,
+      appliedCreditAmount: meta.appliedCreditAmount ?? undefined,
     };
   }
 
