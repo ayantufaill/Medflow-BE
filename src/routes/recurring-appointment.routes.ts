@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { body } from 'express-validator';
 import { recurringAppointmentController } from '../controllers/recurring-appointment.controller';
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
   recurringAppointmentIdValidator,
@@ -15,6 +17,8 @@ const router = Router();
 
 // All recurring appointment routes require authentication
 router.use(authenticate);
+router.use(resolveBranchAccess);
+router.use(enterTenantContext);
 
 /**
  * @swagger

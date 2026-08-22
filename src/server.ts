@@ -5,9 +5,12 @@ import dotenv from 'dotenv';
 // dotenv is a no-op there, which is correct.
 dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || '.env' });
 
+import { createServer } from 'http';
 import connectDB, { prisma } from './config/db.js';
 import app from './app.js';
 import { hashPassword } from './utils/password.util.js';
+import { startReminderScheduler } from './jobs/reminderScheduler.js';
+import { initSocket } from './sockets/socket.js';
 
 
 // ── Seed essential data if DB is empty ───────────────────────────────────────
@@ -118,15 +121,21 @@ const startServer = async (): Promise<void> => {
   await seedIfEmpty();
 
   const PORT = Number(process.env.PORT) || 5001;
-  app.listen(PORT, "0.0.0.0", () => {
+  const httpServer = createServer(app);
+  initSocket(httpServer);
+
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log('');
     console.log('═══════════════════════════════════════════════════════════════');
     console.log(` 🚀 MedFlow API  →  port ${PORT}`);
     console.log(` 📦 Environment  →  ${process.env.NODE_ENV || 'development'}`);
     console.log(` 🔗 Health       →  http://localhost:${PORT}/health`);
     console.log(` 📖 Docs         →  http://localhost:${PORT}/api-docs`);
+    console.log(` 🔌 Socket.io    →  ready`);
     console.log('═══════════════════════════════════════════════════════════════');
   });
+
+  startReminderScheduler();
 };
 
 startServer().catch((err) => {

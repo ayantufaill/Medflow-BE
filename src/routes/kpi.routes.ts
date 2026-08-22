@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { kpiController } from '../controllers/kpi.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 
 const router = Router();
@@ -13,6 +15,19 @@ const router = Router();
  *     tags: [KPI Dashboard]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Optional start date for custom range (ISO format)
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Optional end date for custom range (ISO format)
  *     responses:
  *       200:
  *         description: Consolidated KPIs compiled successfully
@@ -20,8 +35,31 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.read'),
   kpiController.getMainKpis.bind(kpiController)
+);
+
+/**
+ * @swagger
+ * /kpis/summary:
+ *   get:
+ *     summary: Get top-card KPI summary (current month vs last month)
+ *     tags: [KPI Dashboard]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Returns Net Production, Total Collection, Seen Patients, and Case Accepted
+ */
+router.get(
+  '/summary',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('reports.read'),
+  kpiController.getKpiSummary.bind(kpiController)
 );
 
 /**
@@ -32,6 +70,19 @@ router.get(
  *     tags: [KPI Dashboard]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Optional start date for custom range (ISO format)
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Optional end date for custom range (ISO format)
  *     responses:
  *       200:
  *         description: Provider KPI stats compiled successfully
@@ -39,6 +90,8 @@ router.get(
 router.get(
   '/providers',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('reports.read'),
   kpiController.getProviderKpis.bind(kpiController)
 );

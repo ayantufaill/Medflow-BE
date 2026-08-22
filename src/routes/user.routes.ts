@@ -11,6 +11,7 @@ import {
   queryValidator,
   createUserValidator,
   assignUserRolesValidator,
+  updateCurrentBranchValidator,
 } from '../validators/user.validator';
 
 // Validator for activity and login history endpoints
@@ -236,6 +237,34 @@ router.put(
 
 /**
  * @swagger
+ * /users/me/branch:
+ *   patch:
+ *     summary: Set the caller's current branch
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [branchId]
+ *             properties:
+ *               branchId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Current branch updated
+ */
+router.patch(
+  '/me/branch',
+  validate(updateCurrentBranchValidator),
+  userController.updateCurrentBranch.bind(userController)
+);
+
+/**
+ * @swagger
  * /users/profile/change-password:
  *   post:
  *     summary: Change own password
@@ -303,7 +332,7 @@ router.post(
 router.post(
   '/:userId/roles',
   requireRoles('Admin'),
-  validate(assignUserRolesValidator),
+  validate(assignRoleValidator),
   userController.assignUserRoles.bind(userController)
 );
 

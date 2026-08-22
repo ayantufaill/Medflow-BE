@@ -150,6 +150,7 @@ export class ProviderService {
           consultationFee: meta.consultationFee ?? null,
           isAcceptingNewPatients: meta.isAcceptingNewPatients ?? true,
           telehealthEnabled: meta.telehealthEnabled ?? false,
+          color: meta.color ?? null,
         });
       }),
       pagination: {
@@ -203,6 +204,7 @@ export class ProviderService {
       consultationFee: providerMeta.consultationFee ?? null,
       isAcceptingNewPatients: providerMeta.isAcceptingNewPatients ?? true,
       telehealthEnabled: providerMeta.telehealthEnabled ?? false,
+      color: providerMeta.color ?? null,
     });
   }
 
@@ -229,6 +231,7 @@ export class ProviderService {
         isAvailable: boolean;
       }>;
       telehealthEnabled?: boolean;
+      color?: string;
     },
     createdBy: string
   ) {
@@ -285,6 +288,7 @@ export class ProviderService {
       isAcceptingNewPatients: data.isAcceptingNewPatients ?? true,
       telehealthEnabled: data.telehealthEnabled ?? false,
       workingHours: data.workingHours ?? [],
+      color: data.color ?? null,
     });
 
     // Log activity
@@ -297,6 +301,7 @@ export class ProviderService {
       mapProviderToApi(provider, {
         specialtyName: specialty[0] ?? null,
         userId: data.userId,
+        color: data.color ?? null,
       }),
       undefined,
       undefined,
@@ -312,6 +317,7 @@ export class ProviderService {
       consultationFee: data.consultationFee ?? null,
       isAcceptingNewPatients: data.isAcceptingNewPatients ?? true,
       telehealthEnabled: data.telehealthEnabled ?? false,
+      color: data.color ?? null,
     });
   }
 
@@ -339,6 +345,7 @@ export class ProviderService {
       }>;
       telehealthEnabled?: boolean;
       isActive?: boolean;
+      color?: string;
     },
     updatedBy: string
   ) {
@@ -402,6 +409,7 @@ export class ProviderService {
       isAcceptingNewPatients: updates.isAcceptingNewPatients ?? currentMeta.isAcceptingNewPatients ?? true,
       telehealthEnabled: updates.telehealthEnabled ?? currentMeta.telehealthEnabled ?? false,
       workingHours: updates.workingHours ?? currentMeta.workingHours ?? [],
+      color: updates.color !== undefined ? updates.color : (currentMeta.color ?? null),
     });
 
     // Log activity
@@ -414,6 +422,7 @@ export class ProviderService {
       mapProviderToApi(updated, {
         specialtyName: updates.specialty?.[0] ?? provider.definition?.ItemName ?? null,
         userId: provider.CustomID ?? null,
+        color: updates.color !== undefined ? updates.color : (currentMeta.color ?? null),
       }),
       undefined,
       undefined,
@@ -429,6 +438,7 @@ export class ProviderService {
       consultationFee: updates.consultationFee ?? currentMeta.consultationFee ?? null,
       isAcceptingNewPatients: updates.isAcceptingNewPatients ?? currentMeta.isAcceptingNewPatients ?? true,
       telehealthEnabled: updates.telehealthEnabled ?? currentMeta.telehealthEnabled ?? false,
+      color: updates.color !== undefined ? updates.color : (currentMeta.color ?? null),
     });
   }
 

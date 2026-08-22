@@ -78,10 +78,15 @@ export const createInvoiceFromAppointmentValidator: ValidationChain[] = [
     .optional()
     .isFloat({ min: 0 })
     .withMessage('Copay amount must be a positive number'),
+  body('addClaim')
+    .optional()
+    .isBoolean()
+    .withMessage('addClaim must be a boolean'),
 ];
 
 export const updateInvoiceValidator: ValidationChain[] = [
   body('dueDate').optional().isISO8601().withMessage('Due date must be a valid date'),
+  body('invoiceDate').optional().isISO8601().withMessage('Invoice date must be a valid date'),
   body('insuranceCompanyId')
     .optional()
     .isInt({ min: 1 })
@@ -120,7 +125,7 @@ export const updateInvoiceValidator: ValidationChain[] = [
 export const createInvoiceItemValidator: ValidationChain[] = [
   body('serviceId')
     .optional() // Optional - allows manual line items without a service
-    .isInt({ min: 1 })
+    .isString()
     .withMessage('Invalid service ID format'),
   body('quantity')
     .optional()
@@ -131,20 +136,19 @@ export const createInvoiceItemValidator: ValidationChain[] = [
     .isFloat({ min: 0 })
     .withMessage('Unit price must be a positive number'),
   body('description')
-    .notEmpty()
-    .withMessage('Description is required when no service ID is provided')
+    .optional()
     .isString()
     .withMessage('Description must be a string'),
   body('cptCode')
     .optional()
-    .isLength({ min: 4, max: 10 })
-    .withMessage('CPT code must be between 4 and 10 characters'),
+    .isLength({ min: 1, max: 20 })
+    .withMessage('CPT code format is invalid'),
 ];
 
 export const updateInvoiceItemValidator: ValidationChain[] = [
   body('serviceId')
     .optional()
-    .isInt({ min: 1 })
+    .isString()
     .withMessage('Invalid service ID format'),
   body('quantity')
     .optional()
@@ -159,6 +163,34 @@ export const updateInvoiceItemValidator: ValidationChain[] = [
     .optional()
     .isLength({ min: 4, max: 10 })
     .withMessage('CPT code must be between 4 and 10 characters'),
+  body('insPortion')
+    .optional()
+    .isNumeric()
+    .withMessage('insPortion must be numeric'),
+  body('ptPortion')
+    .optional()
+    .isNumeric()
+    .withMessage('ptPortion must be numeric'),
+  body('writeoff')
+    .optional()
+    .isNumeric()
+    .withMessage('writeoff must be numeric'),
+  body('date')
+    .optional()
+    .isISO8601()
+    .withMessage('date must be a valid ISO 8601 date string'),
+  body('provider')
+    .optional()
+    .isString()
+    .withMessage('provider must be a string'),
+  body('site')
+    .optional()
+    .isString()
+    .withMessage('site must be a string'),
+  body('dbi')
+    .optional()
+    .isBoolean()
+    .withMessage('dbi must be a boolean'),
 ];
 
 export const recalculateInvoiceValidator: ValidationChain[] = [
@@ -223,4 +255,8 @@ export const createStandaloneInvoiceValidator: ValidationChain[] = [
   body('items.*.completed')
     .optional()
     .isBoolean(),
+  body('addClaim')
+    .optional()
+    .isBoolean()
+    .withMessage('addClaim must be a boolean'),
 ];

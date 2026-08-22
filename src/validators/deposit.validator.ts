@@ -36,8 +36,14 @@ export const createDepositValidator: ValidationChain[] = [
   body('paymentMethod')
     .notEmpty()
     .withMessage('Payment method is required')
-    .isIn(['cash', 'check', 'card', 'ach', 'insurance'])
-    .withMessage('Invalid payment method'),
+    .custom((val) => {
+      const norm = String(val || '').toLowerCase().trim();
+      const allowed = ['cash', 'check', 'card', 'ach', 'insurance', 'patient', 'patient-deposit', 'insurance-deposit'];
+      if (!allowed.includes(norm)) {
+        throw new Error('Invalid payment method');
+      }
+      return true;
+    }),
   body('depositType')
     .notEmpty()
     .withMessage('Deposit type is required')

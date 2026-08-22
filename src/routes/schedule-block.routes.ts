@@ -1,11 +1,15 @@
 import { Router } from 'express';
 import { scheduleBlockController } from '../controllers/schedule-block.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 
 const router = Router();
 
 // All schedule block routes require authentication
 router.use(authenticate);
+router.use(resolveBranchAccess);
+router.use(enterTenantContext);
 
 /**
  * @swagger

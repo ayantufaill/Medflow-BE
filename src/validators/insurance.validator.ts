@@ -250,8 +250,9 @@ export const createPatientInsuranceValidator: ValidationChain[] = [
     .isIn(['self', 'spouse', 'child', 'parent', 'other'])
     .withMessage('Relationship to patient must be one of: self, spouse, child, parent, other'),
   body('insuranceType')
-    .isIn(['primary', 'secondary', 'tertiary'])
-    .withMessage('Insurance type must be one of: primary, secondary, tertiary'),
+    .optional()
+    .isString()
+    .withMessage('Insurance type must be a string'),
   body('effectiveDate')
     .notEmpty()
     .withMessage('Effective date is required')
@@ -446,8 +447,8 @@ export const updatePatientInsuranceValidator: ValidationChain[] = [
     .withMessage('Relationship to patient must be one of: self, spouse, child, parent, other'),
   body('insuranceType')
     .optional()
-    .isIn(['primary', 'secondary', 'tertiary'])
-    .withMessage('Insurance type must be one of: primary, secondary, tertiary'),
+    .isString()
+    .withMessage('Insurance type must be a string'),
   body('effectiveDate')
     .optional()
     .isISO8601()

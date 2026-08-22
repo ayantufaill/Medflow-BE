@@ -58,8 +58,13 @@ import procedureCodeRoutes from './procedure-code.routes';
 import patientImageRouter from './patient-image.route';
 import productivityRoutes from './productivity.routes';
 import shortlistRoutes from './shortlist.routes';
+import notificationRoutes from './notification.routes';
+import branchRoutes from './branch.routes';
+import practiceGroupRoutes from './practice-group.routes';
+import coverageGroupRoutes from './coverage-group.routes';
 
 const router = Router();
+router.use('/coverage-groups', coverageGroupRoutes);
 
 
 
@@ -68,8 +73,8 @@ router.use('/users', userRoutes);
 router.use('/roles', roleRoutes);
 router.use('/permissions', permissionRoutes);
 router.use('/practice-info', practiceInfoRoutes);
-router.use('/patients', patientRoutes);
 router.use('/patients', patientInsuranceRoutes);
+router.use('/patients', patientRoutes);
 router.use('/patients', patientMembershipRoutes);
 router.use('/insurance-companies', insuranceCompanyRoutes);
 router.use('/insurance-plans', insurancePlanRoutes);
@@ -122,6 +127,8 @@ router.use('/schedule-blocks', scheduleBlockRoutes);
 router.use('/patients/:patientId/images', patientImageRouter);
 router.use('/productivity', productivityRoutes);
 router.use('/shortlist', shortlistRoutes);
+router.use('/notifications', notificationRoutes);
+router.use('/branches', branchRoutes);
+router.use('/practice-groups', practiceGroupRoutes);
 
 export default router;
-

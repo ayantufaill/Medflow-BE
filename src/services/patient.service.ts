@@ -45,6 +45,11 @@ const buildPatientMapperOptions = (patientMeta: Record<string, any>) => ({
   assignmentAndRelease: patientMeta.assignmentAndRelease ?? null,
 });
 
+const toBigInt = (value?: string | null): bigint | null => {
+  if (!value) return null;
+  return /^\d+$/.test(value) ? BigInt(value) : null;
+};
+
 /**
  * Generate unique patient code (e.g., PAT001, PAT002, etc.)
  */
@@ -92,10 +97,18 @@ export class PatientService {
     gender?: string,
     providerId?: string,
     sortBy?: string,
-    sortOrder?: string
+    sortOrder?: string,
+    clinicIds?: bigint[]
   ) {
     const skip = (page - 1) * limit;
     const where: any = {};
+
+    // Scope to the caller's accessible clinics, if branch access was resolved
+    // for this request. Callers with no clinic assignments yet (branches not
+    // set up) are left unscoped so existing single-clinic practices are unaffected.
+    if (clinicIds && clinicIds.length > 0) {
+      where.ClinicNum = { in: clinicIds };
+    }
 
     // Filter by gender using mapGenderToDb
     if (gender) {
@@ -228,12 +241,20 @@ export class PatientService {
               }
             }
           },
-          appointment: true,
+          appointment: {
+            select: {
+              AptDateTime: true,
+              AptStatus: true,
+            },
+          },
           procedurelog: {
             where: {
-              ProcStatus: { in: [1, 2] }
-            }
-          }
+              ProcStatus: { in: [1, 2] },
+            },
+            select: {
+              ProcStatus: true,
+            },
+          },
         },
       }),
       prisma.patient.count({ where }),
@@ -826,13 +847,17 @@ async getPatientLastVisit(patientId: string) {
         updates.referralSource !== undefined
           ? updates.referralSource.trim() || null
           : currentMeta.referralSource ?? null,
-      customFields: updates.customFields ?? currentMeta.customFields ?? {},
+      customFields: updates.customFields !== undefined
+        ? { ...(currentMeta.customFields || {}), ...updates.customFields }
+        : currentMeta.customFields ?? {},
       preferredDentistId: updates.preferredDentistId !== undefined ? updates.preferredDentistId : currentMeta.preferredDentistId ?? null,
       preferredHygienistId: updates.preferredHygienistId !== undefined ? updates.preferredHygienistId : currentMeta.preferredHygienistId ?? null,
       headOfCommunication: updates.headOfCommunication !== undefined ? updates.headOfCommunication : currentMeta.headOfCommunication ?? null,
       household: updates.household !== undefined ? updates.household : currentMeta.household ?? [],
       spouseInfo: updates.spouseInfo !== undefined ? updates.spouseInfo : currentMeta.spouseInfo ?? null,
-      assignmentAndRelease: updates.assignmentAndRelease !== undefined ? updates.assignmentAndRelease : currentMeta.assignmentAndRelease ?? null,
+      assignmentAndRelease: updates.assignmentAndRelease !== undefined
+        ? { ...(currentMeta.assignmentAndRelease || {}), ...updates.assignmentAndRelease }
+        : currentMeta.assignmentAndRelease ?? null,
       patientFlags: updates.patientFlags !== undefined ? updates.patientFlags : currentMeta.patientFlags ?? [],
       financialResponsibility: updates.financialResponsibility !== undefined ? updates.financialResponsibility : currentMeta.financialResponsibility ?? null,
       sexAtBirth:
@@ -1151,6 +1176,7 @@ async getPatientLastVisit(patientId: string) {
       reviewStatus: Boolean(dentalHistory.review.reviewedWithPatient),
       lastUpdateDate: dentalHistory.review.reviewedAt ?? patient.DateTStamp ?? null,
       review: dentalHistory.review,
+      isSaved: !!patientMeta.dentalHistory,
     };
   }
 
@@ -1575,6 +1601,191 @@ async getPatientHistoryAggregate(patientId: string) {
       appointments
     };
   }
+  async purchaseProducts(patientId: string, products: any[]) {
+    const patNum = toBigInt(patientId);
+    if (!patNum) {
+      throw new NotFoundError('Patient not found');
+    }
+    const patient = await prisma.patient.findUnique({ where: { PatNum: patNum } });
+    if (!patient) {
+      throw new NotFoundError('Patient not found');
+    }
+
+    const createdProcedures = [];
+
+    for (const product of products) {
+      const { productName, providerName, quantity, price } = product;
+
+      let provNum = patient.PriProv;
+      if (providerName) {
+        const parts = providerName.trim().split(/\s+/);
+        const first = parts[0] || '';
+        const last = parts.length > 1 ? parts.slice(1).join(' ') : first;
+        
+        const prov = await prisma.provider.findFirst({
+          where: {
+            OR: [
+              { LName: { contains: last, mode: 'insensitive' } },
+              { FName: { contains: first, mode: 'insensitive' } }
+            ]
+          }
+        });
+        if (prov) {
+          provNum = prov.ProvNum;
+        }
+      }
+
+      let procedureCode = await prisma.procedurecode.findFirst({
+        where: {
+          Descript: { equals: productName, mode: 'insensitive' },
+          ProcCode: { startsWith: 'PROD' }
+        }
+      });
+
+      if (!procedureCode) {
+        procedureCode = await prisma.procedurecode.findFirst({
+          where: { Descript: { equals: productName, mode: 'insensitive' } }
+        });
+      }
+
+      if (!procedureCode) {
+        const codeNum = await getNextId('procedurecode', 'CodeNum');
+        const procCodeStr = "PROD" + codeNum.toString();
+
+        let procCatDefNum: bigint | null = null;
+
+        // Find existing "Products" category
+        const prodCat = await prisma.definition.findFirst({
+          where: { Category: 11, ItemName: { contains: 'Product', mode: 'insensitive' } }
+        });
+
+        if (prodCat) {
+          procCatDefNum = prodCat.DefNum;
+        } else {
+          // Fallback to first available category
+          const fallbackCat = await prisma.definition.findFirst({ where: { Category: 11 } });
+          if (fallbackCat) {
+            procCatDefNum = fallbackCat.DefNum;
+          }
+        }
+
+        procedureCode = await prisma.procedurecode.create({
+          data: {
+            CodeNum: codeNum,
+            ProcCode: procCodeStr,
+            Descript: productName,
+            AbbrDesc: productName.substring(0, 50),
+            ProcTime: '/0',
+            ProcCat: procCatDefNum,
+            MedicalCode: null,
+            SubstitutionCode: null
+          }
+        });
+      }
+
+      const procNum = await getNextId('procedurelog', 'ProcNum');
+      const qtyNum = parseInt(quantity, 10) || 1;
+      const priceNum = parseFloat(price) || 0;
+      const fee = Number((priceNum * qtyNum).toFixed(2));
+      
+      const procedure = await prisma.procedurelog.create({
+        data: {
+          ProcNum: procNum,
+          PatNum: patNum,
+          ProvNum: provNum,
+          ProcStatus: 2, 
+          CodeNum: procedureCode.CodeNum,
+          ProcFee: fee,
+          ProcDate: new Date(),
+          UnitQty: qtyNum,
+          DateEntryC: new Date()
+        }
+      });
+      createdProcedures.push({
+        ...procedure,
+        ProcNum: procedure.ProcNum.toString(),
+        PatNum: procedure.PatNum?.toString(),
+        ProvNum: procedure.ProvNum?.toString(),
+        CodeNum: procedure.CodeNum?.toString(),
+      });
+    }
+
+    return createdProcedures;
+  }
+
+  async getUnbilledProducts(patientId: string) {
+    const patNum = toBigInt(patientId);
+    if (!patNum) {
+      throw new NotFoundError('Patient not found');
+    }
+    const patient = await prisma.patient.findUnique({ where: { PatNum: patNum } });
+    if (!patient) {
+      throw new NotFoundError('Patient not found');
+    }
+
+    const unbilledProcs = await prisma.procedurelog.findMany({
+      where: {
+        PatNum: patNum,
+        ProcStatus: 2,
+        AND: [
+          {
+            OR: [
+              { StatementNum: null },
+              { StatementNum: BigInt(0) }
+            ]
+          },
+          {
+            OR: [
+              { AptNum: null },
+              { AptNum: BigInt(0) }
+            ]
+          }
+        ]
+      },
+      include: {
+        procedurecode_procedurelog_CodeNumToprocedurecode: true,
+        provider_procedurelog_ProvNumToprovider: true,
+      },
+      orderBy: {
+        ProcDate: 'desc',
+      },
+    });
+
+    return unbilledProcs.map((proc) => {
+      const code = proc.procedurecode_procedurelog_CodeNumToprocedurecode;
+      const prov = proc.provider_procedurelog_ProvNumToprovider;
+
+      let billingNoteData: any = {};
+      if (proc.BillingNote) {
+        try {
+          billingNoteData = JSON.parse(proc.BillingNote);
+        } catch (_) {}
+      }
+
+      const description = code?.Descript || code?.AbbrDesc || billingNoteData.name || 'Product Item';
+      const procedureCodeStr = code?.ProcCode || billingNoteData.code || 'PROD';
+      const providerName = prov ? `${prov.FName || ''} ${prov.LName || ''}`.trim() : (billingNoteData.providerName || '');
+
+      return {
+        id: proc.ProcNum.toString(),
+        procNum: proc.ProcNum.toString(),
+        patientId: proc.PatNum?.toString() || patientId,
+        code: procedureCodeStr,
+        codeNum: proc.CodeNum?.toString() || null,
+        description,
+        fee: proc.ProcFee || 0,
+        amount: proc.ProcFee || 0,
+        quantity: proc.UnitQty || 1,
+        procDate: proc.ProcDate,
+        providerName,
+        provNum: proc.ProvNum?.toString() || null,
+        isProduct: true,
+        aptNum: proc.AptNum?.toString() || null,
+        statementNum: proc.StatementNum?.toString() || null,
+      };
+    });
+  }
 }
 
 export const patientService = new PatientService();
+

@@ -1,22 +1,12 @@
 import { prisma } from '../config/db';
 
-let tableCreated = false;
+// medflow_sequences is now a real Prisma-managed model (see schema.prisma) —
+// `prisma db push` creates/preserves it. It used to be bootstrapped here via
+// an ad-hoc `CREATE TABLE IF NOT EXISTS`, which silently broke once the app
+// started connecting as a restricted, non-superuser role (no CREATE on
+// schema) instead of the postgres superuser.
 
 export const getNextId = async (table: string, column: string): Promise<bigint> => {
-  if (!tableCreated) {
-    try {
-      await prisma.$executeRawUnsafe(`
-        CREATE TABLE IF NOT EXISTS medflow_sequences (
-          table_name VARCHAR(255) PRIMARY KEY,
-          next_id BIGINT NOT NULL
-        )
-      `);
-    } catch (e) {
-      // If 15 concurrent threads hit this, Postgres might throw a constraint error on its internal catalogs. Safe to ignore.
-    }
-    tableCreated = true;
-  }
-
   // Fast optimistic update (atomic increment)
   const updated = await prisma.$queryRawUnsafe<any[]>(`
     UPDATE medflow_sequences 

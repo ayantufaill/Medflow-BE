@@ -34,17 +34,17 @@ export class ReportGenerationService {
         return this.getCollectionCodeCarrier(startDate, endDate);
 
       case 'adjustment':
-        return this.getAdjustmentReport(startDate, endDate);
+        return this.getAdjustmentReport(startDate, endDate, query);
 
       case 'courtesy-credit':
       case 'courtesy-credit-modifications':
-        return this.getCourtesyCreditReport(startDate, endDate, name === 'courtesy-credit-modifications');
+        return this.getCourtesyCreditReport(startDate, endDate, name === 'courtesy-credit-modifications', query);
 
       case 'credit-accounts':
-        return this.getCreditAccountsReport();
+        return this.getCreditAccountsReport(query);
 
       case 'modifications':
-        return this.getModificationsReport(startDate, endDate);
+        return this.getModificationsReport(startDate, endDate, query);
 
       case 'deposit-summary':
         return this.getDepositSummary(startDate, endDate);
@@ -87,12 +87,12 @@ export class ReportGenerationService {
    * Process and compile clinical reports
    */
   async getClinicalReport(reportName: string, query: any) {
-    const { startDate, endDate } = this.getRangeDates(query.date, query.range || 'Daily');
+    const { startDate, endDate } = this.getRangeDates(query.date, query.range || 'Daily', query.startDate, query.endDate);
     const name = String(reportName).toLowerCase();
 
     switch (name) {
       case 'recare':
-        return this.getRecareReport();
+        return this.getRecareReport(startDate, endDate);
 
       case 'unsigned-progress-notes':
         return this.getUnsignedProgressNotesReport(startDate, endDate);
@@ -111,15 +111,21 @@ export class ReportGenerationService {
    * Process and compile patient reports
    */
   async getPatientReport(reportName: string, query: any) {
-    const { startDate, endDate } = this.getRangeDates(query.date, query.range || 'Daily');
+    let { startDate, endDate } = this.getRangeDates(query.date, query.range || 'Daily');
+    
+    if (query.startDate) startDate = new Date(query.startDate);
+    if (query.endDate) {
+      endDate = new Date(query.endDate);
+      endDate.setHours(23, 59, 59, 999);
+    }
     const name = String(reportName).toLowerCase();
 
     switch (name) {
       case 'insurance-coverage':
-        return this.getPatientInsuranceCoverage();
+        return this.getPatientInsuranceCoverage(query);
 
       case 'membership-plan':
-        return this.getPatientMembershipPlan();
+        return this.getPatientMembershipPlan(query);
 
       case 'referral-by-patient':
         return this.getReferralByPatient(startDate, endDate);
@@ -132,10 +138,10 @@ export class ReportGenerationService {
 
       case 'cancelled-appointments':
       case 'no-show-appointments':
-        return this.getCancelledOrNoShowAppointments(startDate, endDate, name === 'no-show-appointments');
+        return this.getCancelledOrNoShowAppointments(startDate, endDate, reportName === 'no-show-appointments', query.showInactive === 'true' || query.showInactive === true);
 
       case 'appointments':
-        return this.getAppointmentsReport(startDate, endDate);
+        return this.getAppointmentsReport(startDate, endDate, query);
 
       case 'duplicate-patients':
         return this.getDuplicatePatients();
@@ -145,28 +151,28 @@ export class ReportGenerationService {
 
       case 'last-appointment':
       case 'next-appointment':
-        return this.getPatientAppointmentMilestones(name === 'next-appointment');
+        return this.getPatientAppointmentMilestones(name === 'next-appointment', query);
 
       case 'referral-document':
-        return this.getReferralDocuments();
+        return this.getReferralDocuments(query);
 
       case 'lab-case':
-        return this.getLabCaseReport(startDate, endDate);
+        return this.getLabCaseReport(startDate, endDate, query);
 
       case 'discount-edited-fee':
         return this.getDiscountEditedFeeReport(startDate, endDate);
 
       case 'review':
-        return this.getPatientReviewsReport(startDate, endDate);
+        return this.getPatientReviewsReport(startDate, endDate, query);
 
       case 'notifications':
-        return this.getPatientNotificationsReport(startDate, endDate);
+        return this.getPatientNotificationsReport(startDate, endDate, query);
 
       case 'procedures':
-        return this.getPatientProceduresReport(startDate, endDate);
+        return this.getPatientProceduresReport(startDate, endDate, query);
 
       case 'trackers':
-        return this.getPatientTrackers();
+        return this.getPatientTrackers(startDate, endDate, query);
 
       default:
         return [
@@ -179,15 +185,15 @@ export class ReportGenerationService {
    * Process and compile other system reports
    */
   async getOthersReport(reportName: string, query: any) {
-    const { startDate, endDate } = this.getRangeDates(query.date, query.range || 'Daily');
+    const { startDate, endDate } = this.getRangeDates(query.date, query.range || 'Daily', query.startDate, query.endDate);
     const name = String(reportName).toLowerCase();
 
     switch (name) {
       case 'login':
-        return this.getLoginReport(startDate, endDate);
+        return this.getLoginReport(startDate, endDate, query);
 
       case 'audit':
-        return this.getAuditReport(startDate, endDate);
+        return this.getAuditReport(startDate, endDate, query);
 
       default:
         return [
@@ -203,37 +209,75 @@ export class ReportGenerationService {
   private async getAgingReport(query: any, patientOnly = false) {
     const filters: string[] = [];
 
-    // Patient Status filter
-    if (query.patientStatusFilter === 'active') {
-      filters.push(`p."PatStatus" = 0`); // 0 is typically active
-    } else if (query.patientStatusFilter === 'inactive') {
+    // 1. query.patients (Patient Status)
+    if (query.patients === 'active') {
+      filters.push(`p."PatStatus" = 0`);
+    } else if (query.patients === 'inactive') {
       filters.push(`p."PatStatus" != 0`);
     }
 
-    // Provider filter
-    if (query.providerFilter && query.providerFilter !== 'all') {
-      // Basic sanitize to ensure it's a number to prevent injection
-      const provNum = Number(query.providerFilter);
+    // 2. query.provider
+    if (query.provider && query.provider !== 'all') {
+      const provNum = Number(query.provider);
       if (!isNaN(provNum)) {
         filters.push(`p."PriProv" = ${provNum}`);
       }
     }
 
-    // Minimum Balance filter (mapping loosely to over30, over60 etc.)
-    if (query.balanceFilter === 'over30') {
+    // 3. query.balance
+    if (query.balance === 'over_30') {
       filters.push(`f."BalTotal" > 30`);
-    } else if (query.balanceFilter === 'over60') {
+    } else if (query.balance === 'over_60') {
       filters.push(`f."BalTotal" > 60`);
-    } else if (query.balanceFilter === 'over90') {
+    } else if (query.balance === 'over_90') {
       filters.push(`f."BalTotal" > 90`);
-    } else if (query.balanceFilter === 'over0') {
-      filters.push(`f."BalTotal" > 0`);
     } else {
-      // By default, usually only show patients with balances or expected insurance
       filters.push(`(f."BalTotal" != 0 OR f."InsEst" != 0)`);
     }
 
+    // 4. query.claims (Open Claims)
+    if (query.claims === 'with') {
+      filters.push(`EXISTS (SELECT 1 FROM claim cl WHERE cl."PatNum" = p."PatNum" AND cl."ClaimStatus" IN ('U', 'S', 'W', 'H'))`);
+    } else if (query.claims === 'without') {
+      filters.push(`NOT EXISTS (SELECT 1 FROM claim cl WHERE cl."PatNum" = p."PatNum" AND cl."ClaimStatus" IN ('U', 'S', 'W', 'H'))`);
+    }
+
+    // 5. query.owing (Who Owes)
+    if (query.owing === 'pt_only') {
+      filters.push(`(f."BalTotal" - f."InsEst" > 0 AND f."InsEst" <= 0)`);
+    } else if (query.owing === 'insurance_only') {
+      filters.push(`(f."InsEst" > 0 AND f."BalTotal" - f."InsEst" <= 0)`);
+    } else if (query.owing === 'pt_insurance') {
+      filters.push(`(f."BalTotal" - f."InsEst" > 0 AND f."InsEst" > 0)`);
+    }
+
+    // 6. query.arRange (Aging Bucket)
+    if (query.arRange === '0_30') {
+      filters.push(`f."Bal_0_30" > 0`);
+    } else if (query.arRange === '31_60') {
+      filters.push(`f."Bal_31_60" > 0`);
+    } else if (query.arRange === '61_90') {
+      filters.push(`f."Bal_61_90" > 0`);
+    } else if (query.arRange === 'over_90') {
+      filters.push(`f."BalOver90" > 0`);
+    }
+
+    // 7. query.flags (Patient with Flags)
+    if (query.flags === 'with') {
+      filters.push(`EXISTS (SELECT 1 FROM patfield pf WHERE pf."PatNum" = p."PatNum")`);
+    } else if (query.flags === 'without') {
+      filters.push(`NOT EXISTS (SELECT 1 FROM patfield pf WHERE pf."PatNum" = p."PatNum")`);
+    }
+
     const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
+
+    // 8. query.sortReport (Sorting)
+    let orderByClause = 'ORDER BY f."BalTotal" DESC';
+    if (query.sortReport === 'low_to_high') {
+      orderByClause = 'ORDER BY f."BalTotal" ASC';
+    } else if (query.sortReport === 'a_to_z') {
+      orderByClause = 'ORDER BY p."FName" ASC, p."LName" ASC';
+    }
 
     const sql = `
       SELECT 
@@ -247,11 +291,14 @@ export class ReportGenerationService {
       LEFT JOIN insplan ipl ON isub."PlanNum" = ipl."PlanNum"
       LEFT JOIN carrier c ON ipl."CarrierNum" = c."CarrierNum"
       ${whereClause}
-      ORDER BY f."BalTotal" DESC
+      ${orderByClause}
       LIMIT 200
     `;
 
     const rawPatients = await prisma.$queryRawUnsafe<any[]>(sql);
+
+    const patNums = rawPatients.map((p) => BigInt(p.PatNum));
+    const meta = await getPatientsMeta(patNums);
 
     const agingBuckets = ['0 - 30 days', '31 - 60 days', '61 - 90 days', '91 - 120 days', '121 - 150 days', '151 - 180 days', '> 180 day'];
 
@@ -275,9 +322,12 @@ export class ReportGenerationService {
       buckets['61 - 90 days'] = { pt: bal61_90, ins: 0 };
       buckets['91 - 120 days'] = { pt: balOver90, ins: 0 };
 
+      const pNumStr = p.PatNum.toString();
+      const patientFlags = meta[pNumStr]?.patientFlags || [];
+
       return {
-        id: p.PatNum.toString(),
-        flags: [],
+        id: pNumStr,
+        flags: patientFlags,
         name: `${p.FName} ${p.LName}`,
         insuranceName: p.CarrierName || null,
         buckets,
@@ -314,17 +364,38 @@ export class ReportGenerationService {
   private async getProductionReport(start: Date, end: Date) {
     const procs = await prisma.procedurelog.findMany({
       where: { ProcDate: { gte: start, lte: end }, ProcStatus: 2 },
-      include: { provider_procedurelog_ProvNumToprovider: true },
-      take: 50
+      include: { 
+        patient: true,
+        provider_procedurelog_ProvNumToprovider: true,
+        procedurecode_procedurelog_CodeNumToprocedurecode: true 
+      }
     });
 
-    return procs.map(p => ({
-      procedureId: p.ProcNum.toString(),
-      code: p.OldCode ?? 'D0120',
-      fee: p.ProcFee ?? 0,
-      date: p.ProcDate?.toLocaleDateString() || '',
-      provider: p.provider_procedurelog_ProvNumToprovider ? `${p.provider_procedurelog_ProvNumToprovider.FName} ${p.provider_procedurelog_ProvNumToprovider.LName}` : 'Provider'
-    }));
+    const patNums = Array.from(new Set(procs.map(p => p.PatNum).filter(Boolean))) as bigint[];
+    const metaMap = await getPatientsMeta(patNums);
+
+    return procs.map(p => {
+      const patNumStr = p.PatNum?.toString() || '';
+      const meta = metaMap[patNumStr] || {};
+      const flags = Array.isArray(meta.patientFlags) ? meta.patientFlags.filter(Boolean) : [];
+
+      let dobStr = '-';
+      if (p.patient?.Birthdate) {
+        dobStr = new Date(p.patient.Birthdate).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' });
+      }
+
+      return {
+        procedureId: p.ProcNum.toString(),
+        date: p.ProcDate?.toISOString() || '',
+        flags: flags,
+        patient: p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Unknown Patient',
+        dob: dobStr,
+        code: p.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || p.OldCode || 'Unknown Code',
+        procedure: p.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || 'Unknown Procedure',
+        provider: p.provider_procedurelog_ProvNumToprovider?.Abbr || p.provider_procedurelog_ProvNumToprovider?.FName || 'Unknown Provider',
+        fee: p.ProcFee || 0
+      };
+    });
   }
 
   private async getProductionCollectionReport(start: Date, end: Date, summary = false) {
@@ -594,24 +665,90 @@ export class ReportGenerationService {
     ];
   }
 
-  private async getAdjustmentReport(start: Date, end: Date) {
+  private async getAdjustmentReport(start: Date, end: Date, query: any = {}) {
+    const where: any = {};
+
+    if (query.filterByProductionDate || query.dateType === 'DateEntry') {
+      where.DateEntry = { gte: start, lte: end };
+    } else {
+      where.AdjDate = { gte: start, lte: end };
+    }
+
+    if (query.provider && query.provider !== 'all') {
+      const provNum = Number(query.provider);
+      if (!isNaN(provNum)) {
+        where.ProvNum = provNum;
+      }
+    }
+
+    if (query.adjustmentType && query.adjustmentType !== 'all') {
+      const typeNum = Number(query.adjustmentType);
+      if (!isNaN(typeNum)) {
+        where.AdjType = typeNum;
+      }
+    }
+
     const adjustments = await prisma.adjustment.findMany({
-      where: { AdjDate: { gte: start, lte: end } },
-      include: { provider: true, patient: true },
-      take: 30
+      where,
+      include: {
+        provider: true,
+        patient: true,
+        procedurelog: {
+          include: {
+            procedurecode_procedurelog_CodeNumToprocedurecode: true
+          }
+        }
+      },
+      take: 500,
+      orderBy: { AdjDate: 'desc' }
     });
 
-    return adjustments.map(a => ({
-      id: a.AdjNum.toString(),
-      date: a.AdjDate?.toLocaleDateString() || '',
-      amount: a.AdjAmt ?? 0,
-      patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Patient',
-      provider: a.provider ? `${a.provider.FName} ${a.provider.LName}` : 'Provider',
-      notes: a.AdjNote ?? ''
-    }));
+    const patNums = Array.from(new Set(adjustments.map(a => a.PatNum).filter(Boolean))) as bigint[];
+    const metaMap = await getPatientsMeta(patNums);
+
+    let results = adjustments.map(a => {
+      const patNumStr = a.PatNum?.toString() || '';
+      const meta = metaMap[patNumStr] || {};
+      const flags = Array.isArray(meta.patientFlags) ? meta.patientFlags.filter(Boolean) : [];
+
+      let dobStr = '';
+      if (a.patient?.Birthdate) {
+        dobStr = new Date(a.patient.Birthdate).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' });
+      }
+
+      const procCode = a.procedurelog?.OldCode || a.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || '';
+
+      return {
+        id: a.AdjNum.toString(),
+        date: a.AdjDate?.toLocaleDateString() || a.DateEntry?.toLocaleDateString() || '',
+        amount: a.AdjAmt ?? 0,
+        patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Patient',
+        patientId: patNumStr,
+        dob: dobStr,
+        flags: flags,
+        provider: a.provider ? (a.provider.Abbr || `${a.provider.FName} ${a.provider.LName}`) : 'Provider',
+        providerId: a.provider?.ProvNum?.toString() || '',
+        typeId: a.AdjType?.toString() || '',
+        code: procCode,
+        procedure: a.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || procCode || 'Adjustment',
+        notes: a.AdjNote ?? ''
+      };
+    });
+
+    if (query.searchText || query.codeText) {
+      const term = (query.searchText || query.codeText).toLowerCase();
+      results = results.filter(r =>
+        r.patient.toLowerCase().includes(term) ||
+        r.provider.toLowerCase().includes(term) ||
+        r.code.toLowerCase().includes(term) ||
+        r.notes.toLowerCase().includes(term)
+      );
+    }
+
+    return results;
   }
 
-  private async getCourtesyCreditModifications(start: Date, end: Date) {
+  private async getCourtesyCreditModifications(start: Date, end: Date, query: any = {}) {
     const courtesyDefs = await prisma.definition.findMany({
       where: {
         Category: 1, // AdjTypes
@@ -622,42 +759,82 @@ export class ReportGenerationService {
 
     if (courtesyDefNums.length === 0) return [];
 
+    const adjWhere: any = { AdjType: { in: courtesyDefNums } };
+    if (query.startDate && query.endDate) {
+      const sDate = new Date(query.startDate);
+      const eDate = new Date(query.endDate);
+      adjWhere.AdjDate = { gte: sDate, lte: eDate };
+    } else {
+      adjWhere.AdjDate = { gte: start, lte: end };
+    }
+
     const adjustments = await prisma.adjustment.findMany({
-      where: { 
-        AdjDate: { gte: start, lte: end },
-        AdjType: { in: courtesyDefNums }
-      }
+      where: adjWhere
     });
     const adjNums = adjustments.map(a => a.AdjNum);
 
-    if (adjNums.length === 0) return [];
+    const logWhere: any = {
+      PermType: { in: [105, 106, 107] }
+    };
+
+    if (adjNums.length > 0) {
+      logWhere.FKey = { in: adjNums };
+    }
+
+    if (query.startDate && query.endDate) {
+      logWhere.LogDateTime = { gte: new Date(query.startDate), lte: new Date(query.endDate) };
+    } else {
+      logWhere.LogDateTime = { gte: start, lte: end };
+    }
+
+    if (query.users && query.users !== 'all') {
+      const userNum = Number(query.users);
+      if (!isNaN(userNum)) {
+        logWhere.UserNum = userNum;
+      }
+    }
 
     const logs = await prisma.securitylog.findMany({
-      where: {
-        FKey: { in: adjNums },
-        PermType: 106, // AdjustmentEdit
-        LogDateTime: { gte: start, lte: end }
-      },
+      where: logWhere,
       include: {
         userod: true,
         patient: true
       },
-      take: 200
+      orderBy: { LogDateTime: 'desc' },
+      take: 300
     });
 
-    return logs.map(log => ({
+    let results = logs.map(log => ({
+      id: log.SecurityLogNum.toString(),
       dateModified: log.LogDateTime?.toLocaleDateString() || '',
-      user: log.userod ? log.userod.UserName : 'System',
+      timestamp: log.LogDateTime?.toISOString() || '',
+      user: log.userod ? (log.userod.UserName || 'System') : 'System',
       action: log.LogText || 'Modified Courtesy Credit',
       type: 'Adjustment',
       patient: log.patient ? `${log.patient.FName} ${log.patient.LName}` : 'Unknown',
       amount: 0
     }));
+
+    if (query.action && query.action !== 'all') {
+      const actTerm = query.action.toLowerCase();
+      results = results.filter(r => r.action.toLowerCase().includes(actTerm));
+    }
+
+    if (query.searchText) {
+      const sTerm = query.searchText.toLowerCase();
+      results = results.filter(r =>
+        r.patient.toLowerCase().includes(sTerm) ||
+        r.user.toLowerCase().includes(sTerm) ||
+        r.action.toLowerCase().includes(sTerm)
+      );
+    }
+
+    return results;
   }
 
-  private async getCourtesyCreditReport(start: Date, end: Date, modifications = false) {
+  private async getCourtesyCreditReport(start: Date, end: Date, modifications = false, query: any = {}) {
     if (modifications) {
-      return this.getCourtesyCreditModifications(start, end);
+      return this.getCourtesyCreditModifications(start, end, query);
     }
 
     const courtesyDefs = await prisma.definition.findMany({
@@ -679,20 +856,50 @@ export class ReportGenerationService {
       include: {
         patient: true
       },
-      take: 200
+      orderBy: { AdjDate: 'desc' },
+      take: 300
     });
 
-    return adjustments.map(a => ({
-      flags: [],
-      id: a.patient?.PatNum?.toString() || '0',
-      name: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Unknown Patient',
-      amount: Math.abs(a.AdjAmt ?? 0)
-    }));
+    const patNums = Array.from(new Set(adjustments.map(a => a.PatNum).filter(Boolean))) as bigint[];
+    const metaMap = await getPatientsMeta(patNums);
+
+    let results = adjustments.map(a => {
+      const patNumStr = a.patient?.PatNum?.toString() || '0';
+      const meta = metaMap[patNumStr] || {};
+      const flags = Array.isArray(meta.patientFlags) ? meta.patientFlags.filter(Boolean) : [];
+
+      return {
+        flags: flags,
+        id: patNumStr,
+        name: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Unknown Patient',
+        amount: Math.abs(a.AdjAmt ?? 0),
+        creditAmount: Math.abs(a.AdjAmt ?? 0),
+        date: a.AdjDate?.toLocaleDateString() || '',
+        notes: a.AdjNote || ''
+      };
+    });
+
+    if (query.searchText) {
+      const term = query.searchText.toLowerCase();
+      results = results.filter(r => r.name.toLowerCase().includes(term) || r.notes.toLowerCase().includes(term));
+    }
+
+    return results;
   }
 
-  private async getCreditAccountsReport() {
+  private async getCreditAccountsReport(query: any = {}) {
+    const where: any = { BalTotal: { lt: 0 } };
+
+    if (query.includeInactive === false || query.includeInactive === 'false') {
+      where.PatStatus = 0;
+    } else if (query.filter === 'Active patients') {
+      where.PatStatus = 0;
+    } else if (query.filter === 'Inactive patients') {
+      where.PatStatus = { not: 0 };
+    }
+
     const patients = await prisma.patient.findMany({
-      where: { BalTotal: { lt: 0 } },
+      where,
       select: { 
         PatNum: true, 
         FName: true, 
@@ -704,25 +911,75 @@ export class ReportGenerationService {
         BalTotal: true,
         InsEst: true 
       },
-      take: 200
+      take: 300
     });
 
-    return patients.map(p => ({
-      patientId: p.PatNum.toString(),
-      name: `${p.FName} ${p.LName}`,
-      dob: p.Birthdate?.toLocaleDateString() || '',
-      email: p.Email || '',
-      phone: p.WirelessPhone || p.HmPhone || '',
-      amount: Math.abs(p.BalTotal ?? 0),
-      credit: Math.abs(p.BalTotal ?? 0),
-      insCredit: Math.abs(p.InsEst && p.InsEst < 0 ? p.InsEst : 0)
-    }));
+    const patNums = patients.map(p => p.PatNum);
+    const metaMap = await getPatientsMeta(patNums);
+
+    return patients.map(p => {
+      const patNumStr = p.PatNum.toString();
+      const meta = metaMap[patNumStr] || {};
+      const flags = Array.isArray(meta.patientFlags) ? meta.patientFlags.filter(Boolean) : [];
+
+      return {
+        patientId: patNumStr,
+        flags: flags,
+        name: `${p.FName} ${p.LName}`,
+        dob: p.Birthdate?.toLocaleDateString() || '',
+        email: p.Email || '',
+        phone: p.WirelessPhone || p.HmPhone || '',
+        amount: Math.abs(p.BalTotal ?? 0),
+        credit: Math.abs(p.BalTotal ?? 0),
+        insCredit: Math.abs(p.InsEst && p.InsEst < 0 ? p.InsEst : 0)
+      };
+    });
   }
 
-  private async getModificationsReport(start: Date, end: Date) {
-    return [
-      { timestamp: new Date().toISOString(), modifiedBy: 'Dr. Sabour', field: 'Invoice Fee', originalValue: '150.00', newValue: '120.00' }
-    ];
+  private async getModificationsReport(start: Date, end: Date, query: any = {}) {
+    const where: any = {
+      LogDateTime: { gte: start, lte: end }
+    };
+
+    if (query.category === 'appointments') {
+      where.PermType = { in: [25, 26, 27, 49] };
+    } else if (query.category === 'fees') {
+      where.PermType = { in: [63, 84] };
+    } else if (query.category === 'claims') {
+      where.PermType = { in: [47, 48] };
+    } else if (query.category === 'patient') {
+      where.PermType = { in: [1, 2] };
+    }
+
+    const logs = await prisma.securitylog.findMany({
+      where,
+      include: {
+        userod: true,
+        patient: true
+      },
+      orderBy: { LogDateTime: 'desc' },
+      take: 300
+    });
+
+    if (logs.length === 0) {
+      return [];
+    }
+
+    return logs.map(log => {
+      const modifiedBy = log.userod ? (log.userod.UserName || 'System') : 'System';
+      const patientName = log.patient ? `${log.patient.FName} ${log.patient.LName}` : 'N/A';
+      
+      return {
+        id: log.SecurityLogNum.toString(),
+        timestamp: log.LogDateTime?.toISOString() || new Date().toISOString(),
+        modifiedBy,
+        field: log.PermType ? `Permission Event #${log.PermType}` : 'General Edit',
+        originalValue: '-',
+        newValue: log.LogText || 'System Audit Record',
+        patient: patientName,
+        action: log.LogText || 'Modified system entity'
+      };
+    });
   }
 
   private async getDepositSummary(start: Date, end: Date) {
@@ -881,12 +1138,8 @@ export class ReportGenerationService {
       }
 
       if (patMap.size === 0) {
-        return [
-          { id: '101', name: 'Francis Fuller', patientCollection: '$150.00', insuranceCollection: '$470.00', totalCollection: '$620.00' },
-          { id: '102', name: 'Garry Gilmore', patientCollection: '$120.00', insuranceCollection: '$0.00', totalCollection: '$120.00' },
-          { id: '103', name: 'Zoe Niblock', patientCollection: '$80.00', insuranceCollection: '$200.00', totalCollection: '$280.00' }
-        ];
-      }
+      return [];
+    }
 
       return Array.from(patMap.values()).map(p => ({
         id: p.id,
@@ -1309,11 +1562,20 @@ export class ReportGenerationService {
   // CLINICAL REPORTS QUERY HELPERS
   // ==========================================
 
-  private async getRecareReport() {
+  private async getRecareReport(startDate?: Date, endDate?: Date) {
+    const where: any = { IsDisabled: 0 };
+    if (startDate && endDate) {
+      where.DateDue = { gte: startDate, lte: endDate };
+    } else if (startDate) {
+      where.DateDue = { gte: startDate };
+    } else if (endDate) {
+      where.DateDue = { lte: endDate };
+    }
+
     const recalls = await prisma.recall.findMany({
-      where: { IsDisabled: 0 },
+      where,
       include: { patient: true },
-      take: 50
+      take: 500
     });
 
     const getAge = (birthDate: Date | null) => {
@@ -1351,7 +1613,9 @@ export class ReportGenerationService {
         contactAgain: 'Y',
         followUp: '',
         apptDate: r.DateScheduled ? (r.DateScheduled as Date).toLocaleDateString() : '',
-        contactCount: 0
+        contactCount: 0,
+        dentistId: p?.PriProv ? p.PriProv.toString() : '',
+        hygienistId: p?.SecProv ? p.SecProv.toString() : ''
       };
     });
   }
@@ -1425,21 +1689,7 @@ export class ReportGenerationService {
     }));
 
     if (report.length === 0) {
-      return [
-        {
-          id: 77,
-          provider: 'Dr. Smith',
-          patient: 'Francis Fuller',
-          startDate: '05/07/2026',
-          dose: '5MG',
-          refills: 0,
-          duration: '2 Week',
-          longTerm: 'No',
-          prints: 0,
-          notes: '',
-          drugName: 'FLEXERIL'
-        }
-      ];
+      return [];
     }
 
     return report;
@@ -1449,33 +1699,115 @@ export class ReportGenerationService {
   // PATIENT REPORTS QUERY HELPERS
   // ==========================================
 
-  private async getPatientInsuranceCoverage() {
+  private async getPatientInsuranceCoverage(query: any = {}) {
+    const { searchQuery, assignmentFilter, apptStartDate, apptEndDate, apptSingleDate, showNoCoverage, apptFilterType } = query;
+
+    let whereClause: any = {};
+    whereClause.AND = [];
+
+    if (showNoCoverage === 'true' || showNoCoverage === true) {
+      whereClause.inssub = { is: null };
+    } else if (showNoCoverage === 'false' || showNoCoverage === false) {
+      whereClause.inssub = { isNot: null };
+    }
+
+    if (searchQuery) {
+      let searchOr: any[] = [
+        { patient: { is: { FName: { contains: searchQuery } } } },
+        { patient: { is: { LName: { contains: searchQuery } } } },
+        { inssub: { is: { insplan: { is: { GroupName: { contains: searchQuery } } } } } },
+        { inssub: { is: { insplan: { is: { carrier: { is: { CarrierName: { contains: searchQuery } } } } } } } }
+      ];
+      if (!isNaN(Number(searchQuery))) {
+        searchOr.push({ PatNum: BigInt(searchQuery) });
+      }
+      whereClause.AND.push({ OR: searchOr });
+    }
+
+    if (assignmentFilter === 'assignment') {
+      whereClause.inssub = { ...whereClause.inssub, is: { ...whereClause.inssub?.is, AssignBen: 1 } };
+    } else if (assignmentFilter === 'non-assignment') {
+      whereClause.AND.push({
+        OR: [
+          { inssub: { is: null } },
+          { inssub: { is: { AssignBen: { not: 1 } } } },
+          { inssub: { is: { AssignBen: null } } }
+        ]
+      });
+    }
+
+    if (whereClause.AND.length === 0) {
+      delete whereClause.AND;
+    }
+
+    let apptWhere: any = { AptStatus: { in: [1, 2] } };
+    let hasApptFilter = false;
+
+    if (apptFilterType === 'range') {
+      hasApptFilter = true;
+      apptWhere.AptDateTime = {};
+      if (apptStartDate) apptWhere.AptDateTime.gte = new Date(apptStartDate);
+      if (apptEndDate) {
+        const end = new Date(apptEndDate);
+        end.setHours(23, 59, 59, 999);
+        apptWhere.AptDateTime.lte = end;
+      }
+    } else if (apptFilterType === 'before' && apptSingleDate) {
+      hasApptFilter = true;
+      apptWhere.AptDateTime = { lt: new Date(apptSingleDate) };
+    } else if (apptFilterType === 'after' && apptSingleDate) {
+      hasApptFilter = true;
+      apptWhere.AptDateTime = { gt: new Date(apptSingleDate) };
+    }
+
+    if (hasApptFilter) {
+      whereClause.patient = {
+        ...whereClause.patient,
+        is: {
+          ...whereClause.patient?.is,
+          appointment: { some: apptWhere }
+        }
+      };
+    }
+
     const plans = await prisma.patplan.findMany({
+      where: whereClause,
       include: {
-        patient: true,
+        patient: {
+          include: {
+            appointment: {
+              where: { AptStatus: { in: [1, 2] } },
+              orderBy: { AptDateTime: 'desc' },
+              take: 1
+            }
+          }
+        },
         inssub: {
           include: {
             insplan: {
               include: {
-                carrier: true
+                carrier: true,
+                feesched_insplan_FeeSchedTofeesched: true
               }
             }
           }
         }
-      },
-      take: 50
+      }
     });
 
     const report = plans.map(p => {
       const patientName = p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Patient';
       const email = p.patient?.Email || '';
       const planNameVal = p.inssub?.insplan?.GroupName
-        ? `${p.inssub.insplan.GroupName} (${p.inssub.insplan.PlanNum.toString()})`
+        ? `${p.inssub.insplan.GroupName} (${p.inssub.insplan.PlanNum?.toString() || ''})`
         : p.inssub?.insplan?.GroupNum
-          ? `${p.inssub.insplan.GroupNum} (${p.inssub.insplan.PlanNum.toString()})`
+          ? `${p.inssub.insplan.GroupNum} (${p.inssub.insplan.PlanNum?.toString() || ''})`
           : 'Standard Insurance';
       const payer = p.inssub?.insplan?.carrier?.CarrierName || 'Standard Insurance';
       const patientNum = p.PatNum ? p.PatNum.toString() : '';
+      const lastAppt = (p.patient as any)?.appointment?.[0]?.AptDateTime;
+      const feeSchedDesc = p.inssub?.insplan?.feesched_insplan_FeeSchedTofeesched?.Description || '';
+      const isAssignment = p.inssub?.AssignBen === 1;
 
       return {
         number: patientNum,
@@ -1483,113 +1815,116 @@ export class ReportGenerationService {
         email,
         planName: planNameVal,
         payer,
-        lastAppointment: p.patient?.DateFirstVisit ? (p.patient.DateFirstVisit as Date).toLocaleDateString() : '',
-        feeSchedule: '',
+        lastAppointment: lastAppt ? new Date(lastAppt).toLocaleDateString() : '',
+        feeSchedule: feeSchedDesc,
         planRenewalDate: 'January',
-        assignmentStatus: 'Assignment'
+        assignmentStatus: isAssignment ? 'Assignment' : 'Non-Assignment'
       };
     });
-
-    if (report.length === 0) {
-      return [
-        {
-          number: '1262',
-          patient: 'John Doe',
-          email: 'john.doe@example.com',
-          planName: 'Standard Insurance (160-173134-1)',
-          payer: 'Standard Insurance',
-          lastAppointment: '',
-          feeSchedule: '',
-          planRenewalDate: 'January',
-          assignmentStatus: 'Assignment',
-        },
-        {
-          number: '1254',
-          patient: 'Jane Smith',
-          email: 'jane.smith@example.com',
-          planName: 'Walmart (8000-00010000)',
-          payer: 'Delta Dental of Arkansas',
-          lastAppointment: '05/05/2026',
-          feeSchedule: '',
-          planRenewalDate: 'January',
-          assignmentStatus: 'Assignment',
-        },
-        {
-          number: '1247',
-          patient: 'Robert Brown',
-          email: 'robert.b@example.com',
-          planName: 'Blue Cross Blue Shield of Texas (387291)',
-          payer: 'Blue Cross Blue Shield of Texas',
-          lastAppointment: '',
-          feeSchedule: 'Careington PPO Platinum (directly in network)',
-          planRenewalDate: 'January',
-          assignmentStatus: 'Assignment',
-        }
-      ];
-    }
 
     return report;
   }
 
-  private async getPatientMembershipPlan() {
-    return [
-      {
-        number: '1249',
-        patient: 'John Doe',
-        email: 'john.doe@example.com',
-        planName: 'Foundations (Perio) Program - New Patient',
-        lastAppointment: '',
-        renewalMonth: 'April',
-      },
-      {
-        number: '1210',
-        patient: 'Jane Smith',
-        email: 'jane.smith@example.com',
-        planName: 'Foundations (Perio) Program - New Patient',
-        lastAppointment: '',
-        renewalMonth: 'February',
-      },
-      {
-        number: '540',
-        patient: 'Robert Brown',
-        email: 'robert.b@example.com',
-        planName: 'Clean + Confident - Existing Patient',
-        lastAppointment: '',
-        renewalMonth: 'March',
-      },
-      {
-        number: '185',
-        patient: 'Michael Johnson',
-        email: 'm.johnson@example.com',
-        planName: 'Foundations (Perio) Program Existing Patient',
-        lastAppointment: '',
-        renewalMonth: 'April',
-      },
-      {
-        number: '181',
-        patient: 'William Davis',
-        email: 'w.davis@example.com',
-        planName: 'Foundations (Perio) Program - New Patient',
-        lastAppointment: '',
-        renewalMonth: 'May',
-      },
-      {
-        number: '62',
-        patient: 'Elizabeth Garcia',
-        email: 'e.garcia@example.com',
-        planName: 'Bright Beginning',
-        lastAppointment: '',
-        renewalMonth: 'February',
-      },
-      {
-        number: '4',
-        patient: 'David Martinez',
-        email: 'd.martinez@example.com',
-        planName: 'Clean + Confident - Existing Patient',
-        lastAppointment: '',
-        renewalMonth: 'February',
+  private async getPatientMembershipPlan(query: any = {}) {
+    const { searchQuery, renewalMonth, apptFilterType, apptStartDate, apptEndDate, apptSingleDate, showNoPlan } = query;
+    const months = ['January','February','March','April','May','June',
+                    'July','August','September','October','November','December'];
+
+    let whereClause: any = { IsClosed: 0 };
+    whereClause.AND = [];
+
+    if (showNoPlan === 'true' || showNoPlan === true) {
+      whereClause.AND.push({
+        OR: [
+          { PlanCategory: null },
+          { PlanCategory: 0 }
+        ]
+      });
+    } else if (showNoPlan === 'false' || showNoPlan === false) {
+      whereClause.AND.push({ PlanCategory: { not: null } });
+      whereClause.AND.push({ PlanCategory: { not: 0 } });
+    }
+
+    if (searchQuery) {
+      let searchOr: any[] = [
+        { patient_payplan_PatNumTopatient: { is: { FName: { contains: searchQuery } } } },
+        { patient_payplan_PatNumTopatient: { is: { LName: { contains: searchQuery } } } },
+        { definition: { is: { ItemName: { contains: searchQuery } } } }
+      ];
+      if (!isNaN(Number(searchQuery))) {
+        searchOr.push({ PatNum: BigInt(searchQuery) });
       }
-    ];
+      whereClause.AND.push({ OR: searchOr });
+    }
+
+    let apptWhere: any = { AptStatus: { in: [1, 2] } };
+    let hasApptFilter = false;
+
+    if (apptFilterType === 'range') {
+      hasApptFilter = true;
+      apptWhere.AptDateTime = {};
+      if (apptStartDate) apptWhere.AptDateTime.gte = new Date(apptStartDate);
+      if (apptEndDate) {
+        const end = new Date(apptEndDate);
+        end.setHours(23, 59, 59, 999);
+        apptWhere.AptDateTime.lte = end;
+      }
+    } else if (apptFilterType === 'before' && apptSingleDate) {
+      hasApptFilter = true;
+      apptWhere.AptDateTime = { lt: new Date(apptSingleDate) };
+    } else if (apptFilterType === 'after' && apptSingleDate) {
+      hasApptFilter = true;
+      apptWhere.AptDateTime = { gt: new Date(apptSingleDate) };
+    }
+
+    if (hasApptFilter) {
+      whereClause.patient_payplan_PatNumTopatient = {
+        is: {
+          ...whereClause.patient_payplan_PatNumTopatient?.is,
+          appointment: { some: apptWhere }
+        }
+      };
+    }
+
+    if (whereClause.AND.length === 0) {
+      delete whereClause.AND;
+    }
+
+    const plans = await prisma.payplan.findMany({
+      where: whereClause,
+      include: {
+        patient_payplan_PatNumTopatient: {
+          include: {
+            appointment: { orderBy: { AptDateTime: 'desc' as const }, take: 1 }
+          }
+        },
+        definition: true
+      }
+    });
+
+    if (plans.length === 0) {
+      return [];
+    }
+
+    let report = plans.map(p => {
+      const pat = p.patient_payplan_PatNumTopatient;
+      const lastAppt = pat?.appointment?.[0]?.AptDateTime;
+      const renewalDate = p.PayPlanDate as Date | null;
+      return {
+        number: pat?.PatNum?.toString() || '',
+        patient: pat ? `${pat.FName} ${pat.LName}` : 'Patient',
+        email: pat?.Email || '',
+        planName: p.definition?.ItemName || 'Membership Plan',
+        lastAppointment: lastAppt ? new Date(lastAppt).toLocaleDateString() : '',
+        renewalMonth: renewalDate ? months[new Date(renewalDate).getMonth()] : ''
+      };
+    });
+
+    if (renewalMonth) {
+      report = report.filter(r => r.renewalMonth === renewalMonth);
+    }
+
+    return report;
   }
 
   private async getReferralByPatient(start?: Date, end?: Date) {
@@ -1607,8 +1942,7 @@ export class ReportGenerationService {
       include: {
         patient: true, // The referred patient
         referral: true // The referral source
-      },
-      take: 50 // Increase limit as needed
+      }
     });
 
     return refAttaches.map((r) => ({
@@ -1630,9 +1964,29 @@ export class ReportGenerationService {
   }
 
   private async getOnlineSchedulingReferral(start: Date, end: Date) {
-    return [
-      { patient: 'Jane Smith', date: new Date().toLocaleDateString(), referralSource: 'Google Search' }
-    ];
+    const refAttaches = await prisma.refattach.findMany({
+      where: { RefDate: { gte: start, lte: end } },
+      include: { referral: true }
+    });
+
+    const groups = new Map<string, number>();
+    for (const r of refAttaches) {
+      const source = r.referral?.BusinessName ||
+        `${r.referral?.FName || ''} ${r.referral?.LName || ''}`.trim() || 'Unknown';
+      groups.set(source, (groups.get(source) || 0) + 1);
+    }
+
+    if (groups.size === 0) {
+      return [];
+    }
+
+    return Array.from(groups.entries()).map(([source, count]) => ({
+      referral: source,
+      utmSource: '',
+      utmMedium: '',
+      utmCampaign: '',
+      clicks: count
+    }));
   }
 
   private async getPatientByFlag(
@@ -1663,7 +2017,6 @@ export class ReportGenerationService {
 
     const patients = await prisma.patient.findMany({
       where,
-      take: 200,
       select: {
         PatNum: true,
         FName: true,
@@ -1716,164 +2069,751 @@ export class ReportGenerationService {
     return results;
   }
 
-  private async getCancelledOrNoShowAppointments(start: Date, end: Date, isNoShow = false) {
+  private async getCancelledOrNoShowAppointments(start: Date, end: Date, isNoShow = false, showInactive = false) {
+    const whereClause: any = {
+      AptDateTime: { gte: start, lte: end },
+      AptStatus: isNoShow ? 3 : 4
+    };
+
+    if (!showInactive) {
+      whereClause.patient = { PatStatus: 0 };
+    }
+
     const appointments = await prisma.appointment.findMany({
-      where: {
-        AptDateTime: { gte: start, lte: end },
-        AptStatus: isNoShow ? 3 : 4 // 3 = NoShow, 4 = Cancelled
-      },
-      include: { patient: true, provider_appointment_ProvNumToprovider: true },
-      take: 30
+      where: whereClause,
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        procedurelog_procedurelog_AptNumToappointment: {
+          where: { ProcStatus: { in: [1, 2] } },
+          include: { procedurecode_procedurelog_CodeNumToprocedurecode: true }
+        }
+      }
     });
 
-    return appointments.map(a => ({
-      id: a.AptNum.toString(),
-      patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Patient',
-      provider: a.provider_appointment_ProvNumToprovider ? `${a.provider_appointment_ProvNumToprovider.FName} ${a.provider_appointment_ProvNumToprovider.LName}` : 'Provider',
-      date: a.AptDateTime?.toLocaleDateString() || '',
-      reason: a.Note ?? 'Patient schedule conflict'
-    }));
+    // Get next appointments for these patients
+    const patNums = [...new Set(appointments.map(a => a.PatNum).filter(Boolean))] as bigint[];
+    const nextAppts = patNums.length > 0 ? await prisma.appointment.findMany({
+      where: {
+        PatNum: { in: patNums },
+        AptDateTime: { gt: new Date() },
+        AptStatus: { in: [1, 2] }
+      },
+      orderBy: { AptDateTime: 'asc' }
+    }) : [];
+    const nextApptMap = new Map<string, string>();
+    for (const na of nextAppts) {
+      const key = na.PatNum?.toString() || '';
+      if (!nextApptMap.has(key)) {
+        nextApptMap.set(key, na.AptDateTime?.toLocaleDateString() || '');
+      }
+    }
+
+    const days = ['Sun', 'Mon', 'Tues', 'Wed', 'Thurs', 'Fri', 'Sat'];
+
+    return appointments.map(a => {
+      const apptDate = a.AptDateTime ? new Date(a.AptDateTime) : null;
+      const aAny = a as any;
+      const procedures = (aAny.procedurelog_procedurelog_AptNumToappointment || [])
+        .map((p: any) => p.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || p.OldCode || '')
+        .filter(Boolean).join(', ');
+      const provAbbr = a.provider_appointment_ProvNumToprovider?.Abbr ||
+        a.provider_appointment_ProvNumToprovider?.FName?.substring(0, 3) || '';
+      const patKey = a.PatNum?.toString() || '';
+
+      return {
+        patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Patient',
+        type: a.IsNewPatient ? 'New Patient' : 'Recare',
+        providers: provAbbr,
+        duration: `${a.Pattern?.length ? a.Pattern.length * 5 : 60} mins`,
+        prefDay: apptDate ? days[apptDate.getDay()] : '',
+        prefTime: apptDate ? apptDate.toLocaleTimeString('en-US',
+          { hour: '2-digit', minute: '2-digit', hour12: true }) : '',
+        procedures,
+        aptDate: apptDate ? apptDate.toLocaleDateString('en-US',
+          { month: 'short', day: '2-digit', year: 'numeric' }) : '',
+        nextAptDate: nextApptMap.get(patKey) || '',
+        reason: a.Note ?? ''
+      };
+    });
   }
 
-  private async getAppointmentsReport(start: Date, end: Date) {
+  private async getAppointmentsReport(start: Date, end: Date, query?: any) {
+    const where: any = {};
+    if (query?.dateType === 'created') {
+      where.SecDateTEntry = { gte: start, lte: end };
+    } else {
+      where.AptDateTime = { gte: start, lte: end };
+    }
+
+    if (query?.provider && query.provider !== 'all') {
+      const provNum = Number(query.provider);
+      if (!isNaN(provNum)) where.ProvNum = provNum;
+    }
+    if (query?.status && query.status !== 'all') {
+      const statusMap: Record<string, number> = {
+        scheduled: 1, complete: 2, broken: 3, cancelled: 4
+      };
+      if (statusMap[query.status]) where.AptStatus = statusMap[query.status];
+    }
+    if (query?.locationType === 'online') {
+      // Mock filter for online location (e.g. specific clinic num if applicable)
+      where.ClinicNum = { gt: 0 }; 
+    }
+    if (query?.includeShortlisted === 'true' || query?.includeShortlisted === true) {
+      where.UnschedStatus = { not: null };
+    }
+
     const appointments = await prisma.appointment.findMany({
-      where: { AptDateTime: { gte: start, lte: end } },
-      include: { patient: true, provider_appointment_ProvNumToprovider: true },
-      take: 50
+      where,
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        procedurelog_procedurelog_AptNumToappointment: {
+          where: { ProcStatus: { in: [1, 2] } },
+          include: { procedurecode_procedurelog_CodeNumToprocedurecode: true }
+        }
+      },
+      take: 100
     });
 
-    return appointments.map(a => ({
-      id: a.AptNum.toString(),
-      patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Patient',
-      provider: a.provider_appointment_ProvNumToprovider ? `${a.provider_appointment_ProvNumToprovider.FName} ${a.provider_appointment_ProvNumToprovider.LName}` : 'Provider',
-      date: a.AptDateTime?.toLocaleDateString() || '',
-      time: a.AptDateTime?.toLocaleTimeString() || '',
-      status: a.AptStatus === 1 ? 'Completed' : a.AptStatus === 4 ? 'Cancelled' : 'Scheduled'
-    }));
+    const patNums = [...new Set(appointments.map(a => a.PatNum).filter(Boolean))] as bigint[];
+    const meta = await getPatientsMeta(patNums);
+
+    // Next appointments
+    const nextAppts = patNums.length > 0 ? await prisma.appointment.findMany({
+      where: {
+        PatNum: { in: patNums },
+        AptDateTime: { gt: end },
+        AptStatus: { in: [1, 2] }
+      },
+      orderBy: { AptDateTime: 'asc' }
+    }) : [];
+    const nextApptMap = new Map<string, string>();
+    for (const na of nextAppts) {
+      const key = na.PatNum?.toString() || '';
+      if (!nextApptMap.has(key)) {
+        nextApptMap.set(key, na.AptDateTime?.toLocaleDateString('en-US',
+          { month: 'short', day: '2-digit', year: 'numeric' }) || '');
+      }
+    }
+
+    const statusLabels: Record<number, string> = {
+      1: 'Scheduled', 2: 'Checked out complete', 3: 'Broken/No Show',
+      4: 'Cancelled', 5: 'Cancelled Short Notice', 6: 'Unconfirmed'
+    };
+
+    let mappedAppointments = appointments.map(a => {
+      const apptDate = a.AptDateTime ? new Date(a.AptDateTime) : null;
+      const patKey = a.PatNum?.toString() || '';
+      const flags = (meta as any)[patKey]?.patientFlags || [];
+      const aAny = a as any;
+      const procedures = (aAny.procedurelog_procedurelog_AptNumToappointment || [])
+        .map((p: any) => p.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || p.OldCode || '')
+        .filter(Boolean).join(' / ');
+      const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+      return {
+        patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Patient',
+        flags,
+        type: a.IsNewPatient ? 'New Patient' : 'Recare',
+        status: statusLabels[a.AptStatus ?? 1] || 'Unknown',
+        providers: a.provider_appointment_ProvNumToprovider?.Abbr || '',
+        operatory: `Operatory ${a.Op || ''}`,
+        aptDate: apptDate?.toLocaleDateString('en-US',
+          { month: 'short', day: '2-digit', year: 'numeric' }) || '',
+        time: apptDate ? `${dayNames[apptDate.getDay()]}, ${apptDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}` : '',
+        duration: `${a.Pattern?.length ? a.Pattern.length * 5 : 60} mins`,
+        procedures,
+        nextAptDate: nextApptMap.get(patKey) || ''
+      };
+    });
+
+    if (query?.flagFilter === 'withFlags') {
+      mappedAppointments = mappedAppointments.filter(a => a.flags.length > 0);
+    } else if (query?.flagFilter === 'withoutFlags') {
+      mappedAppointments = mappedAppointments.filter(a => a.flags.length === 0);
+    }
+
+    return mappedAppointments;
   }
 
   private async getDuplicatePatients() {
-    const duplicates = await prisma.patient.findMany({
-      take: 20
-    });
+    const duplicates = await prisma.$queryRawUnsafe<any[]>(`
+      SELECT p."PatNum", p."FName", p."LName", p."Birthdate", p."PatStatus",
+        CASE WHEN p."PatNum" = p."Guarantor" THEN 'True' ELSE 'False' END AS "IsSubscriber"
+      FROM patient p
+      INNER JOIN (
+        SELECT "FName", "LName", "Birthdate"
+        FROM patient
+        WHERE "Birthdate" IS NOT NULL AND "Birthdate" > '1900-01-01'
+        GROUP BY "FName", "LName", "Birthdate"
+        HAVING COUNT(*) > 1
+      ) dups ON p."FName" = dups."FName"
+           AND p."LName" = dups."LName"
+           AND p."Birthdate" = dups."Birthdate"
+      ORDER BY p."LName", p."FName", p."Birthdate"
+      LIMIT 200
+    `);
 
-    return duplicates.slice(0, 2).map(p => ({
-      patientId: p.PatNum.toString(),
-      name: `${p.FName} ${p.LName}`,
-      dob: p.Birthdate?.toLocaleDateString() || '',
-      matchesWith: 'Duplicate Record found'
+    const statusMap: Record<number, string> = { 0: 'Active', 1: 'Archived', 2: 'Inactive', 3: 'Deceased' };
+
+    if (duplicates.length === 0) {
+      return [];
+    }
+
+    return duplicates.map((p: any) => ({
+      id: p.PatNum?.toString() || '',
+      firstName: p.FName || '',
+      lastName: p.LName || '',
+      dob: p.Birthdate ? new Date(p.Birthdate).toLocaleDateString('en-US',
+        { month: 'short', day: '2-digit', year: 'numeric' }) : '',
+      status: statusMap[p.PatStatus] || 'Active',
+      subscriber: p.IsSubscriber || 'False'
     }));
   }
 
   private async getPatientContactPreferences() {
     const patients = await prisma.patient.findMany({
-      select: { PatNum: true, FName: true, LName: true, PreferContactMethod: true },
-      take: 30
+      where: { PatStatus: 0 },
+      select: {
+        PatNum: true, FName: true, LName: true, Email: true,
+        WirelessPhone: true, HmPhone: true, WkPhone: true,
+        TxtMsgOk: true, PreferContactMethod: true
+      },
+      take: 500
     });
 
-    const getPrefMethod = (val?: number | null) => {
-      switch (val) {
-        case 1: return 'Email';
-        case 2: return 'SMS';
-        case 3: return 'Portal';
-        default: return 'Phone';
+    return patients.map(p => ({
+      firstName: p.FName || '',
+      lastName: p.LName || '',
+      email: p.Email || '',
+      phone: p.WirelessPhone || p.HmPhone || p.WkPhone || '',
+      text: p.TxtMsgOk === 1 ? 'Yes' : 'No',
+      emailPerm: p.Email ? 'Yes' : 'No',
+      review: 'Yes'
+    }));
+  }
+
+  private async getPatientAppointmentMilestones(nextAppt = false, query?: any) {
+    const where: any = { PatStatus: 0 };
+    if (query?.filterBy === 'inactive') where.PatStatus = 2;
+    else if (query?.filterBy === 'all') delete where.PatStatus;
+
+    const patients = await prisma.patient.findMany({
+      where,
+      include: {
+        appointment: {
+          where: nextAppt
+            ? { AptDateTime: { gte: new Date() }, AptStatus: { in: [1, 6] } }
+            : { AptDateTime: { lte: new Date() }, AptStatus: { in: [1, 2, 3, 4, 5] } },
+          orderBy: { AptDateTime: nextAppt ? 'asc' : 'desc' },
+          take: 1,
+          include: { provider_appointment_ProvNumToprovider: true }
+        }
+      },
+      take: 200
+    });
+
+    const filtered = patients.filter(p => p.appointment.length > 0);
+
+    let results = filtered;
+    if (query?.startDate || query?.endDate || (query?.provider && query.provider !== 'all') || (query?.appointmentStatus && query.appointmentStatus !== 'all')) {
+      const startFilter = query.startDate ? new Date(query.startDate) : null;
+      const endFilter = query.endDate ? new Date(query.endDate) : null;
+      results = filtered.filter(p => {
+        const appt = p.appointment[0];
+        if (!appt) return false;
+        
+        const d = appt.AptDateTime;
+        if (d) {
+          if (startFilter && d < startFilter) return false;
+          if (endFilter && d > endFilter) return false;
+        }
+
+        if (query?.provider && query.provider !== 'all') {
+          if (appt.ProvNum !== BigInt(query.provider)) return false;
+        }
+
+        if (query?.appointmentStatus && query.appointmentStatus !== 'all') {
+          if (appt.AptStatus !== Number(query.appointmentStatus)) return false;
+        }
+
+        return true;
+      });
+    }
+
+    // Get next appointments for "Last Appointment" report
+    let nextApptMap = new Map<string, string>();
+    if (!nextAppt) {
+      const patNums = results.map(p => p.PatNum);
+      if (patNums.length > 0) {
+        const nextAppts = await prisma.appointment.findMany({
+          where: {
+            PatNum: { in: patNums },
+            AptDateTime: { gt: new Date() },
+            AptStatus: { in: [1, 6] }
+          },
+          orderBy: { AptDateTime: 'asc' }
+        });
+        for (const na of nextAppts) {
+          const key = na.PatNum?.toString() || '';
+          if (!nextApptMap.has(key)) {
+            nextApptMap.set(key, na.AptDateTime?.toLocaleDateString('en-US',
+              { month: 'short', day: '2-digit', year: 'numeric' }) || '');
+          }
+        }
       }
+    }
+
+    const statusLabels: Record<number, string> = {
+      1: 'Scheduled', 2: 'CheckedoutCompleted', 3: 'Broken',
+      4: 'Cancelled', 5: 'CancelledShortNotice', 6: 'Unconfirmed'
     };
 
-    return patients.map(p => ({
-      patientId: p.PatNum.toString(),
-      name: `${p.FName} ${p.LName}`,
-      preference: getPrefMethod(p.PreferContactMethod)
-    }));
-  }
+    const meta = await getPatientsMeta(results.map(p => p.PatNum));
 
-  private async getPatientAppointmentMilestones(nextAppt = false) {
-    const patients = await prisma.patient.findMany({
-      select: { PatNum: true, FName: true, LName: true, DateFirstVisit: true },
-      take: 20
+    let mappedResults = results.map(p => {
+      const appt = p.appointment[0];
+      const prov = appt?.provider_appointment_ProvNumToprovider;
+      const patKey = p.PatNum.toString();
+      const flags = (meta as any)[patKey]?.patientFlags || [];
+
+      return {
+        id: patKey,
+        patient: `${p.FName} ${p.LName}`,
+        flags,
+        status: p.PatStatus === 0 ? 'Active' : 'Inactive',
+        apptDate: appt?.AptDateTime?.toLocaleDateString('en-US',
+          { month: 'short', day: '2-digit', year: 'numeric' }) || '',
+        type: appt?.IsNewPatient ? 'New Patient' : 'Recare',
+        apptStatus: statusLabels[appt?.AptStatus ?? 1] || 'Unknown',
+        nextAppt: nextApptMap.get(patKey) || '',
+        newPatient: appt?.IsNewPatient ? 'Yes' : 'No',
+        provider: prov ? `${prov.FName} ${prov.LName}` : '',
+        email: p.Email || '',
+        phone: p.WirelessPhone || p.HmPhone || '',
+        text: p.TxtMsgOk === 1 ? 'Yes' : 'No',
+        emailPerm: p.Email ? 'Yes' : 'No',
+        review: 'No'
+      };
     });
 
-    return patients.map(p => ({
-      patientId: p.PatNum.toString(),
-      name: `${p.FName} ${p.LName}`,
-      date: nextAppt ? new Date().toLocaleDateString() : p.DateFirstVisit?.toLocaleDateString() || ''
+    if (query?.flagsFilter === 'withFlags') {
+      mappedResults = mappedResults.filter(r => r.flags.length > 0);
+    } else if (query?.flagsFilter === 'withoutFlags') {
+      mappedResults = mappedResults.filter(r => r.flags.length === 0);
+    }
+
+    return mappedResults;
+  }
+
+  private async getReferralDocuments(query?: any) {
+    const refAttaches = await prisma.refattach.findMany({
+      include: {
+        patient: true,
+        referral: true
+      },
+      orderBy: { ItemOrder: 'desc' },
+      take: 100
+    });
+
+    if (refAttaches.length === 0) {
+      return [];
+    }
+
+    return refAttaches.map(r => ({
+      patient: r.patient ? `${r.patient.FName} ${r.patient.LName}` : 'Patient',
+      provider: r.referral
+        ? (r.referral.NotPerson
+          ? r.referral.BusinessName
+          : `Dr. ${r.referral.LName}`)
+        : '',
+      created: r.RefDate?.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) || '',
+      due: '',
+      shared: r.DateProcComplete?.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) || '',
+      status: r.IsTransitionOfCare ? 'Sent Out' : 'New'
     }));
   }
 
-  private async getReferralDocuments() {
-    return [
-      { date: new Date().toLocaleDateString(), patient: 'Francis Fuller', documentName: 'referral_slip.pdf' }
-    ];
-  }
+  private async getLabCaseReport(start: Date, end: Date, query?: any) {
+    const where: any = {};
 
-  private async getLabCaseReport(start: Date, end: Date) {
+    if (query?.dateFilterType === 'Lab Due Date') {
+      where.DateTimeDue = { gte: start, lte: end };
+    } else if (query?.dateFilterType === 'Shared Date') {
+      where.DateTimeSent = { gte: start, lte: end };
+    } else if (query?.dateFilterType === 'Appointment Date') {
+      where.appointment_labcase_AptNumToappointment = {
+        AptDateTime: { gte: start, lte: end }
+      };
+    } else {
+      where.DateTimeCreated = { gte: start, lte: end };
+    }
+
+    if (query?.status === 'qc') {
+      where.DateTimeRecd = { not: null };
+    } else if (query?.status === 'sent') {
+      where.DateTimeSent = { not: null };
+      where.DateTimeRecd = null;
+    } else if (query?.status === 'pending') {
+      where.DateTimeSent = null;
+      where.DateTimeRecd = null;
+    }
+
+    if (query?.includeInactive !== 'true' && query?.includeInactive !== true) {
+      where.patient = { PatStatus: 0 };
+    }
+
     const cases = await prisma.labcase.findMany({
-      where: { DateTimeCreated: { gte: start, lte: end } },
-      include: { patient: true },
-      take: 20
+      where,
+      include: {
+        patient: true,
+        laboratory: true,
+        appointment_labcase_AptNumToappointment: {
+          include: {
+            procedurelog_procedurelog_AptNumToappointment: {
+              include: { procedurecode_procedurelog_CodeNumToprocedurecode: true }
+            }
+          }
+        }
+      },
+      take: 100
     });
 
-    return cases.map(c => ({
-      caseId: c.LabCaseNum.toString(),
-      patient: c.patient ? `${c.patient.FName} ${c.patient.LName}` : 'Patient',
-      dueDate: c.DateTimeDue?.toLocaleDateString() || '',
-      instructions: c.Instructions ?? ''
-    }));
+    if (cases.length === 0) {
+      return [];
+    }
+
+    return cases.map(c => {
+      const cAny = c as any;
+      const appt = cAny.appointment_labcase_AptNumToappointment;
+      const procedures = appt?.procedurelog_procedurelog_AptNumToappointment
+        ?.map((p: any) => `${p.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || ''} ${p.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || ''}`)
+        .filter(Boolean).join(', ') || '';
+
+      return {
+        patient: c.patient ? `${c.patient.FName} ${c.patient.LName}` : 'Patient',
+        provider: c.laboratory?.Description || '',
+        procedures: procedures ? `- ${procedures}` : '',
+        dueDate: c.DateTimeDue?.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) || '',
+        apptDate: appt?.AptDateTime?.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) || '',
+        sharedDate: c.DateTimeSent?.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) || '',
+        status: c.DateTimeRecd ? 'Quality Checked' : c.DateTimeSent ? 'Sent' : 'Pending'
+      };
+    });
   }
 
   private async getDiscountEditedFeeReport(start: Date, end: Date) {
-    return [
-      { code: 'D1110', originalFee: 150.00, actualFee: 120.00, discount: 30.00, date: new Date().toLocaleDateString() }
-    ];
-  }
-
-  private async getPatientReviewsReport(start: Date, end: Date) {
-    return [
-      { date: new Date().toLocaleDateString(), reviewer: 'Francis Fuller', rating: 5, comment: 'Great clinic and doctors!' }
-    ];
-  }
-
-  private async getPatientNotificationsReport(start: Date, end: Date) {
-    return [
-      { date: new Date().toLocaleDateString(), patient: 'Francis Fuller', message: 'Appointment reminder sent', channel: 'SMS' }
-    ];
-  }
-
-  private async getPatientProceduresReport(start: Date, end: Date) {
-    const procs = await prisma.procedurelog.findMany({
-      where: { ProcDate: { gte: start, lte: end } },
-      include: { patient: true },
-      take: 30
+    const adjustments = await prisma.adjustment.findMany({
+      where: { AdjDate: { gte: start, lte: end } },
+      include: {
+        patient: true,
+        provider: true,
+        procedurelog: {
+          include: { procedurecode_procedurelog_CodeNumToprocedurecode: true }
+        }
+      },
+      take: 200
     });
 
-    return procs.map(p => ({
-      code: p.OldCode ?? 'D0120',
-      patient: p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Patient',
-      fee: p.ProcFee ?? 0,
-      date: p.ProcDate?.toLocaleDateString() || ''
-    }));
+    const linked = adjustments.filter(a => a.procedurelog);
+
+    if (linked.length === 0) {
+      return [];
+    }
+
+    return linked.map(a => {
+      const originalFee = a.procedurelog?.ProcFee ?? 0;
+      const adjAmt = Math.abs(a.AdjAmt ?? 0);
+      const editedFee = originalFee - adjAmt;
+
+      return {
+        patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Patient',
+        date: a.AdjDate?.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) || '',
+        code: a.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || a.procedurelog?.OldCode || '',
+        description: a.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || '',
+        fee: `$${originalFee.toFixed(2)}`,
+        editedFee: `$${editedFee.toFixed(2)}`,
+        discount: `$${adjAmt.toFixed(2)}`,
+        provider: a.provider ? `Dr. ${a.provider.LName}` : ''
+      };
+    });
   }
 
-  private async getPatientTrackers() {
-    return [
-      { patient: 'John Doe', stage: 'Onboarding Completed', date: new Date().toLocaleDateString() }
-    ];
+  private async getPatientReviewsReport(start: Date, end: Date, query?: any) {
+    const where: any = { CommDateTime: { gte: start, lte: end } };
+
+    if (query?.status === 'pending') {
+      where.SentOrReceived = 1;
+    } else if (query?.status === 'completed') {
+      where.SentOrReceived = 2;
+    }
+
+    const commlogs = await prisma.commlog.findMany({
+      where,
+      include: { patient: true },
+      orderBy: { CommDateTime: 'desc' },
+      take: 100
+    });
+
+    if (commlogs.length === 0) {
+      return [];
+    }
+
+    return commlogs.map(c => {
+      let actualStatus = 'Published';
+      if (c.SentOrReceived === 1) actualStatus = 'Pending';
+      if (c.SentOrReceived === 2) actualStatus = 'Completed';
+
+      return {
+        patientName: c.patient ? `${c.patient.FName} ${c.patient.LName}` : 'Patient',
+        reviewStatus: actualStatus,
+        date: c.CommDateTime ? new Date(c.CommDateTime).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : new Date().toLocaleDateString('en-US')
+      };
+    });
+  }
+
+  private async getPatientNotificationsReport(start: Date, end: Date, query?: any) {
+    const where: any = {};
+
+    if (query?.sentStart && query?.sentEnd) {
+      where.CommDateTime = { 
+        gte: new Date(query.sentStart), 
+        lte: new Date(query.sentEnd) 
+      };
+    } else if (start && end) {
+      where.CommDateTime = { gte: start, lte: end };
+    }
+
+    if (query?.plannedStart && query?.plannedEnd) {
+      where.DateTimeEnd = { 
+        gte: new Date(query.plannedStart), 
+        lte: new Date(query.plannedEnd) 
+      };
+    }
+
+    if (query?.status && query.status !== 'none') {
+      if (query.status === 'sent') where.SentOrReceived = 1;
+      else if (query.status === 'failed') where.SentOrReceived = 2;
+      else if (query.status === 'pending') where.SentOrReceived = { notIn: [1, 2] };
+    }
+
+    if (query?.notificationType === 'patient') {
+      where.PatNum = { not: null };
+    } else if (query?.notificationType === 'internal') {
+      where.PatNum = null;
+    }
+
+    if (query?.template && query.template !== 'none') {
+      if (query.template === 'welcome') where.definition = { ItemName: { contains: 'Welcome' } };
+      else if (query.template === 'save') where.definition = { ItemName: { contains: 'Save' } };
+      else if (query.template === 'custom') where.definition = { ItemName: { contains: 'Custom' } };
+    }
+
+    const commlogs = await prisma.commlog.findMany({
+      where,
+      include: {
+        patient: true,
+        userod: true,
+        definition: true
+      },
+      orderBy: { CommDateTime: 'desc' },
+      take: 100
+    });
+
+    if (commlogs.length === 0) {
+      return [];
+    }
+
+    return commlogs.map(c => {
+      const cAny = c as any;
+      const commDate = c.CommDateTime ? new Date(c.CommDateTime) : null;
+      const plannedDate = c.DateTimeEnd ? new Date(c.DateTimeEnd) : commDate;
+      
+      return {
+        sentToPatient: c.patient ? `${c.patient.FName} ${c.patient.LName}` : 'Patient',
+        sentToUser: c.userod?.UserName || 'Staff User',
+        template: c.definition?.ItemName || 'Standard Reminder',
+        status: c.SentOrReceived === 1 ? 'Sent' : c.SentOrReceived === 2 ? 'Failed' : 'Pending',
+        plannedOn: plannedDate ? plannedDate.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '',
+        sentOn: commDate ? `${commDate.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })} ${commDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}` : '',
+        info: c.Note || 'Notification delivered successfully',
+        sentBy: c.userod?.UserName || 'System',
+        reply: ''
+      };
+    });
+  }
+
+  private async getPatientProceduresReport(start: Date, end: Date, query?: any) {
+    const where: any = {};
+
+    const isCreatedDate = query?.dateType === 'created';
+    const startDateFilter = query?.startDate ? new Date(query.startDate) : start;
+    const endDateFilter = query?.endDate ? new Date(query.endDate) : end;
+
+    if (isCreatedDate) {
+      where.DateEntryC = { gte: startDateFilter, lte: endDateFilter };
+    } else {
+      where.ProcDate = { gte: startDateFilter, lte: endDateFilter };
+    }
+
+    if (query?.provider && query.provider !== 'all') {
+      const provNum = Number(query.provider);
+      if (!isNaN(provNum)) where.ProvNum = provNum;
+    }
+
+    if (query?.status && query.status !== 'all') {
+      const statusMap: Record<string, number> = {
+        tp: 1, completed: 2, existingCurrent: 3, existingOther: 4, referredOut: 5, deleted: 6
+      };
+      if (statusMap[query.status]) {
+        where.ProcStatus = statusMap[query.status];
+      } else if (!isNaN(Number(query.status))) {
+        where.ProcStatus = Number(query.status);
+      }
+    }
+
+    if (query?.adaCode && query.adaCode !== 'all') {
+      where.OR = [
+        { OldCode: { contains: query.adaCode } },
+        { procedurecode_procedurelog_CodeNumToprocedurecode: { ProcCode: { contains: query.adaCode } } }
+      ];
+    }
+
+    const procs = await prisma.procedurelog.findMany({
+      where,
+      include: {
+        patient: true,
+        provider_procedurelog_ProvNumToprovider: true,
+        procedurecode_procedurelog_CodeNumToprocedurecode: true,
+        appointment_procedurelog_AptNumToappointment: true
+      },
+      take: 100
+    });
+
+    const procStatusLabels: Record<number, string> = {
+      1: 'Treatment Planned',
+      2: 'Completed',
+      3: 'Existing Current',
+      4: 'Existing Other',
+      5: 'Referred Out',
+      6: 'Deleted'
+    };
+
+    if (procs.length === 0) {
+      return [];
+    }
+
+    return procs.map(p => {
+      const pAny = p as any;
+      const codeObj = pAny.procedurecode_procedurelog_CodeNumToprocedurecode;
+      const appt = pAny.appointment_procedurelog_AptNumToappointment;
+      const prov = pAny.provider_procedurelog_ProvNumToprovider;
+
+      return {
+        patient: p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Patient',
+        code: codeObj?.ProcCode || p.OldCode || 'D0120',
+        description: codeObj?.Descript || 'Dental Procedure',
+        status: procStatusLabels[p.ProcStatus ?? 2] || 'Completed',
+        provider: prov ? `${prov.FName || ''} ${prov.LName || ''}`.trim() || prov.Abbr || 'Provider' : 'Provider',
+        created: p.DateEntryC ? new Date(p.DateEntryC).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : (p.DateTStamp ? new Date(p.DateTStamp).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : ''),
+        scheduled: appt?.AptDateTime ? new Date(appt.AptDateTime).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : (p.ProcDate ? new Date(p.ProcDate).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '')
+      };
+    });
+  }
+
+  private async getPatientTrackers(start?: Date, end?: Date, query?: any) {
+    const where: any = { ObjectType: 1 };
+
+    if (start && end) {
+      where.DateTimeEntry = { gte: start, lte: end };
+    }
+
+    if (query?.patientSearch) {
+      where.patient = {
+        OR: [
+          { FName: { contains: query.patientSearch, mode: 'insensitive' } },
+          { LName: { contains: query.patientSearch, mode: 'insensitive' } }
+        ]
+      };
+    } else {
+      where.patient = { isNot: null };
+    }
+
+    if (query?.status && query.status !== 'all') {
+      if (query.status === 'completed') {
+        where.TaskStatus = 2;
+      } else if (query.status === 'ontrack') {
+        where.TaskStatus = { not: 2 };
+      }
+    }
+
+    if (query?.createdBy === 'admin') {
+      where.userod = { UserName: { equals: 'admin', mode: 'insensitive' } };
+    }
+
+    const tasks = await prisma.task.findMany({
+      where,
+      include: { patient: true, userod: true },
+      orderBy: { DateTimeEntry: 'desc' },
+      take: 100
+    });
+
+    if (tasks.length === 0) return [];
+
+    return tasks.map(t => {
+      const tStart = t.DateTimeEntry ? new Date(t.DateTimeEntry) : null;
+      const tEnd = t.DateTimeFinished ? new Date(t.DateTimeFinished) : null;
+      let duration = '--';
+      if (tStart && tEnd) {
+        const diffDays = Math.ceil(Math.abs(tEnd.getTime() - tStart.getTime()) / (1000 * 60 * 60 * 24));
+        duration = `${diffDays} days`;
+      }
+
+      return {
+        patient: t.patient ? `${t.patient.FName} ${t.patient.LName}` : 'Unknown',
+        trackerName: t.Descript?.split('\n')[0] || 'Patient Tracker',
+        startDate: tStart ? tStart.toLocaleDateString() : '',
+        endDate: tEnd ? tEnd.toLocaleDateString() : 'Active',
+        duration,
+        description: t.DescriptOverride || t.Descript || '',
+        status: t.TaskStatus === 2 ? 'Completed' : 'On Track',
+        createdBy: t.userod?.UserName || 'System',
+        completedBy: t.TaskStatus === 2 ? (t.userod?.UserName || 'System') : '--',
+        deletedBy: '--'
+      };
+    });
   }
 
   // ==========================================
   // OTHERS REPORTS QUERY HELPERS
   // ==========================================
 
-  private async getLoginReport(start: Date, end: Date) {
-    const instances = await prisma.activeinstance.findMany({
-      where: { DateTimeLastActive: { gte: start, lte: end } },
-      include: { userod: true, computer: true },
-      take: 50
+  private async getLoginReport(start: Date, end: Date, query: any = {}) {
+    const searchParams = query.search || query.searchQuery || '';
+    
+    const whereClause: any = {
+      LogDateTime: { gte: start, lte: end },
+      LogText: { contains: 'log', mode: 'insensitive' },
+    };
+
+    if (searchParams) {
+      whereClause.userod = {
+        UserName: { contains: searchParams, mode: 'insensitive' }
+      };
+    }
+
+    const logs = await prisma.securitylog.findMany({
+      where: whereClause,
+      include: { userod: true },
+      take: 200,
+      orderBy: { LogDateTime: 'desc' }
     });
 
-    const report = instances.map((i, idx) => {
-      const dateStr = i.DateTimeLastActive
-        ? (i.DateTimeLastActive as Date).toLocaleString('en-US', {
+    return logs.map((log) => {
+      const dateStr = log.LogDateTime
+        ? new Date(log.LogDateTime).toLocaleString('en-US', {
           year: 'numeric',
           month: '2-digit',
           day: '2-digit',
@@ -1882,40 +2822,140 @@ export class ReportGenerationService {
           hour12: true
         })
         : '';
+        
+      let ip = '127.0.0.1';
+      let machine = log.CompName ? `Machine: ${log.CompName}` : 'Unknown';
+      let status = 'Success';
+      
+      const logText = log.LogText || '';
+      if (logText.toLowerCase().includes('fail') || logText.toLowerCase().includes('invalid')) {
+        status = 'Failure';
+      }
+      
+      try {
+        if (logText.startsWith('{')) {
+          const parsed = JSON.parse(logText);
+          if (parsed.ipAddress && parsed.ipAddress !== 'unknown') ip = parsed.ipAddress;
+          if (parsed.userAgent && parsed.userAgent !== 'unknown') machine = parsed.userAgent;
+          if (parsed.eventType) status = parsed.eventType.includes('failure') ? 'Failure' : 'Success';
+        }
+      } catch (e) {
+        // Fallback to default values if JSON parsing fails
+      }
 
       return {
-        id: i.ActiveInstanceNum ? Number(i.ActiveInstanceNum) : idx + 1,
-        username: i.userod?.UserName ?? 'Unknown User',
+        id: log.SecurityLogNum.toString(),
+        username: log.userod?.UserName ?? 'Unknown User',
         date: dateStr,
-        status: 'Success',
-        ip: '127.0.0.1',
-        machine: i.computer?.CompName ? `Machine: ${i.computer.CompName}` : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        createdAt: log.LogDateTime ? log.LogDateTime.toISOString() : null,
+        status,
+        ip,
+        machine
+      };
+    });
+  }
+
+  private async getAuditReport(start: Date, end: Date, query: any = {}) {
+    const searchUser = query.searchUser || '';
+    const searchPatient = query.searchPatient || '';
+    const actionFilter = query.action || 'None';
+    const categoryFilter = query.category || 'None';
+
+    const whereClause: any = {
+      LogDateTime: { gte: start, lte: end },
+    };
+
+    if (searchUser) {
+      whereClause.userod = {
+        UserName: { contains: searchUser, mode: 'insensitive' }
+      };
+    }
+
+    if (searchPatient) {
+      const terms = searchPatient.split(' ').filter(Boolean);
+      if (terms.length > 0) {
+        if (terms.length === 1) {
+           whereClause.patient = {
+             OR: [
+               { FName: { contains: terms[0], mode: 'insensitive' } },
+               { LName: { contains: terms[0], mode: 'insensitive' } }
+             ]
+           };
+        } else {
+           whereClause.patient = {
+             FName: { contains: terms[0], mode: 'insensitive' },
+             LName: { contains: terms[1], mode: 'insensitive' }
+           };
+        }
+      }
+    }
+
+    const logs = await prisma.securitylog.findMany({
+      where: whereClause,
+      include: { userod: true, patient: true },
+      take: 200,
+      orderBy: { LogDateTime: 'desc' }
+    });
+
+    let report = logs.map((log) => {
+      const dateStr = log.LogDateTime
+        ? new Date(log.LogDateTime).toLocaleString('en-US', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        })
+        : '';
+        
+      let parsedAction = 'Action Performed';
+      let parsedCategory = 'General';
+      let parsedObject = 'System Record';
+
+      const text = log.LogText?.toLowerCase() || '';
+      if (text.includes('create') || text.includes('add')) parsedAction = 'Create';
+      else if (text.includes('update') || text.includes('edit') || text.includes('change')) parsedAction = 'Update';
+      else if (text.includes('delete') || text.includes('remove')) parsedAction = 'Delete';
+      else if (text.includes('view') || text.includes('print')) parsedAction = 'View';
+
+      if (text.includes('report')) parsedCategory = 'Report';
+      else if (text.includes('patient') || log.PatNum) parsedCategory = 'Patient';
+      else if (text.includes('appoint') || text.includes('sched')) parsedCategory = 'Schedule';
+      else if (text.includes('claim') || text.includes('bill')) parsedCategory = 'Billing';
+
+      let finalMessage = log.LogText ?? 'Success';
+      try {
+        const parsed = JSON.parse(finalMessage);
+        if (parsed.description) finalMessage = parsed.description;
+        else if (parsed.message) finalMessage = parsed.message;
+      } catch (e) {
+        // Not JSON, leave as is
+      }
+
+      return {
+        id: log.SecurityLogNum.toString(),
+        patient: log.patient ? `${log.patient.FName} ${log.patient.LName}` : '',
+        user: log.userod?.UserName ?? 'System',
+        category: parsedCategory,
+        subcategory: parsedCategory,
+        action: parsedAction,
+        object: parsedObject,
+        date: dateStr,
+        message: finalMessage,
+        diff: { key: '', old: '', new: '' }
       };
     });
 
-    if (report.length === 0) {
-      return [
-        { id: 1, username: 'Babar Magsi', date: '05/08/2026 2:20 PM', status: 'Success', ip: '125.209.73.246', machine: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36' },
-        { id: 2, username: 'Dr. Smith', date: '05/08/2026 1:07 PM', status: 'Success', ip: '125.209.73.246', machine: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36' },
-        { id: 3, username: 'Hygienist A', date: '05/08/2026 1:05 PM', status: 'Success', ip: '182.188.108.206', machine: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36' },
-        { id: 4, username: 'Staff B', date: '05/08/2026 1:02 PM', status: 'Success', ip: '162.251.62.66', machine: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36' },
-        { id: 5, username: 'Babar Magsi', date: '05/08/2026 12:42 PM', status: 'Success', ip: '182.188.108.206', machine: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36' }
-      ];
+    if (actionFilter !== 'None') {
+      report = report.filter(r => r.action.toLowerCase() === actionFilter.toLowerCase());
+    }
+
+    if (categoryFilter !== 'None') {
+      report = report.filter(r => r.category.toLowerCase() === categoryFilter.toLowerCase());
     }
 
     return report;
-  }
-
-  private async getAuditReport(start: Date, end: Date) {
-    return [
-      { id: 1, patient: '', user: 'Babar Magsi', category: 'Report', subcategory: 'Report', action: 'Action Performed', object: 'User Login Report', date: '05/08/2026 02:26 PM', message: 'Success, duration=171ms, params=startDate=2026-5-8 & endDate=2026-5-8', diff: { key: '', old: '', new: '' } },
-      { id: 2, patient: '', user: 'Babar Magsi', category: 'Report', subcategory: 'Report', action: 'Action Performed', object: 'Recare List Report', date: '05/08/2026 02:25 PM', message: 'Success, duration=40ms, params={"currentPage":1,"pageSize":15,"includeAppointed":false,"patientList":[],"includeFlags":null,"flagIds":null}', diff: { key: '', old: '', new: '' } },
-      { id: 3, patient: '', user: 'Babar Magsi', category: 'Report', subcategory: 'Report', action: 'Action Performed', object: 'Recare List Report', date: '05/08/2026 02:25 PM', message: 'Success, duration=38ms, params={"currentPage":1,"pageSize":15,"includeAppointed":false,"patientList":[],"includeFlags":null,"flagIds":null}', diff: { key: '', old: '', new: '' } },
-      { id: 4, patient: '', user: 'Babar Magsi', category: 'Report', subcategory: 'Report', action: 'Action Performed', object: 'Rx Report', date: '05/08/2026 02:25 PM', message: 'Success, duration=20ms, params=startDate=2026-5-7 & endDate=2026-5-8', diff: { key: '', old: '', new: '' } },
-      { id: 5, patient: '', user: 'Y... S...', category: 'Report', subcategory: 'Report', action: 'Action Performed', object: 'Payment Lines Report', date: '05/08/2026 02:23 PM', message: 'Success, duration=24ms', diff: { key: '', old: '', new: '' } },
-      { id: 6, patient: '', user: 'Babar Magsi', category: 'Report', subcategory: 'Report', action: 'Action Performed', object: 'Unsigned Progress Notes Report', date: '05/08/2026 02:23 PM', message: 'Success, duration=656ms, params=date=2026-4-8 & endDate=2026-5-8', diff: { key: '', old: '', new: '' } },
-      { id: 7, patient: '', user: 'Babar Magsi', category: 'Report', subcategory: 'Report', action: 'Action Performed', object: 'Advanced Report', date: '05/08/2026 02:23 PM', message: 'Success, duration=281ms', diff: { key: '', old: '', new: '' } }
-    ];
   }
 
   private async getReferralProductionReport(start: Date, end: Date) {
@@ -2036,33 +3076,79 @@ export class ReportGenerationService {
   // DATE BOUNDARY RESOLUTION UTILITY
   // ==========================================
 
-  private getRangeDates(dateStr?: string, range = 'Daily'): { startDate: Date; endDate: Date } {
+  private getRangeDates(dateStr?: string, range = 'Daily', customStart?: string, customEnd?: string): { startDate: Date; endDate: Date } {
+    if (customStart && customEnd && customStart !== '' && customEnd !== '') {
+      const start = new Date(customStart);
+      const end = new Date(customEnd);
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+        return { startDate: start, endDate: end };
+      }
+    }
+
     const baseDate = dateStr ? new Date(dateStr) : new Date();
     let startDate = new Date(baseDate);
     let endDate = new Date(baseDate);
 
-    if (range === 'Daily') {
+    if (range === 'Daily' || range === 'today') {
       startDate.setHours(0, 0, 0, 0);
       endDate.setHours(23, 59, 59, 999);
-    } else if (range === 'Weekly') {
+    } else if (range === 'Weekly' || range === 'this_week') {
       const day = baseDate.getDay();
-      startDate.setDate(baseDate.getDate() - day);
+      const diff = baseDate.getDate() - day + (day === 0 ? -6 : 1);
+      startDate = new Date(baseDate);
+      startDate.setDate(diff);
       startDate.setHours(0, 0, 0, 0);
-
-      endDate.setDate(baseDate.getDate() + (6 - day));
+      endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 6);
       endDate.setHours(23, 59, 59, 999);
-    } else if (range === 'Monthly') {
+    } else if (range === 'last_7_days') {
+      startDate.setDate(baseDate.getDate() - 6);
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (range === 'last_week') {
+      const day = baseDate.getDay();
+      const diffToLastWeekStart = baseDate.getDate() - day - 7 + (day === 0 ? -6 : 1);
+      startDate = new Date(baseDate);
+      startDate.setDate(diffToLastWeekStart);
+      startDate.setHours(0, 0, 0, 0);
+      endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 6);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (range === 'last_4_weeks') {
+      startDate.setDate(baseDate.getDate() - 28);
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (range === 'Monthly' || range === 'this_month') {
       startDate.setDate(1);
       startDate.setHours(0, 0, 0, 0);
-
-      endDate.setMonth(baseDate.getMonth() + 1);
-      endDate.setDate(0);
+      endDate.setMonth(baseDate.getMonth() + 1, 0);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (range === 'last_month') {
+      startDate.setMonth(baseDate.getMonth() - 1, 1);
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setMonth(baseDate.getMonth(), 0);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (range === 'last_3_months') {
+      startDate.setMonth(baseDate.getMonth() - 3);
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (range === 'last_12_months') {
+      startDate.setFullYear(baseDate.getFullYear() - 1);
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(23, 59, 59, 999);
+    } else if (range === 'year_to_date') {
+      startDate.setMonth(0, 1);
+      startDate.setHours(0, 0, 0, 0);
       endDate.setHours(23, 59, 59, 999);
     } else if (range === 'Yearly') {
       startDate.setMonth(0, 1);
       startDate.setHours(0, 0, 0, 0);
-
       endDate.setMonth(11, 31);
+      endDate.setHours(23, 59, 59, 999);
+    } else {
+      startDate.setHours(0, 0, 0, 0);
       endDate.setHours(23, 59, 59, 999);
     }
 

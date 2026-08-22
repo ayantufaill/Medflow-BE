@@ -1,5 +1,13 @@
 import { body, param, query, ValidationChain } from 'express-validator';
 
+export const updateCurrentBranchValidator: ValidationChain[] = [
+  body('branchId')
+    .isString()
+    .trim()
+    .notEmpty()
+    .withMessage('branchId is required'),
+];
+
 export const updateUserValidator: ValidationChain[] = [
   body('firstName')
     .optional()
@@ -36,10 +44,11 @@ export const userIdValidator: ValidationChain[] = [
 
 export const assignRoleValidator: ValidationChain[] = [
   body('roleId')
-    .notEmpty()
-    .withMessage('Role ID is required')
-    .isInt({ min: 1 })
-    .withMessage('Invalid role ID format'),
+    .optional(),
+  body('roleIds')
+    .optional()
+    .isArray()
+    .withMessage('roleIds must be an array'),
 ];
 
 export const createUserValidator: ValidationChain[] = [
@@ -69,6 +78,14 @@ export const createUserValidator: ValidationChain[] = [
     .optional()
     .isIn(['en', 'es', 'fr', 'de'])
     .withMessage('Preferred language must be one of: en, es, fr, de'),
+  body('password')
+    .optional()
+    .isLength({ min: 6 })
+    .withMessage('Password must be at least 6 characters long'),
+  body('isActive')
+    .optional()
+    .isBoolean()
+    .withMessage('isActive must be a boolean'),
   body('roleId')
     .optional()
     .isString()

@@ -228,14 +228,24 @@ export class AppointmentController {
         chiefComplaint,
         notes,
         roomId,
+        branchId,
         requiresInterpreter,
-        interpreterLanguage,
         insuranceVerified,
         copayCollected,
         reminderSent,
         customFields,
         status,
       } = req.body;
+
+      if (branchId && req.branchAccess && req.branchAccess.clinicIds.length > 0) {
+        const requestedClinicNum = BigInt(branchId);
+        if (!req.branchAccess.clinicIds.includes(requestedClinicNum)) {
+          return res.status(403).json({
+            success: false,
+            error: { message: 'You do not have access to this branch.' },
+          });
+        }
+      }
 
       const appointment = await appointmentService.createAppointment(
         {
@@ -249,8 +259,8 @@ export class AppointmentController {
           chiefComplaint,
           notes,
           roomId,
+          branchId,
           requiresInterpreter,
-          interpreterLanguage,
           insuranceVerified,
           copayCollected,
           reminderSent,
@@ -614,6 +624,46 @@ export class AppointmentController {
     }
   }
 
+  async sendAppointmentConfirmationNotification(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({ success: false, error: { message: 'Appointment ID is required' } });
+      }
+      const channels = req.body.channels ?? ['email', 'sms'];
+      const result = await appointmentService.sendAppointmentConfirmationNotification(
+        appointmentId,
+        channels,
+        req.userId
+      );
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** Manually runs the due-reminders sweep (the same job the cron scheduler calls every 15 min). */
+  async sendDueReminders(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await appointmentService.sendDueReminders();
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async deleteAppointment(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.userId) {
@@ -662,6 +712,19 @@ export class AppointmentController {
     next(error);
   }
 }
+
+  public async getDayTasks(req: Request, res: Response, next: NextFunction) {
+    try {
+      const date = req.query.date as string;
+      const tasks = await appointmentService.getDayTasks(date);
+      res.json({
+        success: true,
+        data: tasks,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const appointmentController = new AppointmentController();

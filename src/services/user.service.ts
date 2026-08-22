@@ -1,6 +1,7 @@
 import { prisma } from '../config/db';
 import { hashPassword, comparePassword } from '../utils/password.util';
-import { NotFoundError, ConflictError } from '../utils/error.util';
+import { NotFoundError, ConflictError, AuthorizationError } from '../utils/error.util';
+import { PermissionService } from './permission.service';
 import { logActivity, logSecurityEvent } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import {
@@ -311,6 +312,8 @@ export class UserService {
       email: string;
       firstName: string;
       lastName: string;
+      password?: string;
+      isActive?: boolean;
       phone?: string;
       preferredLanguage?: string;
       roleIds?: string[];
@@ -324,8 +327,9 @@ export class UserService {
       throw new ConflictError('User with this email already exists');
     }
 
-    const tempPassword = crypto.randomBytes(32).toString('hex');
-    const passwordHash = await hashPassword(tempPassword);
+    const effectivePassword = data.password || crypto.randomBytes(32).toString('hex');
+    const passwordHash = await hashPassword(effectivePassword);
+    const isAccountActive = data.isActive ?? false;
 
     const nextId = await getNextId('userod', 'UserNum');
     const user = await prisma.userod.create({
@@ -333,7 +337,7 @@ export class UserService {
         UserNum: nextId,
         UserName: data.email.toLowerCase(),
         Password: passwordHash,
-        IsHidden: 1,
+        IsHidden: isAccountActive ? 0 : 1,
       },
     });
 
@@ -344,7 +348,7 @@ export class UserService {
       lastName: data.lastName,
       phone: data.phone ?? null,
       preferredLanguage: data.preferredLanguage || 'en',
-      isActive: false,
+      isActive: isAccountActive,
       tokenVersion: 0,
     });
 
@@ -469,51 +473,149 @@ export class UserService {
     return { message: 'User deactivated successfully' };
   }
 
-  async getUserActivity(userId: string, page = 1, limit = 10) {
-    const skip = (page - 1) * limit;
+  async getUserActivity(
+    userId: string,
+    page = 1,
+    limit = 20,
+    search?: string,
+    startDate?: string,
+    endDate?: string
+  ) {
+    const where: any = { UserNum: BigInt(userId) };
+    if (startDate || endDate) {
+      where.LogDateTime = {};
+      if (startDate) where.LogDateTime.gte = new Date(`${startDate}T00:00:00.000Z`);
+      if (endDate) where.LogDateTime.lte = new Date(`${endDate}T23:59:59.999Z`);
+    }
+
     const logs = await prisma.securitylog.findMany({
-      where: { UserNum: BigInt(userId) },
+      where,
       orderBy: { LogDateTime: 'desc' },
-      skip,
-      take: limit,
+      take: 1000,
     });
 
-    const activities = logs
+    const allActivities = logs
       .map((log) => {
         try {
           const payload = JSON.parse(log.LogText || '{}');
-          return { ...payload, occurredAt: log.LogDateTime };
+          if (payload.type === 'security_event' || payload.type === 'notification') {
+            return null;
+          }
+          return {
+            ...payload,
+            _id: log.SecurityLogNum?.toString() || Math.random().toString(),
+            id: log.SecurityLogNum?.toString() || Math.random().toString(),
+            action: payload.action || payload.description || 'Activity',
+            tableName: payload.tableName || payload.type || 'System',
+            recordId: payload.recordId || '',
+            ipAddress: payload.ipAddress || '-',
+            riskLevel: payload.riskLevel || 'low',
+            occurredAt: log.LogDateTime,
+            createdAt: log.LogDateTime,
+          };
         } catch {
-          return null;
+          if (log.LogText?.toLowerCase().includes('login') || log.LogText?.toLowerCase().includes('security')) {
+            return null;
+          }
+          return {
+            _id: log.SecurityLogNum?.toString() || Math.random().toString(),
+            id: log.SecurityLogNum?.toString() || Math.random().toString(),
+            action: log.LogText || 'Activity',
+            tableName: 'System',
+            recordId: '',
+            ipAddress: '-',
+            riskLevel: 'low',
+            occurredAt: log.LogDateTime,
+            createdAt: log.LogDateTime,
+          };
         }
       })
-      .filter(Boolean);
+      .filter((item): item is NonNullable<typeof item> => {
+        if (!item) return false;
+        if (search) {
+          const s = search.toLowerCase().trim();
+          const target = JSON.stringify(item).toLowerCase();
+          if (!target.includes(s)) return false;
+        }
+        return true;
+      });
 
-    return { activities, pagination: { page, limit, total: activities.length, pages: Math.ceil(activities.length / limit) } };
+    const total = allActivities.length;
+    const pages = Math.max(1, Math.ceil(total / limit));
+    const skip = (page - 1) * limit;
+    const activities = allActivities.slice(skip, skip + limit);
+
+    return { activities, pagination: { page, limit, total, pages } };
   }
 
-  async getUserLoginHistory(userId: string, page = 1, limit = 10) {
-    const skip = (page - 1) * limit;
+  async getUserLoginHistory(
+    userId: string,
+    page = 1,
+    limit = 20,
+    search?: string,
+    startDate?: string,
+    endDate?: string
+  ) {
+    const where: any = { UserNum: BigInt(userId) };
+    if (startDate || endDate) {
+      where.LogDateTime = {};
+      if (startDate) where.LogDateTime.gte = new Date(`${startDate}T00:00:00.000Z`);
+      if (endDate) where.LogDateTime.lte = new Date(`${endDate}T23:59:59.999Z`);
+    }
+
     const logs = await prisma.securitylog.findMany({
-      where: { UserNum: BigInt(userId) },
+      where,
       orderBy: { LogDateTime: 'desc' },
-      skip,
-      take: limit,
+      take: 1000,
     });
 
-    const history = logs
+    const allHistory = logs
       .map((log) => {
         try {
           const payload = JSON.parse(log.LogText || '{}');
-          if (payload.type !== 'security_event') return null;
-          return { ...payload, occurredAt: log.LogDateTime };
+          const isSec = payload.type === 'security_event' || payload.eventType || log.LogText?.toLowerCase().includes('login');
+          if (!isSec) return null;
+          return {
+            ...payload,
+            _id: log.SecurityLogNum?.toString() || Math.random().toString(),
+            id: log.SecurityLogNum?.toString() || Math.random().toString(),
+            eventType: payload.eventType || 'login_success',
+            description: payload.description || 'Successful login session',
+            ipAddress: payload.ipAddress || '-',
+            riskLevel: payload.riskLevel || 'low',
+            occurredAt: log.LogDateTime,
+            createdAt: log.LogDateTime,
+          };
         } catch {
-          return null;
+          if (!log.LogText?.toLowerCase().includes('login')) return null;
+          return {
+            _id: log.SecurityLogNum?.toString() || Math.random().toString(),
+            id: log.SecurityLogNum?.toString() || Math.random().toString(),
+            eventType: 'login_success',
+            description: log.LogText || 'Successful login session',
+            ipAddress: '-',
+            riskLevel: 'low',
+            occurredAt: log.LogDateTime,
+            createdAt: log.LogDateTime,
+          };
         }
       })
-      .filter(Boolean);
+      .filter((item): item is NonNullable<typeof item> => {
+        if (!item) return false;
+        if (search) {
+          const s = search.toLowerCase().trim();
+          const target = JSON.stringify(item).toLowerCase();
+          if (!target.includes(s)) return false;
+        }
+        return true;
+      });
 
-    return { history, pagination: { page, limit, total: history.length, pages: Math.ceil(history.length / limit) } };
+    const total = allHistory.length;
+    const pages = Math.max(1, Math.ceil(total / limit));
+    const skip = (page - 1) * limit;
+    const history = allHistory.slice(skip, skip + limit);
+
+    return { loginHistory: history, history, pagination: { page, limit, total, pages } };
   }
 
   async assignUserRoles(userId: string, roleIds: string[]): Promise<void> {
@@ -563,6 +665,28 @@ export class UserService {
     const meta = await getUserMeta(userNum);
     const nextVersion = (meta.tokenVersion || 0) + 1;
     await setUserMeta(userNum, { ...meta, tokenVersion: nextVersion });
+  }
+
+  /**
+   * Sets the caller's current/default branch, persisted so it follows them
+   * across devices (as opposed to the frontend's localStorage-only default).
+   */
+  async updateCurrentBranch(userId: string, branchId: string): Promise<{ branchId: string }> {
+    const clinicNum = BigInt(branchId);
+    const clinic = await prisma.clinic.findUnique({ where: { ClinicNum: clinicNum } });
+    if (!clinic || clinic.IsHidden === 1) {
+      throw new NotFoundError('Branch not found.');
+    }
+
+    const branchAccess = await PermissionService.getBranchAccess(userId);
+    if (branchAccess.clinicIds.length > 0 && !branchAccess.clinicIds.includes(clinicNum)) {
+      throw new AuthorizationError('You do not have access to this branch.');
+    }
+
+    const meta = await getUserMeta(BigInt(userId));
+    await setUserMeta(BigInt(userId), { ...meta, currentBranchId: branchId });
+
+    return { branchId };
   }
 }
 

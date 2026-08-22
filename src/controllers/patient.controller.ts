@@ -17,7 +17,7 @@ export class PatientController {
       const sortBy = req.query.sortBy as string | undefined;
       const sortOrder = req.query.sortOrder as string | undefined;
 
-      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder);
+      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: result,
@@ -139,7 +139,7 @@ export class PatientController {
       const sortBy = req.query.sortBy as string | undefined;
       const sortOrder = req.query.sortOrder as string | undefined;
 
-      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder);
+      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: result,
@@ -193,6 +193,16 @@ export class PatientController {
         req.body.lastVisitDate = new Date(req.body.lastVisitDate);
       }
 
+      if (req.body.branchId && req.branchAccess && req.branchAccess.clinicIds.length > 0) {
+        const requestedClinicNum = BigInt(req.body.branchId);
+        if (!req.branchAccess.clinicIds.includes(requestedClinicNum)) {
+          return res.status(403).json({
+            success: false,
+            error: { message: 'You do not have access to this branch.' },
+          });
+        }
+      }
+
       const result = await patientService.createPatient(req.body, req.userId);
       res.status(201).json({
         success: true,
@@ -226,6 +236,16 @@ export class PatientController {
       }
       if (req.body.lastVisitDate && typeof req.body.lastVisitDate === 'string') {
         req.body.lastVisitDate = new Date(req.body.lastVisitDate);
+      }
+
+      if (req.body.branchId && req.branchAccess && req.branchAccess.clinicIds.length > 0) {
+        const requestedClinicNum = BigInt(req.body.branchId);
+        if (!req.branchAccess.clinicIds.includes(requestedClinicNum)) {
+          return res.status(403).json({
+            success: false,
+            error: { message: 'You do not have access to this branch.' },
+          });
+        }
       }
 
       const result = await patientService.updatePatient(patientId, req.body, req.userId);
@@ -744,6 +764,38 @@ export class PatientController {
       next(error);
     }
   }
+
+  async purchaseProducts(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      const { products } = req.body;
+      const data = await patientService.purchaseProducts(patientId, products);
+      res.status(200).json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getUnbilledProducts(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Patient ID is required' },
+        });
+      }
+      const products = await patientService.getUnbilledProducts(patientId);
+      res.status(200).json({
+        success: true,
+        data: { products },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const patientController = new PatientController();
+
+

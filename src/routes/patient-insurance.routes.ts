@@ -1,12 +1,41 @@
 import { Router } from 'express';
 import { patientInsuranceController } from '../controllers/patient-insurance.controller';
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { patientIdValidator } from '../validators/patient.validator';
 import { createPatientInsuranceValidator, updatePatientInsuranceValidator, patientInsuranceIdValidator, reorderInsurancesValidator } from '../validators/insurance.validator';
 
 const router = Router();
 router.use(authenticate);
+router.use(resolveBranchAccess);
+router.use(enterTenantContext);
+
+/**
+ * @swagger
+ * /patients/all/coverages:
+ *   get:
+ *     summary: Get all insurances across all patients
+ *     tags: [Patient Insurance]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of all global insurances
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/PatientInsurance'
+ */
+router.get('/all/coverages', requireRoles('Receptionist', 'Admin'), patientInsuranceController.getAllPatientInsurances.bind(patientInsuranceController));
 
 /**
  * @swagger

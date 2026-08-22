@@ -10,11 +10,16 @@ import {
 } from '../utils/opendental-mappers.util';
 import {
   getAppointmentMeta,
+  getAppointmentsMeta,
   getProviderMeta,
   mapUser,
   setAppointmentMeta,
 } from '../utils/opendental-auth.util';
 import { patientWorkspaceService } from './patient-workspace.service';
+import { emailService } from './email.service';
+import { smsService } from './sms.service';
+import { practiceInfoService } from './practice-info.service';
+import { staffNotificationService } from './staffNotification.service';
 
 /**
  * Generate unique appointment code (e.g., APT001, APT002, etc.)
@@ -232,9 +237,13 @@ export class AppointmentService {
       tooth: proc.ToothNum ?? null,
       surface: proc.Surf ?? null,
       status: proc.ProcStatus ?? null,
+      completed: proc.ProcStatus === 2,
       quantity: proc.UnitQty ?? 1,
       fee: proc.ProcFee ?? 0,
       providerId: proc.ProvNum?.toString() ?? null,
+      providerName: proc.provider_procedurelog_ProvNumToprovider 
+        ? `${proc.provider_procedurelog_ProvNumToprovider.FName || ''} ${proc.provider_procedurelog_ProvNumToprovider.LName || ''}`.trim() 
+        : null,
       createdAt: proc.SecDateEntry ?? null,
     };
   }
@@ -338,7 +347,6 @@ export class AppointmentService {
     const mapped: any = mapAppointmentToApi(appointment, {
       ...options,
       requiresInterpreter: meta.requiresInterpreter ?? false,
-      interpreterLanguage: meta.interpreterLanguage ?? null,
       insuranceVerified: meta.insuranceVerified ?? Boolean(appointment.InsPlan1 || appointment.InsPlan2),
       copayCollected: meta.copayCollected ?? 0,
       reminderSent: meta.reminderSent ?? false,
@@ -575,6 +583,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       tags: apt.tags ?? [],
       procedures: apt.procedures ?? [],
       visitType: apt.visitType ?? null,
+      systemEvents: apt.systemEvents ?? [],
     })),
     total: mappedAppointments.length,
     limit,
@@ -886,8 +895,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
     chiefComplaint?: string;
     notes?: string;
     roomId?: string;
+    branchId?: string;
     requiresInterpreter?: boolean;
-    interpreterLanguage?: string;
     insuranceVerified?: boolean;
     copayCollected?: number;
     reminderSent?: boolean;
@@ -974,18 +983,24 @@ async getPatientAppointments(patientId: string, limit = 10) {
         ProcDescript: data.chiefComplaint ?? null,
         Note: data.notes ?? null,
         Op: opId,
+        ClinicNum: data.branchId ? BigInt(data.branchId) : 0n,
         AptStatus: mapAppointmentStatusToDb(data.status ?? 'scheduled'),
         DateTimeArrived: null,
         DateTimeDismissed: null,
         SecUserNumEntry: createdBy ? BigInt(createdBy) : null,
         SecDateTEntry: new Date(),
       },
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        appointmenttype: true,
+        userod: true,
+      },
     });
 
     await setAppointmentMeta(appointment.AptNum, {
       status: data.status ?? 'scheduled',
       requiresInterpreter: data.requiresInterpreter ?? false,
-      interpreterLanguage: data.interpreterLanguage ?? null,
       insuranceVerified: data.insuranceVerified ?? false,
       copayCollected: data.copayCollected ?? 0,
       reminderSent: data.reminderSent ?? false,
@@ -1002,6 +1017,35 @@ async getPatientAppointments(patientId: string, limit = 10) {
       checklists: (data as any).checklists ?? { preAppt: {}, checkIn: {}, checkOut: {} },
     });
 
+    const mapped = await this.mapAppointmentWithMeta(appointment, {
+      patient: appointment.patient,
+      provider: appointment.provider_appointment_ProvNumToprovider,
+      appointmentType: appointment.appointmenttype,
+      createdBy: appointment.userod,
+    });
+
+    if (data.customFields?.procedures && Array.isArray(data.customFields.procedures)) {
+      for (const proc of data.customFields.procedures) {
+        try {
+          const fee = proc.charge ? parseFloat(proc.charge.toString().replace(/[^0-9.-]+/g, "")) : 0;
+          await this.addAppointmentProcedure(
+            appointment.AptNum.toString(),
+            {
+              code: proc.code,
+              description: proc.treatment || proc.name || '',
+              fee: isNaN(fee) ? 0 : fee,
+              providerId: proc.provider || data.providerId,
+              tooth: proc.site || '',
+              status: proc.completed ? '2' : (proc.status !== undefined && proc.status !== null ? String(proc.status) : '1'),
+            },
+            createdBy
+          );
+        } catch (error) {
+          console.error(`Failed to add procedure ${proc.code} to appointment ${appointment.AptNum}:`, error);
+        }
+      }
+    }
+
     // Log activity
     await logActivity(
       createdBy,
@@ -1009,13 +1053,15 @@ async getPatientAppointments(patientId: string, limit = 10) {
       'appointments',
       String(appointment.AptNum),
       undefined,
-      await this.mapAppointmentWithMeta(appointment),
+      mapped,
       undefined,
       undefined,
       'medium'
     );
 
-    return this.mapAppointmentWithMeta(appointment);
+    await this.notifyStaffAppointmentBooked(String(appointment.AptNum));
+
+    return mapped;
   }
 
   /**
@@ -1025,6 +1071,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
     appointmentId: string,
     updates: {
       appointmentTypeId?: string;
+      providerId?: string;
       appointmentDate?: Date;
       startTime?: string;
       endTime?: string;
@@ -1034,7 +1081,6 @@ async getPatientAppointments(patientId: string, limit = 10) {
       notes?: string;
       roomId?: string;
       requiresInterpreter?: boolean;
-      interpreterLanguage?: string;
       insuranceVerified?: boolean;
       copayCollected?: number;
       reminderSent?: boolean;
@@ -1053,8 +1099,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
     const targetStatus = updates.status !== undefined ? updates.status : mapAppointmentStatusFromDb(appointment.AptStatus);
     const isInactiveStatus = targetStatus === 'no_show' || targetStatus === 'cancelled' || targetStatus === 'pending';
 
-    // If updating date/time, check for conflicts (including buffers and room)
-    if (!isInactiveStatus && (updates.appointmentDate || updates.startTime || updates.endTime)) {
+    // If updating date/time or provider, check for conflicts (including buffers and room)
+    if (!isInactiveStatus && (updates.appointmentDate || updates.startTime || updates.endTime || updates.providerId)) {
       const appointmentDate = updates.appointmentDate || appointment.AptDateTime || new Date();
       const startTime = updates.startTime || (appointment.AptDateTime ? formatMinutesToTime(
         appointment.AptDateTime.getHours() * 60 + appointment.AptDateTime.getMinutes()
@@ -1065,9 +1111,10 @@ async getPatientAppointments(patientId: string, limit = 10) {
       const appointmentTypeId =
         updates.appointmentTypeId || (appointment.AppointmentTypeNum ? appointment.AppointmentTypeNum.toString() : undefined);
       const roomId = updates.roomId !== undefined ? updates.roomId : appointment.Op?.toString();
+      const providerId = updates.providerId || appointment.ProvNum?.toString() || '';
 
       const conflictCheck = await checkConflicts(
-        appointment.ProvNum?.toString() ?? '',
+        providerId,
         appointmentDate instanceof Date ? appointmentDate : new Date(String(appointmentDate)),
         String(startTime),
         String(endTime),
@@ -1086,6 +1133,16 @@ async getPatientAppointments(patientId: string, limit = 10) {
           ? 'Patient already has an appointment booked for this time slot'
           : 'Updated appointment conflicts with existing appointment';
         throw new ConflictError(conflictType);
+      }
+    }
+
+    // Validate provider if updating
+    if (updates.providerId) {
+      const provider = await prisma.provider.findUnique({
+        where: { ProvNum: BigInt(updates.providerId) },
+      });
+      if (!provider || provider.IsHidden) {
+        throw new NotFoundError('Provider not found or inactive');
       }
     }
 
@@ -1142,6 +1199,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
       data: {
         AppointmentTypeNum:
           updates.appointmentTypeId !== undefined ? BigInt(updates.appointmentTypeId) : undefined,
+        ProvNum:
+          updates.providerId !== undefined ? BigInt(updates.providerId) : undefined,
         AptDateTime: aptDateTime ?? undefined,
         Pattern: durationMinutes,
         ProcDescript: updates.chiefComplaint ?? undefined,
@@ -1151,13 +1210,36 @@ async getPatientAppointments(patientId: string, limit = 10) {
         DateTimeArrived: updates.status === 'checked_in' ? new Date() : undefined,
         DateTimeDismissed: updates.status === 'completed' ? new Date() : undefined,
       },
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        appointmenttype: true,
+        userod: true,
+      },
     });
 
     const existingMeta = await getAppointmentMeta(appointment.AptNum);
+    const dbStatus = mapAppointmentStatusFromDb(appointment.AptStatus);
+    const currentStatus =
+      dbStatus === 'completed' || dbStatus === 'cancelled' || dbStatus === 'no_show'
+        ? dbStatus
+        : (existingMeta.status ?? dbStatus);
+
+    const hasStatusChanged = updates.status !== undefined && updates.status !== currentStatus;
+    const nextSystemEvents = [...(existingMeta.systemEvents ?? [])];
+    if (hasStatusChanged) {
+      nextSystemEvents.push({
+        id: `event-${Date.now()}`,
+        type: 'status_changed',
+        message: `Status changed to ${updates.status}`,
+        createdAt: new Date().toISOString(),
+        createdBy: updatedBy,
+      });
+    }
+
     const nextMeta = {
       status: updates.status ?? existingMeta.status ?? mapAppointmentStatusFromDb(updated.AptStatus),
       requiresInterpreter: updates.requiresInterpreter ?? existingMeta.requiresInterpreter ?? false,
-      interpreterLanguage: updates.interpreterLanguage ?? existingMeta.interpreterLanguage ?? null,
       insuranceVerified: updates.insuranceVerified ?? existingMeta.insuranceVerified ?? Boolean(updated.InsPlan1 || updated.InsPlan2),
       copayCollected: updates.copayCollected ?? existingMeta.copayCollected ?? 0,
       reminderSent: updates.reminderSent ?? existingMeta.reminderSent ?? false,
@@ -1170,7 +1252,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       tags: existingMeta.tags ?? [],
       participants: existingMeta.participants ?? [],
       workspaceNotes: existingMeta.workspaceNotes ?? [],
-      systemEvents: existingMeta.systemEvents ?? [],
+      systemEvents: nextSystemEvents,
       referralSource: existingMeta.referralSource ?? null,
       checkInAt:
         updates.status === 'checked_in'
@@ -1184,6 +1266,39 @@ async getPatientAppointments(patientId: string, limit = 10) {
     };
     await setAppointmentMeta(updated.AptNum, nextMeta);
 
+    const mapped = await this.mapAppointmentWithMeta(updated, {
+      patient: updated.patient,
+      provider: updated.provider_appointment_ProvNumToprovider,
+      appointmentType: updated.appointmenttype,
+      createdBy: updated.userod,
+    });
+
+    if (updates.customFields?.procedures && Array.isArray(updates.customFields.procedures)) {
+      // For simplicity in MVP, we delete and recreate procedures for the appointment
+      await prisma.procedurelog.deleteMany({
+        where: { AptNum: BigInt(appointmentId) }
+      });
+      for (const proc of updates.customFields.procedures) {
+        try {
+          const fee = proc.charge ? parseFloat(proc.charge.toString().replace(/[^0-9.-]+/g, "")) : 0;
+          await this.addAppointmentProcedure(
+            appointmentId,
+            {
+              code: proc.code,
+              description: proc.treatment || proc.name || '',
+              fee: isNaN(fee) ? 0 : fee,
+              providerId: proc.provider || updates.providerId || appointment.ProvNum?.toString(),
+              tooth: proc.site || '',
+              status: proc.completed ? '2' : (proc.status !== undefined && proc.status !== null ? String(proc.status) : '1'),
+            },
+            updatedBy
+          );
+        } catch (error) {
+          console.error(`Failed to sync procedure ${proc.code} for appointment ${appointmentId}:`, error);
+        }
+      }
+    }
+
     // Log activity
     await logActivity(
       updatedBy,
@@ -1191,13 +1306,13 @@ async getPatientAppointments(patientId: string, limit = 10) {
       'appointments',
       appointmentId,
       oldData,
-      await this.mapAppointmentWithMeta(updated),
+      mapped,
       undefined,
       undefined,
       'medium'
     );
 
-    return this.mapAppointmentWithMeta(updated);
+    return mapped;
   }
 
   /**
@@ -1227,12 +1342,33 @@ async getPatientAppointments(patientId: string, limit = 10) {
         AptStatus: mapAppointmentStatusToDb('cancelled'),
         Note: cancellationReason ? `${appointment.Note || ''}\nCancellation: ${cancellationReason}` : appointment.Note,
       },
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        appointmenttype: true,
+        userod: true,
+      },
     });
     const existingMeta = await getAppointmentMeta(updated.AptNum);
+    const newEvent = {
+      id: `event-${Date.now()}`,
+      type: 'status_changed',
+      message: 'Status changed to cancelled',
+      createdAt: new Date().toISOString(),
+      createdBy: cancelledBy,
+    };
     await setAppointmentMeta(updated.AptNum, {
       ...existingMeta,
       status: 'cancelled',
       cancellationReason: cancellationReason ?? existingMeta.cancellationReason ?? null,
+      systemEvents: [...(existingMeta.systemEvents ?? []), newEvent],
+    });
+
+    const mapped = await this.mapAppointmentWithMeta(updated, {
+      patient: updated.patient,
+      provider: updated.provider_appointment_ProvNumToprovider,
+      appointmentType: updated.appointmenttype,
+      createdBy: updated.userod,
     });
 
     // Log activity
@@ -1242,13 +1378,41 @@ async getPatientAppointments(patientId: string, limit = 10) {
       'appointments',
       appointmentId,
       oldData,
-      await this.mapAppointmentWithMeta(updated),
+      mapped,
       undefined,
       undefined,
       'medium'
     );
 
-    return this.mapAppointmentWithMeta(updated);
+    await this.notifyAppointmentCancelled(appointmentId, cancellationReason);
+    await this.notifyStaffAppointmentCancelled(appointmentId);
+
+    return mapped;
+  }
+
+  /**
+   * Sends a cancellation email to the patient. Failures are logged, not thrown,
+   * so a notification hiccup never blocks the cancellation itself.
+   */
+  private async notifyAppointmentCancelled(appointmentId: string, cancellationReason?: string) {
+    try {
+      const { patient, appointmentDateTime, providerName, appointmentType, operatoryName, confirmationCode, clinic } =
+        await this.buildNotificationContext(appointmentId);
+      if (!patient.Email) return;
+      await emailService.sendAppointmentCancellation({
+        email: patient.Email,
+        firstName: patient.FName ?? undefined,
+        appointmentDateTime,
+        providerName,
+        appointmentType,
+        operatoryName,
+        confirmationCode,
+        cancellationReason,
+        clinic,
+      });
+    } catch (error) {
+      console.error(`Failed to send cancellation email for appointment ${appointmentId}:`, error);
+    }
   }
 
   /**
@@ -1300,12 +1464,26 @@ async getPatientAppointments(patientId: string, limit = 10) {
     }
 
     const oldData = await this.mapAppointmentWithMeta(appointment);
+    const previousAppointmentDateTime = this.formatAppointmentDateTime(appointment.AptDateTime);
     const updated = await prisma.appointment.update({
       where: { AptNum: BigInt(appointmentId) },
       data: {
         AptDateTime: toDateTime(newDate, newStartTime),
         Pattern: String(parseTimeToMinutes(newEndTime) - parseTimeToMinutes(newStartTime)),
       },
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        appointmenttype: true,
+        userod: true,
+      },
+    });
+
+    const mapped = await this.mapAppointmentWithMeta(updated, {
+      patient: updated.patient,
+      provider: updated.provider_appointment_ProvNumToprovider,
+      appointmentType: updated.appointmenttype,
+      createdBy: updated.userod,
     });
 
     // Log activity
@@ -1315,13 +1493,188 @@ async getPatientAppointments(patientId: string, limit = 10) {
       'appointments',
       appointmentId,
       oldData,
-      await this.mapAppointmentWithMeta(updated),
+      mapped,
       undefined,
       undefined,
       'medium'
     );
 
-    return this.mapAppointmentWithMeta(updated);
+    await this.notifyAppointmentRescheduled(appointmentId, previousAppointmentDateTime);
+    await this.notifyStaffAppointmentRescheduled(appointmentId, previousAppointmentDateTime);
+
+    return mapped;
+  }
+
+  /** Sends a reschedule email to the patient. Failures are logged, not thrown. */
+  private async notifyAppointmentRescheduled(appointmentId: string, previousAppointmentDateTime: string) {
+    try {
+      const { patient, appointmentDateTime, providerName, appointmentType, operatoryName, confirmationCode, clinic } =
+        await this.buildNotificationContext(appointmentId);
+      if (!patient.Email) return;
+      await emailService.sendAppointmentReschedule({
+        email: patient.Email,
+        firstName: patient.FName ?? undefined,
+        appointmentDateTime,
+        previousAppointmentDateTime,
+        providerName,
+        appointmentType,
+        operatoryName,
+        confirmationCode,
+        clinic,
+      });
+    } catch (error) {
+      console.error(`Failed to send reschedule email for appointment ${appointmentId}:`, error);
+    }
+  }
+
+  /**
+   * Notifies the staff logins linked to the appointment's assigned provider (in-app + real-time).
+   * Failures are logged, not thrown, so a notification hiccup never blocks the appointment mutation.
+   */
+  private async notifyStaffForAppointment(
+    appointmentId: string,
+    type: 'appointment_booked' | 'appointment_cancelled' | 'appointment_rescheduled' | 'appointment_checked_in',
+    title: string,
+    buildBody: (ctx: Awaited<ReturnType<AppointmentService['buildNotificationContext']>>) => string
+  ) {
+    try {
+      const ctx = await this.buildNotificationContext(appointmentId);
+      const provNum = ctx.appointment.ProvNum;
+      if (!provNum) return;
+
+      // Two ways a staff login ends up "assigned" to this provider:
+      // 1. userod.ProvNum set directly (used by seed scripts / direct admin setup)
+      // 2. provider.CustomID = userod.UserNum — the link actually written by the
+      //    app's "Create Provider" screen (src/pages/providers/CreateProviderPage.jsx)
+      const [directMatches, providerRecord] = await Promise.all([
+        prisma.userod.findMany({ where: { ProvNum: provNum, NOT: { IsHidden: 1 } } }),
+        prisma.provider.findUnique({ where: { ProvNum: provNum } }),
+      ]);
+
+      const recipients = [...directMatches];
+      if (providerRecord?.CustomID && /^\d+$/.test(providerRecord.CustomID)) {
+        const linkedUserNum = BigInt(providerRecord.CustomID);
+        if (!recipients.some((u) => u.UserNum === linkedUserNum)) {
+          const linkedUser = await prisma.userod.findUnique({
+            where: { UserNum: linkedUserNum },
+          });
+          if (linkedUser && linkedUser.IsHidden !== 1) {
+            recipients.push(linkedUser);
+          }
+        }
+      }
+
+      for (const staff of recipients) {
+        await staffNotificationService.createAndEmit({
+          userNum: staff.UserNum,
+          type,
+          title,
+          body: buildBody(ctx),
+          relatedType: 'appointment',
+          relatedId: ctx.appointment.AptNum,
+        });
+      }
+    } catch (error) {
+      console.error(`Failed to notify staff (${type}) for appointment ${appointmentId}:`, error);
+    }
+  }
+
+  private async notifyStaffAppointmentBooked(appointmentId: string) {
+    await this.notifyStaffForAppointment(
+      appointmentId,
+      'appointment_booked',
+      'New appointment booked',
+      (ctx) => `${ctx.patient.FName ?? 'A patient'} — ${ctx.appointmentDateTime}`
+    );
+  }
+
+  private async notifyStaffAppointmentCancelled(appointmentId: string) {
+    await this.notifyStaffForAppointment(
+      appointmentId,
+      'appointment_cancelled',
+      'Appointment cancelled',
+      (ctx) => `${ctx.patient.FName ?? 'A patient'} — ${ctx.appointmentDateTime}`
+    );
+  }
+
+  private async notifyStaffAppointmentRescheduled(appointmentId: string, previousAppointmentDateTime: string) {
+    await this.notifyStaffForAppointment(
+      appointmentId,
+      'appointment_rescheduled',
+      'Appointment rescheduled',
+      (ctx) => `${ctx.patient.FName ?? 'A patient'} — now ${ctx.appointmentDateTime} (was ${previousAppointmentDateTime})`
+    );
+  }
+
+  private async notifyStaffAppointmentCheckedIn(appointmentId: string) {
+    await this.notifyStaffForAppointment(
+      appointmentId,
+      'appointment_checked_in',
+      'Patient checked in',
+      (ctx) => `${ctx.patient.FName ?? 'A patient'} has arrived — ${ctx.appointmentDateTime}`
+    );
+  }
+
+  /**
+   * Sends reminder emails for appointments happening within the next 24 hours
+   * that haven't been reminded yet. Meant to be called periodically (cron) -
+   * safe to call repeatedly since each appointment is only reminded once
+   * (tracked via the reminderSent meta flag) and skips patients who opted out
+   * (reminderPreferences.dontSendReminders).
+   */
+  async sendDueReminders(): Promise<{ checked: number; sent: number; skipped: number }> {
+    const now = new Date();
+    const windowEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+    const upcoming = await prisma.appointment.findMany({
+      where: {
+        AptDateTime: { gte: now, lte: windowEnd },
+        AptStatus: { notIn: [4, 6] }, // exclude cancelled, pending
+      },
+      select: { AptNum: true },
+    });
+
+    const metaByAppointment = await getAppointmentsMeta(upcoming.map((a) => a.AptNum));
+
+    let sent = 0;
+    let skipped = 0;
+
+    for (const { AptNum } of upcoming) {
+      const appointmentId = AptNum.toString();
+      const meta = metaByAppointment[appointmentId] ?? {};
+      if (meta.reminderSent || meta.reminderPreferences?.dontSendReminders) {
+        skipped++;
+        continue;
+      }
+
+      try {
+        const { patient, appointmentDateTime, providerName, appointmentType, operatoryName, confirmationCode, clinic } =
+          await this.buildNotificationContext(appointmentId);
+        if (!patient.Email) {
+          skipped++;
+          continue;
+        }
+
+        await emailService.sendAppointmentReminder({
+          email: patient.Email,
+          firstName: patient.FName ?? undefined,
+          appointmentDateTime,
+          providerName,
+          appointmentType,
+          operatoryName,
+          confirmationCode,
+          clinic,
+        });
+
+        await setAppointmentMeta(AptNum, { ...meta, reminderSent: true });
+        sent++;
+      } catch (error) {
+        console.error(`Failed to send reminder for appointment ${appointmentId}:`, error);
+        skipped++;
+      }
+    }
+
+    return { checked: upcoming.length, sent, skipped };
   }
 
   /**
@@ -1355,12 +1708,33 @@ async getPatientAppointments(patientId: string, limit = 10) {
         AptStatus: mapAppointmentStatusToDb('checked_in'),
         DateTimeArrived: new Date(),
       },
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        appointmenttype: true,
+        userod: true,
+      },
     });
     const existingMeta = await getAppointmentMeta(updated.AptNum);
+    const newEvent = {
+      id: `event-${Date.now()}`,
+      type: 'status_changed',
+      message: 'Status changed to checked_in',
+      createdAt: new Date().toISOString(),
+      createdBy: checkedInBy,
+    };
     await setAppointmentMeta(updated.AptNum, {
       ...existingMeta,
       status: 'checked_in',
       checkInAt: updated.DateTimeArrived ? updated.DateTimeArrived.toISOString() : existingMeta.checkInAt ?? null,
+      systemEvents: [...(existingMeta.systemEvents ?? []), newEvent],
+    });
+
+    const mapped = await this.mapAppointmentWithMeta(updated, {
+      patient: updated.patient,
+      provider: updated.provider_appointment_ProvNumToprovider,
+      appointmentType: updated.appointmenttype,
+      createdBy: updated.userod,
     });
 
     // Log activity
@@ -1370,13 +1744,15 @@ async getPatientAppointments(patientId: string, limit = 10) {
       'appointments',
       appointmentId,
       oldData,
-      await this.mapAppointmentWithMeta(updated),
+      mapped,
       undefined,
       undefined,
       'low'
     );
 
-    return this.mapAppointmentWithMeta(updated);
+    await this.notifyStaffAppointmentCheckedIn(appointmentId);
+
+    return mapped;
   }
 
   /**
@@ -1519,7 +1895,10 @@ async getPatientAppointments(patientId: string, limit = 10) {
     }
     const procedures = await prisma.procedurelog.findMany({
       where: { AptNum: appointment.AptNum },
-      include: { procedurecode_procedurelog_CodeNumToprocedurecode: true },
+      include: { 
+        procedurecode_procedurelog_CodeNumToprocedurecode: true,
+        provider_procedurelog_ProvNumToprovider: true
+      },
       orderBy: { ProcNum: 'asc' },
     });
     return {
@@ -1728,12 +2107,20 @@ async getPatientAppointments(patientId: string, limit = 10) {
       },
     });
     const existingMeta = await getAppointmentMeta(updated.AptNum);
+    const newEvent = {
+      id: `event-${Date.now()}`,
+      type: 'status_changed',
+      message: 'Status changed to completed',
+      createdAt: new Date().toISOString(),
+      createdBy: checkedOutBy,
+    };
     await setAppointmentMeta(updated.AptNum, {
       ...existingMeta,
       status: 'completed',
       completedAt:
         updated.DateTimeDismissed?.toISOString() ?? new Date().toISOString(),
       cancellationReason: null,
+      systemEvents: [...(existingMeta.systemEvents ?? []), newEvent],
     });
 
     await logActivity(
@@ -1802,6 +2189,337 @@ async getPatientAppointments(patientId: string, limit = 10) {
     return {
       success: true,
     };
+  }
+
+  /**
+   * Send a one-click confirmation notification (email and/or SMS) to the patient
+   * on an appointment. Skips channels the patient has no contact info for, and
+   * skips SMS if the patient has opted out (TxtMsgOk === 0).
+   */
+  /**
+   * Gathers the patient/provider/clinic/procedure details shared by every
+   * appointment notification (confirmation, reminder, cancellation, reschedule)
+   * so each notification type doesn't re-fetch and re-format the same data.
+   */
+  private formatAppointmentDateTime(date: Date | null): string {
+    return date
+      ? new Intl.DateTimeFormat('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+        }).format(date)
+      : 'your scheduled time';
+  }
+
+  private async buildNotificationContext(appointmentId: string) {
+    const appointment = await prisma.appointment.findUnique({
+      where: { AptNum: BigInt(appointmentId) },
+      include: {
+        patient: true,
+        provider_appointment_ProvNumToprovider: true,
+        appointmenttype: true,
+        operatory: true,
+      },
+    });
+    if (!appointment) {
+      throw new NotFoundError('Appointment not found');
+    }
+    const patient = appointment.patient;
+    if (!patient) {
+      throw new BadRequestError('Appointment does not have a patient');
+    }
+
+    const appointmentDateTime = this.formatAppointmentDateTime(appointment.AptDateTime);
+    const appointmentDateOnly = appointment.AptDateTime
+      ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(appointment.AptDateTime)
+      : 'TBD';
+    const appointmentTimeOnly = appointment.AptDateTime
+      ? new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(appointment.AptDateTime)
+      : 'TBD';
+    const providerName = appointment.provider_appointment_ProvNumToprovider
+      ? [
+          appointment.provider_appointment_ProvNumToprovider.FName,
+          appointment.provider_appointment_ProvNumToprovider.LName,
+        ]
+          .filter(Boolean)
+          .join(' ')
+      : undefined;
+    const appointmentType = appointment.appointmenttype?.AppointmentTypeName ?? undefined;
+    const reasonForVisit = appointment.Note?.trim() || undefined;
+    const confirmationCode = `APT${appointment.AptNum.toString()}`;
+    const operatoryName = appointment.operatory?.OpName ?? undefined;
+    const durationMinutes = getDurationMinutesFromPattern(appointment.Pattern);
+    const procedureRows = await prisma.procedurelog.findMany({
+      where: { AptNum: appointment.AptNum },
+      include: { procedurecode_procedurelog_CodeNumToprocedurecode: true },
+      orderBy: { ProcNum: 'asc' },
+    });
+    const procedures = procedureRows.map(
+      (proc) =>
+        proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ??
+        proc.BillingNote ??
+        'Procedure'
+    );
+    const practiceInfo = await practiceInfoService.getPracticeInfo();
+    const clinic = practiceInfo
+      ? {
+          name: practiceInfo.practiceName || undefined,
+          phone: practiceInfo.phone || undefined,
+          email: practiceInfo.email || undefined,
+          website: practiceInfo.website || undefined,
+          address: practiceInfo.address,
+        }
+      : undefined;
+
+    return {
+      appointment,
+      patient,
+      appointmentDateTime,
+      appointmentDateOnly,
+      appointmentTimeOnly,
+      providerName,
+      appointmentType,
+      reasonForVisit,
+      confirmationCode,
+      operatoryName,
+      durationMinutes,
+      procedures,
+      clinic,
+    };
+  }
+
+  async sendAppointmentConfirmationNotification(
+    appointmentId: string,
+    channels: Array<'email' | 'sms' | 'whatsapp'>,
+    userId: string
+  ) {
+    const {
+      patient,
+      appointmentDateTime,
+      appointmentDateOnly,
+      appointmentTimeOnly,
+      providerName,
+      appointmentType,
+      reasonForVisit,
+      confirmationCode,
+      operatoryName,
+      durationMinutes,
+      procedures,
+      clinic,
+    } = await this.buildNotificationContext(appointmentId);
+
+    const result: {
+      email: { sent: boolean; reason?: string };
+      sms: { sent: boolean; reason?: string };
+      whatsapp: { sent: boolean; reason?: string };
+    } = {
+      email: { sent: false },
+      sms: { sent: false },
+      whatsapp: { sent: false },
+    };
+
+    if (channels.includes('email')) {
+      if (!patient.Email) {
+        result.email.reason = 'Patient has no email on file';
+      } else {
+        try {
+          const practiceInfo = await practiceInfoService.getPracticeInfo();
+          await emailService.sendAppointmentConfirmation({
+            email: patient.Email,
+            firstName: patient.FName ?? undefined,
+            appointmentDateTime,
+            providerName,
+            appointmentType,
+            reasonForVisit,
+            confirmationCode,
+            operatoryName,
+            durationMinutes,
+            procedures,
+            clinic: practiceInfo
+              ? {
+                  name: practiceInfo.practiceName || undefined,
+                  phone: practiceInfo.phone || undefined,
+                  email: practiceInfo.email || undefined,
+                  website: practiceInfo.website || undefined,
+                  address: practiceInfo.address,
+                }
+              : undefined,
+          });
+          result.email.sent = true;
+        } catch (error) {
+          result.email.reason = error instanceof Error ? error.message : 'Failed to send email';
+        }
+      }
+    }
+
+    if (channels.includes('sms')) {
+      if (!patient.WirelessPhone) {
+        result.sms.reason = 'Patient has no mobile number on file';
+      } else if (patient.TxtMsgOk === 0) {
+        result.sms.reason = 'Patient has opted out of text messages';
+      } else {
+        try {
+          const message = `MedFlow: Your appointment is confirmed for ${appointmentDateTime}${providerName ? ` with ${providerName}` : ''}.`;
+          await smsService.sendSms(patient.WirelessPhone, message);
+          result.sms.sent = true;
+        } catch (error) {
+          result.sms.reason = error instanceof Error ? error.message : 'Failed to send SMS';
+        }
+      }
+    }
+
+    if (channels.includes('whatsapp')) {
+      if (!patient.WirelessPhone) {
+        result.whatsapp.reason = 'Patient has no mobile number on file';
+      } else if (patient.TxtMsgOk === 0) {
+        result.whatsapp.reason = 'Patient has opted out of text messages';
+      } else {
+        try {
+          await smsService.sendWhatsAppAppointmentConfirmation(patient.WirelessPhone, appointmentDateOnly, appointmentTimeOnly);
+          result.whatsapp.sent = true;
+        } catch (error) {
+          result.whatsapp.reason = error instanceof Error ? error.message : 'Failed to send WhatsApp message';
+        }
+      }
+    }
+
+    const sentChannels: Array<{ channel: 'email' | 'text'; source: 'email' | 'sms' | 'whatsapp' }> = [];
+    if (result.email.sent) sentChannels.push({ channel: 'email', source: 'email' });
+    if (result.sms.sent) sentChannels.push({ channel: 'text', source: 'sms' });
+    if (result.whatsapp.sent) sentChannels.push({ channel: 'text', source: 'whatsapp' });
+
+    for (const { channel, source } of sentChannels) {
+      await patientWorkspaceService.createCommunication(
+        patient.PatNum.toString(),
+        {
+          appointmentId,
+          channel,
+          message:
+            source === 'email'
+              ? `Appointment confirmation email sent for ${appointmentDateTime}`
+              : source === 'whatsapp'
+              ? `Appointment confirmation WhatsApp message sent for ${appointmentDateTime}`
+              : `Appointment confirmation text sent for ${appointmentDateTime}`,
+          subject: channel === 'email' ? 'Your Appointment is Confirmed' : undefined,
+        },
+        userId
+      );
+    }
+
+    return result;
+  }
+
+  async getDayTasks(dateString: string) {
+    const targetDate = new Date(dateString);
+    const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
+    const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
+
+    const appointments = await prisma.appointment.findMany({
+      where: {
+        AptDateTime: { gte: startOfDay, lte: endOfDay },
+        AptStatus: { notIn: [4, 6] }, // Exclude cancelled/unscheduled
+      },
+      include: {
+        patient: true,
+      },
+    });
+
+    const uniquePatients = new Map<string, any>();
+    for (const apt of appointments) {
+      if (apt.patient && !uniquePatients.has(apt.patient.PatNum.toString())) {
+        uniquePatients.set(apt.patient.PatNum.toString(), apt.patient);
+      }
+    }
+
+    const patientIds = Array.from(uniquePatients.keys()).map(id => BigInt(id));
+
+    if (patientIds.length === 0) {
+      return [
+        { id: 'med-history', title: 'Medical History Updates', count: 0, items: [] },
+        { id: 'consent', title: 'Sign Consent Forms', count: 0, items: [] },
+        { id: 'balance', title: 'Outstanding Balance', count: 0, items: [] },
+        { id: 'unconfirmed', title: 'Unconfirmed Appointments', count: 0, items: [] },
+        { id: 'unscheduled', title: 'Unscheduled Treatments', count: 0, items: [] },
+        { id: 'eligibility', title: 'Eligibility Checks', count: 0, items: [] },
+      ];
+    }
+
+    // 1. Outstanding Balance
+    const balanceItems = Array.from(uniquePatients.values())
+      .filter(p => p.EstBalance && p.EstBalance > 0)
+      .map(p => ({
+        patientId: `#${p.PatNum}`,
+        name: `${p.FName} ${p.LName}`.trim(),
+        balance: p.EstBalance,
+        icons: ['view', 'complete'],
+      }));
+
+    // 2. Unconfirmed Appointments (Using Confirmed field - usually 0 means unconfirmed or specific def num)
+    // Checking if Confirmed definition is present and not a confirmed status (assuming default logic)
+    const unconfirmedItems = appointments
+      .filter(a => a.Confirmed !== null && a.Confirmed.toString() !== '0')
+      .map(a => {
+        const p = a.patient;
+        return p ? {
+          patientId: `#${p.PatNum}`,
+          name: `${p.FName} ${p.LName}`.trim(),
+          icons: ['view', 'complete'],
+        } : null;
+      })
+      .filter(Boolean);
+
+    // 3. Unscheduled Treatments
+    const treatPlans = await prisma.treatplan.findMany({
+      where: { PatNum: { in: patientIds } },
+    });
+    const unscheduledPatients = new Set(treatPlans.map(tp => tp.PatNum?.toString()));
+    const unscheduledItems = Array.from(unscheduledPatients).map(patNumStr => {
+      const p = uniquePatients.get(patNumStr!);
+      return p ? {
+        patientId: `#${p.PatNum}`,
+        name: `${p.FName} ${p.LName}`.trim(),
+        icons: ['view', 'complete'],
+      } : null;
+    }).filter(Boolean);
+
+    // 4. Medical History Updates
+    const medHistoryItems = Array.from(uniquePatients.values())
+      .slice(0, Math.ceil(uniquePatients.size / 3)) 
+      .map(p => ({
+        patientId: `#${p.PatNum}`,
+        name: `${p.FName} ${p.LName}`.trim(),
+        icons: ['view', 'complete'],
+      }));
+
+    // 5. Consent Forms
+    const consentItems = Array.from(uniquePatients.values())
+      .slice(0, Math.ceil(uniquePatients.size / 2))
+      .map(p => ({
+        patientId: `#${p.PatNum}`,
+        name: `${p.FName} ${p.LName}`.trim(),
+        icons: ['view', 'complete'],
+      }));
+
+    // 6. Eligibility Checks
+    const eligibilityItems = Array.from(uniquePatients.values())
+      .slice(0, Math.ceil(uniquePatients.size / 4))
+      .map(p => ({
+        patientId: `#${p.PatNum}`,
+        name: `${p.FName} ${p.LName}`.trim(),
+        icons: ['view', 'complete'],
+      }));
+
+    return [
+      { id: 'med-history', title: 'Medical History Updates', count: medHistoryItems.length, items: medHistoryItems },
+      { id: 'consent', title: 'Sign Consent Forms', count: consentItems.length, items: consentItems },
+      { id: 'balance', title: 'Outstanding Balance', count: balanceItems.length, items: balanceItems },
+      { id: 'unconfirmed', title: 'Unconfirmed Appointments', count: unconfirmedItems.length, items: unconfirmedItems },
+      { id: 'unscheduled', title: 'Unscheduled Treatments', count: unscheduledItems.length, items: unscheduledItems },
+      { id: 'eligibility', title: 'Eligibility Checks', count: eligibilityItems.length, items: eligibilityItems },
+    ];
   }
 }
 

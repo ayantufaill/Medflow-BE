@@ -67,8 +67,14 @@ export const createPaymentValidator: ValidationChain[] = [
   body('paymentMethod')
     .notEmpty()
     .withMessage('Payment method is required')
-    .isIn(['cash', 'check', 'card', 'ach', 'insurance', 'payment_plan'])
-    .withMessage('Invalid payment method'),
+    .custom((val) => {
+      const norm = String(val || '').toLowerCase().trim();
+      const allowed = ['cash', 'check', 'card', 'ach', 'insurance', 'payment_plan', 'account_credit', 'account credit', 'credit', 'patient credit'];
+      if (!allowed.includes(norm)) {
+        throw new Error('Invalid payment method');
+      }
+      return true;
+    }),
   body('paymentSource')
     .optional()
     .isIn(['patient', 'insurance_company', 'other'])
@@ -84,6 +90,18 @@ export const createPaymentValidator: ValidationChain[] = [
     .isFloat({ min: 0 })
     .withMessage('Processor fee must be a positive number'),
   body('notes').optional().isString().withMessage('Notes must be a string'),
+  body('procedures').optional().isArray().withMessage('Procedures must be an array'),
+  body('procedures.*.id').optional().isString().withMessage('Procedure ID must be a string'),
+  body('procedures.*.procId').optional().isString().withMessage('Procedure ID must be a string'),
+  body('procedures.*.procedureId').optional().isString().withMessage('Procedure ID must be a string'),
+  body('procedures.*.allowed').optional().isNumeric().withMessage('Allowed fee must be a number'),
+  body('procedures.*.wo').optional().isNumeric().withMessage('Writeoff must be a number'),
+  body('procedures.*.pay').optional().isNumeric().withMessage('Pay amount must be a number'),
+  body('procedures.*.ded').optional().isNumeric().withMessage('Deductible must be a number'),
+  body('procedures.*.updateAllowedFee').optional().isBoolean().withMessage('updateAllowedFee must be a boolean'),
+  body('procedures.*.updateInsFlatPortion').optional().isBoolean().withMessage('updateInsFlatPortion must be a boolean'),
+  body('procedures.*.moveToNewClaim').optional().isBoolean().withMessage('moveToNewClaim must be a boolean'),
+  body('procedures.*.claimId').optional().isString().withMessage('Claim ID must be a string'),
 ];
 
 export const applyPaymentValidator: ValidationChain[] = [

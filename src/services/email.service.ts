@@ -1,5 +1,37 @@
 import nodemailer from 'nodemailer';
 
+export type AppointmentNotificationKind = 'confirmation' | 'reminder' | 'cancellation' | 'reschedule';
+
+export type AppointmentConfirmationDetails = {
+  email: string;
+  firstName?: string;
+  appointmentDateTime: string;
+  providerName?: string;
+  appointmentType?: string;
+  reasonForVisit?: string;
+  confirmationCode?: string;
+  operatoryName?: string;
+  durationMinutes?: number;
+  procedures?: string[];
+  /** Only used when kind is 'reschedule' - the appointment's previous date/time. */
+  previousAppointmentDateTime?: string;
+  /** Only used when kind is 'cancellation'. */
+  cancellationReason?: string;
+  clinic?: {
+    name?: string;
+    phone?: string;
+    email?: string;
+    website?: string;
+    address?: {
+      line1?: string | null;
+      line2?: string | null;
+      city?: string | null;
+      state?: string | null;
+      postalCode?: string | null;
+    };
+  };
+};
+
 /**
  * Email Service
  * Handles sending emails for verification and notifications
@@ -13,11 +45,49 @@ import nodemailer from 'nodemailer';
  * - Mailgun (via SMTP)
  */
 
+/** Copy that varies by notification kind - keeps one shared template instead of four near-duplicates. */
+const NOTIFICATION_COPY: Record<
+  AppointmentNotificationKind,
+  { subjectSuffix: string; heading: string; lead: (firstName: string) => string; showArrivalNotice: boolean }
+> = {
+  confirmation: {
+    subjectSuffix: 'Your Appointment is Confirmed',
+    heading: 'Your appointment is confirmed',
+    lead: () => "We're looking forward to seeing you. Here are your appointment details:",
+    showArrivalNotice: true,
+  },
+  reminder: {
+    subjectSuffix: 'Appointment Reminder',
+    heading: 'Upcoming appointment reminder',
+    lead: () => 'This is a friendly reminder about your upcoming appointment:',
+    showArrivalNotice: true,
+  },
+  cancellation: {
+    subjectSuffix: 'Your Appointment Has Been Cancelled',
+    heading: 'Your appointment has been cancelled',
+    lead: () => 'The appointment below has been cancelled. Contact us whenever you\'re ready to rebook:',
+    showArrivalNotice: false,
+  },
+  reschedule: {
+    subjectSuffix: 'Your Appointment Has Been Rescheduled',
+    heading: 'Your appointment has been rescheduled',
+    lead: () => 'Your appointment time has changed. Here are the updated details:',
+    showArrivalNotice: true,
+  },
+};
+
 export class EmailService {
   private transporter: nodemailer.Transporter | null = null;
+  private initialized = false;
 
   constructor() {
+    // Defer initialization so dotenv has time to load process.env
+  }
+
+  private ensureTransporter() {
+    if (this.initialized) return;
     this.initializeTransporter();
+    this.initialized = true;
   }
 
   /**
@@ -137,6 +207,8 @@ MedFlow Team
     const fromEmail = process.env.FROM_EMAIL || 'noreply@medflow.com';
     const fromName = process.env.FROM_NAME || 'MedFlow';
 
+    this.ensureTransporter();
+
     // If transporter is not initialized (console mode), log to console
     if (!this.transporter) {
       console.log('='.repeat(50));
@@ -194,6 +266,8 @@ MedFlow Team
     const htmlBody = this.generatePasswordResetEmailHTML(code, firstName);
     const fromEmail = process.env.FROM_EMAIL || 'noreply@medflow.com';
     const fromName = process.env.FROM_NAME || 'MedFlow';
+
+    this.ensureTransporter();
 
     // If transporter is not initialized (console mode), log to console
     if (!this.transporter) {
@@ -297,6 +371,7 @@ MedFlow
     const fromEmail = process.env.FROM_EMAIL || 'noreply@medflow.com';
     const fromName = process.env.FROM_NAME || 'MedFlow';
 
+    this.ensureTransporter();
     if (!this.transporter) {
       console.log('='.repeat(50));
       console.log('ESTIMATE SENT TO PATIENT (Console Mode)');
@@ -458,6 +533,8 @@ MedFlow Team
     const fromEmail = process.env.FROM_EMAIL || 'noreply@medflow.com';
     const fromName = process.env.FROM_NAME || 'MedFlow';
 
+    this.ensureTransporter();
+
     // If transporter is not initialized (console mode), log to console
     if (!this.transporter) {
       console.log('='.repeat(50));
@@ -521,6 +598,8 @@ MedFlow Team
     const htmlBody = this.generateRegistrationVerificationLinkEmailHTML(verificationLink, firstName);
     const fromEmail = process.env.FROM_EMAIL || 'noreply@medflow.com';
     const fromName = process.env.FROM_NAME || 'MedFlow';
+
+    this.ensureTransporter();
 
     // If transporter is not initialized (console mode), log to console
     if (!this.transporter) {
@@ -651,6 +730,204 @@ MedFlow Team
   }
 
   /**
+   * Send an appointment confirmation email to a patient
+   */
+  async sendAppointmentConfirmation(details: AppointmentConfirmationDetails): Promise<void> {
+    return this.sendAppointmentNotification(details, 'confirmation');
+  }
+
+  /** Send a reminder email for an upcoming appointment. */
+  async sendAppointmentReminder(details: AppointmentConfirmationDetails): Promise<void> {
+    return this.sendAppointmentNotification(details, 'reminder');
+  }
+
+  /** Send a cancellation email. `details.cancellationReason` is shown if provided. */
+  async sendAppointmentCancellation(details: AppointmentConfirmationDetails): Promise<void> {
+    return this.sendAppointmentNotification(details, 'cancellation');
+  }
+
+  /** Send a reschedule email. `details.previousAppointmentDateTime` shows the old slot. */
+  async sendAppointmentReschedule(details: AppointmentConfirmationDetails): Promise<void> {
+    return this.sendAppointmentNotification(details, 'reschedule');
+  }
+
+  private async sendAppointmentNotification(
+    details: AppointmentConfirmationDetails,
+    kind: AppointmentNotificationKind
+  ): Promise<void> {
+    const { email, firstName, appointmentDateTime, providerName, appointmentType, reasonForVisit, confirmationCode, operatoryName, durationMinutes, procedures, previousAppointmentDateTime, cancellationReason, clinic } = details;
+    const clinicName = clinic?.name || process.env.FROM_NAME || 'MedFlow';
+    const addressLine = [clinic?.address?.line1, clinic?.address?.city, clinic?.address?.state, clinic?.address?.postalCode]
+      .filter(Boolean)
+      .join(', ');
+    const copy = NOTIFICATION_COPY[kind];
+
+    const subject = `${clinicName} - ${copy.subjectSuffix}`;
+    const textBody = `
+Hello ${firstName || 'there'},
+
+${copy.lead(firstName || 'there')}
+
+${kind === 'reschedule' && previousAppointmentDateTime ? `Previous Date & Time: ${previousAppointmentDateTime}\n` : ''}${confirmationCode ? `Confirmation #: ${confirmationCode}\n` : ''}Date & Time: ${appointmentDateTime}
+${providerName ? `Provider: ${providerName}\n` : ''}${appointmentType ? `Visit Type: ${appointmentType}\n` : ''}${operatoryName ? `Room: ${operatoryName}\n` : ''}${durationMinutes ? `Duration: ${durationMinutes} minutes\n` : ''}${reasonForVisit ? `Reason for Visit: ${reasonForVisit}\n` : ''}${procedures && procedures.length > 0 ? `Procedures: ${procedures.join(', ')}\n` : ''}${kind === 'cancellation' && cancellationReason ? `Cancellation Reason: ${cancellationReason}\n` : ''}
+${copy.showArrivalNotice ? 'Please arrive 15 minutes early and bring a valid photo ID and your insurance card (if applicable).\n\n' : ''}Need to reschedule or cancel? Please contact us at least 24 hours in advance${clinic?.phone ? ` by calling ${clinic.phone}` : ''}.
+
+${clinicName}${addressLine ? `\n${addressLine}` : ''}${clinic?.phone ? `\n${clinic.phone}` : ''}${clinic?.website ? `\n${clinic.website}` : ''}
+    `.trim();
+
+    const htmlBody = this.generateAppointmentNotificationHTML(details, kind);
+    const fromEmail = process.env.FROM_EMAIL || 'noreply@medflow.com';
+    const fromName = clinicName;
+
+    this.ensureTransporter();
+
+    if (!this.transporter) {
+      console.log('='.repeat(50));
+      console.log(`APPOINTMENT ${kind.toUpperCase()} EMAIL (Console Mode)`);
+      console.log('='.repeat(50));
+      console.log(`To: ${email}`);
+      console.log(`From: ${fromName} <${fromEmail}>`);
+      console.log(`Subject: ${subject}`);
+      console.log(`Body:\n${textBody}`);
+      console.log('='.repeat(50));
+      return;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: `"${fromName}" <${fromEmail}>`,
+        to: email,
+        subject,
+        text: textBody,
+        html: htmlBody,
+      });
+      console.log(`Appointment ${kind} email sent successfully to ${email}`);
+    } catch (error) {
+      console.error(`Error sending appointment ${kind} email:`, error);
+      throw new Error(`Failed to send appointment ${kind} email. Please try again later.`);
+    }
+  }
+
+  /**
+   * Generate HTML email template for an appointment notification (confirmation,
+   * reminder, cancellation, or reschedule).
+   */
+  private generateAppointmentNotificationHTML(details: AppointmentConfirmationDetails, kind: AppointmentNotificationKind): string {
+    const { firstName, appointmentDateTime, providerName, appointmentType, reasonForVisit, confirmationCode, operatoryName, durationMinutes, procedures, previousAppointmentDateTime, cancellationReason, clinic } = details;
+    const copy = NOTIFICATION_COPY[kind];
+    const clinicName = clinic?.name || process.env.FROM_NAME || 'MedFlow';
+    const addressLine = [clinic?.address?.line1, clinic?.address?.line2].filter(Boolean).join(', ');
+    const cityStateZip = [clinic?.address?.city, [clinic?.address?.state, clinic?.address?.postalCode].filter(Boolean).join(' ')]
+      .filter(Boolean)
+      .join(', ');
+
+    const detailRow = (label: string, value?: string) =>
+      value
+        ? `
+      <tr>
+        <td style="padding: 10px 0; border-bottom: 1px solid #eef2f7; color: #64748b; font-size: 13px; width: 140px; vertical-align: top;">${label}</td>
+        <td style="padding: 10px 0; border-bottom: 1px solid #eef2f7; color: #0f172a; font-size: 14px; font-weight: 600;">${value}</td>
+      </tr>`
+        : '';
+
+    return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
+  <style>
+    :root { color-scheme: light; supported-color-schemes: light; }
+    body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; line-height: 1.6; color: #0f172a !important; margin: 0; background-color: #eef1f8 !important; }
+    .wrapper { padding: 32px 16px; background-color: #eef1f8 !important; }
+    .container { max-width: 600px; margin: 0 auto; background-color: #ffffff !important; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .header { background: #14204a !important; background-color: #14204a !important; color: #ffffff !important; padding: 28px 32px; }
+    .header * { color: #ffffff !important; }
+    .logo { display: flex; align-items: center; gap: 8px; margin: 0 0 18px; }
+    .logo .word { font-size: 15px; font-weight: 700; letter-spacing: 0.2px; color: #ffffff !important; }
+    .header h1 { margin: 0; font-size: 22px; color: #ffffff !important; }
+    .badge { display: inline-flex; align-items: center; gap: 6px; background-color: #4f5fe0 !important; border: 1px solid rgba(255,255,255,0.4); border-radius: 20px; padding: 4px 12px; font-size: 12px; font-weight: 600; margin-top: 12px; color: #ffffff !important; }
+    .content { padding: 28px 32px; background-color: #ffffff !important; }
+    .greeting { font-size: 16px; margin: 0 0 4px; color: #0f172a !important; }
+    .lead { color: #475569 !important; font-size: 14px; margin: 0 0 20px; }
+    .card { border: 1px solid #e2e8f0; border-radius: 10px; padding: 4px 20px; margin: 0 0 20px; background-color: #ffffff !important; }
+    .card table { width: 100%; border-collapse: collapse; }
+    .card td { color: #0f172a !important; }
+    .notice { background-color: #eef1fd !important; border-left: 4px solid #4f5fe0; border-radius: 6px; padding: 14px 16px; font-size: 13px; color: #1e2a56 !important; margin: 0 0 20px; }
+    .notice strong { display: block; margin-bottom: 4px; }
+    .checklist { margin: 0 0 20px; padding: 0; list-style: none; }
+    .checklist li { padding: 6px 0 6px 26px; position: relative; font-size: 13px; color: #334155 !important; }
+    .checklist li::before { content: "✓"; position: absolute; left: 0; color: #4f5fe0; font-weight: 700; }
+    .policy { font-size: 12px; color: #64748b !important; border-top: 1px solid #eef2f7; padding-top: 16px; }
+    .footer { text-align: center; padding: 20px 32px 28px; color: #94a3b8 !important; font-size: 12px; background-color: #ffffff !important; }
+    .footer a { color: #4f5fe0 !important; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="container">
+      <div class="header" style="background-color: #14204a; color: #ffffff;">
+        <div class="logo"><span class="word" style="color: #ffffff;">${clinicName}</span></div>
+        <h1 style="color: #ffffff;">${copy.heading}</h1>
+        ${confirmationCode ? `<span class="badge" style="background-color: #4f5fe0; color: #ffffff;">Confirmation #${confirmationCode}</span>` : ''}
+      </div>
+      <div class="content">
+        <p class="greeting">Hello ${firstName || 'there'},</p>
+        <p class="lead">${copy.lead(firstName || 'there')}</p>
+
+        <div class="card">
+          <table>
+            ${kind === 'reschedule' ? detailRow('Previous Date &amp; Time', previousAppointmentDateTime) : ''}
+            ${detailRow(kind === 'reschedule' ? 'New Date &amp; Time' : 'Date &amp; Time', appointmentDateTime)}
+            ${detailRow('Duration', durationMinutes ? `${durationMinutes} minutes` : undefined)}
+            ${detailRow('Provider', providerName)}
+            ${detailRow('Room', operatoryName)}
+            ${detailRow('Visit Type', appointmentType)}
+            ${detailRow('Reason for Visit', reasonForVisit)}
+            ${detailRow('Location', cityStateZip || addressLine)}
+            ${kind === 'cancellation' ? detailRow('Cancellation Reason', cancellationReason) : ''}
+          </table>
+        </div>
+
+        ${procedures && procedures.length > 0 ? `
+        <p style="font-size: 13px; font-weight: 700; color: #0f172a; margin: 0 0 8px;">Planned Procedures</p>
+        <ul class="checklist" style="margin-bottom: 20px;">
+          ${procedures.map((proc) => `<li>${proc}</li>`).join('')}
+        </ul>` : ''}
+
+        ${copy.showArrivalNotice ? `
+        <div class="notice">
+          <strong>Please arrive 15 minutes early</strong>
+          This gives us time to complete any check-in paperwork before your visit.
+        </div>
+
+        <ul class="checklist">
+          <li>Bring a valid photo ID</li>
+          <li>Bring your insurance card, if applicable</li>
+          <li>Bring a list of current medications</li>
+        </ul>` : ''}
+
+        <p class="policy">
+          Need to reschedule or cancel? Please let us know at least 24 hours in advance${clinic?.phone ? ` by calling <strong>${clinic.phone}</strong>` : ''}${clinic?.email ? ` or emailing <a href="mailto:${clinic.email}">${clinic.email}</a>` : ''}.
+        </p>
+      </div>
+      <div class="footer">
+        <p style="margin: 0 0 4px; font-weight: 600; color: #475569;">${clinicName}</p>
+        ${addressLine || cityStateZip ? `<p style="margin: 0 0 4px;">${[addressLine, cityStateZip].filter(Boolean).join(' · ')}</p>` : ''}
+        <p style="margin: 0;">
+          ${clinic?.phone ? `${clinic.phone}` : ''}${clinic?.phone && clinic?.website ? ' &nbsp;·&nbsp; ' : ''}${clinic?.website ? `<a href="${clinic.website}">${clinic.website}</a>` : ''}
+        </p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+    `.trim();
+  }
+
+  /**
    * Generate HTML email template for password reset code
    */
   private generatePasswordResetEmailHTML(code: string, firstName?: string): string {
@@ -692,6 +969,71 @@ MedFlow Team
 </body>
 </html>
     `.trim();
+  }
+
+  /**
+   * Send custom bulk email to a patient
+   */
+  async sendBulkEmail(email: string, subject: string, textBody: string): Promise<boolean> {
+    const fromEmail = process.env.FROM_EMAIL || 'noreply@medflow.com';
+    const fromName = process.env.FROM_NAME || 'MedFlow';
+    const emailSubject = subject || 'Message from MedFlow';
+
+    const htmlBody = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px; }
+    .header { background-color: #2563eb; color: white; padding: 15px 20px; text-align: center; border-radius: 6px 6px 0 0; }
+    .content { padding: 20px; background-color: #ffffff; white-space: pre-wrap; font-size: 14px; }
+    .footer { text-align: center; padding: 15px; color: #64748b; font-size: 12px; border-top: 1px solid #e2e8f0; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h2 style="margin:0;">MedFlow Practice Communication</h2>
+    </div>
+    <div class="content">${textBody}</div>
+    <div class="footer">
+      <p style="margin:0;">Best regards,<br>MedFlow Dental Team</p>
+    </div>
+  </div>
+</body>
+</html>
+    `.trim();
+
+    this.ensureTransporter();
+
+    if (!this.transporter) {
+      console.log('='.repeat(50));
+      console.log('BULK EMAIL (Console Mode)');
+      console.log('='.repeat(50));
+      console.log(`To: ${email}`);
+      console.log(`From: ${fromName} <${fromEmail}>`);
+      console.log(`Subject: ${emailSubject}`);
+      console.log(`Body:\n${textBody}`);
+      console.log('='.repeat(50));
+      return true;
+    }
+
+    try {
+      await this.transporter.sendMail({
+        from: `"${fromName}" <${fromEmail}>`,
+        to: email,
+        subject: emailSubject,
+        text: textBody,
+        html: htmlBody,
+      });
+      console.log(`Bulk email sent successfully to ${email}`);
+      return true;
+    } catch (error) {
+      console.error(`Error sending bulk email to ${email}:`, error);
+      return false;
+    }
   }
 }
 

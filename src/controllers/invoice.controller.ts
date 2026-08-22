@@ -200,7 +200,7 @@ export class InvoiceController {
       const invoiceId = req.params.invoiceId as string;
       const invoice = await invoiceService.recalculateInvoice(
         invoiceId,
-        req.body.insuranceCoveragePercent
+        req.body?.insuranceCoveragePercent
       );
 
       res.status(200).json({
@@ -227,6 +227,11 @@ export class InvoiceController {
         updates.dueDate = new Date(req.body.dueDate);
       } else {
         delete updates.dueDate;
+      }
+      if (req.body.invoiceDate) {
+        updates.invoiceDate = new Date(req.body.invoiceDate);
+      } else {
+        delete updates.invoiceDate;
       }
 
       const invoice = await invoiceService.updateInvoice(
@@ -369,6 +374,22 @@ export class InvoiceController {
       res.json({ 
         success: true, 
         message: 'Item payment recorded' 
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async transferOutstandingToPatient(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { invoiceId, itemId } = req.params;
+      const performedBy = req.userId || 'system';
+
+      const result = await invoiceService.transferOutstandingToPatient(invoiceId, itemId, performedBy);
+
+      res.status(200).json({
+        success: true,
+        data: result,
       });
     } catch (error) {
       next(error);

@@ -85,6 +85,7 @@ export class ClinicalManagementService {
 
       return {
         id: choice.ChoiceId.toString(),
+        categoryId: choice.CategoryId.toString(),
         name: choice.Name,
         isDefault: choice.IsDefault,
         quickList: choice.QuickList,
@@ -140,6 +141,7 @@ export class ClinicalManagementService {
 
       return {
         id: choice.ChoiceId.toString(),
+        categoryId: choice.CategoryId.toString(),
         name: choice.Name,
         isDefault: choice.IsDefault,
         quickList: choice.QuickList,
@@ -310,6 +312,46 @@ export class ClinicalManagementService {
 
     const products: string[] = JSON.parse(existing.Products || '[]');
     products.push(product);
+
+    await prisma.clinicalchecklistitem.update({
+      where: { ItemId: itemBigInt },
+      data: { Products: JSON.stringify(products) },
+    });
+
+    return { success: true, products };
+  }
+
+  async removeChoiceFromChecklistItem(itemId: string, choiceIndex: number) {
+    const itemBigInt = BigInt(itemId);
+    const existing = await prisma.clinicalchecklistitem.findUnique({
+      where: { ItemId: itemBigInt },
+    });
+    if (!existing) {
+      throw new NotFoundError('Checklist item not found');
+    }
+
+    const choices: string[] = JSON.parse(existing.Choices || '[]');
+    choices.splice(choiceIndex, 1);
+
+    await prisma.clinicalchecklistitem.update({
+      where: { ItemId: itemBigInt },
+      data: { Choices: JSON.stringify(choices) },
+    });
+
+    return { success: true, choices };
+  }
+
+  async removeProductFromChecklistItem(itemId: string, productIndex: number) {
+    const itemBigInt = BigInt(itemId);
+    const existing = await prisma.clinicalchecklistitem.findUnique({
+      where: { ItemId: itemBigInt },
+    });
+    if (!existing) {
+      throw new NotFoundError('Checklist item not found');
+    }
+
+    const products: string[] = JSON.parse(existing.Products || '[]');
+    products.splice(productIndex, 1);
 
     await prisma.clinicalchecklistitem.update({
       where: { ItemId: itemBigInt },

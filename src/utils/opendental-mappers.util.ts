@@ -142,6 +142,12 @@ export const mapServiceToApi = (
   isBillable: row.NoBillIns ? false : true,
   taxRate: parseTaxRate(row.TaxCode),
   isActive: row.BypassGlobalLock ? false : true,
+  requiresXRay: row.RequiresXRay ?? false,
+  requiresConsent: row.RequiresConsent ?? false,
+  requiresPerioChart: row.RequiresPerioChart ?? false,
+  requiresNarrative: row.RequiresNarrative ?? false,
+  requiresMedicalNecessity: row.RequiresMedicalNecessity ?? false,
+  requiresToothImage: row.RequiresToothImage ?? false,
 });
 
 const calculatePatientStatus = (row: any): string => {
@@ -308,6 +314,7 @@ export const mapProviderToApi = (
     consultationFee?: number | null;
     isAcceptingNewPatients?: boolean | null;
     telehealthEnabled?: boolean | null;
+    color?: string | null;
   }
 ) => ({
   _id: row.ProvNum.toString(),
@@ -316,6 +323,7 @@ export const mapProviderToApi = (
   licenseNumber: row.StateLicense ?? null,
   specialty: options?.specialtyName ? [options.specialtyName] : [],
   title: row.Suffix ?? null,
+  color: options?.color ?? null,
   userId: options?.user
     ? {
         _id: options.user._id,
@@ -386,19 +394,28 @@ export const mapAppointmentStatusToDb = (status?: string | null): number => {
 };
 
 export const mapInsuranceTypeToOrdinal = (value?: string | null): number => {
-  switch ((value || '').toLowerCase()) {
+  if (!value) return 1;
+  const lower = value.trim().toLowerCase();
+  switch (lower) {
     case 'primary':
       return 1;
     case 'secondary':
       return 2;
     case 'tertiary':
       return 3;
-    default:
+    default: {
+      const match = lower.match(/\d+/);
+      if (match) {
+        const parsed = parseInt(match[0], 10);
+        if (Number.isFinite(parsed) && parsed > 0) return parsed;
+      }
       return 1;
+    }
   }
 };
 
 export const mapOrdinalToInsuranceType = (value?: number | null): string => {
+  if (!value || value <= 0) return 'primary';
   switch (value) {
     case 1:
       return 'primary';
@@ -407,7 +424,7 @@ export const mapOrdinalToInsuranceType = (value?: number | null): string => {
     case 3:
       return 'tertiary';
     default:
-      return 'primary';
+      return `Coverage #${value}`;
   }
 };
 
@@ -449,7 +466,6 @@ export const mapAppointmentToApi = (
     appointmentType?: appointmenttype | null;
     createdBy?: userod | null;
     requiresInterpreter?: boolean | null;
-    interpreterLanguage?: string | null;
     insuranceVerified?: boolean | null;
     copayCollected?: number | null;
     reminderSent?: boolean | null;
@@ -487,7 +503,6 @@ export const mapAppointmentToApi = (
     insuranceVerified: options?.insuranceVerified ?? Boolean(row.InsPlan1 || row.InsPlan2),
     copayCollected: options?.copayCollected ?? 0,
     requiresInterpreter: options?.requiresInterpreter ?? false,
-    interpreterLanguage: options?.interpreterLanguage ?? null,
     reminderSent: options?.reminderSent ?? false,
     customFields: options?.customFields ?? {},
     cancellationReason: options?.cancellationReason ?? null,

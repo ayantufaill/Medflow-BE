@@ -135,6 +135,23 @@ export class UserController {
     }
   }
 
+  async updateCurrentBranch(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const { branchId } = req.body;
+      const data = await userService.updateCurrentBranch(req.userId, branchId);
+      res.status(200).json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async updateProfile(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.userId) {
@@ -302,7 +319,7 @@ export class UserController {
         });
       }
       
-      const result = await userService.getUserActivity(userId, page, limit);
+      const result = await userService.getUserActivity(userId, page, limit, search, startDate, endDate);
       res.status(200).json({
         success: true,
         data: result,
@@ -328,7 +345,7 @@ export class UserController {
         });
       }
       
-      const result = await userService.getUserLoginHistory(userId, page, limit);
+      const result = await userService.getUserLoginHistory(userId, page, limit, search, startDate, endDate);
       res.status(200).json({
         success: true,
         data: result,
@@ -340,7 +357,7 @@ export class UserController {
 
   async createUser(req: Request, res: Response, next: NextFunction) {
     try {
-      const { email, firstName, lastName, phone, preferredLanguage, roleIds, roleId } = req.body;
+      const { email, firstName, lastName, password, isActive, phone, preferredLanguage, roleIds, roleId } = req.body;
 
       if (!req.userId) {
         return res.status(401).json({
@@ -353,6 +370,8 @@ export class UserController {
         email: string;
         firstName: string;
         lastName: string;
+        password?: string;
+        isActive?: boolean;
         phone?: string;
         preferredLanguage?: string;
         roleIds?: string[];
@@ -362,6 +381,8 @@ export class UserController {
         lastName,
       };
       
+      if (password) userData.password = password;
+      if (typeof isActive === 'boolean') userData.isActive = isActive;
       if (phone) userData.phone = phone;
       if (preferredLanguage) userData.preferredLanguage = preferredLanguage;
       const normalizedRoleIds: string[] = [];
@@ -393,7 +414,7 @@ export class UserController {
   async assignUserRoles(req: Request, res: Response, next: NextFunction) {
     try {
       const { userId } = req.params;
-      const { roleIds } = req.body;
+      const { roleIds, roleId } = req.body;
 
       if (!userId) {
         return res.status(400).json({
@@ -402,14 +423,19 @@ export class UserController {
         });
       }
 
-      if (!Array.isArray(roleIds)) {
+      let finalRoleIds: string[] = [];
+      if (Array.isArray(roleIds)) {
+        finalRoleIds = roleIds.map(String);
+      } else if (roleId !== undefined && roleId !== null) {
+        finalRoleIds = [String(roleId)];
+      } else {
         return res.status(400).json({
           success: false,
-          error: { message: 'roleIds must be an array of strings' },
+          error: { message: 'roleIds must be an array or roleId must be provided' },
         });
       }
 
-      await userService.assignUserRoles(userId, roleIds);
+      await userService.assignUserRoles(userId, finalRoleIds);
 
       res.status(200).json({
         success: true,

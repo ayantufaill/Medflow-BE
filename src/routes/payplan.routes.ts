@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { payPlanController } from '../controllers/payplan.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -40,6 +42,8 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('payment-plans.read'),
   validate(payPlanSearchValidator),
   payPlanController.getAllPayPlans.bind(payPlanController)
@@ -65,6 +69,8 @@ router.get(
 router.get(
   '/patient/:patientId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('payment-plans.read'),
   validate(patientIdParamValidator),
   payPlanController.getPayPlansByPatient.bind(payPlanController)
@@ -92,6 +98,8 @@ router.get(
 router.get(
   '/:payPlanId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('payment-plans.read'),
   validate(payPlanIdValidator),
   payPlanController.getPayPlanById.bind(payPlanController)
@@ -141,6 +149,8 @@ router.get(
 router.post(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('payment-plans.create'),
   validate(createPayPlanValidator),
   payPlanController.createPayPlan.bind(payPlanController)
@@ -179,6 +189,8 @@ router.post(
 router.patch(
   '/:payPlanId',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('payment-plans.update'),
   validate([...payPlanIdValidator, ...updatePayPlanValidator]),
   payPlanController.updatePayPlan.bind(payPlanController)

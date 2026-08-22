@@ -187,9 +187,11 @@ describe('Patients', () => {
     const patB = await createPatientRecord(`B_${suffix}`);
     const patC = await createPatientRecord(`C_${suffix}`);
 
-    // Fetch sorted by name asc
+    // Fetch sorted by name asc — scoped to this test's own patients via the shared
+    // suffix, so the assertion doesn't depend on how many other patients exist in
+    // the database (a fixed limit alone isn't reliable as the dataset grows).
     const resAsc = await request(app)
-      .get(`/api/patients?sortBy=name&sortOrder=asc&limit=100`)
+      .get(`/api/patients?sortBy=name&sortOrder=asc&limit=100&search=${suffix}`)
       .set(authHeader);
     expect(resAsc.status).toBe(200);
     const patientsAsc = resAsc.body?.data?.patients ?? [];
@@ -207,9 +209,9 @@ describe('Patients', () => {
     expect(indexA_asc).toBeLessThan(indexB_asc);
     expect(indexB_asc).toBeLessThan(indexC_asc);
 
-    // Fetch sorted by name desc
+    // Fetch sorted by name desc — same scoping as above
     const resDesc = await request(app)
-      .get(`/api/patients?sortBy=name&sortOrder=desc&limit=100`)
+      .get(`/api/patients?sortBy=name&sortOrder=desc&limit=100&search=${suffix}`)
       .set(authHeader);
     expect(resDesc.status).toBe(200);
     const patientsDesc = resDesc.body?.data?.patients ?? [];

@@ -8,6 +8,14 @@ export const appointmentIdValidator: ValidationChain[] = [
     .withMessage('Invalid appointment ID format'),
 ];
 
+export const dayTasksQueryValidator: ValidationChain[] = [
+  query('date')
+    .notEmpty()
+    .withMessage('Date is required')
+    .isISO8601()
+    .withMessage('Invalid date format, should be ISO8601 (e.g. YYYY-MM-DD)'),
+];
+
 export const providerIdValidator: ValidationChain[] = [
   param('providerId')
     .notEmpty()
@@ -69,11 +77,6 @@ export const createAppointmentValidator: ValidationChain[] = [
     .optional()
     .isBoolean()
     .withMessage('requiresInterpreter must be a boolean'),
-  body('interpreterLanguage')
-    .optional()
-    .trim()
-    .isLength({ max: 50 })
-    .withMessage('Interpreter language must be less than 50 characters'),
   body('insuranceVerified')
     .optional()
     .isBoolean()
@@ -144,6 +147,10 @@ export const updateAppointmentValidator: ValidationChain[] = [
       'pending'
     ])
     .withMessage('Invalid appointment status'),
+  body('providerId')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Invalid provider ID format'),
   body('chiefComplaint')
     .optional()
     .trim()
@@ -163,11 +170,6 @@ export const updateAppointmentValidator: ValidationChain[] = [
     .optional()
     .isBoolean()
     .withMessage('requiresInterpreter must be a boolean'),
-  body('interpreterLanguage')
-    .optional()
-    .trim()
-    .isLength({ max: 50 })
-    .withMessage('Interpreter language must be less than 50 characters'),
   body('insuranceVerified')
     .optional()
     .isBoolean()
@@ -240,7 +242,13 @@ export const appointmentQueryValidator: ValidationChain[] = [
     .withMessage('Invalid patient ID format'),
   query('status')
     .optional()
-    .isIn(['scheduled', 'confirmed', 'checked_in', 'completed', 'cancelled', 'no_show', 'pending'])
+    .isIn([
+      'scheduled', 'unconfirmed', 'preconfirmed', 'confirmed', 'checked_in', 'arrived',
+      'ready_to_be_seated', 'seated', 'ready_for_doctor', 'in_treatment', 'ready_for_checkout',
+      'checked_out_incomplete', 'checked_out_complete', 'checkout complete', 'completed',
+      'no_show', 'call', 'left_message', 'running_late', 'sent_email_or_text', 'late',
+      'cancelled', 'rescheduled', 'pending'
+    ])
     .withMessage('Invalid status'),
   query('startDate')
     .optional()
@@ -432,4 +440,15 @@ export const appointmentCommunicationValidator: ValidationChain[] = [
     .optional()
     .isString()
     .withMessage('subject must be a string'),
+];
+
+export const appointmentSendConfirmationValidator: ValidationChain[] = [
+  body('channels')
+    .optional()
+    .isArray({ min: 1 })
+    .withMessage('channels must be a non-empty array')
+    .custom((channels: unknown[]) =>
+      channels.every((channel) => channel === 'email' || channel === 'sms' || channel === 'whatsapp')
+    )
+    .withMessage("channels may only contain 'email', 'sms', and/or 'whatsapp'"),
 ];
