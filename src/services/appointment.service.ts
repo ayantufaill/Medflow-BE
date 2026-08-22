@@ -1400,6 +1400,23 @@ async getPatientAppointments(patientId: string, limit = 10) {
     await this.notifyAppointmentCancelled(appointmentId, cancellationReason);
     await this.notifyStaffAppointmentCancelled(appointmentId);
 
+    if (updated.ProvNum && updated.AptDateTime) {
+      // Dynamic import: waitlist.service.ts already imports appointmentService
+      // (for convertToAppointment), so a static import here would be circular.
+      const { waitlistService } = await import('./waitlist.service');
+      await waitlistService.matchAndNotifyForCancellation({
+        appointmentId,
+        providerId: updated.ProvNum.toString(),
+        appointmentTypeId: updated.AppointmentTypeNum?.toString() ?? null,
+        appointmentDateTime: updated.AptDateTime,
+        providerName: updated.provider_appointment_ProvNumToprovider
+          ? [updated.provider_appointment_ProvNumToprovider.FName, updated.provider_appointment_ProvNumToprovider.LName]
+              .filter(Boolean)
+              .join(' ')
+          : undefined,
+      });
+    }
+
     return mapped;
   }
 
