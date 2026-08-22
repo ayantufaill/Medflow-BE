@@ -30,6 +30,7 @@ const buildPatientMapperOptions = (patientMeta: Record<string, any>) => ({
   household: patientMeta.household ?? [],
   spouseInfo: patientMeta.spouseInfo ?? null,
   patientFlags: patientMeta.patientFlags ?? [],
+  medicalAlerts: patientMeta.medicalAlerts ?? [],
   financialResponsibility: patientMeta.financialResponsibility ?? null,
   sexAtBirth: patientMeta.sexAtBirth ?? null,
   genderIdentity: patientMeta.genderIdentity ?? null,
@@ -98,15 +99,24 @@ export class PatientService {
     providerId?: string,
     sortBy?: string,
     sortOrder?: string,
-    clinicIds?: bigint[]
+    clinicIds?: bigint[],
+    branchId?: string
   ) {
     const skip = (page - 1) * limit;
     const where: any = {};
 
-    // Scope to the caller's accessible clinics, if branch access was resolved
-    // for this request. Callers with no clinic assignments yet (branches not
-    // set up) are left unscoped so existing single-clinic practices are unaffected.
-    if (clinicIds && clinicIds.length > 0) {
+    // branchId narrows to one exact clinic, but never *widens* beyond what
+    // the caller's own resolved scope (clinicIds) already allows — a branchId
+    // outside that scope returns an empty result rather than leaking whether
+    // the branch exists. No branchId falls back to the caller's full scope,
+    // same as before. Callers with no clinic assignments yet (clinicIds
+    // empty) are left unscoped so existing single-clinic practices are
+    // unaffected — matches the same convention used everywhere else.
+    if (branchId) {
+      const requestedClinicNum = BigInt(branchId);
+      const inScope = !clinicIds || clinicIds.length === 0 || clinicIds.includes(requestedClinicNum);
+      where.ClinicNum = inScope ? requestedClinicNum : -1n;
+    } else if (clinicIds && clinicIds.length > 0) {
       where.ClinicNum = { in: clinicIds };
     }
 
@@ -896,6 +906,7 @@ async getPatientLastVisit(patientId: string) {
           : currentMeta.workAddress ?? null,
       medicalHistory: currentMeta.medicalHistory ?? null,
       dentalHistory: currentMeta.dentalHistory ?? null,
+      medicalAlerts: currentMeta.medicalAlerts ?? [],
     });
 
     // Log activity

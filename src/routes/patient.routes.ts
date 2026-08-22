@@ -233,7 +233,7 @@ router.get(
  *                   properties:
  *                     message: { type: string, example: "A patient already exists with given details." }
  */
-router.get('/', requireRoles('Receptionist', 'Admin'), validate(patientSearchValidator), patientController.getAllPatients.bind(patientController));
+router.get('/', requireRoles('Receptionist', 'Admin', 'Super Admin', 'Group Admin', 'Branch Admin'), validate(patientSearchValidator), patientController.getAllPatients.bind(patientController));
 /**
  * @swagger
  * /patients:

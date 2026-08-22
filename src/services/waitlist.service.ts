@@ -2,6 +2,9 @@ import { prisma } from '../config/db';
 import { NotFoundError, BadRequestError, ConflictError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { appointmentService } from './appointment.service';
+import { emailService } from './email.service';
+import { smsService } from './sms.service';
+import { staffNotificationService } from './staffNotification.service';
 import { getNextId } from '../utils/opendental-ids.util';
 import { mapAppointmentTypeToApi, mapPatientToApi, mapProviderToApi } from '../utils/opendental-mappers.util';
 import { mapUser } from '../utils/opendental-auth.util';
@@ -69,6 +72,23 @@ const responseStatusToStatus = (value?: number | null) => {
 type AsapMeta = {
   notes?: string;
   createdBy?: string;
+  /** Informational only — does NOT change ResponseStatus. A human still has
+   * to actually reach the patient and move them to 'called'/'scheduled'; this
+   * just records that an automated match notification already went out, so
+   * staff working the waitlist screen can see it was already pinged. */
+  lastMatchNotifiedAt?: string;
+  lastMatchedAppointmentId?: string;
+};
+
+const priorityRank = (priority: string): number => {
+  switch (priority) {
+    case 'urgent':
+      return 0;
+    case 'normal':
+      return 1;
+    default:
+      return 2; // flexible
+  }
 };
 
 export class WaitlistService {
@@ -607,6 +627,161 @@ export class WaitlistService {
     );
 
     return { message: 'Waitlist entry deleted successfully' };
+  }
+
+  /**
+   * Finds the single best-matching active waitlist entry for a slot that
+   * just opened up (a cancellation) and notifies that patient + staff.
+   * Notify-first, not auto-book: a wrong auto-booked slot (wrong provider
+   * availability that changed since the entry was created, a patient who's
+   * no longer actually available) is worse than one extra manual step, and
+   * this reuses the exact same "call and confirm" workflow the waitlist
+   * screen already has (markAsCalled / convertToAppointment) rather than
+   * inventing a second, parallel booking path.
+   *
+   * Matches on: same provider (exact), same appointment type (or no type
+   * preference on the entry), and date/time within the entry's preferred
+   * window if one was given — an entry with no preferred date/time at all
+   * is treated as "any time works" and matches any opening for that
+   * provider/type. Ranked by priority (urgent > normal > flexible), then
+   * FIFO by when they joined the waitlist.
+   *
+   * Failures are logged, not thrown — same convention as every other
+   * notification helper in appointment.service.ts, so a notification hiccup
+   * never blocks the cancellation itself.
+   */
+  async matchAndNotifyForCancellation(cancelled: {
+    appointmentId: string;
+    providerId: string;
+    appointmentTypeId: string | null;
+    appointmentDateTime: Date;
+    providerName?: string;
+  }): Promise<{ matched: boolean; waitlistEntryId?: string }> {
+    try {
+      const candidates = await prisma.asapcomm.findMany({
+        where: {
+          ResponseStatus: statusToResponseStatus('active'),
+          schedule: { ProvNum: BigInt(cancelled.providerId) },
+        },
+        include: { schedule: true },
+      });
+
+      const slotDateOnly = cancelled.appointmentDateTime.toISOString().slice(0, 10);
+      const slotMinutes = cancelled.appointmentDateTime.getUTCHours() * 60 + cancelled.appointmentDateTime.getUTCMinutes();
+      const toMinutes = (d: Date) => d.getUTCHours() * 60 + d.getUTCMinutes();
+
+      const matches = candidates.filter((entry) => {
+        const typeOk = !entry.FKey || entry.FKey.toString() === cancelled.appointmentTypeId;
+        if (!typeOk) return false;
+
+        const preferredDate = entry.schedule?.SchedDate;
+        if (preferredDate && preferredDate.toISOString().slice(0, 10) !== slotDateOnly) return false;
+
+        const start = entry.schedule?.StartTime;
+        const end = entry.schedule?.StopTime;
+        if (start && slotMinutes < toMinutes(start)) return false;
+        if (end && slotMinutes > toMinutes(end)) return false;
+
+        return true;
+      });
+
+      if (matches.length === 0) {
+        return { matched: false };
+      }
+
+      matches.sort((a, b) => {
+        const rankDiff = priorityRank(fKeyTypeToPriority(a.FKeyType)) - priorityRank(fKeyTypeToPriority(b.FKeyType));
+        if (rankDiff !== 0) return rankDiff;
+        return (a.DateTimeEntry?.getTime() ?? 0) - (b.DateTimeEntry?.getTime() ?? 0);
+      });
+      const match = matches[0]!;
+
+      if (!match.PatNum) {
+        return { matched: false };
+      }
+      const patient = await prisma.patient.findUnique({ where: { PatNum: match.PatNum } });
+      if (!patient) {
+        return { matched: false };
+      }
+
+      const dateLabel = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(cancelled.appointmentDateTime);
+      const timeLabel = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(cancelled.appointmentDateTime);
+      const providerLabel = cancelled.providerName ? ` with ${cancelled.providerName}` : '';
+
+      if (patient.Email) {
+        try {
+          await emailService.sendBulkEmail(
+            patient.Email,
+            'An appointment slot just opened up',
+            `Hi ${patient.FName ?? ''}, a spot on our schedule just opened up${providerLabel} on ` +
+              `${dateLabel} at ${timeLabel} — the kind of appointment you asked to be notified about. ` +
+              `Please call our office as soon as you can to claim it; it's offered on a first-come basis ` +
+              `and may go to someone else on the list if we don't hear back from you soon.`
+          );
+        } catch (error) {
+          console.error(`Failed to send waitlist-match email for entry ${match.AsapCommNum}:`, error);
+        }
+      }
+
+      if (patient.WirelessPhone && patient.TxtMsgOk !== 0) {
+        try {
+          await smsService.sendSms(
+            patient.WirelessPhone,
+            `MedFlow: A slot opened up${providerLabel} on ${dateLabel} at ${timeLabel} — call us soon to claim it (first come, first served).`
+          );
+        } catch (error) {
+          console.error(`Failed to send waitlist-match SMS for entry ${match.AsapCommNum}:`, error);
+        }
+      }
+
+      const meta = parseJson<AsapMeta>(match.Note);
+      await prisma.asapcomm.update({
+        where: { AsapCommNum: match.AsapCommNum },
+        data: {
+          Note: buildJson({
+            ...meta,
+            lastMatchNotifiedAt: new Date().toISOString(),
+            lastMatchedAppointmentId: cancelled.appointmentId,
+          }),
+        },
+      });
+
+      // Staff still has to actually call and confirm — this just surfaces
+      // that a match exists and was already pinged, on the same in-app
+      // notification rail used for booked/cancelled/rescheduled appointments.
+      try {
+        const providerRecord = await prisma.provider.findUnique({ where: { ProvNum: BigInt(cancelled.providerId) } });
+        if (providerRecord) {
+          const [directMatches, linkedUser] = await Promise.all([
+            prisma.userod.findMany({ where: { ProvNum: providerRecord.ProvNum, NOT: { IsHidden: 1 } } }),
+            providerRecord.CustomID && /^\d+$/.test(providerRecord.CustomID)
+              ? prisma.userod.findUnique({ where: { UserNum: BigInt(providerRecord.CustomID) } })
+              : Promise.resolve(null),
+          ]);
+          const recipients = [...directMatches];
+          if (linkedUser && linkedUser.IsHidden !== 1 && !recipients.some((u) => u.UserNum === linkedUser.UserNum)) {
+            recipients.push(linkedUser);
+          }
+          for (const staff of recipients) {
+            await staffNotificationService.createAndEmit({
+              userNum: staff.UserNum,
+              type: 'waitlist_match',
+              title: 'Waitlist match for cancelled slot',
+              body: `${patient.FName ?? 'A patient'} ${patient.LName ?? ''} was notified about the ${dateLabel} ${timeLabel} opening — please follow up to confirm.`,
+              relatedType: 'waitlist',
+              relatedId: match.AsapCommNum,
+            });
+          }
+        }
+      } catch (error) {
+        console.error(`Failed to notify staff of waitlist match for entry ${match.AsapCommNum}:`, error);
+      }
+
+      return { matched: true, waitlistEntryId: match.AsapCommNum.toString() };
+    } catch (error) {
+      console.error(`Waitlist matching failed for cancelled appointment ${cancelled.appointmentId}:`, error);
+      return { matched: false };
+    }
   }
 }
 

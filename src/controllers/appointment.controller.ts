@@ -14,6 +14,7 @@ export class AppointmentController {
       const endDate = req.query.endDate as string | undefined;
       const appointmentTypeId = req.query.appointmentTypeId as string | undefined;
       const search = req.query.search as string | undefined;
+      const branchId = req.query.branchId as string | undefined;
 
       // Build filters object, only including defined values
       const filters: {
@@ -24,8 +25,9 @@ export class AppointmentController {
         endDate?: string;
         appointmentTypeId?: string;
         search?: string;
+        branchId?: string;
       } = {};
-      
+
       if (providerId) filters.providerId = providerId;
       if (patientId) filters.patientId = patientId;
       if (status) filters.status = status;
@@ -33,6 +35,7 @@ export class AppointmentController {
       if (endDate) filters.endDate = endDate;
       if (appointmentTypeId) filters.appointmentTypeId = appointmentTypeId;
       if (search) filters.search = search;
+      if (branchId) filters.branchId = branchId;
 
       const result = await appointmentService.getAllAppointments(page, limit, filters);
 

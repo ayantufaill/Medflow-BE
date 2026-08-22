@@ -3,6 +3,8 @@ import { query } from 'express-validator';
 import { userController } from '../controllers/user.controller';
 import { roleController } from '../controllers/role.controller';
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
   updateUserValidator,
@@ -25,6 +27,8 @@ const router = Router();
 
 // All user routes require authentication
 router.use(authenticate);
+router.use(resolveBranchAccess);
+router.use(enterTenantContext);
 
 /**
  * @swagger
@@ -98,7 +102,7 @@ router.post(
  */
 router.get(
   '/',
-  requireRoles('Admin'),
+  requireRoles('Admin', 'Super Admin', 'Group Admin', 'Branch Admin'),
   validate(queryValidator),
   userController.getAllUsers.bind(userController)
 );
