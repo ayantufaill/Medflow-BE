@@ -426,10 +426,15 @@ export class AppointmentService {
       endDate?: string;
       appointmentTypeId?: string;
       search?: string;
+      branchId?: string;
     }
   ) {
     const skip = (page - 1) * limit;
     const where: any = {};
+
+    if (filters?.branchId) {
+      where.ClinicNum = BigInt(filters.branchId);
+    }
 
     if (filters?.providerId) {
       where.ProvNum = BigInt(filters.providerId);

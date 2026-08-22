@@ -1,5 +1,6 @@
 import { prisma } from '../config/db';
 import { appointmentService } from '../services/appointment.service';
+import { tenantContextStorage } from '../config/tenant-context';
 
 // ---------------------------------------------------------------------------
 // Date helpers
@@ -207,6 +208,32 @@ const seedAppointments = async () => {
     return;
   }
 
+  // Branch/room per provider index (0=Mitchell 1=Patel 2=Chen 3=Torres 4=Kim),
+  // matching seedBranches.ts's provider→branch assignments — so appointments
+  // land in the same branch's room as the provider/patients they're for,
+  // rather than the global default operatory. Falls back to no branchId/roomId
+  // (createAppointment's existing default-room behavior) if seed:branches
+  // hasn't been run yet, so this script still works standalone.
+  const [defaultClinic, westsideClinic, riversideClinic] = await Promise.all([
+    prisma.clinic.findUnique({ where: { ClinicNum: 1n } }),
+    prisma.clinic.findFirst({ where: { Description: 'Westside Branch' } }),
+    prisma.clinic.findFirst({ where: { Description: 'Riverside Clinic' } }),
+  ]);
+  const [op1, op2, riversideRoom, op3, op4] = await Promise.all([
+    prisma.operatory.findFirst({ where: { OpName: 'Op1' } }),
+    prisma.operatory.findFirst({ where: { OpName: 'Op2' } }),
+    prisma.operatory.findFirst({ where: { OpName: 'Riverside Room 1' } }),
+    prisma.operatory.findFirst({ where: { OpName: 'Op3' } }),
+    prisma.operatory.findFirst({ where: { OpName: 'Op4' } }),
+  ]);
+  const PROVIDER_BRANCH_ROOM: Array<{ branchId?: string; roomId?: string }> = [
+    { branchId: defaultClinic?.ClinicNum.toString(), roomId: op1?.OperatoryNum.toString() },
+    { branchId: westsideClinic?.ClinicNum.toString(), roomId: op2?.OperatoryNum.toString() },
+    { branchId: riversideClinic?.ClinicNum.toString(), roomId: riversideRoom?.OperatoryNum.toString() },
+    { branchId: defaultClinic?.ClinicNum.toString(), roomId: op3?.OperatoryNum.toString() },
+    { branchId: westsideClinic?.ClinicNum.toString(), roomId: op4?.OperatoryNum.toString() },
+  ];
+
   let created = 0;
   let skipped = 0;
   let failed = 0;
@@ -227,6 +254,7 @@ const seedAppointments = async () => {
         const patientId = patientMap.get(email)!;
         const providerId = providers[providerIndex]!.ProvNum.toString();
         const slot = SLOTS[providerIndex]!; // each provider gets a distinct time on the same day
+        const { branchId, roomId } = PROVIDER_BRANCH_ROOM[providerIndex]!;
 
         try {
           await appointmentService.createAppointment(
@@ -242,6 +270,8 @@ const seedAppointments = async () => {
               status: cluster.status,
               insuranceVerified: cluster.status === 'completed',
               reminderSent: cluster.status !== 'scheduled',
+              ...(branchId ? { branchId } : {}),
+              ...(roomId ? { roomId } : {}),
             },
             seedUserId
           );
@@ -269,6 +299,11 @@ const seedAppointments = async () => {
   console.log(`  Upcoming: Mar 30–Apr 03 2026 · Apr 27–May 01 2026`);
 };
 
-seedAppointments()
+// appointment/operatory are RLS-scoped by ClinicNum. A standalone script has
+// no AsyncLocalStorage tenant context, so without this the branchId/roomId
+// lookups above would see nothing and every appointment write with a
+// non-null branchId would be rejected by RLS's WITH CHECK — the '*'
+// wildcard is the same bypass a true system Admin gets, not a way around RLS.
+tenantContextStorage.run({ clinicIds: '*' }, () => seedAppointments())
   .catch((err) => { console.error('Seed failed:', err); process.exit(1); })
   .finally(() => prisma.$disconnect());

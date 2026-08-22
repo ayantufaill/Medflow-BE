@@ -270,6 +270,10 @@ export const appointmentQueryValidator: ValidationChain[] = [
     .optional()
     .isString()
     .withMessage('search must be a string'),
+  query('branchId')
+    .optional()
+    .isString()
+    .withMessage('branchId must be a string'),
 ];
 
 export const scheduleQueryValidator: ValidationChain[] = [

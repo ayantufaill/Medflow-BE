@@ -1,7 +1,9 @@
 import { prisma } from '../config/db';
 import { getNextId } from '../utils/opendental-ids.util';
 import { RoleService } from '../services/role.service';
+import { providerService } from '../services/provider.service';
 import { GROUP_ADMIN_PERMISSIONS } from '../types/auth.types';
+import { tenantContextStorage } from '../config/tenant-context';
 
 const roleService = new RoleService();
 
@@ -154,6 +156,88 @@ async function main() {
     }
   }
 
+  // ── Scenario 3: assign existing providers/patients to their branches ──────
+  // Gives seedAppointments.ts real branch/room data to book into, instead of
+  // everything silently landing in the global default room. Must run after
+  // seedProviders.ts and seedPatients.ts (needs their records to exist).
+  const defaultClinicNum = '1';
+  const westsideClinicNum = westsideClinic.ClinicNum.toString();
+  const riversideClinicNum = riversideClinic.ClinicNum.toString();
+
+  // Ensure Riverside has at least one room — it had none, unlike the other branches.
+  let riversideRoom = await prisma.operatory.findFirst({ where: { ClinicNum: riversideClinic.ClinicNum } });
+  if (!riversideRoom) {
+    const operatoryNum = await getNextId('operatory', 'OperatoryNum');
+    riversideRoom = await prisma.operatory.create({
+      data: {
+        OperatoryNum: operatoryNum,
+        OpName: 'Riverside Room 1',
+        Abbrev: 'Riverside Room 1',
+        ItemOrder: 0,
+        IsHidden: 0,
+        ClinicNum: riversideClinic.ClinicNum,
+      },
+    });
+    console.log(`Created operatory: ${riversideRoom.OpName} (ClinicNum=${riversideClinicNum})`);
+  }
+
+  // Provider NPI → branch, mirroring seedProviders.ts's provider order and
+  // seedAppointments.ts's provider→patient grouping.
+  const providerBranchByNpi: Record<string, string> = {
+    '1234567890': defaultClinicNum,  // Mitchell — Default Clinic
+    '2345678901': westsideClinicNum, // Patel — Westside Branch
+    '3456789012': riversideClinicNum, // Chen — Riverside Clinic
+    '4567890123': defaultClinicNum,  // Torres — Default Clinic
+    '5678901234': westsideClinicNum, // Kim — Westside Branch
+  };
+
+  for (const [npi, branchId] of Object.entries(providerBranchByNpi)) {
+    const provider = await prisma.provider.findFirst({ where: { NationalProvID: npi } });
+    if (!provider) continue;
+    await providerService.updateProviderBranches(provider.ProvNum.toString(), [branchId]);
+    console.log(`Assigned provider NPI ${npi} to branch ${branchId}.`);
+  }
+
+  // Same patient→branch grouping as seedAppointments.ts's PATIENT_EMAILS
+  // (index 0–4 → Mitchell/branch 1, 5–9 → Patel/branch 2, etc.)
+  const patientBranchByEmail: Record<string, string> = {
+    'james.harrison@example.com': defaultClinicNum,
+    'maria.gonzalez@example.com': defaultClinicNum,
+    'david.kim@example.com': defaultClinicNum,
+    'patricia.williams@example.com': defaultClinicNum,
+    'michael.thompson@example.com': defaultClinicNum,
+    'jennifer.martinez@example.com': westsideClinicNum,
+    'robert.johnson@example.com': westsideClinicNum,
+    'ashley.brown@example.com': westsideClinicNum,
+    'christopher.davis@example.com': westsideClinicNum,
+    'amanda.wilson@example.com': westsideClinicNum,
+    'matthew.anderson@example.com': riversideClinicNum,
+    'sophia.taylor@example.com': riversideClinicNum,
+    'daniel.jackson@example.com': riversideClinicNum,
+    'emily.white@example.com': riversideClinicNum,
+    'joshua.harris@example.com': riversideClinicNum,
+    'olivia.martin@example.com': defaultClinicNum,
+    'andrew.garcia@example.com': defaultClinicNum,
+    'samantha.lee@example.com': defaultClinicNum,
+    'kevin.robinson@example.com': defaultClinicNum,
+    'lauren.clark@example.com': defaultClinicNum,
+    'tyler.lewis@example.com': westsideClinicNum,
+    'natalie.walker@example.com': westsideClinicNum,
+    'brandon.hall@example.com': westsideClinicNum,
+    'rachel.young@example.com': westsideClinicNum,
+    'jason.allen@example.com': westsideClinicNum,
+  };
+
+  let patientsAssigned = 0;
+  for (const [email, branchId] of Object.entries(patientBranchByEmail)) {
+    const patient = await prisma.patient.findFirst({ where: { Email: email } });
+    if (!patient) continue;
+    if (patient.ClinicNum?.toString() === branchId) continue;
+    await prisma.patient.update({ where: { PatNum: patient.PatNum }, data: { ClinicNum: BigInt(branchId) } });
+    patientsAssigned++;
+  }
+  console.log(`Assigned ${patientsAssigned} patient(s) to their branch.`);
+
   console.log('Done.');
   console.log({
     brightSmileGroup: { id: brightSmileGroup.id, clinics: [1, westsideClinic.ClinicNum.toString()] },
@@ -164,7 +248,12 @@ async function main() {
   });
 }
 
-main()
+// patient/appointment/providerclinic/operatory are RLS-scoped by ClinicNum.
+// A standalone script has no AsyncLocalStorage tenant context, so without
+// this every branch-assignment read/write above would be invisible to (or
+// rejected by) RLS — the '*' wildcard is the same bypass a true system
+// Admin gets, not a way around RLS.
+tenantContextStorage.run({ clinicIds: '*' }, () => main())
   .catch((err) => {
     console.error(err);
     process.exitCode = 1;

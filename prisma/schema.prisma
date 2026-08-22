@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
 }
 
 enum TreatmentArea {
@@ -7805,6 +7806,27 @@ model practicegroup {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   clinic    clinic[]
+}
+
+// ─── Patient Portal Form Templates: admin-editable intake/consent forms ────
+// Defines the fields (label, type, required, options, order) that drive the
+// portal's form renderer, replacing what used to be hardcoded client-side
+// (Medflow-FE's portalFormTemplates.js). templateId is the stable slug that
+// patient-form.service.ts's submissions already key off of (they're stored
+// as loosely-typed commlog rows, not a foreign key) — kept independent of
+// the numeric id so nothing on the submission side needs to change.
+model formtemplate {
+  id          Int      @id @default(autoincrement())
+  templateId  String   @unique @db.VarChar(100)
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  /// Array of { key, label, type, required, options?, order }.
+  /// type: text | textarea | email | number | phone | date | boolean | select | radio
+  /// options (select/radio only): [{ value, label }]
+  fields      Json
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // ─── Multi-Tenant: Group & Branch Hierarchy (superseded, unused) ────────────
