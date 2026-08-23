@@ -112,6 +112,10 @@ export class PatientService {
     // same as before. Callers with no clinic assignments yet (clinicIds
     // empty) are left unscoped so existing single-clinic practices are
     // unaffected — matches the same convention used everywhere else.
+    // Note: callers list-scoping patients pass groupClinicIds here (every
+    // clinic in their practicegroup, not just their own assignment) so a
+    // patient registered at one branch is visible from any sibling branch —
+    // this is patient read-visibility, not a write/authorization boundary.
     if (branchId) {
       const requestedClinicNum = BigInt(branchId);
       const inScope = !clinicIds || clinicIds.length === 0 || clinicIds.includes(requestedClinicNum);

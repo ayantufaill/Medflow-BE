@@ -127,6 +127,16 @@ export type BranchAdminPermission =
 export interface BranchAccess {
   /** ClinicNums the caller may access. For a Group Admin, every clinic in their group. */
   clinicIds: bigint[];
+  /**
+   * Every ClinicNum in the caller's practicegroup, regardless of role — the
+   * read-visibility scope for shared resources like patients, where a patient
+   * registered at one branch should be visible from any sibling branch in the
+   * same group. Equal to clinicIds when the caller has no resolvable group.
+   * Deliberately separate from clinicIds: write-scope checks (which branch a
+   * caller may file a new/updated record under) must stay narrowed to their
+   * own assignment, not widen to the whole group.
+   */
+  groupClinicIds: bigint[];
   /** The practicegroup.id the caller's clinics belong to, if resolvable. */
   groupId: number | null;
   /** True if the caller holds any GROUP_ADMIN_PERMISSIONS permission (or '*'). */

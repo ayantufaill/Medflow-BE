@@ -245,15 +245,22 @@ export class PermissionService {
     }
 
     let effectiveClinicIds = Array.from(clinicIds);
-    if (isGroupAdmin && groupId !== null) {
+    let groupClinicIds = effectiveClinicIds;
+    if (groupId !== null) {
       const groupClinics = await prisma.clinic.findMany({
         where: { GroupNum: groupId },
         select: { ClinicNum: true },
       });
-      effectiveClinicIds = groupClinics.map((c) => c.ClinicNum);
+      groupClinicIds = groupClinics.map((c) => c.ClinicNum);
+      // A Group Admin's own management scope (clinicIds) is the whole group too —
+      // everyone else keeps clinicIds narrowed to their own assignment and only
+      // gets the group-wide view through groupClinicIds (read-visibility only).
+      if (isGroupAdmin) {
+        effectiveClinicIds = groupClinicIds;
+      }
     }
 
-    return { clinicIds: effectiveClinicIds, groupId, isGroupAdmin };
+    return { clinicIds: effectiveClinicIds, groupClinicIds, groupId, isGroupAdmin };
   }
 
   static async canAccessResource(
