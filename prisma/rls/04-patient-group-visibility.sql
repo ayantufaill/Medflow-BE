@@ -11,27 +11,34 @@
 -- which is a materially bigger decision than "patients are shared" and
 -- was not asked for.
 --
--- Reads use app.patient_clinic_ids (set by
--- src/middleware/tenantContext.middleware.ts from the caller's
--- groupClinicIds — every clinic in their practicegroup, for any role, not
--- just Group Admins). Writes (INSERT/UPDATE/DELETE) still enforce the
--- narrower app.clinic_ids (the caller's own branch assignment only) — this
--- is a read-visibility grant, not a write grant. A Branch B user can now
--- see a Branch A patient, but still cannot create or edit one while
--- scoped to Branch B.
+-- Reads compare directly against the stored patient.GroupNum column (kept
+-- in sync with ClinicNum by src/services/patient.service.ts's
+-- createPatient/updatePatient — see src/scripts/backfillPatientGroups.ts
+-- for the one-off backfill onto pre-existing rows) against
+-- app.patient_group_id (set by src/middleware/tenantContext.middleware.ts
+-- from the caller's own groupId, for any role, not just Group Admins). This
+-- replaced an earlier version of this policy that instead compared
+-- ClinicNum against a list of every clinic in the caller's group,
+-- reconstructed at request time — GroupNum being a real stored column now
+-- makes that per-request reconstruction unnecessary. Writes (INSERT/UPDATE/
+-- DELETE) still enforce the narrower app.clinic_ids (the caller's own
+-- branch assignment only) — this is a read-visibility grant, not a write
+-- grant. A Branch B user can now see a Branch A patient, but still cannot
+-- create or edit one while scoped to Branch B.
 --
 -- Safe to re-run: DROP POLICY IF EXISTS before each CREATE POLICY.
 
 DROP POLICY IF EXISTS tenant_isolation ON patient;
+DROP POLICY IF EXISTS patient_read_group ON patient;
 
 CREATE POLICY patient_read_group ON patient FOR SELECT
 USING (
-  "ClinicNum" IS NULL
+  "GroupNum" IS NULL
   OR CASE
-       WHEN current_setting('app.patient_clinic_ids', true) = '*' THEN true
-       WHEN current_setting('app.patient_clinic_ids', true) IS NULL
-            OR current_setting('app.patient_clinic_ids', true) = '' THEN false
-       ELSE "ClinicNum" = ANY(string_to_array(current_setting('app.patient_clinic_ids', true), ',')::bigint[])
+       WHEN current_setting('app.patient_group_id', true) = '*' THEN true
+       WHEN current_setting('app.patient_group_id', true) IS NULL
+            OR current_setting('app.patient_group_id', true) = '' THEN false
+       ELSE "GroupNum" = current_setting('app.patient_group_id', true)::int
      END
 );
 
