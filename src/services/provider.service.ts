@@ -698,6 +698,52 @@ export class ProviderService {
     return allSlots;
   }
 
+  /**
+   * Update branches for a provider
+   */
+  async updateProviderBranches(providerId: string, branchIds: string[]) {
+    const provNum = BigInt(providerId);
+    const provider = await prisma.provider.findUnique({
+      where: { ProvNum: provNum },
+    });
+    if (!provider) {
+      throw new NotFoundError('Provider not found');
+    }
+
+    // Delete existing links
+    await prisma.providercliniclink.deleteMany({
+      where: { ProvNum: provNum },
+    });
+    await prisma.providerclinic.deleteMany({
+      where: { ProvNum: provNum },
+    });
+
+    // Create new links
+    for (const branchId of branchIds) {
+      const clinicNum = BigInt(branchId);
+      
+      const providerClinicNum = await getNextId('providerclinic', 'ProviderClinicNum');
+      await prisma.providerclinic.create({
+        data: {
+          ProviderClinicNum: providerClinicNum,
+          ProvNum: provNum,
+          ClinicNum: clinicNum,
+        },
+      });
+
+      const providerClinicLinkNum = await getNextId('providercliniclink', 'ProviderClinicLinkNum');
+      await prisma.providercliniclink.create({
+        data: {
+          ProviderClinicLinkNum: providerClinicLinkNum,
+          ProvNum: provNum,
+          ClinicNum: clinicNum,
+        },
+      });
+    }
+
+    return { message: 'Provider branches updated successfully' };
+  }
+
   async getSpecialties() {
     const definitions = await prisma.definition.findMany({
       where: {

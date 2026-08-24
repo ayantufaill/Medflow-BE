@@ -64,6 +64,32 @@ router.get(
 
 /**
  * @swagger
+ * /claims/{primaryClaimId}/generate-secondary:
+ *   post:
+ *     summary: Generate a secondary claim from a primary claim
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: primaryClaimId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       201:
+ *         description: Secondary claim generated successfully
+ */
+router.post(
+  '/:primaryClaimId/generate-secondary',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('claims.write'),
+  claimController.generateSecondaryClaim.bind(claimController)
+);
+
+/**
+ * @swagger
  * /claims/tab-summary:
  *   get:
  *     summary: Get claims statistics and counts for tabs

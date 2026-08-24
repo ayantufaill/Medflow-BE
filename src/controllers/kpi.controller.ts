@@ -11,8 +11,10 @@ export class KpiController {
     try {
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+      const branchId = req.query.branchId ? String(req.query.branchId) : undefined;
+      const userId = (req as any).userId ? String((req as any).userId) : undefined;
 
-      const metrics = await kpiService.getMainKpis(startDate, endDate);
+      const metrics = await kpiService.getMainKpis(startDate, endDate, branchId, userId);
       res.status(200).json({
         success: true,
         data: metrics,
@@ -31,8 +33,10 @@ export class KpiController {
     try {
       const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
       const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+      const branchId = req.query.branchId ? String(req.query.branchId) : undefined;
+      const userId = (req as any).userId ? String((req as any).userId) : undefined;
 
-      const providerMetrics = await kpiService.getProviderKpis(startDate, endDate);
+      const providerMetrics = await kpiService.getProviderKpis(startDate, endDate, branchId, userId);
       res.status(200).json({
         success: true,
         data: providerMetrics,
@@ -52,7 +56,10 @@ export class KpiController {
    */
   async getKpiSummary(req: Request, res: Response, next: NextFunction) {
     try {
-      const summary = await kpiService.getKpiSummary();
+      const branchId = req.query.branchId ? String(req.query.branchId) : undefined;
+      const userId = (req as any).userId ? String((req as any).userId) : undefined;
+
+      const summary = await kpiService.getKpiSummary(branchId, userId);
       res.status(200).json({
         success: true,
         data: summary,
