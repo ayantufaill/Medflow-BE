@@ -603,7 +603,7 @@ router.put(
  */
 router.get(
   '/provider/messages/threads',
-  requireRoles('Provider', 'Doctor', 'Admin'),
+  requireRoles('Provider', 'Admin'),
   portalController.getProviderMessageThreads.bind(portalController)
 );
 
@@ -626,7 +626,7 @@ router.get(
  */
 router.get(
   '/provider/messages/threads/:threadId',
-  requireRoles('Provider', 'Doctor', 'Admin'),
+  requireRoles('Provider', 'Admin'),
   validate(portalThreadIdValidator),
   portalController.getProviderThreadMessages.bind(portalController)
 );
@@ -650,7 +650,7 @@ router.get(
  */
 router.get(
   '/provider/patients/:patientId/context',
-  requireRoles('Provider', 'Doctor', 'Admin'),
+  requireRoles('Provider', 'Admin'),
   validate(portalProviderPatientIdValidator),
   portalController.getProviderPatientContext.bind(portalController)
 );
@@ -683,7 +683,7 @@ router.get(
  */
 router.post(
   '/provider/messages/reply',
-  requireRoles('Provider', 'Doctor', 'Admin'),
+  requireRoles('Provider', 'Admin'),
   validate(portalProviderReplyValidator),
   portalController.replyToProviderThread.bind(portalController)
 );
