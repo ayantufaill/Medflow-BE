@@ -137,7 +137,7 @@ router.get(
  */
 router.post(
   '/preview',
-  requireRoles('Front Desk', 'Admin'),
+  requireRoles('Receptionist', 'Admin'),
   validate([
     body('providerId')
       .notEmpty()
@@ -235,7 +235,7 @@ router.post(
  */
 router.post(
   '/',
-  requireRoles('Front Desk', 'Admin'),
+  requireRoles('Receptionist', 'Admin'),
   validate(createRecurringAppointmentValidator),
   recurringAppointmentController.createRecurringAppointment.bind(recurringAppointmentController)
 );
@@ -280,7 +280,7 @@ router.post(
  */
 router.post(
   '/with-resolution',
-  requireRoles('Front Desk', 'Admin'),
+  requireRoles('Receptionist', 'Admin'),
   validate([
     ...createRecurringAppointmentValidator,
     body('appointmentOverrides')
@@ -341,7 +341,7 @@ router.post(
  */
 router.post(
   '/:recurringAppointmentId/generate',
-  requireRoles('Front Desk', 'Admin'),
+  requireRoles('Receptionist', 'Admin'),
   validate([...recurringAppointmentIdValidator, ...generateAppointmentsValidator]),
   recurringAppointmentController.generateAppointments.bind(recurringAppointmentController)
 );
@@ -383,7 +383,7 @@ router.post(
  */
 router.put(
   '/:recurringAppointmentId',
-  requireRoles('Front Desk', 'Admin'),
+  requireRoles('Receptionist', 'Admin'),
   validate([...recurringAppointmentIdValidator, ...updateRecurringAppointmentValidator]),
   recurringAppointmentController.updateRecurringAppointment.bind(recurringAppointmentController)
 );

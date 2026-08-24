@@ -150,7 +150,7 @@ router.get(
 router.post(
   '/',
   authenticate,
-  requireRoles('Admin', 'Doctor'),
+  requireRoles('Admin', 'Provider'),
   validate(createNoteTemplateValidator),
   noteTemplateController.createNoteTemplate
 );
@@ -186,7 +186,7 @@ router.post(
 router.post(
   '/:noteTemplateId/duplicate',
   authenticate,
-  requireRoles('Admin', 'Doctor'),
+  requireRoles('Admin', 'Provider'),
   validate([...noteTemplateIdValidator, ...duplicateNoteTemplateValidator]),
   noteTemplateController.duplicateNoteTemplate
 );
@@ -228,7 +228,7 @@ router.post(
 router.put(
   '/:noteTemplateId',
   authenticate,
-  requireRoles('Admin', 'Doctor'),
+  requireRoles('Admin', 'Provider'),
   validate([...noteTemplateIdValidator, ...updateNoteTemplateValidator]),
   noteTemplateController.updateNoteTemplate
 );
@@ -253,7 +253,7 @@ router.put(
 router.patch(
   '/:noteTemplateId/status',
   authenticate,
-  requireRoles('Admin', 'Doctor'),
+  requireRoles('Admin', 'Provider'),
   validate(noteTemplateIdValidator),
   noteTemplateController.toggleNoteTemplateStatus
 );
@@ -280,7 +280,7 @@ router.patch(
 router.delete(
   '/:noteTemplateId',
   authenticate,
-  requireRoles('Admin', 'Doctor'),
+  requireRoles('Admin', 'Provider'),
   validate(noteTemplateIdValidator),
   noteTemplateController.deleteNoteTemplate
 );

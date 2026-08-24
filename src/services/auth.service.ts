@@ -211,11 +211,20 @@ export class AuthService {
     const userWithRoles = await this.getUserWithRoles(user.UserNum.toString());
     const roles = userWithRoles.roles.map((r: any) => String(r.name));
 
+    // groupId/branchIds/isGroupAdmin are a display/convenience snapshot only
+    // (see JWTPayload) — reusing the values getUserWithRoles just computed
+    // fresh from the DB guarantees these claims exactly match what
+    // GET /auth/profile returns for the same user at the same moment.
+    // Nothing authorization-sensitive may trust them: resolveBranchAccess
+    // still resolves fresh from the DB on every request, unchanged.
     const tokens = generateTokens({
       userId: user.UserNum.toString(),
       email: meta.email || user.UserName || '',
       roles,
       tokenVersion: Number(meta.tokenVersion || 0),
+      groupId: userWithRoles.groupId,
+      branchIds: userWithRoles.branchIds,
+      isGroupAdmin: userWithRoles.isGroupAdmin,
     });
 
     await prisma.userod.update({

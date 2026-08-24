@@ -900,7 +900,6 @@ async getPatientAppointments(patientId: string, limit = 10) {
     chiefComplaint?: string;
     notes?: string;
     roomId?: string;
-    branchId?: string;
     requiresInterpreter?: boolean;
     insuranceVerified?: boolean;
     copayCollected?: number;
