@@ -59,7 +59,7 @@ export class PublicBookingService {
     // Validation (providerclinic lookup) and the actual query both touch
     // RLS-scoped tables, so both must run inside the same tenant context —
     // splitting them was the exact bug this comment used to warn about.
-    return tenantContextStorage.run({ clinicIds: [BigInt(branchId)] }, async () => {
+    return tenantContextStorage.run({ clinicIds: [BigInt(branchId)], patientClinicIds: [BigInt(branchId)] }, async () => {
       await assertProviderAcceptsAtBranch(providerId, branchId);
       const durationMinutes = await resolveDuration(appointmentTypeId);
       return appointmentService.getAvailableSlots(providerId, date, durationMinutes);
@@ -85,7 +85,7 @@ export class PublicBookingService {
     // appointment write all touch RLS-scoped tables, so all of it runs
     // inside one tenant context — see getPublicAvailableSlots above for why
     // splitting this was a real bug, not just tidiness.
-    return tenantContextStorage.run({ clinicIds: [BigInt(data.branchId)] }, async () => {
+    return tenantContextStorage.run({ clinicIds: [BigInt(data.branchId)], patientClinicIds: [BigInt(data.branchId)] }, async () => {
       await assertProviderAcceptsAtBranch(data.providerId, data.branchId);
       const durationMinutes = await resolveDuration(data.appointmentTypeId);
 

@@ -4430,6 +4430,12 @@ model patient {
   Urgency                                         Int?
   DateFirstVisit                                  DateTime?                @db.Date
   ClinicNum                                       BigInt?
+  /// Denormalized from clinic.GroupNum at the time ClinicNum was set — kept
+  /// in sync by patient.service.ts (createPatient/updatePatient) whenever
+  /// branchId changes. Exists so patient's practicegroup membership can be
+  /// queried directly instead of only derived via ClinicNum -> clinic.GroupNum
+  /// at request time (see PermissionService.getBranchAccess's groupClinicIds).
+  GroupNum                                        Int?
   HasIns                                          String?                  @db.VarChar(255)
   TrophyFolder                                    String?                  @db.VarChar(255)
   PlannedIsDone                                   Int?

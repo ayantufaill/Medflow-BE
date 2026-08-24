@@ -38,14 +38,20 @@ const getExtendedPrisma = () => {
               return query(args);
             }
 
-            // ctx.clinicIds is either our own resolved bigint list or the
-            // literal sentinel '*' — never raw user input — safe to
-            // interpolate into SET LOCAL (Postgres has no parameter binding
-            // for SET LOCAL values).
+            // ctx.clinicIds / ctx.patientClinicIds are either our own resolved
+            // bigint lists or the literal sentinel '*' — never raw user
+            // input — safe to interpolate into SET LOCAL (Postgres has no
+            // parameter binding for SET LOCAL values).
             const clinicIdsLiteral = ctx.clinicIds === '*' ? '*' : ctx.clinicIds.map(String).join(',');
+            const patientClinicIdsLiteral =
+              ctx.patientClinicIds === '*' ? '*' : ctx.patientClinicIds.map(String).join(',');
 
             return base.$transaction(async (tx) => {
               await tx.$executeRawUnsafe(`SET LOCAL app.clinic_ids = '${clinicIdsLiteral}'`);
+              // Second, wider GUC consumed only by the patient table's read
+              // policy (prisma/rls/04-patient-group-visibility.sql) — every
+              // other RLS-protected table still enforces app.clinic_ids only.
+              await tx.$executeRawUnsafe(`SET LOCAL app.patient_clinic_ids = '${patientClinicIdsLiteral}'`);
               return (tx as any)[model][operation](args);
             }, {
               maxWait: 10000,

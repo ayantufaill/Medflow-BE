@@ -253,7 +253,7 @@ async function main() {
 // this every branch-assignment read/write above would be invisible to (or
 // rejected by) RLS — the '*' wildcard is the same bypass a true system
 // Admin gets, not a way around RLS.
-tenantContextStorage.run({ clinicIds: '*' }, () => main())
+tenantContextStorage.run({ clinicIds: '*', patientClinicIds: '*' }, () => main())
   .catch((err) => {
     console.error(err);
     process.exitCode = 1;

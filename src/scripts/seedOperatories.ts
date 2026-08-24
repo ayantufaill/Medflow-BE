@@ -51,7 +51,7 @@ async function main() {
 // above would only ever see NULL-ClinicNum rows (RLS hides the real Op1–5),
 // making every run think they don't exist and create duplicates — the '*'
 // wildcard is the same bypass a true system Admin gets, not a way around RLS.
-tenantContextStorage.run({ clinicIds: '*' }, () => main())
+tenantContextStorage.run({ clinicIds: '*', patientClinicIds: '*' }, () => main())
   .catch((e) => {
     console.error('Error seeding operatories:', e);
     process.exit(1);

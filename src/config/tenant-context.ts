@@ -8,6 +8,15 @@ export interface TenantContextValue {
    * "empty scope = unrestricted" convention — see branch.service.ts).
    */
   clinicIds: bigint[] | '*';
+  /**
+   * Wider than clinicIds: every ClinicNum in the caller's practicegroup,
+   * regardless of role — read-visibility scope for the `patient` table only
+   * (see prisma/rls/04-patient-group-visibility.sql), so a patient
+   * registered at one branch is visible from any sibling branch in the same
+   * group. Writes to patient still enforce clinicIds (own branch only) —
+   * deliberately not widened, this is read-visibility, not a write grant.
+   */
+  patientClinicIds: bigint[] | '*';
 }
 
 /**

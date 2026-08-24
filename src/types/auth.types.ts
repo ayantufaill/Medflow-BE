@@ -5,6 +5,20 @@ export interface JWTPayload {
   tokenVersion?: number;
   /** Tenant subdomain encoded at login time — fallback for Tenant Resolver Middleware */
   tenantSubdomain?: string;
+  /**
+   * Tenant context snapshot taken at token-issue time (login / refresh) —
+   * DISPLAY/CONVENIENCE ONLY, so the frontend can render group/branch
+   * context without an extra round-trip after login. NOT a source of truth
+   * for authorization: branch/group assignments can change mid-session and
+   * an access token can live up to a day, so nothing authorization-sensitive
+   * may trust these claims. resolveBranchAccess / PermissionService.
+   * getBranchAccess keep resolving fresh from the DB on every request,
+   * exactly as before this field existed.
+   */
+  groupId?: number | null;
+  /** Raw userclinic assignment (NOT group-expanded — same value GET /auth/profile returns as branchIds). */
+  branchIds?: string[];
+  isGroupAdmin?: boolean;
   iat?: number;
   exp?: number;
 }

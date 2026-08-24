@@ -31,8 +31,10 @@ export const enterTenantContext = async (
     const isSystemAdmin = await PermissionService.hasRole(req.userId, 'Admin');
     const clinicIds: bigint[] | '*' =
       isSystemAdmin || req.branchAccess.clinicIds.length === 0 ? '*' : req.branchAccess.clinicIds;
+    const patientClinicIds: bigint[] | '*' =
+      isSystemAdmin || req.branchAccess.groupClinicIds.length === 0 ? '*' : req.branchAccess.groupClinicIds;
 
-    tenantContextStorage.run({ clinicIds }, () => next());
+    tenantContextStorage.run({ clinicIds, patientClinicIds }, () => next());
   } catch (error) {
     next(error);
   }
