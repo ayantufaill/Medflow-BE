@@ -29,6 +29,8 @@ services:
       # ── Set these in Render dashboard (sensitive values) ────────────────────
       - key: DATABASE_URL
         sync: false           # Will be set manually in Render dashboard
+      - key: DIRECT_DATABASE_URL
+        sync: false           # Direct connection URL for Prisma migrations/push
 
       - key: JWT_SECRET
         generateValue: true   # Render generates a secure random value automatically
