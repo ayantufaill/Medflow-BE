@@ -426,10 +426,15 @@ export class AppointmentService {
       endDate?: string;
       appointmentTypeId?: string;
       search?: string;
+      branchId?: string;
     }
   ) {
     const skip = (page - 1) * limit;
     const where: any = {};
+
+    if (filters?.branchId) {
+      where.ClinicNum = BigInt(filters.branchId);
+    }
 
     if (filters?.providerId) {
       where.ProvNum = BigInt(filters.providerId);
@@ -887,6 +892,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
   async createAppointment(data: {
     patientId: string;
     providerId: string;
+    branchId?: string;
     appointmentTypeId?: string;
     appointmentDate: Date;
     startTime: string;
@@ -895,7 +901,6 @@ async getPatientAppointments(patientId: string, limit = 10) {
     chiefComplaint?: string;
     notes?: string;
     roomId?: string;
-    branchId?: string;
     requiresInterpreter?: boolean;
     insuranceVerified?: boolean;
     copayCollected?: number;
@@ -972,6 +977,38 @@ async getPatientAppointments(patientId: string, limit = 10) {
       opId = defaultOp?.OperatoryNum ?? BigInt(1);
     }
 
+    // Safely resolve ClinicNum to prevent FK constraint failure (fk_appointment_9_ClinicNum)
+    let clinicNum: bigint | null = null;
+    if (data.branchId) {
+      const branchClinic = await prisma.clinic.findUnique({
+        where: { ClinicNum: BigInt(data.branchId) },
+        select: { ClinicNum: true },
+      });
+      if (branchClinic) {
+        clinicNum = branchClinic.ClinicNum;
+      }
+    }
+
+    if (!clinicNum && patient.ClinicNum) {
+      const patientClinic = await prisma.clinic.findUnique({
+        where: { ClinicNum: patient.ClinicNum },
+        select: { ClinicNum: true },
+      });
+      if (patientClinic) {
+        clinicNum = patientClinic.ClinicNum;
+      }
+    }
+
+    if (!clinicNum) {
+      const defaultClinic = await prisma.clinic.findFirst({
+        select: { ClinicNum: true },
+        orderBy: { ClinicNum: 'asc' },
+      });
+      if (defaultClinic) {
+        clinicNum = defaultClinic.ClinicNum;
+      }
+    }
+
     const appointment = await prisma.appointment.create({
       data: {
         AptNum: nextId,
@@ -983,7 +1020,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
         ProcDescript: data.chiefComplaint ?? null,
         Note: data.notes ?? null,
         Op: opId,
-        ClinicNum: data.branchId ? BigInt(data.branchId) : 0n,
+        ClinicNum: clinicNum,
         AptStatus: mapAppointmentStatusToDb(data.status ?? 'scheduled'),
         DateTimeArrived: null,
         DateTimeDismissed: null,
@@ -1266,6 +1303,27 @@ async getPatientAppointments(patientId: string, limit = 10) {
     };
     await setAppointmentMeta(updated.AptNum, nextMeta);
 
+    if (hasStatusChanged && (updates.status === 'cancelled' || updates.status === 'no_show' || updates.status === 'pending')) {
+      if (updated.ProvNum && updated.AptDateTime) {
+        try {
+          const { waitlistService } = await import('./waitlist.service');
+          await waitlistService.matchAndNotifyForCancellation({
+            appointmentId,
+            providerId: updated.ProvNum.toString(),
+            appointmentTypeId: updated.AppointmentTypeNum?.toString() ?? null,
+            appointmentDateTime: updated.AptDateTime,
+            providerName: updated.provider_appointment_ProvNumToprovider
+              ? [updated.provider_appointment_ProvNumToprovider.FName, updated.provider_appointment_ProvNumToprovider.LName]
+                  .filter(Boolean)
+                  .join(' ')
+              : undefined,
+          });
+        } catch (error) {
+          console.error(`Waitlist auto-notify failed during updateAppointment for ${appointmentId}:`, error);
+        }
+      }
+    }
+
     const mapped = await this.mapAppointmentWithMeta(updated, {
       patient: updated.patient,
       provider: updated.provider_appointment_ProvNumToprovider,
@@ -1387,6 +1445,23 @@ async getPatientAppointments(patientId: string, limit = 10) {
     await this.notifyAppointmentCancelled(appointmentId, cancellationReason);
     await this.notifyStaffAppointmentCancelled(appointmentId);
 
+    if (updated.ProvNum && updated.AptDateTime) {
+      // Dynamic import: waitlist.service.ts already imports appointmentService
+      // (for convertToAppointment), so a static import here would be circular.
+      const { waitlistService } = await import('./waitlist.service');
+      await waitlistService.matchAndNotifyForCancellation({
+        appointmentId,
+        providerId: updated.ProvNum.toString(),
+        appointmentTypeId: updated.AppointmentTypeNum?.toString() ?? null,
+        appointmentDateTime: updated.AptDateTime,
+        providerName: updated.provider_appointment_ProvNumToprovider
+          ? [updated.provider_appointment_ProvNumToprovider.FName, updated.provider_appointment_ProvNumToprovider.LName]
+              .filter(Boolean)
+              .join(' ')
+          : undefined,
+      });
+    }
+
     return mapped;
   }
 
@@ -1501,6 +1576,22 @@ async getPatientAppointments(patientId: string, limit = 10) {
 
     await this.notifyAppointmentRescheduled(appointmentId, previousAppointmentDateTime);
     await this.notifyStaffAppointmentRescheduled(appointmentId, previousAppointmentDateTime);
+
+    if (appointment.ProvNum && appointment.AptDateTime) {
+      try {
+        const { waitlistService } = await import('./waitlist.service');
+        const provider = updated.provider_appointment_ProvNumToprovider;
+        await waitlistService.matchAndNotifyForCancellation({
+          appointmentId,
+          providerId: appointment.ProvNum.toString(),
+          appointmentTypeId: appointment.AppointmentTypeNum?.toString() ?? null,
+          appointmentDateTime: appointment.AptDateTime,
+          providerName: provider ? [provider.FName, provider.LName].filter(Boolean).join(' ') : undefined,
+        });
+      } catch (error) {
+        console.error(`Waitlist auto-notify failed during rescheduleAppointment for ${appointmentId}:`, error);
+      }
+    }
 
     return mapped;
   }
@@ -1785,6 +1876,25 @@ async getPatientAppointments(patientId: string, limit = 10) {
       undefined,
       'medium'
     );
+
+    // Trigger waitlist auto-notify for deleted appointment slot
+    if (appointment.ProvNum && appointment.AptDateTime) {
+      try {
+        const { waitlistService } = await import('./waitlist.service');
+        const provider = appointment.ProvNum
+          ? await prisma.provider.findUnique({ where: { ProvNum: appointment.ProvNum } })
+          : null;
+        await waitlistService.matchAndNotifyForCancellation({
+          appointmentId,
+          providerId: appointment.ProvNum.toString(),
+          appointmentTypeId: appointment.AppointmentTypeNum?.toString() ?? null,
+          appointmentDateTime: appointment.AptDateTime,
+          providerName: provider ? [provider.FName, provider.LName].filter(Boolean).join(' ') : undefined,
+        });
+      } catch (error) {
+        console.error(`Waitlist auto-notify failed during deleteAppointment for ${appointmentId}:`, error);
+      }
+    }
 
     return { message: 'Appointment deleted successfully' };
   }

@@ -30,6 +30,7 @@ const buildPatientMapperOptions = (patientMeta: Record<string, any>) => ({
   household: patientMeta.household ?? [],
   spouseInfo: patientMeta.spouseInfo ?? null,
   patientFlags: patientMeta.patientFlags ?? [],
+  medicalAlerts: patientMeta.medicalAlerts ?? [],
   financialResponsibility: patientMeta.financialResponsibility ?? null,
   sexAtBirth: patientMeta.sexAtBirth ?? null,
   genderIdentity: patientMeta.genderIdentity ?? null,
@@ -98,15 +99,28 @@ export class PatientService {
     providerId?: string,
     sortBy?: string,
     sortOrder?: string,
-    clinicIds?: bigint[]
+    clinicIds?: bigint[],
+    branchId?: string
   ) {
     const skip = (page - 1) * limit;
     const where: any = {};
 
-    // Scope to the caller's accessible clinics, if branch access was resolved
-    // for this request. Callers with no clinic assignments yet (branches not
-    // set up) are left unscoped so existing single-clinic practices are unaffected.
-    if (clinicIds && clinicIds.length > 0) {
+    // branchId narrows to one exact clinic, but never *widens* beyond what
+    // the caller's own resolved scope (clinicIds) already allows — a branchId
+    // outside that scope returns an empty result rather than leaking whether
+    // the branch exists. No branchId falls back to the caller's full scope,
+    // same as before. Callers with no clinic assignments yet (clinicIds
+    // empty) are left unscoped so existing single-clinic practices are
+    // unaffected — matches the same convention used everywhere else.
+    // Note: callers list-scoping patients pass groupClinicIds here (every
+    // clinic in their practicegroup, not just their own assignment) so a
+    // patient registered at one branch is visible from any sibling branch —
+    // this is patient read-visibility, not a write/authorization boundary.
+    if (branchId) {
+      const requestedClinicNum = BigInt(branchId);
+      const inScope = !clinicIds || clinicIds.length === 0 || clinicIds.includes(requestedClinicNum);
+      where.ClinicNum = inScope ? requestedClinicNum : -1n;
+    } else if (clinicIds && clinicIds.length > 0) {
       where.ClinicNum = { in: clinicIds };
     }
 
@@ -631,6 +645,18 @@ async getPatientLastVisit(patientId: string) {
     const patientCode = await generatePatientCode();
     const nextId = await getNextId('patient', 'PatNum');
 
+    // GroupNum is denormalized from the branch's own clinic.GroupNum — kept
+    // in sync with ClinicNum here rather than only derived at request time
+    // (see PermissionService.getBranchAccess's groupClinicIds).
+    let branchGroupNum: number | null = null;
+    if (data.branchId) {
+      const branchClinic = await prisma.clinic.findUnique({
+        where: { ClinicNum: BigInt(data.branchId) },
+        select: { GroupNum: true },
+      });
+      branchGroupNum = branchClinic?.GroupNum ?? null;
+    }
+
     // Create patient record
     const patient = await prisma.patient.create({
       data: {
@@ -659,6 +685,8 @@ async getPatientLastVisit(patientId: string) {
         DateFirstVisit: data.lastVisitDate ?? null,
         AddrNote: data.notes?.trim() || null,
         Guarantor: data.guarantorId ? BigInt(data.guarantorId) : nextId,
+        ClinicNum: data.branchId ? BigInt(data.branchId) : null,
+        GroupNum: branchGroupNum,
       },
     });
 
@@ -792,9 +820,28 @@ async getPatientLastVisit(patientId: string) {
     };
     const currentMeta = await getPatientMeta(patient.PatNum);
 
+    // GroupNum tracks ClinicNum's branch — only touched when branchId is
+    // actually part of this update (same guard ClinicNum uses below), so a
+    // patient reassigned to a branch in a different group has GroupNum move
+    // with it, and clearing branchId nulls GroupNum out too.
+    let branchGroupNum: number | null | undefined;
+    if (updates.branchId !== undefined) {
+      if (updates.branchId) {
+        const branchClinic = await prisma.clinic.findUnique({
+          where: { ClinicNum: BigInt(updates.branchId) },
+          select: { GroupNum: true },
+        });
+        branchGroupNum = branchClinic?.GroupNum ?? null;
+      } else {
+        branchGroupNum = null;
+      }
+    }
+
     const updated = await prisma.patient.update({
       where: { PatNum: BigInt(patientId) },
       data: {
+        ClinicNum: updates.branchId !== undefined ? (updates.branchId ? BigInt(updates.branchId) : null) : undefined,
+        GroupNum: branchGroupNum,
         FName: updates.firstName ?? undefined,
         LName: updates.lastName ?? undefined,
         MiddleI: updates.middleName !== undefined ? (updates.middleName.trim() || null) : undefined,
@@ -896,6 +943,7 @@ async getPatientLastVisit(patientId: string) {
           : currentMeta.workAddress ?? null,
       medicalHistory: currentMeta.medicalHistory ?? null,
       dentalHistory: currentMeta.dentalHistory ?? null,
+      medicalAlerts: currentMeta.medicalAlerts ?? [],
     });
 
     // Log activity

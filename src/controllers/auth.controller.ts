@@ -79,11 +79,18 @@ export class AuthController {
 
       const userWithRoles = await authService.getUserWithRoles(decoded.userId);
       const roles = userWithRoles.roles.map((r) => String(r.name));
+      // groupId/branchIds/isGroupAdmin: display/convenience snapshot only —
+      // see JWTPayload. Refreshed here from the same fresh DB lookup
+      // getUserWithRoles always does, so a long-lived session's claims stay
+      // current as of each refresh; still never trusted for authorization.
       const tokens = generateTokens({
         userId: decoded.userId,
         email: decoded.email,
         roles: roles as string[],
         tokenVersion: Number(meta.tokenVersion || 0),
+        groupId: userWithRoles.groupId,
+        branchIds: userWithRoles.branchIds,
+        isGroupAdmin: userWithRoles.isGroupAdmin,
       });
 
       res.status(200).json({ success: true, data: { tokens } });

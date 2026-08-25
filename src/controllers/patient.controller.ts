@@ -16,8 +16,11 @@ export class PatientController {
       const providerId = req.query.providerId as string | undefined;
       const sortBy = req.query.sortBy as string | undefined;
       const sortOrder = req.query.sortOrder as string | undefined;
+      const branchId = req.query.branchId as string | undefined;
 
-      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder, req.branchAccess?.clinicIds);
+      // Read-visibility uses groupClinicIds, not clinicIds: a patient registered
+      // at one branch should be visible from any sibling branch in the same group.
+      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder, req.branchAccess?.groupClinicIds, branchId);
       res.status(200).json({
         success: true,
         data: result,
@@ -138,8 +141,11 @@ export class PatientController {
       const providerId = req.query.providerId as string | undefined;
       const sortBy = req.query.sortBy as string | undefined;
       const sortOrder = req.query.sortOrder as string | undefined;
+      const branchId = req.query.branchId as string | undefined;
 
-      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder, req.branchAccess?.clinicIds);
+      // Read-visibility uses groupClinicIds, not clinicIds: a patient registered
+      // at one branch should be visible from any sibling branch in the same group.
+      const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder, req.branchAccess?.groupClinicIds, branchId);
       res.status(200).json({
         success: true,
         data: result,

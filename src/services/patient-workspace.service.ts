@@ -169,6 +169,7 @@ export class PatientWorkspaceService {
       household: household,
       spouseInfo: patientMeta.spouseInfo ?? null,
       patientFlags: patientMeta.patientFlags ?? [],
+      medicalAlerts: patientMeta.medicalAlerts ?? [],
       financialResponsibility: patientMeta.financialResponsibility ?? null,
       sexAtBirth: patientMeta.sexAtBirth ?? null,
       genderIdentity: patientMeta.genderIdentity ?? null,
@@ -193,6 +194,7 @@ export class PatientWorkspaceService {
       household?: Array<Record<string, unknown>>;
       spouseInfo?: Record<string, unknown> | null;
       patientFlags?: string[];
+      medicalAlerts?: string[];
       financialResponsibility?: Record<string, unknown> | null;
       referralSource?: string | null;
       sexAtBirth?: string | null;
@@ -226,6 +228,7 @@ export class PatientWorkspaceService {
       spouseInfo:
         updates.spouseInfo !== undefined ? updates.spouseInfo : currentMeta.spouseInfo ?? null,
       patientFlags: updates.patientFlags ?? currentMeta.patientFlags ?? [],
+      medicalAlerts: updates.medicalAlerts ?? currentMeta.medicalAlerts ?? [],
       financialResponsibility:
         updates.financialResponsibility !== undefined
           ? updates.financialResponsibility
@@ -275,6 +278,7 @@ export class PatientWorkspaceService {
         household: currentMeta.household ?? [],
         spouseInfo: currentMeta.spouseInfo ?? null,
         patientFlags: currentMeta.patientFlags ?? [],
+        medicalAlerts: currentMeta.medicalAlerts ?? [],
         financialResponsibility: currentMeta.financialResponsibility ?? null,
         referralSource: currentMeta.referralSource ?? null,
         sexAtBirth: currentMeta.sexAtBirth ?? null,
@@ -293,6 +297,7 @@ export class PatientWorkspaceService {
         household: nextMeta.household,
         spouseInfo: nextMeta.spouseInfo,
         patientFlags: nextMeta.patientFlags,
+        medicalAlerts: nextMeta.medicalAlerts,
         financialResponsibility: nextMeta.financialResponsibility,
         referralSource: nextMeta.referralSource,
         sexAtBirth: nextMeta.sexAtBirth,

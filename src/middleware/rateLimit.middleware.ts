@@ -67,3 +67,35 @@ export const apiRateLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Unauthenticated public booking widget — read-only slot lookups. Looser
+// than the write limiter below since browsing several days/providers in one
+// visit is normal, but still bounded since it's reachable with no login.
+export const publicSlotsRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    res.status(429).json({
+      success: false,
+      error: { message: 'Too many requests. Please wait a few minutes and try again.' },
+    });
+  },
+});
+
+// Unauthenticated public booking widget — actually creates a patient record
+// and reserves a real slot, so this is the real spam/abuse surface and gets
+// the tightest limit of any endpoint in the app.
+export const publicBookingRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    res.status(429).json({
+      success: false,
+      error: { message: 'Too many booking attempts. Please call our office directly, or wait 15 minutes and try again.' },
+    });
+  },
+});
+

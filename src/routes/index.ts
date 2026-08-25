@@ -62,6 +62,9 @@ import notificationRoutes from './notification.routes';
 import branchRoutes from './branch.routes';
 import practiceGroupRoutes from './practice-group.routes';
 import coverageGroupRoutes from './coverage-group.routes';
+import formTemplateRoutes from './form-template.routes';
+import publicBookingRoutes from './public-booking.routes';
+import taskRoutes from './task.routes';
 
 const router = Router();
 router.use('/coverage-groups', coverageGroupRoutes);
@@ -130,5 +133,8 @@ router.use('/shortlist', shortlistRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/branches', branchRoutes);
 router.use('/practice-groups', practiceGroupRoutes);
+router.use('/form-templates', formTemplateRoutes);
+router.use('/public/booking', publicBookingRoutes);
+router.use('/tasks', taskRoutes);
 
 export default router;
