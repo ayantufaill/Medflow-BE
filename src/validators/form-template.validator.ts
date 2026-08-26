@@ -25,6 +25,8 @@ const fieldWildcardValidators = [
     .trim()
     .notEmpty()
     .withMessage('Each field requires a non-empty label'),
+  // Sourced from FORM_FIELD_TYPES so new types (e.g. 'signature') are picked up
+  // here automatically — nothing to change in this file when the enum grows.
   body('fields.*.type')
     .isString()
     .isIn(FORM_FIELD_TYPES as unknown as string[])

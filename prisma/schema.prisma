@@ -7825,6 +7825,9 @@ model practicegroup {
 // patient-form.service.ts's submissions already key off of (they're stored
 // as loosely-typed commlog rows, not a foreign key) — kept independent of
 // the numeric id so nothing on the submission side needs to change.
+// Deliberately global (no ClinicNum, no RLS policy) — matches the existing
+// informedconsenttemplate precedent. Not an oversight; revisit if/when templates
+// need to vary per clinic.
 model formtemplate {
   id          Int      @id @default(autoincrement())
   templateId  String   @unique @db.VarChar(100)

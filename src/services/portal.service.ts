@@ -5,7 +5,7 @@ import { patientFormService } from './patient-form.service';
 import { notificationService } from './notification.service';
 import { providerService } from './provider.service';
 import { patientWorkspaceService } from './patient-workspace.service';
-import { formTemplateService } from './form-template.service';
+import { formTemplateService, type FormFieldDefinition } from './form-template.service';
 import {
   getPatientMeta,
   mapUser,
@@ -1002,9 +1002,25 @@ export class PortalService {
       requestId?: string;
       sourceSection?: string;
       formData: Record<string, unknown>;
-    }
+    },
+    requestMeta?: { ipAddress?: string | null; userAgent?: string | null }
   ) {
     const context = await this.getPatientContext(userId);
+
+    // Snapshot the template's fields as they exist right now — this is the audit
+    // trail proof of what the patient actually saw and signed, and survives later
+    // edits to the template itself. templateId isn't always a real formtemplate row
+    // (e.g. ad-hoc update-request sections), so a missing template just means no
+    // snapshot rather than a failed submission.
+    let templateFieldsSnapshot: FormFieldDefinition[] | null = null;
+    if (data.templateId) {
+      try {
+        const template = await formTemplateService.getTemplateByTemplateId(data.templateId);
+        templateFieldsSnapshot = template.fields;
+      } catch {
+        templateFieldsSnapshot = null;
+      }
+    }
 
     const form = await patientFormService.createForm({
       patientId: context.patientId,
@@ -1013,6 +1029,9 @@ export class PortalService {
       requestId: data.requestId,
       sourceSection: data.sourceSection,
       submittedByRole: 'patient',
+      ipAddress: requestMeta?.ipAddress ?? null,
+      userAgent: requestMeta?.userAgent ?? null,
+      templateFieldsSnapshot,
     });
 
     if (data.requestId) {
