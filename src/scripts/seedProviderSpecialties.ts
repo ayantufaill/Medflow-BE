@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import connectDB, { prisma } from '../config/db';
+import { getNextId } from '../utils/opendental-ids.util';
 
 dotenv.config();
 
@@ -21,7 +22,7 @@ const seedProviderSpecialties = async () => {
     await connectDB();
 
     let toInsert: string[] = [];
-    
+
     await prisma.$transaction(async (tx) => {
       const existing = await tx.definition.findMany({
         where: {
@@ -42,9 +43,6 @@ const seedProviderSpecialties = async () => {
       }
     });
 
-    const { getNextId } = await import('../utils/opendental-ids.util.js');
-    
-    // We do insertions sequentially so getNextId stays consistent
     for (const name of toInsert) {
       const nextDefNum = await getNextId('definition', 'DefNum');
       await prisma.definition.create({
