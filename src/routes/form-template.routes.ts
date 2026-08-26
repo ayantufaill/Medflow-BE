@@ -83,7 +83,7 @@ router.get(
  *                   properties:
  *                     key: { type: string }
  *                     label: { type: string }
- *                     type: { type: string, enum: [text, textarea, email, number, phone, date, boolean, select, radio] }
+ *                     type: { type: string, enum: [text, textarea, email, number, phone, date, boolean, select, radio, signature] }
  *                     required: { type: boolean }
  *                     options:
  *                       type: array
