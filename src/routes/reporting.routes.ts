@@ -159,6 +159,27 @@ import { dashboardMetricsController } from '../controllers/dashboard-metrics.con
 
 /**
  * @swagger
+ * /reports/denial-rates:
+ *   get:
+ *     summary: Retrieve denial rate metrics grouped by carrier
+ *     tags: [Reporting]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Denial rates successfully compiled
+ */
+router.get(
+  '/denial-rates',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('reports.read'),
+  reportingController.getDenialRates.bind(reportingController)
+);
+
+/**
+ * @swagger
  * /reports/dashboard/metrics:
  *   get:
  *     summary: Retrieve dashboard metrics and graph data

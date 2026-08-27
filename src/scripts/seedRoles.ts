@@ -7,6 +7,26 @@ const roles = [
   { name: 'Provider', description: 'Provider', permissions: {}, isSystemRole: true },
   { name: 'Staff', description: 'Staff', permissions: {}, isSystemRole: true },
   { name: 'Patient', description: 'Patient', permissions: {}, isSystemRole: true },
+  { name: 'Receptionist', description: 'Front-desk staff — manages patient records, scheduling, and insurance intake.', permissions: {}, isSystemRole: true },
+  { name: 'Billing Staff', description: 'Handles patient billing, insurance plans, and account balances.', permissions: {}, isSystemRole: true },
+  { name: 'Clinical Staff', description: 'Clinical support staff — assists with patient check-in/out and treatment documentation.', permissions: {}, isSystemRole: true },
+  {
+    name: 'Super Admin',
+    description: 'Operates the platform across every practice group — onboards/offboards practices, manages role definitions. Not a per-practice role.',
+    permissions: {
+      'platform:manage_practice_groups': true,
+      'roles.create': true,
+      'roles.update': true,
+      'roles.delete': true,
+    },
+    isSystemRole: true,
+  },
+  {
+    name: 'Branch Admin',
+    description: 'Manages users within their own single branch — the narrower sibling of Group Admin.',
+    permissions: { 'branch:manage_users': true },
+    isSystemRole: true,
+  },
 ];
 
 const seedRoles = async () => {

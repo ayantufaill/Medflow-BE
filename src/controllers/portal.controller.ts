@@ -199,7 +199,12 @@ export class PortalController {
   async submitForm(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = requireUserId(req);
-      const form = await portalService.submitForm(userId, req.body);
+      // Captured here (not derived later) since req.ip/user-agent are only available
+      // on the inbound request — this is the compliance audit trail for the submission.
+      const form = await portalService.submitForm(userId, req.body, {
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
       res.status(201).json({
         success: true,
         data: { form },

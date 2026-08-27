@@ -20,6 +20,7 @@ import {
   parsePrefJson,
 } from '../utils/opendental-auth.util';
 import { getNextId } from '../utils/opendental-ids.util';
+import { PermissionService } from './permission.service';
 
 export class AuthService {
   private async sanitizeUser(user: any) {
@@ -202,20 +203,67 @@ export class AuthService {
       throw new AuthenticationError('Account is inactive');
     }
 
+    // HIPAA Account Lockout Check
+    if (meta.accountLockedUntil) {
+      const lockUntil = new Date(meta.accountLockedUntil);
+      if (lockUntil > new Date()) {
+        const remainingMs = lockUntil.getTime() - new Date().getTime();
+        const remainingMinutes = Math.ceil(remainingMs / 60000);
+        throw new AuthenticationError(`Account is locked due to too many failed attempts. Try again in ${remainingMinutes} minute(s).`);
+      } else {
+        // Lock expired, reset counters
+        meta.failedLoginAttempts = 0;
+        meta.accountLockedUntil = null;
+      }
+    }
+
     const isPasswordValid = await comparePassword(data.password, user.Password || meta.passwordHash || '');
     if (!isPasswordValid) {
       await logSecurityEvent(user.UserNum.toString(), 'login_failure', `Invalid login for ${data.email}`, ipAddress, 'medium');
+      
+      const attempts = (meta.failedLoginAttempts || 0) + 1;
+      const updateMeta: any = { ...meta, failedLoginAttempts: attempts };
+      
+      console.log(`[AUTH DEBUG] Failed login attempts for ${data.email}: ${attempts}`);
+      if (attempts >= 5) {
+        console.log(`[AUTH DEBUG] Locking account for ${data.email}`);
+        updateMeta.accountLockedUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      }
+      await setUserMeta(user.UserNum, updateMeta);
+      console.log(`[AUTH DEBUG] setUserMeta finished for ${data.email}`);
+      
+      if (attempts >= 5) {
+        throw new AuthenticationError('Account locked due to too many failed attempts. Please wait 15 minutes.');
+      }
       throw new AuthenticationError('Invalid credentials');
+    }
+
+    // Reset lockout counters on success
+    if (meta.failedLoginAttempts || meta.accountLockedUntil) {
+      await setUserMeta(user.UserNum, {
+        ...meta,
+        failedLoginAttempts: 0,
+        accountLockedUntil: null,
+      });
     }
 
     const userWithRoles = await this.getUserWithRoles(user.UserNum.toString());
     const roles = userWithRoles.roles.map((r: any) => String(r.name));
 
+    // groupId/branchIds/isGroupAdmin are a display/convenience snapshot only
+    // (see JWTPayload) — reusing the values getUserWithRoles just computed
+    // fresh from the DB guarantees these claims exactly match what
+    // GET /auth/profile returns for the same user at the same moment.
+    // Nothing authorization-sensitive may trust them: resolveBranchAccess
+    // still resolves fresh from the DB on every request, unchanged.
     const tokens = generateTokens({
       userId: user.UserNum.toString(),
       email: meta.email || user.UserName || '',
       roles,
       tokenVersion: Number(meta.tokenVersion || 0),
+      groupId: userWithRoles.groupId,
+      branchIds: userWithRoles.branchIds,
+      isGroupAdmin: userWithRoles.isGroupAdmin,
     });
 
     await prisma.userod.update({
@@ -251,9 +299,14 @@ export class AuthService {
         .map((r) => mapRole(r))
     );
 
+    const branchAccess = await PermissionService.getBranchAccess(userId);
+
     return {
       ...(await this.sanitizeUser(mapped)),
       roles,
+      groupId: branchAccess.groupId,
+      branchIds: branchAccess.clinicIds.map((c) => c.toString()),
+      isGroupAdmin: branchAccess.isGroupAdmin,
     } as UserWithRoles;
   }
 

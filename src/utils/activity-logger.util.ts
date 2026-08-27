@@ -58,7 +58,7 @@ export const logSecurityEvent = async (
 
 export const logActivity = async (
   userId: string,
-  action: 'created' | 'updated' | 'deleted' | 'viewed',
+  action: 'created' | 'updated' | 'deleted' | 'viewed' | 'commented' | 'status_updated',
   tableName: string,
   recordId: string,
   oldValues?: any,
@@ -84,7 +84,7 @@ export const logActivity = async (
 
 export const logActivityFromRequest = async (
   req: Request,
-  action: 'created' | 'updated' | 'deleted' | 'viewed',
+  action: 'created' | 'updated' | 'deleted' | 'viewed' | 'commented' | 'status_updated',
   tableName: string,
   recordId: string,
   oldValues?: any,

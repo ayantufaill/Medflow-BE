@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { clinicalManagementController } from '../controllers/clinical-management.controller';
-import { authenticate } from '../middleware/auth.middleware';
+import { authenticate, requireRoles } from '../middleware/auth.middleware';
 
 const router = Router();
 
@@ -760,6 +760,24 @@ router.get('/recare-config', clinicalManagementController.getRecareConfig.bind(c
  */
 
 router.put('/recare-config', clinicalManagementController.updateRecareConfig.bind(clinicalManagementController));
+
+/**
+ * @swagger
+ * /clinical-management/recare-config/run:
+ *   post:
+ *     summary: Manually run the due-recare reminder sweep now (Admin only) — the same job the daily cron scheduler runs
+ *     tags: [Clinical Management]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Sweep result
+ */
+router.post(
+  '/recare-config/run',
+  requireRoles('Admin'),
+  clinicalManagementController.runRecareSweep.bind(clinicalManagementController)
+);
 
 // Treatment Plan Presentation Config
 /**

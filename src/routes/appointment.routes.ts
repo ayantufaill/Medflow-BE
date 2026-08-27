@@ -140,7 +140,7 @@ router.get('/', validate(appointmentQueryValidator), appointmentController.getAl
  *       403:
  *         description: Forbidden - insufficient permissions
  */
-router.get('/calendar', requireRoles('Front Desk', 'Admin', 'Doctor'), appointmentController.getCalendarSchedule.bind(appointmentController));
+router.get('/calendar', requireRoles('Receptionist', 'Admin', 'Provider'), appointmentController.getCalendarSchedule.bind(appointmentController));
 
 /**
  * @swagger
@@ -185,7 +185,7 @@ router.get('/calendar', requireRoles('Front Desk', 'Admin', 'Doctor'), appointme
  *       404:
  *         description: Provider not found
  */
-router.get('/providers/:providerId/schedule', requireRoles('Front Desk', 'Admin', 'Doctor'), validate([...providerIdValidator, ...scheduleQueryValidator]), appointmentController.getProviderSchedule.bind(appointmentController));
+router.get('/providers/:providerId/schedule', requireRoles('Receptionist', 'Admin', 'Provider'), validate([...providerIdValidator, ...scheduleQueryValidator]), appointmentController.getProviderSchedule.bind(appointmentController));
 
 /**
  * @swagger
@@ -236,7 +236,7 @@ router.get('/providers/:providerId/schedule', requireRoles('Front Desk', 'Admin'
  *       404:
  *         description: Provider not found
  */
-router.get('/providers/:providerId/available-slots', requireRoles('Front Desk', 'Admin'), validate([...providerIdValidator, ...availableSlotsQueryValidator]), appointmentController.getAvailableSlots.bind(appointmentController));
+router.get('/providers/:providerId/available-slots', requireRoles('Receptionist', 'Admin'), validate([...providerIdValidator, ...availableSlotsQueryValidator]), appointmentController.getAvailableSlots.bind(appointmentController));
 
 /**
  * @swagger
@@ -310,7 +310,7 @@ router.get('/providers/:providerId/available-slots', requireRoles('Front Desk', 
  *       422:
  *         description: Validation failed
  */
-router.post('/', requireRoles('Front Desk', 'Admin'), validate(createAppointmentValidator), appointmentController.createAppointment.bind(appointmentController));
+router.post('/', requireRoles('Receptionist', 'Admin'), validate(createAppointmentValidator), appointmentController.createAppointment.bind(appointmentController));
 
 /**
  * @swagger
@@ -400,7 +400,7 @@ router.get('/:appointmentId', requireRoles('Admin'), validate(appointmentIdValid
  *       404:
  *         description: Appointment not found
  */
-router.put('/:appointmentId', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...updateAppointmentValidator]), appointmentController.updateAppointment.bind(appointmentController));
+router.put('/:appointmentId', requireRoles('Receptionist', 'Admin'), validate([...appointmentIdValidator, ...updateAppointmentValidator]), appointmentController.updateAppointment.bind(appointmentController));
 
 /**
  * @swagger
@@ -496,7 +496,7 @@ router.delete('/:appointmentId', requireRoles('Admin'), validate(appointmentIdVa
  *       422:
  *         description: Validation failed - appointment already cancelled or completed
  */
-router.post('/:appointmentId/cancel', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...cancelAppointmentValidator]), appointmentController.cancelAppointment.bind(appointmentController));
+router.post('/:appointmentId/cancel', requireRoles('Receptionist', 'Admin'), validate([...appointmentIdValidator, ...cancelAppointmentValidator]), appointmentController.cancelAppointment.bind(appointmentController));
 
 /**
  * @swagger
@@ -565,7 +565,7 @@ router.post('/:appointmentId/cancel', requireRoles('Front Desk', 'Admin'), valid
  *       422:
  *         description: Validation failed
  */
-router.post('/:appointmentId/reschedule', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...rescheduleAppointmentValidator]), appointmentController.rescheduleAppointment.bind(appointmentController));
+router.post('/:appointmentId/reschedule', requireRoles('Receptionist', 'Admin'), validate([...appointmentIdValidator, ...rescheduleAppointmentValidator]), appointmentController.rescheduleAppointment.bind(appointmentController));
 
 /**
  * @swagger
@@ -613,7 +613,7 @@ router.post('/:appointmentId/reschedule', requireRoles('Front Desk', 'Admin'), v
  *       422:
  *         description: Validation failed - appointment already checked in
  */
-router.post('/:appointmentId/check-in', requireRoles('Front Desk', 'Admin', 'Nursing'), validate(appointmentIdValidator), appointmentController.checkInAppointment.bind(appointmentController));
+router.post('/:appointmentId/check-in', requireRoles('Receptionist', 'Admin', 'Clinical Staff'), validate(appointmentIdValidator), appointmentController.checkInAppointment.bind(appointmentController));
 
 /**
  * @swagger
@@ -661,7 +661,7 @@ router.post('/:appointmentId/check-in', requireRoles('Front Desk', 'Admin', 'Nur
  *       422:
  *         description: Validation failed - appointment not checked in
  */
-router.post('/:appointmentId/check-out', requireRoles('Front Desk', 'Admin', 'Nursing'), validate(appointmentIdValidator), appointmentController.checkOutAppointment.bind(appointmentController));
+router.post('/:appointmentId/check-out', requireRoles('Receptionist', 'Admin', 'Clinical Staff'), validate(appointmentIdValidator), appointmentController.checkOutAppointment.bind(appointmentController));
 
 /**
  * @swagger
@@ -774,7 +774,7 @@ router.get('/:appointmentId/workspace', requireRoles('Admin'), appointmentContro
  *         description: Not found
  */
 
-router.patch('/:appointmentId/workspace', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...appointmentWorkspaceValidator]), appointmentController.updateAppointmentWorkspace.bind(appointmentController));
+router.patch('/:appointmentId/workspace', requireRoles('Receptionist', 'Admin'), validate([...appointmentIdValidator, ...appointmentWorkspaceValidator]), appointmentController.updateAppointmentWorkspace.bind(appointmentController));
 
 /**
  * @swagger
@@ -968,7 +968,7 @@ router.get('/:appointmentId/procedures', requireRoles('Admin'), appointmentContr
  *         description: Not found
  */
 
-router.post('/:appointmentId/procedures', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...appointmentProcedureValidator]), appointmentController.addAppointmentProcedure.bind(appointmentController));
+router.post('/:appointmentId/procedures', requireRoles('Receptionist', 'Admin'), validate([...appointmentIdValidator, ...appointmentProcedureValidator]), appointmentController.addAppointmentProcedure.bind(appointmentController));
 
 /**
  * @swagger
@@ -1098,7 +1098,7 @@ router.get('/:appointmentId/tags', requireRoles('Admin'), appointmentController.
  *         description: Not found
  */
 
-router.post('/:appointmentId/tags', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...appointmentTagValidator]), appointmentController.addAppointmentTag.bind(appointmentController));
+router.post('/:appointmentId/tags', requireRoles('Receptionist', 'Admin'), validate([...appointmentIdValidator, ...appointmentTagValidator]), appointmentController.addAppointmentTag.bind(appointmentController));
 
 /**
  * @swagger
@@ -1164,7 +1164,7 @@ router.post('/:appointmentId/tags', requireRoles('Front Desk', 'Admin'), validat
  *       422:
  *         description: Validation failed - invalid test name
  */
-router.post('/:appointmentId/lab-orders', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...appointmentLabOrderValidator]), appointmentController.addAppointmentLabOrder.bind(appointmentController));
+router.post('/:appointmentId/lab-orders', requireRoles('Receptionist', 'Admin'), validate([...appointmentIdValidator, ...appointmentLabOrderValidator]), appointmentController.addAppointmentLabOrder.bind(appointmentController));
 
 /**
  * @swagger
@@ -1238,7 +1238,7 @@ router.post('/:appointmentId/lab-orders', requireRoles('Front Desk', 'Admin'), v
  *       422:
  *         description: Validation failed - invalid message content
  */
-router.post('/:appointmentId/communications/send', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...appointmentCommunicationValidator]), appointmentController.createAppointmentCommunication.bind(appointmentController));
+router.post('/:appointmentId/communications/send', requireRoles('Receptionist', 'Admin'), validate([...appointmentIdValidator, ...appointmentCommunicationValidator]), appointmentController.createAppointmentCommunication.bind(appointmentController));
 
 /**
  * @swagger
@@ -1279,7 +1279,7 @@ router.post('/:appointmentId/communications/send', requireRoles('Front Desk', 'A
  *       404:
  *         description: Appointment not found
  */
-router.post('/:appointmentId/send-confirmation', requireRoles('Front Desk', 'Admin'), validate([...appointmentIdValidator, ...appointmentSendConfirmationValidator]), appointmentController.sendAppointmentConfirmationNotification.bind(appointmentController));
+router.post('/:appointmentId/send-confirmation', requireRoles('Receptionist', 'Admin'), validate([...appointmentIdValidator, ...appointmentSendConfirmationValidator]), appointmentController.sendAppointmentConfirmationNotification.bind(appointmentController));
 
 /**
  * @swagger

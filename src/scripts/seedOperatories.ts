@@ -1,6 +1,6 @@
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import { prisma } from '../config/db';
+import { getNextId } from '../utils/opendental-ids.util';
+import { tenantContextStorage } from '../config/tenant-context';
 
 async function main() {
   console.log('Seeding Operatories...');
@@ -14,10 +14,6 @@ async function main() {
   ];
 
   for (const op of operatories) {
-    // Generate an ID for the operatory
-    const nextIdResult = await prisma.$queryRaw<[{ current_val: bigint }]>`SELECT COALESCE(MAX("OperatoryNum"), 0) + 1 AS current_val FROM operatory`;
-    const nextId = nextIdResult[0]?.current_val || BigInt(1);
-
     // Try to find if an operatory with this name already exists
     const existingOp = await prisma.operatory.findFirst({
       where: { OpName: op.name }
@@ -26,6 +22,10 @@ async function main() {
     if (existingOp) {
       console.log(`Operatory ${op.name} already exists. Skipping...`);
     } else {
+      // getNextId (medflow_sequences-backed) rather than a raw MAX(OperatoryNum)+1
+      // query — the latter isn't safe against IDs created by other seed/app code
+      // between the SELECT and this INSERT and was observed to collide (P2002).
+      const nextId = await getNextId('operatory', 'OperatoryNum');
       await prisma.operatory.create({
         data: {
           OperatoryNum: nextId,
@@ -46,7 +46,12 @@ async function main() {
   console.log('Finished seeding operatories.');
 }
 
-main()
+// operatory is RLS-scoped by ClinicNum. A standalone script has no
+// AsyncLocalStorage tenant context, so without this the existing-row lookup
+// above would only ever see NULL-ClinicNum rows (RLS hides the real Op1–5),
+// making every run think they don't exist and create duplicates — the '*'
+// wildcard is the same bypass a true system Admin gets, not a way around RLS.
+tenantContextStorage.run({ clinicIds: '*', patientGroupId: '*' }, () => main())
   .catch((e) => {
     console.error('Error seeding operatories:', e);
     process.exit(1);

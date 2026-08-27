@@ -103,17 +103,45 @@ export class AllergyService {
       get: (id: string) => metaMapData[id] || {}
     };
 
-    const documentedByMap = new Map(
-      await Promise.all(
-        Array.from(
-          new Set(
-            allergies
-              .map((allergy) => metaMap.get(allergy.AllergyNum.toString())?.documentedBy)
-              .filter((value): value is string => Boolean(value))
-          )
-        ).map(async (documentedBy) => [documentedBy, await this.mapDocumentedBy(documentedBy)] as const)
+    const documentedByUserIds = Array.from(
+      new Set(
+        allergies
+          .map((allergy) => metaMap.get(allergy.AllergyNum.toString())?.documentedBy)
+          .filter((value): value is string => Boolean(value) && /^\d+$/.test(value))
       )
     );
+
+    let documentedByMap = new Map<string, { _id: string; firstName: string; lastName: string; email: string | null }>();
+    if (documentedByUserIds.length > 0) {
+      const { getUsersMeta } = await import('../utils/opendental-auth.util');
+      const users = await prisma.userod.findMany({
+        where: { UserNum: { in: documentedByUserIds.map((id) => BigInt(id)) } },
+      });
+      const usersMeta = await getUsersMeta(users.map((u) => u.UserNum));
+
+      const entries: [string, { _id: string; firstName: string; lastName: string; email: string | null }][] = await Promise.all(
+        documentedByUserIds.map(async (docId) => {
+          const user = users.find((u) => u.UserNum.toString() === docId);
+          if (!user) {
+            return [
+              docId,
+              { _id: docId, firstName: '', lastName: '', email: null },
+            ];
+          }
+          const mappedUser = await mapUser(user, usersMeta[user.UserNum.toString()]);
+          return [
+            docId,
+            {
+              _id: mappedUser._id,
+              firstName: mappedUser.firstName,
+              lastName: mappedUser.lastName,
+              email: mappedUser.email ?? null,
+            },
+          ];
+        })
+      );
+      documentedByMap = new Map(entries);
+    }
 
     const mappedAllergies = allergies.map((allergy) => ({
      id: allergy.AllergyNum.toString(),
