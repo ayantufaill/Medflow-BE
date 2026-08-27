@@ -1,5 +1,5 @@
 import express from 'express';
-import type { Request, Response } from 'express';
+import type { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
@@ -10,16 +10,28 @@ import { errorHandler, notFoundHandler } from './middleware/error.middleware';
 import routes from './routes/index';
 import swaggerOptions from './config/swagger';
 import path from 'path';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 // Initialize Express app
 const app = express();
 app.set('trust proxy', 1);
 
-app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
-
 // Security Middleware
-app.use(helmet(helmetOptions));
 app.use(cors(corsOptions));
+app.use(helmet(helmetOptions));
+
+// Serve static uploads with explicit CORS and Cross-Origin-Resource-Policy headers
+app.use('/uploads', (req: Request, res: Response, next: NextFunction) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+}, express.static(path.join(process.cwd(), 'uploads')));
 
 // Body parsing middleware
 app.use(
@@ -38,7 +50,20 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // }
 
 // Swagger UI setup
-const specs = swaggerJsdoc(swaggerOptions);
+// In production, TypeScript compilation strips JSDoc comments, so we use
+// the pre-generated swagger.json instead of runtime scanning.
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const swaggerJsonPath = path.resolve(__dirname, '../swagger.json');
+
+let specs: object;
+if (fs.existsSync(swaggerJsonPath)) {
+  console.log('[Swagger] Loading pre-generated swagger.json');
+  specs = JSON.parse(fs.readFileSync(swaggerJsonPath, 'utf-8'));
+} else {
+  console.log('[Swagger] Generating spec from source files (development mode)');
+  specs = swaggerJsdoc(swaggerOptions);
+}
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 
 // Health check route

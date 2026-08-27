@@ -21,6 +21,9 @@ COPY tsconfig.json ./
 COPY scripts ./scripts
 COPY src ./src
 RUN npx prisma generate --schema prisma/schema.prisma
+# Generate swagger.json from source .ts files before compiling
+# (TSC strips JSDoc comments, so this must happen before `npm run build`)
+RUN npx tsx src/scripts/export-swagger.ts
 RUN npm run build
 
 # ── Stage 3: Production runtime image ────────────────────────────────────────
@@ -50,6 +53,9 @@ COPY --from=build /app/node_modules/prisma ./node_modules/prisma
 
 # Copy compiled application
 COPY --from=build /app/dist ./dist
+
+# Copy pre-generated swagger.json for production Swagger UI
+COPY --from=build /app/swagger.json ./swagger.json
 
 RUN chown -R app:app /app
 USER app
