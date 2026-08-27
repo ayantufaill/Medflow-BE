@@ -1,7 +1,6 @@
 import { prisma } from '../config/db';
 import { getNextId } from '../utils/opendental-ids.util';
 import { RoleService } from '../services/role.service';
-import { providerService } from '../services/provider.service';
 import { GROUP_ADMIN_PERMISSIONS } from '../types/auth.types';
 import { tenantContextStorage } from '../config/tenant-context';
 
@@ -194,7 +193,16 @@ async function main() {
   for (const [npi, branchId] of Object.entries(providerBranchByNpi)) {
     const provider = await prisma.provider.findFirst({ where: { NationalProvID: npi } });
     if (!provider) continue;
-    await providerService.updateProviderBranches(provider.ProvNum.toString(), [branchId]);
+    const clinicNum = BigInt(branchId);
+    const existing = await prisma.providerclinic.findFirst({
+      where: { ProvNum: provider.ProvNum, ClinicNum: clinicNum },
+    });
+    if (!existing) {
+      const nextId = await getNextId('providerclinic', 'ProviderClinicNum');
+      await prisma.providerclinic.create({
+        data: { ProviderClinicNum: nextId, ProvNum: provider.ProvNum, ClinicNum: clinicNum },
+      });
+    }
     console.log(`Assigned provider NPI ${npi} to branch ${branchId}.`);
   }
 

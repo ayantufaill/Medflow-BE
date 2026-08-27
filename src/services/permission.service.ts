@@ -1,7 +1,7 @@
 import { prisma } from '../config/db';
 import type { AppRole, BranchAccess } from '../types/auth.types';
 import { GROUP_ADMIN_PERMISSIONS } from '../types/auth.types';
-import { mapRole } from '../utils/opendental-auth.util';
+import { getRolesMeta, mapRole } from '../utils/opendental-auth.util';
 
 // Resource types scoped by clinic.ClinicNum, and how to look up their clinic.
 const CLINIC_SCOPED_RESOURCES: Record<string, { findClinicNum: (id: bigint) => Promise<bigint | null> }> = {
@@ -34,10 +34,12 @@ export class PermissionService {
       include: { usergroup: true },
     });
 
+    const groups = userRoles.map((ur) => ur.usergroup).filter((ug): ug is NonNullable<typeof ug> => ug !== null);
+    const roleNums = groups.map((ug) => ug.UserGroupNum);
+    const roleMetaMap = await getRolesMeta(roleNums);
+
     const roles = await Promise.all(
-      userRoles
-        .filter((ur) => ur.usergroup)
-        .map((ur) => mapRole(ur.usergroup))
+      groups.map((ug) => mapRole(ug, roleMetaMap[ug.UserGroupNum.toString()] ?? {}))
     );
 
     return roles.filter((role) => role.isActive !== false).map((role) => role.name);
@@ -49,11 +51,13 @@ export class PermissionService {
       include: { usergroup: true },
     });
 
+    const groups = userRoles.map((ur) => ur.usergroup).filter((ug): ug is NonNullable<typeof ug> => ug !== null);
+    const roleNums = groups.map((ug) => ug.UserGroupNum);
+    const roleMetaMap = await getRolesMeta(roleNums);
+
     const permissions = new Set<string>();
     const roles = await Promise.all(
-      userRoles
-        .filter((ur) => ur.usergroup)
-        .map((ur) => mapRole(ur.usergroup))
+      groups.map((ug) => mapRole(ug, roleMetaMap[ug.UserGroupNum.toString()] ?? {}))
     );
 
     for (const role of roles) {
@@ -105,7 +109,11 @@ export class PermissionService {
 
   static async getAllRoles(): Promise<AppRole[]> {
     const roles = await prisma.usergroup.findMany();
-    const mapped = await Promise.all(roles.map((r) => mapRole(r)));
+    const roleNums = roles.map((r) => r.UserGroupNum);
+    const roleMetaMap = await getRolesMeta(roleNums);
+    const mapped = await Promise.all(
+      roles.map((r) => mapRole(r, roleMetaMap[r.UserGroupNum.toString()] ?? {}))
+    );
     return mapped.filter((role) => role.isActive !== false);
   }
 

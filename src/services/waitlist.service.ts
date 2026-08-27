@@ -658,24 +658,49 @@ export class WaitlistService {
     providerName?: string;
   }): Promise<{ matched: boolean; waitlistEntryId?: string }> {
     try {
+      console.log(`[Waitlist Engine] Checking waitlist for cancelled slot (Appointment #${cancelled.appointmentId}, Provider ID: ${cancelled.providerId})...`);
+
+      const providerBigInt = cancelled.providerId && !isNaN(Number(cancelled.providerId)) ? BigInt(cancelled.providerId) : undefined;
+      
       const candidates = await prisma.asapcomm.findMany({
         where: {
           ResponseStatus: statusToResponseStatus('active'),
-          schedule: { ProvNum: BigInt(cancelled.providerId) },
+          ...(providerBigInt ? {
+            OR: [
+              { schedule: { ProvNum: providerBigInt } },
+              { schedule: { ProvNum: 0n } },
+              { schedule: { is: null } },
+            ]
+          } : {})
         },
         include: { schedule: true },
       });
 
-      const slotDateOnly = cancelled.appointmentDateTime.toISOString().slice(0, 10);
-      const slotMinutes = cancelled.appointmentDateTime.getUTCHours() * 60 + cancelled.appointmentDateTime.getUTCMinutes();
+      console.log(`[Waitlist Engine] Found ${candidates.length} active waitlist candidate(s) in database.`);
+
+      const toDateStr = (d: Date) => {
+        const year = d.getFullYear();
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+
+      const slotDateOnlyLocal = toDateStr(cancelled.appointmentDateTime);
+      const slotDateOnlyUtc = cancelled.appointmentDateTime.toISOString().slice(0, 10);
+      const slotMinutes = cancelled.appointmentDateTime.getHours() * 60 + cancelled.appointmentDateTime.getMinutes();
       const toMinutes = (d: Date) => d.getUTCHours() * 60 + d.getUTCMinutes();
 
       const matches = candidates.filter((entry) => {
-        const typeOk = !entry.FKey || entry.FKey.toString() === cancelled.appointmentTypeId;
+        const typeOk = !entry.FKey || !cancelled.appointmentTypeId || entry.FKey.toString() === cancelled.appointmentTypeId;
         if (!typeOk) return false;
 
         const preferredDate = entry.schedule?.SchedDate;
-        if (preferredDate && preferredDate.toISOString().slice(0, 10) !== slotDateOnly) return false;
+        if (preferredDate) {
+          const prefLocal = toDateStr(preferredDate);
+          const prefUtc = preferredDate.toISOString().slice(0, 10);
+          const dateMatches = prefLocal === slotDateOnlyLocal || prefUtc === slotDateOnlyUtc || prefLocal === slotDateOnlyUtc || prefUtc === slotDateOnlyLocal;
+          if (!dateMatches) return false;
+        }
 
         const start = entry.schedule?.StartTime;
         const end = entry.schedule?.StopTime;
@@ -686,6 +711,7 @@ export class WaitlistService {
       });
 
       if (matches.length === 0) {
+        console.log('[Waitlist Engine] No matching waitlist entries criteria met for this slot.');
         return { matched: false };
       }
 
@@ -697,16 +723,20 @@ export class WaitlistService {
       const match = matches[0]!;
 
       if (!match.PatNum) {
+        console.log('[Waitlist Engine] Matched entry has no patient ID attached.');
         return { matched: false };
       }
       const patient = await prisma.patient.findUnique({ where: { PatNum: match.PatNum } });
       if (!patient) {
+        console.log('[Waitlist Engine] Patient record not found in database.');
         return { matched: false };
       }
 
       const dateLabel = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(cancelled.appointmentDateTime);
       const timeLabel = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(cancelled.appointmentDateTime);
       const providerLabel = cancelled.providerName ? ` with ${cancelled.providerName}` : '';
+
+      console.log(`[Waitlist Engine] Match found for cancelled slot (Entry #${match.AsapCommNum}, Patient: ${patient.FName || ''} ${patient.LName || ''}).`);
 
       if (patient.Email) {
         try {
