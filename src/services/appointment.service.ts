@@ -1020,7 +1020,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
         ProcDescript: data.chiefComplaint ?? null,
         Note: data.notes ?? null,
         Op: opId,
-        ClinicNum: clinicNum,
+        ClinicNum: data.branchId ? BigInt(data.branchId) : null,
         AptStatus: mapAppointmentStatusToDb(data.status ?? 'scheduled'),
         DateTimeArrived: null,
         DateTimeDismissed: null,
@@ -1761,6 +1761,85 @@ async getPatientAppointments(patientId: string, limit = 10) {
         sent++;
       } catch (error) {
         console.error(`Failed to send reminder for appointment ${appointmentId}:`, error);
+        skipped++;
+      }
+    }
+
+    return { checked: upcoming.length, sent, skipped };
+  }
+
+  async sendDailySmsReminders(): Promise<{ checked: number; sent: number; skipped: number }> {
+    const now = new Date();
+    // Target is exactly 2 days from now (day after tomorrow)
+    const startOfTargetDay = new Date(now);
+    startOfTargetDay.setDate(now.getDate() + 2);
+    startOfTargetDay.setHours(0, 0, 0, 0);
+    
+    const endOfTargetDay = new Date(startOfTargetDay);
+    endOfTargetDay.setHours(23, 59, 59, 999);
+
+    const upcoming = await prisma.appointment.findMany({
+      where: {
+        AptDateTime: { gte: startOfTargetDay, lte: endOfTargetDay },
+        AptStatus: { notIn: [4, 6] }, // exclude cancelled, pending
+      },
+      select: { AptNum: true, AptDateTime: true, PatNum: true, ClinicNum: true },
+    });
+
+    const metaByAppointment = await getAppointmentsMeta(upcoming.map((a) => a.AptNum));
+
+    let sent = 0;
+    let skipped = 0;
+
+    for (const apt of upcoming) {
+      const appointmentId = apt.AptNum.toString();
+      const meta = metaByAppointment[appointmentId] ?? {};
+      
+      // Using smsReminderSent flag to differentiate from email reminder
+      if (meta.smsReminderSent || meta.reminderPreferences?.dontSendReminders) {
+        skipped++;
+        continue;
+      }
+
+      try {
+        const { patient, appointmentDateTime, providerName, clinic } = await this.buildNotificationContext(appointmentId);
+        
+        // We need a phone number
+        const phone = patient.WirelessPhone || patient.HmPhone || patient.WkPhone;
+        if (!phone) {
+          skipped++;
+          continue;
+        }
+
+        // Format Date and Time
+        const aptDate = apt.AptDateTime ? apt.AptDateTime.toLocaleDateString() : '';
+        const aptTime = apt.AptDateTime ? apt.AptDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+        
+        // Log to smstomobile
+        const maxSms = await prisma.$queryRaw<[{ max: bigint | null }]>`SELECT MAX("SmsToMobileNum") as max FROM "smstomobile"`;
+        const smsToMobileNum = (maxSms[0]?.max ?? 0n) + 1n;
+        
+        const messageText = `Hi ${patient.FName || 'there'}, this is a reminder for your appointment on ${aptDate} at ${aptTime} with ${providerName}. Please reply to confirm.`;
+
+        await prisma.smstomobile.create({
+          data: {
+            SmsToMobileNum: smsToMobileNum,
+            PatNum: apt.PatNum,
+            SmsPhoneNumber: phone,
+            MsgText: messageText,
+            DateTimeSent: new Date(),
+            SmsStatus: 1, // Sent
+            ClinicNum: apt.ClinicNum,
+          }
+        });
+
+        // Send SMS
+        await smsService.sendSms(phone, messageText);
+
+        await setAppointmentMeta(apt.AptNum, { ...meta, smsReminderSent: true });
+        sent++;
+      } catch (error) {
+        console.error(`Failed to send SMS reminder for appointment ${appointmentId}:`, error);
         skipped++;
       }
     }

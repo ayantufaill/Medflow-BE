@@ -144,15 +144,36 @@ export class DashboardMetricsService {
     range: string,
     providerId: string,
     customStart?: string,
-    customEnd?: string
+    customEnd?: string,
+    branchId?: string,
+    groupId?: string,
+    userId?: string
   ): Promise<DashboardMetrics> {
     const { startDate, endDate } = this.getRangeDates(dateStr, range, customStart, customEnd);
     const goals = await this.getDashboardGoals();
 
+    // 0. Resolve target ClinicNums
+    let targetClinicNums: bigint[] | undefined = undefined;
+    if (branchId && branchId !== 'All') {
+      targetClinicNums = [BigInt(branchId)];
+    } else if (groupId && groupId !== 'All') {
+      const clinics = await prisma.clinic.findMany({ where: { GroupNum: Number(groupId) }, select: { ClinicNum: true } });
+      targetClinicNums = clinics.map(c => c.ClinicNum);
+    } else if (userId) {
+      // If "All" is selected but we want to scope to user's assigned branches
+      const userClinics = await prisma.userclinic.findMany({ where: { UserNum: BigInt(userId) }, select: { ClinicNum: true } });
+      if (userClinics.length > 0) {
+        targetClinicNums = userClinics.map(uc => uc.ClinicNum).filter((c): c is bigint => c !== null);
+      }
+    }
+
     // 1. Fetch & classify active providers
     const providers = await prisma.provider.findMany({
       where: { IsHidden: 0 },
-      include: { definition: true },
+      include: { 
+        definition: true,
+        providerclinic: true
+      },
     });
 
     const dentistIds: bigint[] = [];
@@ -160,6 +181,12 @@ export class DashboardMetricsService {
     const providerMap = new Map<string, { isHygienist: boolean; provNum: bigint }>();
 
     for (const p of providers) {
+      // If clinic filter is active, only include providers who are attached to at least one of the target clinics
+      if (targetClinicNums && targetClinicNums.length > 0) {
+        const hasClinic = p.providerclinic.some(pc => pc.ClinicNum && targetClinicNums?.includes(pc.ClinicNum));
+        if (!hasClinic) continue;
+      }
+
       const spec = p.definition?.ItemName?.toLowerCase() || '';
       const isHygienist = spec.includes('hygiene') || spec.includes('hygienist');
       if (isHygienist) {
@@ -204,6 +231,7 @@ export class DashboardMetricsService {
         ProcDate: { gte: startDate, lte: endDate },
         ProcStatus: 2, // Completed
         ...(targetProvNums.length > 0 ? { ProvNum: { in: targetProvNums } } : {}),
+        ...(targetClinicNums && targetClinicNums.length > 0 ? { ClinicNum: { in: targetClinicNums } } : {}),
       },
     });
 
@@ -212,6 +240,7 @@ export class DashboardMetricsService {
         ProcDate: { gte: startDate, lte: endDate },
         ProcStatus: 1, // Planned
         ...(targetProvNums.length > 0 ? { ProvNum: { in: targetProvNums } } : {}),
+        ...(targetClinicNums && targetClinicNums.length > 0 ? { ClinicNum: { in: targetClinicNums } } : {}),
       },
     });
 
@@ -271,6 +300,7 @@ export class DashboardMetricsService {
         DatePay: { gte: startDate, lte: endDate },
         IsDiscount: 0,
         ...(targetProvNums.length > 0 ? { ProvNum: { in: targetProvNums } } : {}),
+        ...(targetClinicNums && targetClinicNums.length > 0 ? { ClinicNum: { in: targetClinicNums } } : {}),
       },
       select: { DatePay: true, SplitAmt: true, ProvNum: true },
     });
@@ -280,6 +310,7 @@ export class DashboardMetricsService {
         DateCP: { gte: startDate, lte: endDate },
         Status: { in: [1, 4] },
         ...(targetProvNums.length > 0 ? { ProvNum: { in: targetProvNums } } : {}),
+        ...(targetClinicNums && targetClinicNums.length > 0 ? { ClinicNum: { in: targetClinicNums } } : {}),
       },
       select: { DateCP: true, InsPayAmt: true, ProvNum: true },
     });
@@ -382,6 +413,7 @@ export class DashboardMetricsService {
         AptDateTime: { gte: startDate, lte: endDate },
         AptStatus: 1, // Completed
         ...(targetProvNums.length > 0 ? { ProvNum: { in: targetProvNums } } : {}),
+        ...(targetClinicNums && targetClinicNums.length > 0 ? { ClinicNum: { in: targetClinicNums } } : {}),
       },
     });
 

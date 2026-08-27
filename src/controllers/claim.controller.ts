@@ -107,6 +107,19 @@ export class ClaimController {
       next(error);
     }
   }
+  async generateSecondaryClaim(req: Request, res: Response, next: NextFunction) {
+    try {
+      const primaryClaimId = req.params.primaryClaimId as string;
+      const claim = await claimService.generateSecondaryClaim(primaryClaimId, req.userId);
+
+      res.status(201).json({
+        success: true,
+        data: { claim },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 
   async updateClaim(req: Request, res: Response, next: NextFunction) {
     try {

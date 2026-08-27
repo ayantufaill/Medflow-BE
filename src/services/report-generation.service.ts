@@ -269,6 +269,25 @@ export class ReportGenerationService {
       filters.push(`NOT EXISTS (SELECT 1 FROM patfield pf WHERE pf."PatNum" = p."PatNum")`);
     }
 
+    // 8. query.branch
+    if (query.branch && query.branch !== 'all') {
+      const branchId = Number(query.branch);
+      if (!isNaN(branchId)) {
+        filters.push(`p."ClinicNum" = ${branchId}`);
+      }
+    }
+
+    // 9. query.carrier
+    if (query.carrier && query.carrier !== 'all') {
+      const carrierId = Number(query.carrier);
+      if (!isNaN(carrierId)) {
+        filters.push(`c."CarrierNum" = ${carrierId}`);
+      } else {
+        // Fallback to searching by CarrierName if a string like 'delta' was provided
+        filters.push(`c."CarrierName" ILIKE '%${query.carrier}%'`);
+      }
+    }
+
     const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
 
     // 8. query.sortReport (Sorting)

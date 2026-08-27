@@ -11,6 +11,7 @@ import app from './app.js';
 import { hashPassword } from './utils/password.util.js';
 import { startReminderScheduler } from './jobs/reminderScheduler.js';
 import { startRecareScheduler } from './jobs/recareScheduler.js';
+import { startDailySmsReminderScheduler } from './jobs/reminder.cron.js';
 import { initSocket } from './sockets/socket.js';
 
 
@@ -138,6 +139,7 @@ const startServer = async (): Promise<void> => {
 
   startReminderScheduler();
   startRecareScheduler();
+  startDailySmsReminderScheduler();
 };
 
 startServer().catch((err) => {

@@ -2,6 +2,18 @@ import type { Request, Response, NextFunction } from 'express';
 import { reportingService } from '../services/reporting.service';
 
 export class ReportingController {
+  async getDenialRates(req: Request, res: Response, next: NextFunction) {
+    try {
+      const data = await reportingService.getDenialRates();
+      res.status(200).json({
+        success: true,
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getSavedReports(req: Request, res: Response, next: NextFunction) {
     try {
       const reports = await reportingService.getSavedReports();
