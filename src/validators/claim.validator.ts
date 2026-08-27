@@ -110,8 +110,6 @@ export const updateClaimValidator: ValidationChain[] = [
   body('planName').optional({ nullable: true }).isString().withMessage('planName must be a string'),
   body('treatingProvider').optional({ nullable: true }).isString().withMessage('treatingProvider must be a string'),
   body('description').optional({ nullable: true }).isString().withMessage('description must be a string'),
-  body('claimSubmissionReasonCode').optional({ nullable: true }).isString().withMessage('claimSubmissionReasonCode must be a string'),
-  body('serviceAuthExceptionCode').optional({ nullable: true }).isString().withMessage('serviceAuthExceptionCode must be a string'),
 ];
 
 export const resubmitClaimValidator: ValidationChain[] = [

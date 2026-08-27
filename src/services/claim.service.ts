@@ -66,8 +66,6 @@ type ClaimMeta = {
   planName?: string;
   treatingProviderName?: string;
   description?: string;
-  claimSubmissionReasonCode?: string;
-  serviceAuthExceptionCode?: string;
 };
 
 type ClaimFilters = {
@@ -394,8 +392,6 @@ export class ClaimService {
       planName: meta.planName ?? null,
       treatingProviderName: meta.treatingProviderName ?? null,
       description: meta.description ?? null,
-      claimSubmissionReasonCode: meta.claimSubmissionReasonCode ?? null,
-      serviceAuthExceptionCode: meta.serviceAuthExceptionCode ?? null,
     };
   }
 
@@ -1287,8 +1283,6 @@ export class ClaimService {
       planName: string;
       treatingProviderName: string;
       description: string;
-      claimSubmissionReasonCode: string;
-      serviceAuthExceptionCode: string;
     }>,
     userId?: string
   ) {
@@ -1327,8 +1321,6 @@ export class ClaimService {
       planName: updates.planName ?? currentMeta.planName,
       treatingProviderName: updates.treatingProviderName ?? currentMeta.treatingProviderName,
       description: updates.description ?? currentMeta.description,
-      claimSubmissionReasonCode: updates.claimSubmissionReasonCode ?? currentMeta.claimSubmissionReasonCode,
-      serviceAuthExceptionCode: updates.serviceAuthExceptionCode ?? currentMeta.serviceAuthExceptionCode,
       submissionDate:
         updates.submissionDate !== undefined
           ? updates.submissionDate.toISOString()
