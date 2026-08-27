@@ -481,6 +481,8 @@ router.post(
  *     responses:
  *       200:
  *         description: Form updated
+ *       409:
+ *         description: Form is a signed consent record (signature field present) and can no longer be edited
  */
 router.put(
   '/forms/:formId',

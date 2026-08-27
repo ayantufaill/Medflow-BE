@@ -151,6 +151,8 @@ export class ClaimController {
           planName: req.body.planName,
           treatingProviderName: req.body.treatingProvider || req.body.treatingProviderName,
           description: req.body.description,
+          claimSubmissionReasonCode: req.body.claimSubmissionReasonCode,
+          serviceAuthExceptionCode: req.body.serviceAuthExceptionCode,
         },
         req.userId
       );
@@ -699,6 +701,30 @@ export class ClaimController {
         success: true,
         data: { attachments },
         message: 'Attachments uploaded successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async linkAttachments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const claimId = req.params.claimId as string;
+      const attachments = req.body.attachments || [];
+
+      if (!Array.isArray(attachments) || attachments.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Attachments array is required and must not be empty' },
+        });
+      }
+
+      const linked = await claimService.linkAttachments(claimId, attachments, req.userId);
+
+      res.status(200).json({
+        success: true,
+        data: { attachments: linked },
+        message: 'Attachments linked successfully',
       });
     } catch (error) {
       next(error);
