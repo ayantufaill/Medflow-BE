@@ -11,6 +11,9 @@ export const FORM_FIELD_TYPES = [
   'boolean',
   'select',
   'radio',
+  // Value is a base64 PNG string captured at submission time. No schema column —
+  // it's stored the same way as any other field, inside the `fields: Json` array.
+  'signature',
 ] as const;
 export type FormFieldType = (typeof FORM_FIELD_TYPES)[number];
 

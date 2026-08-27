@@ -70,14 +70,27 @@ function fmtInt(n: number): string {
 // ─── KPI Service ─────────────────────────────────────────────────────────────
 
 export class KpiService {
+  private async resolveClinicNums(branchId?: string, userId?: string): Promise<bigint[] | undefined> {
+    let targetClinicNums: bigint[] | undefined = undefined;
+    if (branchId && branchId !== 'All') {
+      targetClinicNums = [BigInt(branchId)];
+    } else if (userId) {
+      const branches = await prisma.userclinic.findMany({ where: { UserNum: Number(userId) }, select: { ClinicNum: true } });
+      targetClinicNums = branches.map((b) => b.ClinicNum).filter(Boolean) as bigint[];
+    }
+    return targetClinicNums;
+  }
+
   /**
    * Returns consolidated KPI metrics for the rolling last 12 months.
    * All values arrays are ordered: index 0 = most recent month.
    */
-  async getMainKpis(startDate?: Date, endDate?: Date) {
+  async getMainKpis(startDate?: Date, endDate?: Date, branchId?: string, userId?: string) {
     const buckets = getLast12MonthBuckets();
     const rangeStart = buckets[11].start;
     const rangeEnd = buckets[0].end;
+    
+    const targetClinicNums = await this.resolveClinicNums(branchId, userId);
 
     // ── 1. Load all providers to classify Doctor vs Hygiene ──────────────────
     const providers = await prisma.provider.findMany({
@@ -95,6 +108,7 @@ export class KpiService {
         ProcStatus: PROC_STATUS_COMPLETE,
         ProcDate: { gte: rangeStart, lt: rangeEnd },
         ProcFee: { not: null },
+        ClinicNum: targetClinicNums ? { in: targetClinicNums } : undefined,
       },
       select: { ProcDate: true, ProcFee: true, ProvNum: true, Discount: true },
     });
@@ -103,6 +117,7 @@ export class KpiService {
     const adjustments = await prisma.adjustment.findMany({
       where: {
         AdjDate: { gte: rangeStart, lt: rangeEnd },
+        ClinicNum: targetClinicNums ? { in: targetClinicNums } : undefined,
       },
       select: { AdjDate: true, AdjAmt: true, ProvNum: true },
     });
@@ -112,6 +127,7 @@ export class KpiService {
       where: {
         DatePay: { gte: rangeStart, lt: rangeEnd },
         IsDiscount: 0,
+        ClinicNum: targetClinicNums ? { in: targetClinicNums } : undefined,
       },
       select: { DatePay: true, SplitAmt: true, ProvNum: true },
     });
@@ -122,6 +138,7 @@ export class KpiService {
       where: {
         AptDateTime: { gte: rangeStart, lt: rangeEnd },
         AptStatus: 2,
+        ClinicNum: targetClinicNums ? { in: targetClinicNums } : undefined,
       },
       select: { AptDateTime: true, PatNum: true, ProvNum: true },
     });
@@ -133,6 +150,7 @@ export class KpiService {
         ProcStatus: PROC_STATUS_TP,
         DateTP: { gte: rangeStart, lt: rangeEnd },
         ProcFee: { not: null },
+        ClinicNum: targetClinicNums ? { in: targetClinicNums } : undefined,
       },
       select: { DateTP: true, ProcFee: true, ProvNum: true },
     });
@@ -283,10 +301,12 @@ export class KpiService {
   /**
    * Returns KPI metrics grouped by provider for the rolling last 12 months.
    */
-  async getProviderKpis(startDate?: Date, endDate?: Date) {
+  async getProviderKpis(startDate?: Date, endDate?: Date, branchId?: string, userId?: string) {
     const buckets = getLast12MonthBuckets();
     const rangeStart = buckets[11].start;
     const rangeEnd = buckets[0].end;
+    
+    const targetClinicNums = await this.resolveClinicNums(branchId, userId);
 
     // ── Load all non-hidden providers ─────────────────────────────────────────
     const providers = await prisma.provider.findMany({
@@ -314,6 +334,7 @@ export class KpiService {
         ProcDate: { gte: rangeStart, lt: rangeEnd },
         ProvNum: { in: provNums },
         ProcFee: { not: null },
+        ClinicNum: targetClinicNums ? { in: targetClinicNums } : undefined,
       },
       select: { ProcDate: true, ProcFee: true, ProvNum: true },
     });
@@ -323,6 +344,7 @@ export class KpiService {
       where: {
         AdjDate: { gte: rangeStart, lt: rangeEnd },
         ProvNum: { in: provNums },
+        ClinicNum: targetClinicNums ? { in: targetClinicNums } : undefined,
       },
       select: { AdjDate: true, AdjAmt: true, ProvNum: true },
     });
@@ -333,6 +355,7 @@ export class KpiService {
         DatePay: { gte: rangeStart, lt: rangeEnd },
         IsDiscount: 0,
         ProvNum: { in: provNums },
+        ClinicNum: targetClinicNums ? { in: targetClinicNums } : undefined,
       },
       select: { DatePay: true, SplitAmt: true, ProvNum: true },
     });
@@ -343,6 +366,7 @@ export class KpiService {
         AptDateTime: { gte: rangeStart, lt: rangeEnd },
         AptStatus: 2,
         ProvNum: { in: provNums },
+        ClinicNum: targetClinicNums ? { in: targetClinicNums } : undefined,
       },
       select: { AptDateTime: true, PatNum: true, ProvNum: true },
     });
@@ -450,16 +474,18 @@ export class KpiService {
    * Returns 4 top-card summary metrics comparing current month vs last month.
    * Suitable for a dedicated GET /kpis/summary endpoint.
    */
-  async getKpiSummary() {
+  async getKpiSummary(branchId?: string, userId?: string) {
     const buckets = getLast12MonthBuckets();
     const thisMonth = buckets[0];
     const lastMonth = buckets[1];
+    
+    const targetClinicNums = await this.resolveClinicNums(branchId, userId);
 
     // Helper: sum paysplit for a date range
     const sumCollection = async (start: Date, end: Date) => {
       const rows = await prisma.paysplit.aggregate({
         _sum: { SplitAmt: true },
-        where: { DatePay: { gte: start, lt: end }, IsDiscount: 0 },
+        where: { DatePay: { gte: start, lt: end }, IsDiscount: 0, ClinicNum: targetClinicNums ? { in: targetClinicNums } : undefined },
       });
       return rows._sum.SplitAmt ?? 0;
     };
@@ -471,6 +497,7 @@ export class KpiService {
         where: {
           ProcStatus: PROC_STATUS_COMPLETE,
           ProcDate: { gte: start, lt: end },
+          ClinicNum: targetClinicNums ? { in: targetClinicNums } : undefined,
         },
       });
       return rows._sum.ProcFee ?? 0;
@@ -479,7 +506,7 @@ export class KpiService {
     // Helper: count seen patients for a date range
     const countSeen = async (start: Date, end: Date) => {
       const appts = await prisma.appointment.findMany({
-        where: { AptDateTime: { gte: start, lt: end }, AptStatus: 2 },
+        where: { AptDateTime: { gte: start, lt: end }, AptStatus: 2, ClinicNum: targetClinicNums ? { in: targetClinicNums } : undefined },
         select: { PatNum: true },
         distinct: ['PatNum'],
       });
@@ -493,6 +520,7 @@ export class KpiService {
         where: {
           ProcStatus: PROC_STATUS_COMPLETE,
           ProcDate: { gte: start, lt: end },
+          ClinicNum: targetClinicNums ? { in: targetClinicNums } : undefined,
         },
       });
       return rows._sum.ProcFee ?? 0;

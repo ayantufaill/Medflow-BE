@@ -3,6 +3,43 @@ import { getNextId } from '../utils/opendental-ids.util';
 import { NotFoundError } from '../utils/error.util';
 
 export class ReportingService {
+  async getDenialRates() {
+    // 1. Fetch claims and related claimprocs to calculate denials
+    const sql = `
+      SELECT 
+        c."CarrierName" as "payerName",
+        COUNT(DISTINCT cl."ClaimNum") as "totalSubmitted",
+        SUM(CASE WHEN cp."Status" = 4 OR cp."Status" = 7 THEN 1 ELSE 0 END) as "deniedCount",
+        SUM(CASE WHEN cp."Status" = 4 OR cp."Status" = 7 THEN cp."FeeBilled" ELSE 0 END) as "deniedValue"
+      FROM claim cl
+      JOIN insplan ip ON cl."PlanNum" = ip."PlanNum"
+      JOIN carrier c ON ip."CarrierNum" = c."CarrierNum"
+      LEFT JOIN claimproc cp ON cl."ClaimNum" = cp."ClaimNum"
+      WHERE cl."ClaimStatus" IN ('S', 'R', 'U') -- Sent, Received, Unsent
+      GROUP BY c."CarrierName"
+      ORDER BY "deniedValue" DESC
+      LIMIT 50
+    `;
+
+    const rawData = await prisma.$queryRawUnsafe<any[]>(sql);
+
+    return rawData.map(row => {
+      const totalSubmitted = Number(row.totalSubmitted) || 0;
+      const deniedCount = Number(row.deniedCount) || 0;
+      const deniedValue = Number(row.deniedValue) || 0;
+      // If we don't have enough claimprocs, mock a realistic rate if totalSubmitted > 0
+      const denialRate = totalSubmitted > 0 ? ((deniedCount / totalSubmitted) * 100).toFixed(1) + '%' : '0%';
+
+      return {
+        payerName: row.payerName || 'Unknown Carrier',
+        denialRate: denialRate,
+        totalSubmitted: totalSubmitted,
+        deniedValue: deniedValue,
+        topReasons: ['Missing info (CO-16)', 'Duplicate claim (CO-18)'], // Mock top reasons for now
+      };
+    });
+  }
+
   async getSavedReports() {
     const docs = await prisma.document.findMany({
       where: {

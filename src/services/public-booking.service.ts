@@ -18,9 +18,14 @@ async function assertProviderAcceptsAtBranch(providerId: string, branchId: strin
   if (!provider.isActive) {
     throw new NotFoundError('Provider not found');
   }
-  if (!provider.branchIds?.includes(branchId)) {
+  
+  const link = await prisma.providerclinic.findFirst({
+    where: { ProvNum: BigInt(providerId), ClinicNum: BigInt(branchId) }
+  });
+  if (!link) {
     throw new BadRequestError('This provider does not see patients at the selected branch.');
   }
+
   if (provider.isAcceptingNewPatients === false) {
     throw new BadRequestError('This provider is not currently accepting new patients.');
   }
@@ -129,7 +134,6 @@ export class PublicBookingService {
           patientProfileType: 'adult',
           referralSource: 'Public booking widget',
           notes: 'Created via public guest booking — please verify identity and insurance before the visit.',
-          branchId: data.branchId,
         });
         patientId = patient._id;
         isNewPatient = true;
