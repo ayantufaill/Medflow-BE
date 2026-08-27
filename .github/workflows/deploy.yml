@@ -42,6 +42,7 @@ jobs:
         run: npx prisma generate --schema prisma/schema.prisma
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/medflow_test' }}
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL || secrets.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/medflow_test' }}
 
       - name: Type-check & Build
         run: npm run build
@@ -54,6 +55,7 @@ jobs:
           npm run seed:all
         env:
           DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/medflow_test'
+          DIRECT_DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/medflow_test'
           JWT_SECRET: test-jwt-secret-for-ci-only
           JWT_REFRESH_SECRET: test-refresh-secret-for-ci-only
 
@@ -62,6 +64,7 @@ jobs:
         env:
           NODE_ENV: test
           DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/medflow_test'
+          DIRECT_DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/medflow_test'
           JWT_SECRET: test-jwt-secret-for-ci-only
           JWT_REFRESH_SECRET: test-refresh-secret-for-ci-only
 
