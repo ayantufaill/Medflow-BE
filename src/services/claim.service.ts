@@ -2876,6 +2876,58 @@ private mapClaimStatus(status: string | null): string {
 
     return this.getClaimById(newClaim.ClaimNum.toString());
   }
+
+  async linkAttachments(
+    claimId: string,
+    attachments: { filename: string; storagePath: string }[],
+    userId?: string
+  ) {
+    const claim = await this.getClaimRecord(claimId);
+    const createdAttachments = [];
+
+    for (const att of attachments) {
+      const filename = att.filename || 'EOB.pdf';
+      const storagePath = att.storagePath;
+      if (!storagePath) continue;
+
+      // 1. Save to claimattach
+      const claimAttachNum = await getNextId('claimattach', 'ClaimAttachNum');
+      await prisma.claimattach.create({
+        data: {
+          ClaimAttachNum: claimAttachNum,
+          ClaimNum: claim.ClaimNum,
+          DisplayedFileName: filename,
+          ActualFileName: storagePath,
+          ImageReferenceId: 0,
+        },
+      });
+
+      // 2. Save to document for document list consistency
+      const docNum = await getNextId('document', 'DocNum');
+      const meta = {
+        claimId,
+        documentType: 'claim_attachment',
+        description: null,
+        storagePath,
+        uploadedBy: userId ?? null,
+      };
+
+      const createdDoc = await prisma.document.create({
+        data: {
+          DocNum: docNum,
+          PatNum: claim.PatNum,
+          Description: filename,
+          FileName: storagePath,
+          Note: buildJson(meta),
+          DateCreated: new Date(),
+        },
+      });
+
+      createdAttachments.push(mapDocument(createdDoc, claimId));
+    }
+
+    return createdAttachments;
+  }
 }
 
 export const claimService = new ClaimService();

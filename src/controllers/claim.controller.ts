@@ -706,6 +706,30 @@ export class ClaimController {
       next(error);
     }
   }
+
+  async linkAttachments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const claimId = req.params.claimId as string;
+      const attachments = req.body.attachments || [];
+
+      if (!Array.isArray(attachments) || attachments.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Attachments array is required and must not be empty' },
+        });
+      }
+
+      const linked = await claimService.linkAttachments(claimId, attachments, req.userId);
+
+      res.status(200).json({
+        success: true,
+        data: { attachments: linked },
+        message: 'Attachments linked successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 
