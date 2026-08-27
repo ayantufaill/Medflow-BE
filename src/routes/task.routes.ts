@@ -51,6 +51,20 @@ router.post(
 
 /**
  * @swagger
+ * /tasks/lists:
+ *   get:
+ *     summary: Get all task lists
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get(
+  '/lists',
+  taskController.getTaskLists.bind(taskController)
+);
+
+/**
+ * @swagger
  * /tasks/{taskId}:
  *   get:
  *     summary: Get task details by ID

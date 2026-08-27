@@ -137,10 +137,22 @@ export class ClaimController {
                 ? new Date(req.body.deniedDate)
                 : undefined,
           denialReason: req.body.denialReason,
-          paidDate: req.body.paidDate ? new Date(req.body.paidDate) : undefined,
           corrections: req.body.corrections,
           providerSignature: req.body.providerSignature,
           patientSignature: req.body.patientSignature,
+          delayReasonCode: req.body.delayReasonCode,
+          attachmentTransmissionCode: req.body.attachmentTransmissionCode,
+          attachmentType: req.body.attachmentType,
+          predeterminationNumber: req.body.predeterminationNumber,
+          accidentDate: req.body.accidentDate,
+          diagnosticCode: req.body.diagnosticCode,
+          clearingHouseMessage: req.body.clearingHouseMessage,
+          subscriber: req.body.subscriber,
+          planName: req.body.planName,
+          treatingProviderName: req.body.treatingProvider || req.body.treatingProviderName,
+          description: req.body.description,
+          claimSubmissionReasonCode: req.body.claimSubmissionReasonCode,
+          serviceAuthExceptionCode: req.body.serviceAuthExceptionCode,
         },
         req.userId
       );
@@ -418,11 +430,16 @@ export class ClaimController {
         });
       }
 
+      const filename = req.body.filename || req.body.fileName;
+      const remittanceDate = req.body.remittanceDate || req.body.remittance_date;
+
       const result = await claimService.uploadEOB(
         paymentId,
         uploadedFile,
         req.body.description,
-        req.userId
+        req.userId,
+        filename,
+        remittanceDate
       );
 
       res.status(200).json({
@@ -476,11 +493,16 @@ export class ClaimController {
         });
       }
 
+      const claimFilename = req.body.filename || req.body.fileName;
+      const claimRemittanceDate = req.body.remittanceDate || req.body.remittance_date;
+
       const result = await claimService.uploadClaimEOB(
         claimId,
         uploadedFile,
         req.body.description,
-        req.userId
+        req.userId,
+        claimFilename,
+        claimRemittanceDate
       );
 
       res.status(200).json({
@@ -679,6 +701,30 @@ export class ClaimController {
         success: true,
         data: { attachments },
         message: 'Attachments uploaded successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async linkAttachments(req: Request, res: Response, next: NextFunction) {
+    try {
+      const claimId = req.params.claimId as string;
+      const attachments = req.body.attachments || [];
+
+      if (!Array.isArray(attachments) || attachments.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Attachments array is required and must not be empty' },
+        });
+      }
+
+      const linked = await claimService.linkAttachments(claimId, attachments, req.userId);
+
+      res.status(200).json({
+        success: true,
+        data: { attachments: linked },
+        message: 'Attachments linked successfully',
       });
     } catch (error) {
       next(error);

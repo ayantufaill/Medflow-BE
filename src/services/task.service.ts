@@ -1,6 +1,7 @@
 import { prisma } from '../config/db';
 import { getNextId } from '../utils/opendental-ids.util';
 import { NotFoundError, BadRequestError } from '../utils/error.util';
+import { getUsersMeta } from '../utils/opendental-auth.util';
 
 export function serializeBigInt<T>(obj: T): T {
   return JSON.parse(
@@ -49,6 +50,7 @@ export interface TaskFilters {
   limit?: number;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
+  isRepeating?: boolean;
 }
 
 export class TaskService {
@@ -71,21 +73,50 @@ export class TaskService {
   };
 
   /**
+   * Helper to map raw database fields to frontend-expected fields
+   */
+  private mapTaskOutput(task: any, userMetaMap?: Record<string, Record<string, any>>) {
+    if (!task) return task;
+    
+    const assignedUserRaw = task.userod;
+    const creatorRaw = task.tasknote && task.tasknote.length > 0 ? task.tasknote[0].userod : null;
+
+    const assignedMeta = assignedUserRaw && userMetaMap ? userMetaMap[assignedUserRaw.UserNum.toString()] : null;
+    const creatorMeta = creatorRaw && userMetaMap ? userMetaMap[creatorRaw.UserNum.toString()] : null;
+
+    return {
+      ...task,
+      assignedUser: assignedUserRaw ? { ...assignedUserRaw, firstName: assignedMeta?.firstName, lastName: assignedMeta?.lastName } : null,
+      creator: creatorRaw ? { ...creatorRaw, firstName: creatorMeta?.firstName, lastName: creatorMeta?.lastName } : null,
+    };
+  }
+
+  /**
    * Create a new task and optionally an initial comment
    */
   async createTask(data: CreateTaskInput, userId: string) {
     const taskNum = await getNextId('task', 'TaskNum');
 
-    const assignedUserNum = data.assignedTo
+    const assignedUserNumRaw = data.assignedTo
       ? BigInt(data.assignedTo)
       : userId
       ? BigInt(userId)
       : null;
+    const assignedUserNum = assignedUserNumRaw === 0n ? null : assignedUserNumRaw;
 
-    const keyNum = data.KeyNum ? BigInt(data.KeyNum) : null;
-    const taskListNum = data.TaskListNum ? BigInt(data.TaskListNum) : null;
-    const priorityDefNum = data.PriorityDefNum ? BigInt(data.PriorityDefNum) : null;
+    const keyNumRaw = data.KeyNum ? BigInt(data.KeyNum) : null;
+    const keyNum = keyNumRaw === 0n ? null : keyNumRaw;
+
+    const taskListNumRaw = data.TaskListNum ? BigInt(data.TaskListNum) : null;
+    const taskListNum = taskListNumRaw === 0n ? null : taskListNumRaw;
+
+    const priorityDefNumRaw = data.PriorityDefNum ? BigInt(data.PriorityDefNum) : null;
+    const priorityDefNum = priorityDefNumRaw === 0n ? null : priorityDefNumRaw;
+
     const dateTask = data.DateTask ? new Date(data.DateTask) : null;
+
+    console.log('[DEBUG createTask] taskListNum:', taskListNum, typeof taskListNum);
+    console.log('[DEBUG createTask] data:', data);
 
     const newTask = await prisma.task.create({
       data: {
@@ -105,18 +136,17 @@ export class TaskService {
       },
     });
 
-    if (data.comment && data.comment.trim()) {
-      const taskNoteNum = await getNextId('tasknote', 'TaskNoteNum');
-      await prisma.tasknote.create({
-        data: {
-          TaskNoteNum: taskNoteNum,
-          TaskNum: taskNum,
-          UserNum: userId ? BigInt(userId) : null,
-          DateTimeNote: new Date(),
-          Note: data.comment.trim(),
-        },
-      });
-    }
+    const initialNoteText = (data.comment && data.comment.trim()) ? data.comment.trim() : "Task created";
+    const taskNoteNum = await getNextId('tasknote', 'TaskNoteNum');
+    await prisma.tasknote.create({
+      data: {
+        TaskNoteNum: taskNoteNum,
+        TaskNum: taskNum,
+        UserNum: userId ? BigInt(userId) : null,
+        DateTimeNote: new Date(),
+        Note: initialNoteText,
+      },
+    });
 
     return this.getTaskById(newTask.TaskNum.toString());
   }
@@ -168,6 +198,15 @@ export class TaskService {
       }
     }
 
+    // Filter by IsRepeating
+    if (filters.isRepeating !== undefined) {
+      if (filters.isRepeating) {
+        where.IsRepeating = { gt: 0 };
+      } else {
+        where.IsRepeating = 0;
+      }
+    }
+
     const sortBy = filters.sortBy || 'DateTimeEntry';
     const sortOrder = filters.sortOrder || 'desc';
 
@@ -187,6 +226,16 @@ export class TaskService {
 
     const totalPages = Math.ceil(total / limit);
 
+    const userNumsToFetch = new Set<bigint>();
+    tasks.forEach(t => {
+      if (t.userod?.UserNum) userNumsToFetch.add(t.userod.UserNum);
+      if (t.tasknote?.[0]?.userod?.UserNum) userNumsToFetch.add(t.tasknote[0].userod.UserNum);
+    });
+    
+    const userMetaMap = await getUsersMeta(Array.from(userNumsToFetch));
+
+    return {
+      tasks: serializeBigInt(tasks.map(t => this.mapTaskOutput(t, userMetaMap))),
     return {
       tasks: serializeBigInt(tasks),
       pagination: {
@@ -212,7 +261,13 @@ export class TaskService {
       throw new NotFoundError(`Task with ID ${taskId} not found`);
     }
 
-    return serializeBigInt(task);
+    const userNumsToFetch = new Set<bigint>();
+    if (task.userod?.UserNum) userNumsToFetch.add(task.userod.UserNum);
+    if (task.tasknote?.[0]?.userod?.UserNum) userNumsToFetch.add(task.tasknote[0].userod.UserNum);
+    
+    const userMetaMap = await getUsersMeta(Array.from(userNumsToFetch));
+
+    return serializeBigInt(this.mapTaskOutput(task, userMetaMap));
   }
 
   /**
@@ -226,22 +281,47 @@ export class TaskService {
 
     if (data.Descript !== undefined) updateData.Descript = data.Descript;
     if (data.TaskListNum !== undefined) {
-      updateData.TaskListNum = data.TaskListNum ? BigInt(data.TaskListNum) : null;
+      if (data.TaskListNum === null || data.TaskListNum === '') {
+        updateData.TaskListNum = null;
+      } else {
+        const taskListNumRaw = BigInt(data.TaskListNum);
+        updateData.TaskListNum = taskListNumRaw === 0n ? null : taskListNumRaw;
+      }
     }
+
     if (data.PriorityDefNum !== undefined) {
-      updateData.PriorityDefNum = data.PriorityDefNum ? BigInt(data.PriorityDefNum) : null;
+      if (data.PriorityDefNum === null || data.PriorityDefNum === '') {
+        updateData.PriorityDefNum = null;
+      } else {
+        const priorityDefNumRaw = BigInt(data.PriorityDefNum);
+        updateData.PriorityDefNum = priorityDefNumRaw === 0n ? null : priorityDefNumRaw;
+      }
     }
+
     if (data.DateTask !== undefined) {
       updateData.DateTask = data.DateTask ? new Date(data.DateTask) : null;
     }
+
     if (data.KeyNum !== undefined) {
-      const keyNum = data.KeyNum ? BigInt(data.KeyNum) : null;
-      updateData.KeyNum = keyNum;
-      updateData.ObjectType = keyNum ? 1 : 0;
+      if (data.KeyNum === null || data.KeyNum === '') {
+        updateData.KeyNum = null;
+        updateData.ObjectType = 0;
+      } else {
+        const keyNumRaw = BigInt(data.KeyNum);
+        updateData.KeyNum = keyNumRaw === 0n ? null : keyNumRaw;
+        updateData.ObjectType = updateData.KeyNum ? 1 : 0;
+      }
     }
+
     if (data.assignedTo !== undefined) {
-      updateData.UserNum = data.assignedTo ? BigInt(data.assignedTo) : null;
+      if (data.assignedTo === null || data.assignedTo === '') {
+        updateData.UserNum = null;
+      } else {
+        const assignedUserNumRaw = BigInt(data.assignedTo);
+        updateData.UserNum = assignedUserNumRaw === 0n ? null : assignedUserNumRaw;
+      }
     }
+
     if (data.IsRepeating !== undefined) updateData.IsRepeating = data.IsRepeating;
     if (data.ReminderFrequency !== undefined) updateData.ReminderFrequency = data.ReminderFrequency;
     if (data.ReminderType !== undefined) updateData.ReminderType = data.ReminderType;
@@ -332,6 +412,15 @@ export class TaskService {
     });
 
     return this.getTaskById(taskId);
+  }
+  /**
+   * Get all task lists
+   */
+  async getTaskLists() {
+    const taskLists = await prisma.tasklist.findMany({
+      orderBy: { Descript: 'asc' },
+    });
+    return serializeBigInt(taskLists);
   }
 }
 
