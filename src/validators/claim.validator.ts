@@ -99,6 +99,17 @@ export const updateClaimValidator: ValidationChain[] = [
   body('deniedDate').optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage('deniedDate must be a valid date'),
   body('denialReason').optional({ nullable: true }).isString().withMessage('denialReason must be a string'),
   body('paidDate').optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage('paidDate must be a valid date'),
+  body('delayReasonCode').optional({ nullable: true }).isString().withMessage('delayReasonCode must be a string'),
+  body('attachmentTransmissionCode').optional({ nullable: true }).isString().withMessage('attachmentTransmissionCode must be a string'),
+  body('attachmentType').optional({ nullable: true }).isString().withMessage('attachmentType must be a string'),
+  body('predeterminationNumber').optional({ nullable: true }).isString().withMessage('predeterminationNumber must be a string'),
+  body('accidentDate').optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage('accidentDate must be a valid date'),
+  body('diagnosticCode').optional({ nullable: true }).isString().withMessage('diagnosticCode must be a string'),
+  body('clearingHouseMessage').optional({ nullable: true }).isString().withMessage('clearingHouseMessage must be a string'),
+  body('subscriber').optional({ nullable: true }).isString().withMessage('subscriber must be a string'),
+  body('planName').optional({ nullable: true }).isString().withMessage('planName must be a string'),
+  body('treatingProvider').optional({ nullable: true }).isString().withMessage('treatingProvider must be a string'),
+  body('description').optional({ nullable: true }).isString().withMessage('description must be a string'),
 ];
 
 export const resubmitClaimValidator: ValidationChain[] = [

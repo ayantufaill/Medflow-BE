@@ -55,6 +55,17 @@ type ClaimMeta = {
   providerSignature?: string;
   patientSignature?: string;
   eobs?: { id: string; filename: string; storagePath: string; uploadedAt: string; size: string; url?: string }[];
+  delayReasonCode?: string;
+  attachmentTransmissionCode?: string;
+  attachmentType?: string;
+  predeterminationNumber?: string;
+  accidentDate?: string;
+  diagnosticCode?: string;
+  clearingHouseMessage?: string;
+  subscriber?: string;
+  planName?: string;
+  treatingProviderName?: string;
+  description?: string;
 };
 
 type ClaimFilters = {
@@ -370,6 +381,17 @@ export class ClaimService {
       providerSignature: meta.providerSignature ?? null,
       patientSignature: meta.patientSignature ?? null,
       eobs: meta.eobs || [],
+      delayReasonCode: meta.delayReasonCode ?? null,
+      attachmentTransmissionCode: meta.attachmentTransmissionCode ?? null,
+      attachmentType: meta.attachmentType ?? null,
+      predeterminationNumber: meta.predeterminationNumber ?? row.PriorAuthorizationNumber ?? null,
+      accidentDate: meta.accidentDate ?? (row.DateIllnessInjuryPreg ? row.DateIllnessInjuryPreg.toISOString() : null),
+      diagnosticCode: meta.diagnosticCode ?? null,
+      clearingHouseMessage: meta.clearingHouseMessage ?? meta.denialReason ?? row.ReasonUnderPaid ?? null,
+      subscriber: meta.subscriber ?? null,
+      planName: meta.planName ?? null,
+      treatingProviderName: meta.treatingProviderName ?? null,
+      description: meta.description ?? null,
     };
   }
 
@@ -1250,6 +1272,17 @@ export class ClaimService {
       corrections: Record<string, unknown>;
       providerSignature: string;
       patientSignature: string;
+      delayReasonCode: string;
+      attachmentTransmissionCode: string;
+      attachmentType: string;
+      predeterminationNumber: string;
+      accidentDate: string;
+      diagnosticCode: string;
+      clearingHouseMessage: string;
+      subscriber: string;
+      planName: string;
+      treatingProviderName: string;
+      description: string;
     }>,
     userId?: string
   ) {
@@ -1277,6 +1310,17 @@ export class ClaimService {
       providerSignature: updates.providerSignature ?? currentMeta.providerSignature,
       patientSignature: updates.patientSignature ?? currentMeta.patientSignature,
       notes: updates.notes ?? currentMeta.notes,
+      delayReasonCode: updates.delayReasonCode ?? currentMeta.delayReasonCode,
+      attachmentTransmissionCode: updates.attachmentTransmissionCode ?? currentMeta.attachmentTransmissionCode,
+      attachmentType: updates.attachmentType ?? currentMeta.attachmentType,
+      predeterminationNumber: updates.predeterminationNumber ?? currentMeta.predeterminationNumber,
+      accidentDate: updates.accidentDate ?? currentMeta.accidentDate,
+      diagnosticCode: updates.diagnosticCode ?? currentMeta.diagnosticCode,
+      clearingHouseMessage: updates.clearingHouseMessage ?? currentMeta.clearingHouseMessage,
+      subscriber: updates.subscriber ?? currentMeta.subscriber,
+      planName: updates.planName ?? currentMeta.planName,
+      treatingProviderName: updates.treatingProviderName ?? currentMeta.treatingProviderName,
+      description: updates.description ?? currentMeta.description,
       submissionDate:
         updates.submissionDate !== undefined
           ? updates.submissionDate.toISOString()
@@ -1313,6 +1357,7 @@ export class ClaimService {
         InsPayEst: updates.submittedAmount ?? undefined,
         InsPayAmt: updates.paidAmount ?? undefined,
         DedApplied: updates.patientResponsibility ?? undefined,
+        PriorAuthorizationNumber: updates.predeterminationNumber ?? undefined,
         DateSent: nextMeta.submissionDate ? new Date(nextMeta.submissionDate) : existing.DateSent,
         DateReceived: nextStatus === 'paid' || nextStatus === 'partial'
           ? (nextMeta.paidDate ? new Date(nextMeta.paidDate) : new Date())

@@ -137,10 +137,20 @@ export class ClaimController {
                 ? new Date(req.body.deniedDate)
                 : undefined,
           denialReason: req.body.denialReason,
-          paidDate: req.body.paidDate ? new Date(req.body.paidDate) : undefined,
           corrections: req.body.corrections,
           providerSignature: req.body.providerSignature,
           patientSignature: req.body.patientSignature,
+          delayReasonCode: req.body.delayReasonCode,
+          attachmentTransmissionCode: req.body.attachmentTransmissionCode,
+          attachmentType: req.body.attachmentType,
+          predeterminationNumber: req.body.predeterminationNumber,
+          accidentDate: req.body.accidentDate,
+          diagnosticCode: req.body.diagnosticCode,
+          clearingHouseMessage: req.body.clearingHouseMessage,
+          subscriber: req.body.subscriber,
+          planName: req.body.planName,
+          treatingProviderName: req.body.treatingProvider || req.body.treatingProviderName,
+          description: req.body.description,
         },
         req.userId
       );
