@@ -568,7 +568,7 @@ export class InvoiceService {
 
   private async batchResolveProviders(providerIds: (string | null | undefined)[]) {
     const validIds = Array.from(
-      new Set(providerIds.filter((id): id is string => Boolean(id) && /^\d+$/.test(id)))
+      new Set(providerIds.filter((id): id is string => typeof id === 'string' && /^\d+$/.test(id)))
     );
     if (validIds.length === 0) return new Map<string, any>();
 
@@ -581,7 +581,7 @@ export class InvoiceService {
       new Set(
         providers
           .map((p) => p.CustomID)
-          .filter((id): id is string => Boolean(id) && /^\d+$/.test(id))
+          .filter((id): id is string => typeof id === 'string' && /^\d+$/.test(id))
       )
     );
 
@@ -614,7 +614,7 @@ export class InvoiceService {
 
   private async batchResolveInsuranceCompanies(insuranceCompanyIds: (string | null | undefined)[]) {
     const validIds = Array.from(
-      new Set(insuranceCompanyIds.filter((id): id is string => Boolean(id) && /^\d+$/.test(id)))
+      new Set(insuranceCompanyIds.filter((id): id is string => typeof id === 'string' && /^\d+$/.test(id)))
     );
     if (validIds.length === 0) return new Map<string, any>();
 
@@ -762,9 +762,9 @@ export class InvoiceService {
       return this.mapStatementToInvoice(row, meta);
     });
 
-    const uniquePatientIds = [...new Set(mappedInvoices.map((i) => i.patientId).filter((id): id is string => Boolean(id) && /^\d+$/.test(id)))];
-    const uniqueProviderIds = [...new Set(mappedInvoices.map((i) => i.providerId).filter((id): id is string => Boolean(id) && /^\d+$/.test(id)))];
-    const uniqueInsuranceIds = [...new Set(mappedInvoices.map((i) => i.insuranceCompanyId).filter((id): id is string => Boolean(id) && /^\d+$/.test(id)))];
+    const uniquePatientIds = [...new Set(mappedInvoices.map((i) => i.patientId).filter((id): id is string => typeof id === 'string' && /^\d+$/.test(id)))];
+    const uniqueProviderIds = [...new Set(mappedInvoices.map((i) => i.providerId).filter((id): id is string => typeof id === 'string' && /^\d+$/.test(id)))];
+    const uniqueInsuranceIds = [...new Set(mappedInvoices.map((i) => i.insuranceCompanyId).filter((id): id is string => typeof id === 'string' && /^\d+$/.test(id)))];
 
     const [patients, providerMap, insuranceCompanyMap] = await Promise.all([
       uniquePatientIds.length
@@ -1591,8 +1591,8 @@ export class InvoiceService {
     });
 
     const statementNums = invoiceRows.map((r) => r.StatementNum);
-    const providerIds = [...new Set(statementMetas.map((s) => s.meta.providerId).filter((id): id is string => Boolean(id) && /^\d+$/.test(id)))];
-    const insuranceCompanyIds = [...new Set(statementMetas.map((s) => s.meta.insuranceCompanyId).filter((id): id is string => Boolean(id) && /^\d+$/.test(id)))];
+    const providerIds = [...new Set(statementMetas.map((s) => s.meta.providerId).filter((id): id is string => typeof id === 'string' && /^\d+$/.test(id)))];
+    const insuranceCompanyIds = [...new Set(statementMetas.map((s) => s.meta.insuranceCompanyId).filter((id): id is string => typeof id === 'string' && /^\d+$/.test(id)))];
 
     const [providerMap, insuranceCompanyMap, itemsByStatementMap] = await Promise.all([
       this.batchResolveProviders(providerIds),

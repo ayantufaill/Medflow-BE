@@ -66,6 +66,8 @@ type ClaimMeta = {
   planName?: string;
   treatingProviderName?: string;
   description?: string;
+  claimSubmissionReasonCode?: string;
+  serviceAuthExceptionCode?: string;
 };
 
 type ClaimFilters = {
@@ -1283,6 +1285,8 @@ export class ClaimService {
       planName: string;
       treatingProviderName: string;
       description: string;
+      claimSubmissionReasonCode: string;
+      serviceAuthExceptionCode: string;
     }>,
     userId?: string
   ) {
