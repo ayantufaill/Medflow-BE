@@ -151,6 +151,8 @@ export class ClaimController {
           planName: req.body.planName,
           treatingProviderName: req.body.treatingProvider || req.body.treatingProviderName,
           description: req.body.description,
+          claimSubmissionReasonCode: req.body.claimSubmissionReasonCode,
+          serviceAuthExceptionCode: req.body.serviceAuthExceptionCode,
         },
         req.userId
       );
