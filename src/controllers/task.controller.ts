@@ -33,6 +33,7 @@ export class TaskController {
       const createdDateTo = req.query.createdDateTo as string | undefined;
       const sortBy = req.query.sortBy as string | undefined;
       const sortOrder = req.query.sortOrder as 'asc' | 'desc' | undefined;
+      const isRepeating = req.query.isRepeating !== undefined ? req.query.isRepeating === 'true' : undefined;
 
       const filters = {
         page,
@@ -44,6 +45,7 @@ export class TaskController {
         createdDateTo,
         sortBy,
         sortOrder,
+        isRepeating,
       };
 
       const result = await taskService.getAllTasks(filters);
@@ -158,6 +160,17 @@ export class TaskController {
         success: true,
         data: { task },
         message: 'Task status updated successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+  async getTaskLists(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await taskService.getTaskLists();
+      res.status(200).json({
+        success: true,
+        data: result,
       });
     } catch (error) {
       next(error);

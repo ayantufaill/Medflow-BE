@@ -65,9 +65,12 @@ import coverageGroupRoutes from './coverage-group.routes';
 import formTemplateRoutes from './form-template.routes';
 import publicBookingRoutes from './public-booking.routes';
 import taskRoutes from './task.routes';
+import timeclockRoutes from './timeclock.routes';
 
 const router = Router();
 router.use('/coverage-groups', coverageGroupRoutes);
+router.use('/timeclock', timeclockRoutes);
+
 
 
 
