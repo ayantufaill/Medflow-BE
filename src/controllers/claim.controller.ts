@@ -428,11 +428,16 @@ export class ClaimController {
         });
       }
 
+      const filename = req.body.filename || req.body.fileName;
+      const remittanceDate = req.body.remittanceDate || req.body.remittance_date;
+
       const result = await claimService.uploadEOB(
         paymentId,
         uploadedFile,
         req.body.description,
-        req.userId
+        req.userId,
+        filename,
+        remittanceDate
       );
 
       res.status(200).json({
@@ -486,11 +491,16 @@ export class ClaimController {
         });
       }
 
+      const claimFilename = req.body.filename || req.body.fileName;
+      const claimRemittanceDate = req.body.remittanceDate || req.body.remittance_date;
+
       const result = await claimService.uploadClaimEOB(
         claimId,
         uploadedFile,
         req.body.description,
-        req.userId
+        req.userId,
+        claimFilename,
+        claimRemittanceDate
       );
 
       res.status(200).json({
