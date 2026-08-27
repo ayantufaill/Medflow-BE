@@ -236,6 +236,8 @@ export class TaskService {
 
     return {
       tasks: serializeBigInt(tasks.map(t => this.mapTaskOutput(t, userMetaMap))),
+    return {
+      tasks: serializeBigInt(tasks),
       pagination: {
         page,
         limit,
