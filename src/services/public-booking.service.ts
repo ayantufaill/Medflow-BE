@@ -53,18 +53,23 @@ export class PublicBookingService {
    * RLS-scoped), but patient/provider-clinic/appointment reads inside
    * getAvailableSlots and createAppointment are — a public request has no
    * per-user tenant context, so without this RLS would silently hide the
-   * real provider schedule (only unscoped rows would be visible). Scoped
-   * narrowly to the caller's own requested branch, not '*' — a public,
-   * unauthenticated caller shouldn't get the same everything-visible
-   * bypass a trusted internal script does.
+   * real provider schedule (only unscoped rows would be visible). clinicIds
+   * is scoped narrowly to the caller's own requested branch, not '*' — a
+   * public, unauthenticated caller shouldn't get the same everything-visible
+   * bypass a trusted internal script does. patientGroupId is the requested
+   * branch's own group (or '*' if that branch isn't linked to a group) —
+   * matches every other caller's group-wide patient read-visibility, not
+   * narrower, since a guest booking's duplicate-patient check should find
+   * the same sibling-branch matches an authenticated front-desk user would.
    */
   async getPublicAvailableSlots(branchId: string, providerId: string, appointmentTypeId: string, date: string) {
-    await assertBranchExists(branchId);
+    const branch = await assertBranchExists(branchId);
+    const patientGroupId: number | '*' = branch.GroupNum ?? '*';
 
     // Validation (providerclinic lookup) and the actual query both touch
     // RLS-scoped tables, so both must run inside the same tenant context —
     // splitting them was the exact bug this comment used to warn about.
-    return tenantContextStorage.run({ clinicIds: [BigInt(branchId)] }, async () => {
+    return tenantContextStorage.run({ clinicIds: [BigInt(branchId)], patientGroupId }, async () => {
       await assertProviderAcceptsAtBranch(providerId, branchId);
       const durationMinutes = await resolveDuration(appointmentTypeId);
       return appointmentService.getAvailableSlots(providerId, date, durationMinutes);
@@ -84,13 +89,14 @@ export class PublicBookingService {
     phone?: string;
     email?: string;
   }) {
-    await assertBranchExists(data.branchId);
+    const branch = await assertBranchExists(data.branchId);
+    const patientGroupId: number | '*' = branch.GroupNum ?? '*';
 
     // Validation, availability check, patient dedup/creation, and the
     // appointment write all touch RLS-scoped tables, so all of it runs
     // inside one tenant context — see getPublicAvailableSlots above for why
     // splitting this was a real bug, not just tidiness.
-    return tenantContextStorage.run({ clinicIds: [BigInt(data.branchId)] }, async () => {
+    return tenantContextStorage.run({ clinicIds: [BigInt(data.branchId)], patientGroupId }, async () => {
       await assertProviderAcceptsAtBranch(data.providerId, data.branchId);
       const durationMinutes = await resolveDuration(data.appointmentTypeId);
 

@@ -566,6 +566,110 @@ export class InvoiceService {
     };
   }
 
+  private async batchResolveProviders(providerIds: (string | null | undefined)[]) {
+    const validIds = Array.from(
+      new Set(providerIds.filter((id): id is string => Boolean(id) && /^\d+$/.test(id)))
+    );
+    if (validIds.length === 0) return new Map<string, any>();
+
+    const providers = await prisma.provider.findMany({
+      where: { ProvNum: { in: validIds.map((id) => BigInt(id)) } },
+      include: { definition: true },
+    });
+
+    const userIds = Array.from(
+      new Set(
+        providers
+          .map((p) => p.CustomID)
+          .filter((id): id is string => Boolean(id) && /^\d+$/.test(id))
+      )
+    );
+
+    const users = userIds.length
+      ? await prisma.userod.findMany({
+          where: { UserNum: { in: userIds.map((id) => BigInt(id)) } },
+        })
+      : [];
+    const userMap = new Map(users.map((u) => [u.UserNum.toString(), u]));
+
+    const providerMap = new Map<string, any>();
+    for (const p of providers) {
+      const linkedUser = p.CustomID ? userMap.get(p.CustomID) : null;
+      const mapped = mapProviderToApi(p, {
+        specialtyName: p.definition?.ItemName ?? null,
+        userId: p.CustomID ?? null,
+        user: linkedUser
+          ? {
+              _id: linkedUser.UserNum.toString(),
+              firstName: linkedUser.UserName ?? '',
+              lastName: '',
+              email: null,
+            }
+          : null,
+      });
+      providerMap.set(p.ProvNum.toString(), mapped);
+    }
+    return providerMap;
+  }
+
+  private async batchResolveInsuranceCompanies(insuranceCompanyIds: (string | null | undefined)[]) {
+    const validIds = Array.from(
+      new Set(insuranceCompanyIds.filter((id): id is string => Boolean(id) && /^\d+$/.test(id)))
+    );
+    if (validIds.length === 0) return new Map<string, any>();
+
+    const carriers = await prisma.carrier.findMany({
+      where: { CarrierNum: { in: validIds.map((id) => BigInt(id)) } },
+    });
+
+    const carrierMap = new Map<string, any>();
+    for (const c of carriers) {
+      carrierMap.set(c.CarrierNum.toString(), {
+        _id: c.CarrierNum.toString(),
+        name: c.CarrierName ?? '',
+        payerId: c.ElectID ?? null,
+      });
+    }
+    return carrierMap;
+  }
+
+  private async batchGetInvoiceItems(statementNums: bigint[]) {
+    if (statementNums.length === 0) return new Map<string, any[]>();
+
+    const items = await prisma.procedurelog.findMany({
+      where: { StatementNum: { in: statementNums } },
+      orderBy: { ProcNum: 'asc' },
+    });
+
+    const codeNums = Array.from(
+      new Set(
+        items
+          .map((item) => item.CodeNum)
+          .filter((codeNum): codeNum is bigint => codeNum !== null && codeNum !== undefined)
+      )
+    );
+
+    const codes = codeNums.length
+      ? await prisma.procedurecode.findMany({ where: { CodeNum: { in: codeNums } } })
+      : [];
+    const codeMap = new Map(codes.map((code) => [code.CodeNum?.toString(), code]));
+
+    const itemsByStatementMap = new Map<string, any[]>();
+    for (const item of items) {
+      if (!item.StatementNum) continue;
+      const stmtKey = item.StatementNum.toString();
+      const mapped = this.mapProcedureLogToInvoiceItem(
+        item,
+        stmtKey,
+        item.CodeNum ? codeMap.get(item.CodeNum.toString()) : null
+      );
+      const list = itemsByStatementMap.get(stmtKey) || [];
+      list.push(mapped);
+      itemsByStatementMap.set(stmtKey, list);
+    }
+    return itemsByStatementMap;
+  }
+
   private async getStatementById(statementId: string) {
     const statementNum = toBigInt(statementId);
     if (!statementNum) return null;
@@ -653,27 +757,31 @@ export class InvoiceService {
       prisma.statement.count({ where }),
     ]);
 
-    let invoices = rows.map((row) => {
+    const mappedInvoices = rows.map((row) => {
       const meta = parseJson<StatementMeta>(row.NoteBold);
       return this.mapStatementToInvoice(row, meta);
     });
 
-    const uniquePatientIds = [...new Set(invoices.map(i => i.patientId).filter(id => id && /^\d+$/.test(id!)))];
-    const patients = uniquePatientIds.length 
-      ? await prisma.patient.findMany({ where: { PatNum: { in: uniquePatientIds.map(id => BigInt(id!)) } } })
-      : [];
-    const patientMap = new Map(patients.map(p => [p.PatNum.toString(), p]));
+    const uniquePatientIds = [...new Set(mappedInvoices.map((i) => i.patientId).filter((id): id is string => Boolean(id) && /^\d+$/.test(id)))];
+    const uniqueProviderIds = [...new Set(mappedInvoices.map((i) => i.providerId).filter((id): id is string => Boolean(id) && /^\d+$/.test(id)))];
+    const uniqueInsuranceIds = [...new Set(mappedInvoices.map((i) => i.insuranceCompanyId).filter((id): id is string => Boolean(id) && /^\d+$/.test(id)))];
 
-    invoices = await Promise.all(
-      invoices.map(async (invoice) => {
-        const patient = invoice.patientId ? patientMap.get(invoice.patientId) : null;
-        const [provider, insuranceCompany] = await Promise.all([
-          this.resolveProvider(invoice.providerId ?? null),
-          this.resolveInsuranceCompany(invoice.insuranceCompanyId ?? null),
-        ]);
-        return { ...invoice, patient: patient ? mapPatientToApi(patient) : null, provider, insuranceCompany };
-      })
-    );
+    const [patients, providerMap, insuranceCompanyMap] = await Promise.all([
+      uniquePatientIds.length
+        ? prisma.patient.findMany({ where: { PatNum: { in: uniquePatientIds.map((id) => BigInt(id)) } } })
+        : [],
+      this.batchResolveProviders(uniqueProviderIds),
+      this.batchResolveInsuranceCompanies(uniqueInsuranceIds),
+    ]);
+
+    const patientMap = new Map(patients.map((p) => [p.PatNum.toString(), p]));
+
+    let invoices = mappedInvoices.map((invoice) => {
+      const patient = invoice.patientId ? patientMap.get(invoice.patientId) : null;
+      const provider = invoice.providerId ? providerMap.get(invoice.providerId) ?? null : null;
+      const insuranceCompany = invoice.insuranceCompanyId ? insuranceCompanyMap.get(invoice.insuranceCompanyId) ?? null : null;
+      return { ...invoice, patient: patient ? mapPatientToApi(patient) : null, provider, insuranceCompany };
+    });
 
     if (filters.appointmentId || filters.providerId || filters.insuranceCompanyId) {
       invoices = invoices.filter((invoice) => {
@@ -1476,27 +1584,40 @@ export class InvoiceService {
     const patientRow = await prisma.patient.findUnique({ where: { PatNum: BigInt(patientId) } });
     const mappedPatient = patientRow ? mapPatientToApi(patientRow) : null;
 
-    const invoices = await Promise.all(
-      invoiceRows.map(async (row) => {
-        const meta = parseJson<StatementMeta>(row.NoteBold);
-        const [provider, insuranceCompany, items] = await Promise.all([
-          this.resolveProvider(meta.providerId ?? null),
-          this.resolveInsuranceCompany(meta.insuranceCompanyId ?? null),
-          this.getInvoiceItems(row.StatementNum),
-        ]);
-        return {
-          ...this.mapStatementToInvoice(row, meta),
-          patient: mappedPatient,
-          provider,
-          insuranceCompany,
-          lineItems: items,
-        };
-      })
-    );
+    const statementMetas = invoiceRows.map((row) => {
+      const meta = parseJson<StatementMeta>(row.NoteBold);
+      const mapped = this.mapStatementToInvoice(row, meta);
+      return { row, meta, mapped };
+    });
 
-    const adjustmentsResult = await adjustmentService.getAdjustmentsByPatient(patientId, 1, 1000);
-    const paymentsResult = await paymentService.getPaymentsByPatient(patientId, 1, 1000);
-    const claimsResult = await claimService.getAllClaims(1, 1000, { patientId });
+    const statementNums = invoiceRows.map((r) => r.StatementNum);
+    const providerIds = [...new Set(statementMetas.map((s) => s.meta.providerId).filter((id): id is string => Boolean(id) && /^\d+$/.test(id)))];
+    const insuranceCompanyIds = [...new Set(statementMetas.map((s) => s.meta.insuranceCompanyId).filter((id): id is string => Boolean(id) && /^\d+$/.test(id)))];
+
+    const [providerMap, insuranceCompanyMap, itemsByStatementMap] = await Promise.all([
+      this.batchResolveProviders(providerIds),
+      this.batchResolveInsuranceCompanies(insuranceCompanyIds),
+      this.batchGetInvoiceItems(statementNums),
+    ]);
+
+    const invoices = statementMetas.map(({ row, meta, mapped }) => {
+      const provider = meta.providerId ? providerMap.get(meta.providerId) ?? null : null;
+      const insuranceCompany = meta.insuranceCompanyId ? insuranceCompanyMap.get(meta.insuranceCompanyId) ?? null : null;
+      const items = itemsByStatementMap.get(row.StatementNum.toString()) || [];
+      return {
+        ...mapped,
+        patient: mappedPatient,
+        provider,
+        insuranceCompany,
+        lineItems: items,
+      };
+    });
+
+    const [adjustmentsResult, paymentsResult, claimsResult] = await Promise.all([
+      adjustmentService.getAdjustmentsByPatient(patientId, 1, 1000),
+      paymentService.getPaymentsByPatient(patientId, 1, 1000),
+      claimService.getAllClaims(1, 1000, { patientId }),
+    ]);
 
     return {
       invoices,

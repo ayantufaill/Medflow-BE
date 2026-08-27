@@ -54,7 +54,18 @@ type ClaimMeta = {
   isHidden?: boolean;
   providerSignature?: string;
   patientSignature?: string;
-  eobs?: { id: string; filename: string; storagePath: string; uploadedAt: string; size: string; url?: string }[];
+  eobs?: { id: string; filename: string; storagePath: string; uploadedAt: string; size: string; url?: string; remittanceDate?: string }[];
+  delayReasonCode?: string;
+  attachmentTransmissionCode?: string;
+  attachmentType?: string;
+  predeterminationNumber?: string;
+  accidentDate?: string;
+  diagnosticCode?: string;
+  clearingHouseMessage?: string;
+  subscriber?: string;
+  planName?: string;
+  treatingProviderName?: string;
+  description?: string;
 };
 
 type ClaimFilters = {
@@ -370,6 +381,17 @@ export class ClaimService {
       providerSignature: meta.providerSignature ?? null,
       patientSignature: meta.patientSignature ?? null,
       eobs: meta.eobs || [],
+      delayReasonCode: meta.delayReasonCode ?? null,
+      attachmentTransmissionCode: meta.attachmentTransmissionCode ?? null,
+      attachmentType: meta.attachmentType ?? null,
+      predeterminationNumber: meta.predeterminationNumber ?? row.PriorAuthorizationNumber ?? null,
+      accidentDate: meta.accidentDate ?? (row.DateIllnessInjuryPreg ? row.DateIllnessInjuryPreg.toISOString() : null),
+      diagnosticCode: meta.diagnosticCode ?? null,
+      clearingHouseMessage: meta.clearingHouseMessage ?? meta.denialReason ?? row.ReasonUnderPaid ?? null,
+      subscriber: meta.subscriber ?? null,
+      planName: meta.planName ?? null,
+      treatingProviderName: meta.treatingProviderName ?? null,
+      description: meta.description ?? null,
     };
   }
 
@@ -1250,6 +1272,17 @@ export class ClaimService {
       corrections: Record<string, unknown>;
       providerSignature: string;
       patientSignature: string;
+      delayReasonCode: string;
+      attachmentTransmissionCode: string;
+      attachmentType: string;
+      predeterminationNumber: string;
+      accidentDate: string;
+      diagnosticCode: string;
+      clearingHouseMessage: string;
+      subscriber: string;
+      planName: string;
+      treatingProviderName: string;
+      description: string;
     }>,
     userId?: string
   ) {
@@ -1277,6 +1310,17 @@ export class ClaimService {
       providerSignature: updates.providerSignature ?? currentMeta.providerSignature,
       patientSignature: updates.patientSignature ?? currentMeta.patientSignature,
       notes: updates.notes ?? currentMeta.notes,
+      delayReasonCode: updates.delayReasonCode ?? currentMeta.delayReasonCode,
+      attachmentTransmissionCode: updates.attachmentTransmissionCode ?? currentMeta.attachmentTransmissionCode,
+      attachmentType: updates.attachmentType ?? currentMeta.attachmentType,
+      predeterminationNumber: updates.predeterminationNumber ?? currentMeta.predeterminationNumber,
+      accidentDate: updates.accidentDate ?? currentMeta.accidentDate,
+      diagnosticCode: updates.diagnosticCode ?? currentMeta.diagnosticCode,
+      clearingHouseMessage: updates.clearingHouseMessage ?? currentMeta.clearingHouseMessage,
+      subscriber: updates.subscriber ?? currentMeta.subscriber,
+      planName: updates.planName ?? currentMeta.planName,
+      treatingProviderName: updates.treatingProviderName ?? currentMeta.treatingProviderName,
+      description: updates.description ?? currentMeta.description,
       submissionDate:
         updates.submissionDate !== undefined
           ? updates.submissionDate.toISOString()
@@ -1313,6 +1357,7 @@ export class ClaimService {
         InsPayEst: updates.submittedAmount ?? undefined,
         InsPayAmt: updates.paidAmount ?? undefined,
         DedApplied: updates.patientResponsibility ?? undefined,
+        PriorAuthorizationNumber: updates.predeterminationNumber ?? undefined,
         DateSent: nextMeta.submissionDate ? new Date(nextMeta.submissionDate) : existing.DateSent,
         DateReceived: nextStatus === 'paid' || nextStatus === 'partial'
           ? (nextMeta.paidDate ? new Date(nextMeta.paidDate) : new Date())
@@ -1983,7 +2028,14 @@ export class ClaimService {
     };
   }
 
-  async uploadEOB(paymentId: string, file: Express.Multer.File, description?: string, userId?: string) {
+  async uploadEOB(
+    paymentId: string,
+    file: Express.Multer.File,
+    description?: string,
+    userId?: string,
+    filename?: string,
+    remittanceDate?: string
+  ) {
     const doc = await prisma.document.findUnique({
       where: { DocNum: BigInt(paymentId) },
     });
@@ -1996,12 +2048,15 @@ export class ClaimService {
     const meta = parseJson<any>(doc.Note);
     meta.eobs = meta.eobs || [];
     
-    const newEob = {
+    const finalFilename = filename?.trim() || file.originalname;
+
+    const newEob: any = {
       id: `eob-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      filename: file.originalname,
+      filename: finalFilename,
       storagePath,
       uploadedAt: new Date().toISOString(),
       size: `${Math.round(file.size / 1024)} KB`,
+      ...(remittanceDate ? { remittanceDate } : {}),
     };
     
     meta.eobs.push(newEob);
@@ -2010,7 +2065,7 @@ export class ClaimService {
       where: { DocNum: doc.DocNum },
       data: {
         FileName: storagePath,
-        Description: file.originalname,
+        Description: finalFilename,
         Note: JSON.stringify(meta),
       },
     });
@@ -2042,7 +2097,14 @@ export class ClaimService {
     return { message: 'EOB deleted successfully', eobs: meta.eobs || [] };
   }
 
-  async uploadClaimEOB(claimId: string, file: Express.Multer.File, description?: string, userId?: string) {
+  async uploadClaimEOB(
+    claimId: string,
+    file: Express.Multer.File,
+    description?: string,
+    userId?: string,
+    filename?: string,
+    remittanceDate?: string
+  ) {
     const claim = await prisma.claim.findUnique({
       where: { ClaimNum: BigInt(claimId) },
     });
@@ -2055,12 +2117,15 @@ export class ClaimService {
     const meta = parseJson<ClaimMeta>(claim.Narrative);
     meta.eobs = meta.eobs || [];
 
-    const newEob = {
+    const finalFilename = filename?.trim() || file.originalname;
+
+    const newEob: any = {
       id: `eob-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      filename: file.originalname,
+      filename: finalFilename,
       storagePath,
       uploadedAt: new Date().toISOString(),
       size: `${Math.round(file.size / 1024)} KB`,
+      ...(remittanceDate ? { remittanceDate } : {}),
     };
 
     meta.eobs.push(newEob);
@@ -2892,6 +2957,57 @@ private mapClaimStatus(status: string | null): string {
     }
 
     return this.getClaimById(newClaimNum.toString());
+
+  async linkAttachments(
+    claimId: string,
+    attachments: { filename: string; storagePath: string }[],
+    userId?: string
+  ) {
+    const claim = await this.getClaimRecord(claimId);
+    const createdAttachments = [];
+
+    for (const att of attachments) {
+      const filename = att.filename || 'EOB.pdf';
+      const storagePath = att.storagePath;
+      if (!storagePath) continue;
+
+      // 1. Save to claimattach
+      const claimAttachNum = await getNextId('claimattach', 'ClaimAttachNum');
+      await prisma.claimattach.create({
+        data: {
+          ClaimAttachNum: claimAttachNum,
+          ClaimNum: claim.ClaimNum,
+          DisplayedFileName: filename,
+          ActualFileName: storagePath,
+          ImageReferenceId: 0,
+        },
+      });
+
+      // 2. Save to document for document list consistency
+      const docNum = await getNextId('document', 'DocNum');
+      const meta = {
+        claimId,
+        documentType: 'claim_attachment',
+        description: null,
+        storagePath,
+        uploadedBy: userId ?? null,
+      };
+
+      const createdDoc = await prisma.document.create({
+        data: {
+          DocNum: docNum,
+          PatNum: claim.PatNum,
+          Description: filename,
+          FileName: storagePath,
+          Note: buildJson(meta),
+          DateCreated: new Date(),
+        },
+      });
+
+      createdAttachments.push(mapDocument(createdDoc, claimId));
+    }
+
+    return createdAttachments;
   }
 }
 

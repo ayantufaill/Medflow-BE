@@ -1,5 +1,37 @@
 import swaggerJsdoc from 'swagger-jsdoc';
 
+const getServers = () => {
+  const servers = [
+    {
+      url: '/api',
+      description: 'Current Server (Auto-detected)'
+    }
+  ];
+
+  if (process.env.API_BASE_URL) {
+    const baseUrl = process.env.API_BASE_URL.replace(/\/$/, '');
+    const apiUrl = baseUrl.endsWith('/api') ? baseUrl : `${baseUrl}/api`;
+    servers.unshift({
+      url: apiUrl,
+      description: 'Production Server'
+    });
+  }
+
+  if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+    servers.unshift({
+      url: `https://${process.env.RAILWAY_PUBLIC_DOMAIN}/api`,
+      description: 'Railway Server'
+    });
+  }
+
+  servers.push({
+    url: 'http://localhost:5001/api',
+    description: 'Local Development Server'
+  });
+
+  return servers;
+};
+
 const swaggerOptions = {
   definition: {
     openapi: '3.0.0',
@@ -12,12 +44,7 @@ const swaggerOptions = {
         email: 'support@medflow.com'
       }
     },
-    servers: [
-      {
-        url: 'http://localhost:5001/api',
-        description: 'Local Development Server'
-      }
-    ],
+    servers: getServers(),
     tags: [
       { name: 'Adjustments' },
       { name: 'Admin Finance', description: 'Administrative configurations for adjustments, payments, terminals, and automation' },

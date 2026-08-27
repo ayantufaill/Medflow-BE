@@ -481,6 +481,8 @@ router.post(
  *     responses:
  *       200:
  *         description: Form updated
+ *       409:
+ *         description: Form is a signed consent record (signature field present) and can no longer be edited
  */
 router.put(
   '/forms/:formId',
@@ -603,7 +605,7 @@ router.put(
  */
 router.get(
   '/provider/messages/threads',
-  requireRoles('Provider', 'Doctor', 'Admin'),
+  requireRoles('Provider', 'Admin'),
   portalController.getProviderMessageThreads.bind(portalController)
 );
 
@@ -626,7 +628,7 @@ router.get(
  */
 router.get(
   '/provider/messages/threads/:threadId',
-  requireRoles('Provider', 'Doctor', 'Admin'),
+  requireRoles('Provider', 'Admin'),
   validate(portalThreadIdValidator),
   portalController.getProviderThreadMessages.bind(portalController)
 );
@@ -650,7 +652,7 @@ router.get(
  */
 router.get(
   '/provider/patients/:patientId/context',
-  requireRoles('Provider', 'Doctor', 'Admin'),
+  requireRoles('Provider', 'Admin'),
   validate(portalProviderPatientIdValidator),
   portalController.getProviderPatientContext.bind(portalController)
 );
@@ -683,7 +685,7 @@ router.get(
  */
 router.post(
   '/provider/messages/reply',
-  requireRoles('Provider', 'Doctor', 'Admin'),
+  requireRoles('Provider', 'Admin'),
   validate(portalProviderReplyValidator),
   portalController.replyToProviderThread.bind(portalController)
 );

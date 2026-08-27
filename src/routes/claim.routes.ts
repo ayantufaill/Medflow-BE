@@ -1752,4 +1752,52 @@ router.post(
   claimController.createManualClaim.bind(claimController)
 );
 
+/**
+ * @swagger
+ * /claims/{claimId}/attachments/link:
+ *   post:
+ *     summary: Link existing S3 EOB attachments to claim
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: claimId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - attachments
+ *             properties:
+ *               attachments:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - storagePath
+ *                   properties:
+ *                     filename:
+ *                       type: string
+ *                     storagePath:
+ *                       type: string
+ *     responses:
+ *       200:
+ *         description: Attachments linked successfully
+ */
+router.post(
+  '/:claimId/attachments/link',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('claims.update'),
+  validate(claimIdValidator),
+  claimController.linkAttachments.bind(claimController)
+);
+
 export default router;
+

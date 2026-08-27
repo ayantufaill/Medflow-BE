@@ -304,6 +304,6 @@ const seedAppointments = async () => {
 // lookups above would see nothing and every appointment write with a
 // non-null branchId would be rejected by RLS's WITH CHECK — the '*'
 // wildcard is the same bypass a true system Admin gets, not a way around RLS.
-tenantContextStorage.run({ clinicIds: '*' }, () => seedAppointments())
+tenantContextStorage.run({ clinicIds: '*', patientGroupId: '*' }, () => seedAppointments())
   .catch((err) => { console.error('Seed failed:', err); process.exit(1); })
   .finally(() => prisma.$disconnect());

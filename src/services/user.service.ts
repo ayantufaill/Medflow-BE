@@ -386,19 +386,23 @@ export class UserService {
     });
 
     if (data.roleIds && data.roleIds.length > 0) {
-      for (const roleId of data.roleIds) {
-        const role = await prisma.usergroup.findUnique({
-          where: { UserGroupNum: BigInt(roleId) },
-        });
-        if (!role) continue;
-        const nextAttach = await getNextId('usergroupattach', 'UserGroupAttachNum');
-        await prisma.usergroupattach.create({
-          data: {
-            UserGroupAttachNum: nextAttach,
-            UserNum: user.UserNum,
-            UserGroupNum: role.UserGroupNum,
-          },
-        });
+      const validRoleNums = data.roleIds.map((id) => BigInt(id));
+      const roles = await prisma.usergroup.findMany({
+        where: { UserGroupNum: { in: validRoleNums } },
+      });
+      if (roles.length > 0) {
+        await Promise.all(
+          roles.map(async (role) => {
+            const nextAttach = await getNextId('usergroupattach', 'UserGroupAttachNum');
+            return prisma.usergroupattach.create({
+              data: {
+                UserGroupAttachNum: nextAttach,
+                UserNum: user.UserNum,
+                UserGroupNum: role.UserGroupNum,
+              },
+            });
+          })
+        );
       }
     }
 

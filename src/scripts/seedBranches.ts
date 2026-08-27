@@ -1,7 +1,6 @@
 import { prisma } from '../config/db';
 import { getNextId } from '../utils/opendental-ids.util';
 import { RoleService } from '../services/role.service';
-import { providerService } from '../services/provider.service';
 import { GROUP_ADMIN_PERMISSIONS } from '../types/auth.types';
 import { tenantContextStorage } from '../config/tenant-context';
 
@@ -194,7 +193,16 @@ async function main() {
   for (const [npi, branchId] of Object.entries(providerBranchByNpi)) {
     const provider = await prisma.provider.findFirst({ where: { NationalProvID: npi } });
     if (!provider) continue;
-    await providerService.updateProviderBranches(provider.ProvNum.toString(), [branchId]);
+    const clinicNum = BigInt(branchId);
+    const existing = await prisma.providerclinic.findFirst({
+      where: { ProvNum: provider.ProvNum, ClinicNum: clinicNum },
+    });
+    if (!existing) {
+      const nextId = await getNextId('providerclinic', 'ProviderClinicNum');
+      await prisma.providerclinic.create({
+        data: { ProviderClinicNum: nextId, ProvNum: provider.ProvNum, ClinicNum: clinicNum },
+      });
+    }
     console.log(`Assigned provider NPI ${npi} to branch ${branchId}.`);
   }
 
@@ -228,12 +236,24 @@ async function main() {
     'jason.allen@example.com': westsideClinicNum,
   };
 
+  // GroupNum must move with ClinicNum — it's the column patient_read_group's
+  // RLS policy actually compares now (see prisma/rls/04-patient-group-visibility.sql).
+  const clinicToGroup: Record<string, number> = {
+    [defaultClinicNum]: brightSmileGroup.id,
+    [westsideClinicNum]: brightSmileGroup.id,
+    [riversideClinicNum]: riversideGroup.id,
+  };
+
   let patientsAssigned = 0;
   for (const [email, branchId] of Object.entries(patientBranchByEmail)) {
     const patient = await prisma.patient.findFirst({ where: { Email: email } });
     if (!patient) continue;
-    if (patient.ClinicNum?.toString() === branchId) continue;
-    await prisma.patient.update({ where: { PatNum: patient.PatNum }, data: { ClinicNum: BigInt(branchId) } });
+    const targetGroupNum = clinicToGroup[branchId] ?? null;
+    if (patient.ClinicNum?.toString() === branchId && patient.GroupNum === targetGroupNum) continue;
+    await prisma.patient.update({
+      where: { PatNum: patient.PatNum },
+      data: { ClinicNum: BigInt(branchId), GroupNum: targetGroupNum },
+    });
     patientsAssigned++;
   }
   console.log(`Assigned ${patientsAssigned} patient(s) to their branch.`);
@@ -253,7 +273,7 @@ async function main() {
 // this every branch-assignment read/write above would be invisible to (or
 // rejected by) RLS — the '*' wildcard is the same bypass a true system
 // Admin gets, not a way around RLS.
-tenantContextStorage.run({ clinicIds: '*' }, () => main())
+tenantContextStorage.run({ clinicIds: '*', patientGroupId: '*' }, () => main())
   .catch((err) => {
     console.error(err);
     process.exitCode = 1;

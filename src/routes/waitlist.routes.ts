@@ -115,7 +115,7 @@ router.get(
  */
 router.post(
   '/',
-  requireRoles('Front Desk', 'Admin'),
+  requireRoles('Receptionist', 'Admin'),
   validate(createWaitlistEntryValidator),
   waitlistController.createWaitlistEntry.bind(waitlistController)
 );
@@ -155,7 +155,7 @@ router.post(
  */
 router.put(
   '/:waitlistEntryId',
-  requireRoles('Front Desk', 'Admin'),
+  requireRoles('Receptionist', 'Admin'),
   validate([...waitlistEntryIdValidator, ...updateWaitlistEntryValidator]),
   waitlistController.updateWaitlistEntry.bind(waitlistController)
 );
@@ -179,7 +179,7 @@ router.put(
  */
 router.post(
   '/:waitlistEntryId/called',
-  requireRoles('Front Desk', 'Admin'),
+  requireRoles('Receptionist', 'Admin'),
   validate(waitlistEntryIdValidator),
   waitlistController.markAsCalled.bind(waitlistController)
 );
@@ -203,7 +203,7 @@ router.post(
  */
 router.post(
   '/:waitlistEntryId/scheduled',
-  requireRoles('Front Desk', 'Admin'),
+  requireRoles('Receptionist', 'Admin'),
   validate(waitlistEntryIdValidator),
   waitlistController.markAsScheduled.bind(waitlistController)
 );
@@ -243,7 +243,7 @@ router.post(
  */
 router.post(
   '/:waitlistEntryId/convert-to-appointment',
-  requireRoles('Front Desk', 'Admin'),
+  requireRoles('Receptionist', 'Admin'),
   validate([...waitlistEntryIdValidator, ...convertWaitlistToAppointmentValidator]),
   waitlistController.convertToAppointment.bind(waitlistController)
 );
@@ -269,7 +269,7 @@ router.post(
  */
 router.delete(
   '/:waitlistEntryId',
-  requireRoles('Front Desk', 'Admin'),
+  requireRoles('Receptionist', 'Admin'),
   validate(waitlistEntryIdValidator),
   waitlistController.deleteWaitlistEntry.bind(waitlistController)
 );

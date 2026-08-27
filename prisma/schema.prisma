@@ -4430,6 +4430,12 @@ model patient {
   Urgency                                         Int?
   DateFirstVisit                                  DateTime?                @db.Date
   ClinicNum                                       BigInt?
+  /// Denormalized from clinic.GroupNum at the time ClinicNum was set — kept
+  /// in sync by patient.service.ts (createPatient/updatePatient) whenever
+  /// branchId changes. Exists so patient's practicegroup membership can be
+  /// queried directly instead of only derived via ClinicNum -> clinic.GroupNum
+  /// at request time (see PermissionService.getBranchAccess's groupClinicIds).
+  GroupNum                                        Int?
   HasIns                                          String?                  @db.VarChar(255)
   TrophyFolder                                    String?                  @db.VarChar(255)
   PlannedIsDone                                   Int?
@@ -4547,6 +4553,7 @@ model patient {
   employer                                        employer?                @relation(fields: [EmployerNum], references: [EmployerNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_6_EmployerNum")
   county                                          county?                  @relation(fields: [County], references: [CountyName], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_7_County")
   clinic                                          clinic?                  @relation(fields: [ClinicNum], references: [ClinicNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_8_ClinicNum")
+  practicegroup                                    practicegroup?           @relation(fields: [GroupNum], references: [id], onDelete: SetNull, onUpdate: NoAction)
   site                                            site?                    @relation(fields: [SiteNum], references: [SiteNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_9_SiteNum")
   patientlink_patientlink_PatNumFromTopatient     patientlink[]            @relation("patientlink_PatNumFromTopatient")
   patientlink_patientlink_PatNumToTopatient       patientlink[]            @relation("patientlink_PatNumToTopatient")
@@ -4609,6 +4616,8 @@ model patient {
   examperiodontals                                examperiodontal[]
   examdentofacials                                examdentofacial[]
   examairways                                     examairway[]
+
+  @@index([GroupNum])
 }
 
 model patientlink {
@@ -7799,13 +7808,14 @@ model medflow_sequences {
 // already present across ~40 tables). Row-scoped by GroupNum/ClinicNum, not
 // physically isolated per branch.
 model practicegroup {
-  id        Int      @id @default(autoincrement())
-  name      String   @db.VarChar(255)
+  id        Int       @id @default(autoincrement())
+  name      String    @db.VarChar(255)
   config    Json?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   clinic    clinic[]
+  patient   patient[]
 }
 
 // ─── Patient Portal Form Templates: admin-editable intake/consent forms ────
@@ -7815,6 +7825,9 @@ model practicegroup {
 // patient-form.service.ts's submissions already key off of (they're stored
 // as loosely-typed commlog rows, not a foreign key) — kept independent of
 // the numeric id so nothing on the submission side needs to change.
+// Deliberately global (no ClinicNum, no RLS policy) — matches the existing
+// informedconsenttemplate precedent. Not an oversight; revisit if/when templates
+// need to vary per clinic.
 model formtemplate {
   id          Int      @id @default(autoincrement())
   templateId  String   @unique @db.VarChar(100)
