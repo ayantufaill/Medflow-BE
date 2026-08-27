@@ -54,7 +54,7 @@ type ClaimMeta = {
   isHidden?: boolean;
   providerSignature?: string;
   patientSignature?: string;
-  eobs?: { id: string; filename: string; storagePath: string; uploadedAt: string; size: string; url?: string }[];
+  eobs?: { id: string; filename: string; storagePath: string; uploadedAt: string; size: string; url?: string; remittanceDate?: string }[];
   delayReasonCode?: string;
   attachmentTransmissionCode?: string;
   attachmentType?: string;
@@ -2028,7 +2028,14 @@ export class ClaimService {
     };
   }
 
-  async uploadEOB(paymentId: string, file: Express.Multer.File, description?: string, userId?: string) {
+  async uploadEOB(
+    paymentId: string,
+    file: Express.Multer.File,
+    description?: string,
+    userId?: string,
+    filename?: string,
+    remittanceDate?: string
+  ) {
     const doc = await prisma.document.findUnique({
       where: { DocNum: BigInt(paymentId) },
     });
@@ -2041,12 +2048,15 @@ export class ClaimService {
     const meta = parseJson<any>(doc.Note);
     meta.eobs = meta.eobs || [];
     
-    const newEob = {
+    const finalFilename = filename?.trim() || file.originalname;
+
+    const newEob: any = {
       id: `eob-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      filename: file.originalname,
+      filename: finalFilename,
       storagePath,
       uploadedAt: new Date().toISOString(),
       size: `${Math.round(file.size / 1024)} KB`,
+      ...(remittanceDate ? { remittanceDate } : {}),
     };
     
     meta.eobs.push(newEob);
@@ -2055,7 +2065,7 @@ export class ClaimService {
       where: { DocNum: doc.DocNum },
       data: {
         FileName: storagePath,
-        Description: file.originalname,
+        Description: finalFilename,
         Note: JSON.stringify(meta),
       },
     });
@@ -2087,7 +2097,14 @@ export class ClaimService {
     return { message: 'EOB deleted successfully', eobs: meta.eobs || [] };
   }
 
-  async uploadClaimEOB(claimId: string, file: Express.Multer.File, description?: string, userId?: string) {
+  async uploadClaimEOB(
+    claimId: string,
+    file: Express.Multer.File,
+    description?: string,
+    userId?: string,
+    filename?: string,
+    remittanceDate?: string
+  ) {
     const claim = await prisma.claim.findUnique({
       where: { ClaimNum: BigInt(claimId) },
     });
@@ -2100,12 +2117,15 @@ export class ClaimService {
     const meta = parseJson<ClaimMeta>(claim.Narrative);
     meta.eobs = meta.eobs || [];
 
-    const newEob = {
+    const finalFilename = filename?.trim() || file.originalname;
+
+    const newEob: any = {
       id: `eob-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      filename: file.originalname,
+      filename: finalFilename,
       storagePath,
       uploadedAt: new Date().toISOString(),
       size: `${Math.round(file.size / 1024)} KB`,
+      ...(remittanceDate ? { remittanceDate } : {}),
     };
 
     meta.eobs.push(newEob);
