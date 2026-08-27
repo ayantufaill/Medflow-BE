@@ -127,7 +127,7 @@ export class TaskController {
       const note = await taskService.addComment(taskId, noteText, userId);
 
       if (userId) {
-        await logActivityFromRequest(req, 'commented', 'task', taskId);
+        await logActivityFromRequest(req, 'updated', 'task', taskId);
       }
 
       res.status(201).json({
@@ -151,7 +151,7 @@ export class TaskController {
       const task = await taskService.updateStatus(taskId, statusVal, userId);
 
       if (userId) {
-        await logActivityFromRequest(req, 'status_updated', 'task', taskId);
+        await logActivityFromRequest(req, 'updated', 'task', taskId);
       }
 
       res.status(200).json({
