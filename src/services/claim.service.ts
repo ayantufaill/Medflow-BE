@@ -2957,6 +2957,7 @@ private mapClaimStatus(status: string | null): string {
     }
 
     return this.getClaimById(newClaimNum.toString());
+  }
 
   async linkAttachments(
     claimId: string,
