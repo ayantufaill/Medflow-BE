@@ -20,6 +20,7 @@ import {
   parsePrefJson,
 } from '../utils/opendental-auth.util';
 import { getNextId } from '../utils/opendental-ids.util';
+import { PermissionService } from './permission.service';
 
 export class AuthService {
   private async sanitizeUser(user: any) {
@@ -298,9 +299,14 @@ export class AuthService {
         .map((r) => mapRole(r))
     );
 
+    const branchAccess = await PermissionService.getBranchAccess(userId);
+
     return {
       ...(await this.sanitizeUser(mapped)),
       roles,
+      groupId: branchAccess.groupId,
+      branchIds: branchAccess.clinicIds.map((c) => c.toString()),
+      isGroupAdmin: branchAccess.isGroupAdmin,
     } as UserWithRoles;
   }
 
