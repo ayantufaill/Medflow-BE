@@ -21,7 +21,7 @@ export class PracticeInfoController {
       const limit = parseInt(req.query.limit as string) || 10;
       const search = req.query.search as string | undefined;
 
-      const result = await practiceInfoService.getAllPracticeInfo(page, limit, search);
+      const result = await practiceInfoService.getAllPracticeInfo(page, limit, search, req.branchAccess?.groupClinicIds);
       res.status(200).json({
         success: true,
         data: result,
@@ -36,7 +36,11 @@ export class PracticeInfoController {
    */
   async getPracticeInfo(req: Request, res: Response, next: NextFunction) {
     try {
-      const practiceInfo = await practiceInfoService.getPracticeInfo();
+      const practiceInfo = await practiceInfoService.getPracticeInfo({
+        userId: req.userId,
+        branchId: req.query.branchId as string | undefined,
+        groupClinicIds: req.branchAccess?.groupClinicIds,
+      });
       res.status(200).json({
         success: true,
         data: { practiceInfo },
@@ -59,7 +63,11 @@ async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction)
     }
 
     // Get current practice
-    const currentPractice = await practiceInfoService.getPracticeInfo();
+    const currentPractice = await practiceInfoService.getPracticeInfo({
+      userId: req.userId,
+      branchId: req.query.branchId as string | undefined,
+      groupClinicIds: req.branchAccess?.groupClinicIds,
+    });
     if (!currentPractice) {
       return res.status(404).json({
         success: false,
@@ -86,7 +94,8 @@ async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction)
 
     const result = await practiceInfoService.updatePracticeInfo(
       currentPractice._id,
-      practiceData
+      practiceData,
+      req.branchAccess?.clinicIds
     );
 
     res.status(200).json({
@@ -111,7 +120,7 @@ async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction)
         });
       }
       
-      const practiceInfo = await practiceInfoService.getPracticeInfoById(practiceInfoId);
+      const practiceInfo = await practiceInfoService.getPracticeInfoById(practiceInfoId, req.branchAccess?.groupClinicIds);
       res.status(200).json({
         success: true,
         data: { practiceInfo },
@@ -197,7 +206,7 @@ async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction)
       // Get existing practice info to check for old logo
       let oldLogoUrl: string | undefined;
       try {
-        const existingPractice = await practiceInfoService.getPracticeInfoById(practiceInfoId);
+        const existingPractice = await practiceInfoService.getPracticeInfoById(practiceInfoId, req.branchAccess?.groupClinicIds);
         oldLogoUrl = existingPractice.logoPath ?? undefined;
       } catch (error) {
         // If practice not found, continue without old logo
@@ -235,7 +244,7 @@ async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction)
         });
       }
       
-      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, practiceData);
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, practiceData, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: { practiceInfo: result },
@@ -260,7 +269,7 @@ async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction)
         });
       }
 
-      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { businessHours });
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { businessHours }, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: { practiceInfo: result },
@@ -289,7 +298,7 @@ async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction)
         billingOutOfNetwork,
         billingAssignmentType,
         billingProvider,
-      });
+      }, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: { practiceInfo: result },
@@ -318,7 +327,7 @@ async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction)
       if (kioskSettings?.password !== undefined) updates.kioskPassword = kioskSettings.password;
       if (kioskSettings?.accounts !== undefined) updates.kioskAccounts = kioskSettings.accounts;
 
-      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, updates);
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, updates, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: { practiceInfo: result },
@@ -345,7 +354,7 @@ async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction)
 
       const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, {
         myChartSettings: mychartSettings,
-      });
+      }, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: { practiceInfo: result },
@@ -370,7 +379,7 @@ async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction)
         });
       }
 
-      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { officeTimings });
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { officeTimings }, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: { practiceInfo: result },
@@ -395,7 +404,7 @@ async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction)
         });
       }
 
-      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { onlineSchedule });
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { onlineSchedule }, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: { practiceInfo: result },
@@ -420,7 +429,7 @@ async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction)
         });
       }
 
-      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { patientFlags });
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { patientFlags }, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: { practiceInfo: result },
@@ -445,7 +454,7 @@ async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction)
         });
       }
 
-      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { documentCategories });
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { documentCategories }, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: { practiceInfo: result },
@@ -470,7 +479,7 @@ async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction)
         });
       }
 
-      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { scheduleConfig });
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { scheduleConfig }, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: { practiceInfo: result },
@@ -495,7 +504,7 @@ async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction)
         });
       }
 
-      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { practiceSettings });
+      const result = await practiceInfoService.updatePracticeInfo(practiceInfoId, { practiceSettings }, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: { practiceInfo: result },
@@ -519,7 +528,7 @@ async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction)
         });
       }
       
-      await practiceInfoService.deletePracticeInfo(practiceInfoId);
+      await practiceInfoService.deletePracticeInfo(practiceInfoId, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: { message: 'Practice info deleted successfully' },
@@ -606,7 +615,11 @@ async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction)
  */
 async getTimings(req: Request, res: Response, next: NextFunction) {
   try {
-    const result = await practiceInfoService.getOfficeTimings();
+    const result = await practiceInfoService.getOfficeTimings({
+      userId: req.userId,
+      branchId: req.query.branchId as string | undefined,
+      groupClinicIds: req.branchAccess?.groupClinicIds,
+    });
     res.status(200).json({
       success: true,
       data: result,
@@ -630,7 +643,12 @@ async updateTimings(req: Request, res: Response, next: NextFunction) {
       });
     }
 
-    const result = await practiceInfoService.updateOfficeTimings(timings);
+    const result = await practiceInfoService.updateOfficeTimings(timings, {
+      userId: req.userId,
+      branchId: req.query.branchId as string | undefined,
+      groupClinicIds: req.branchAccess?.groupClinicIds,
+      clinicIds: req.branchAccess?.clinicIds,
+    });
     res.status(200).json({
       success: true,
       data: result,
