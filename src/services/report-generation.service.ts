@@ -208,6 +208,8 @@ export class ReportGenerationService {
 
   private async getAgingReport(query: any, patientOnly = false) {
     const filters: string[] = [];
+    const params: any[] = [];
+    let paramIdx = 1;
 
     // 1. query.patients (Patient Status)
     if (query.patients === 'active') {
@@ -220,7 +222,8 @@ export class ReportGenerationService {
     if (query.provider && query.provider !== 'all') {
       const provNum = Number(query.provider);
       if (!isNaN(provNum)) {
-        filters.push(`p."PriProv" = ${provNum}`);
+        filters.push(`p."PriProv" = $${paramIdx++}`);
+        params.push(provNum);
       }
     }
 
@@ -288,7 +291,8 @@ export class ReportGenerationService {
         filters.push(`f."BalOver90" > 0`);
       } else if (normRange === 'custom') {
         if (query.startDate && query.endDate) {
-          filters.push(`EXISTS (SELECT 1 FROM procedurelog pl WHERE pl."PatNum" = p."PatNum" AND pl."ProcDate" BETWEEN '${query.startDate}' AND '${query.endDate}')`);
+          filters.push(`EXISTS (SELECT 1 FROM procedurelog pl WHERE pl."PatNum" = p."PatNum" AND pl."ProcDate" BETWEEN $${paramIdx++}::date AND $${paramIdx++}::date)`);
+          params.push(query.startDate, query.endDate);
         }
       }
     }
@@ -304,7 +308,8 @@ export class ReportGenerationService {
     if (query.branch && query.branch !== 'all') {
       const branchId = Number(query.branch);
       if (!isNaN(branchId)) {
-        filters.push(`p."ClinicNum" = ${branchId}`);
+        filters.push(`p."ClinicNum" = $${paramIdx++}`);
+        params.push(branchId);
       }
     }
 
@@ -312,10 +317,12 @@ export class ReportGenerationService {
     if (query.carrier && query.carrier !== 'all') {
       const carrierId = Number(query.carrier);
       if (!isNaN(carrierId)) {
-        filters.push(`c."CarrierNum" = ${carrierId}`);
+        filters.push(`c."CarrierNum" = $${paramIdx++}`);
+        params.push(carrierId);
       } else {
-        // Fallback to searching by CarrierName if a string like 'delta' was provided
-        filters.push(`c."CarrierName" ILIKE '%${query.carrier}%'`);
+        // Safe parameterized carrier name matching
+        filters.push(`c."CarrierName" ILIKE $${paramIdx++}`);
+        params.push(`%${query.carrier}%`);
       }
     }
 
@@ -361,7 +368,7 @@ export class ReportGenerationService {
       LIMIT 200
     `;
 
-    const rawPatients = await prisma.$queryRawUnsafe<any[]>(sql);
+    const rawPatients = await prisma.$queryRawUnsafe<any[]>(sql, ...params);
 
     const patNums = rawPatients.map((p) => BigInt(p.PatNum));
     const meta = await getPatientsMeta(patNums);

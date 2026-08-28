@@ -231,6 +231,30 @@ export class InvoiceService {
         }
       }
 
+      // Batch fetch missing procedure codes for serviceIds to avoid N+1 queries
+      const missingServiceIds = items
+        .filter((item) => !item.cptCode && !item.code && !item.procedureCode && !item.procCode && item.serviceId)
+        .map((item) => {
+          try {
+            return BigInt(item.serviceId);
+          } catch {
+            return null;
+          }
+        })
+        .filter((id): id is bigint => id !== null);
+
+      const resolvedProcCodes = missingServiceIds.length > 0
+        ? await prisma.procedurecode.findMany({
+            where: { CodeNum: { in: missingServiceIds } },
+            select: { CodeNum: true, ProcCode: true },
+          })
+        : [];
+      const serviceIdToProcCodeMap = new Map(
+        resolvedProcCodes
+          .filter((p) => p.CodeNum !== null && p.CodeNum !== undefined)
+          .map((p) => [p.CodeNum!.toString(), p.ProcCode])
+      );
+
       for (const item of items) {
         const charge = Number(item.totalPrice ?? item.charge ?? item.ProcFee ?? item.unitPrice ?? 0);
         if (item.dbi) {
@@ -241,8 +265,7 @@ export class InvoiceService {
 
         let procCodeString = item.cptCode || item.code || item.procedureCode || item.procCode || '';
         if (!procCodeString && item.serviceId) {
-          const procCode = await prisma.procedurecode.findUnique({ where: { CodeNum: BigInt(item.serviceId) } });
-          if (procCode) procCodeString = procCode.ProcCode;
+          procCodeString = serviceIdToProcCodeMap.get(item.serviceId.toString()) || '';
         }
 
         if (!procCodeString) continue;
@@ -799,13 +822,19 @@ export class InvoiceService {
     const invoice = await this.getStatementById(invoiceId);
     if (!invoice) throw new NotFoundError('Invoice not found');
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
-    const patient = invoice.PatNum
-      ? await prisma.patient.findUnique({ where: { PatNum: invoice.PatNum } })
-      : null;
-    const appointment = await this.resolveAppointment(meta.appointmentId ?? null);
-    const provider = await this.resolveProvider(meta.providerId ?? appointment?.providerId ?? null);
-    const insuranceCompany = await this.resolveInsuranceCompany(meta.insuranceCompanyId ?? null);
-    const items = await this.getInvoiceItems(invoice.StatementNum);
+
+    const [patient, appointment, directProvider, insuranceCompany, items] = await Promise.all([
+      invoice.PatNum
+        ? prisma.patient.findUnique({ where: { PatNum: invoice.PatNum } })
+        : null,
+      this.resolveAppointment(meta.appointmentId ?? null),
+      this.resolveProvider(meta.providerId ?? null),
+      this.resolveInsuranceCompany(meta.insuranceCompanyId ?? null),
+      this.getInvoiceItems(invoice.StatementNum),
+    ]);
+
+    const provider = directProvider ?? (appointment?.providerId ? await this.resolveProvider(appointment.providerId) : null);
+
     return {
       invoice: {
         ...this.mapStatementToInvoice(invoice, meta),
@@ -1543,6 +1572,30 @@ export class InvoiceService {
           },
         });
       }
+    }
+
+    // Create an explicit $0.00 net-zero adjustment record for ledger audit trail
+    if (invoice.PatNum) {
+      const adjNum = await getNextId('adjustment', 'AdjNum');
+      const invoiceNumber = invoice.StatementNum.toString();
+      const adjNote = `Invoice #${invoiceNumber} - Income Transfer: $${outstandingInsurance.toFixed(2)} shifted from Insurance to Patient`;
+      const userNum = toBigInt(performedBy);
+
+      await prisma.adjustment.create({
+        data: {
+          AdjNum: adjNum,
+          PatNum: invoice.PatNum,
+          ProvNum: item.ProvNum ?? undefined,
+          ProcNum: procNum,
+          StatementNum: invoice.StatementNum,
+          AdjAmt: 0,
+          AdjDate: new Date(),
+          ProcDate: item.ProcDate ?? new Date(),
+          DateEntry: new Date(),
+          AdjNote: adjNote,
+          SecUserNumEntry: userNum ?? undefined,
+        },
+      });
     }
 
     // Recalculate invoice totals
