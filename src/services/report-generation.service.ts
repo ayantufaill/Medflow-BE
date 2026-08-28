@@ -225,7 +225,13 @@ export class ReportGenerationService {
     }
 
     // 3. query.balance
-    if (query.balance === 'over_30') {
+    if (query.balance === 'min_total') {
+      filters.push(`f."BalTotal" > 0`);
+    } else if (query.balance === 'min_patient') {
+      filters.push(`(f."BalTotal" - f."InsEst") > 0`);
+    } else if (query.balance === 'min_insurance') {
+      filters.push(`f."InsEst" > 0`);
+    } else if (query.balance === 'over_30') {
       filters.push(`f."BalTotal" > 30`);
     } else if (query.balance === 'over_60') {
       filters.push(`f."BalTotal" > 60`);
@@ -243,23 +249,48 @@ export class ReportGenerationService {
     }
 
     // 5. query.owing (Who Owes)
-    if (query.owing === 'pt_only') {
+    if (query.owing === 'pt_individual' || query.owing === 'pt_only') {
       filters.push(`(f."BalTotal" - f."InsEst" > 0 AND f."InsEst" <= 0)`);
-    } else if (query.owing === 'insurance_only') {
-      filters.push(`(f."InsEst" > 0 AND f."BalTotal" - f."InsEst" <= 0)`);
-    } else if (query.owing === 'pt_insurance') {
+    } else if (query.owing === 'pt_insurance' || query.owing === 'insurance_only') {
+      filters.push(`(f."InsEst" > 0)`);
+    } else if (query.owing === 'pt_both') {
       filters.push(`(f."BalTotal" - f."InsEst" > 0 AND f."InsEst" > 0)`);
+    } else if (query.owing === 'pt_payment_plan') {
+      filters.push(`f."PayPlanDue" > 0`);
     }
 
     // 6. query.arRange (Aging Bucket)
-    if (query.arRange === '0_30') {
-      filters.push(`f."Bal_0_30" > 0`);
-    } else if (query.arRange === '31_60') {
-      filters.push(`f."Bal_31_60" > 0`);
-    } else if (query.arRange === '61_90') {
-      filters.push(`f."Bal_61_90" > 0`);
-    } else if (query.arRange === 'over_90') {
-      filters.push(`f."BalOver90" > 0`);
+    if (query.arRange && query.arRange !== 'any') {
+      const normRange = String(query.arRange).toLowerCase().replace(/[\s\-_]/g, '');
+      if (normRange === '<30' || normRange === '030' || normRange === '030days' || normRange === '30') {
+        filters.push(`f."Bal_0_30" > 0`);
+      } else if (normRange === '3160' || normRange === '3160days') {
+        filters.push(`f."Bal_31_60" > 0`);
+      } else if (normRange === '>60' || normRange === '>60days' || normRange === '60days') {
+        filters.push(`(f."Bal_61_90" > 0 OR f."BalOver90" > 0)`);
+      } else if (normRange === '6190' || normRange === '6190days') {
+        filters.push(`f."Bal_61_90" > 0`);
+      } else if (
+        normRange === '>90' ||
+        normRange === '>90days' ||
+        normRange === 'over90' ||
+        normRange === '90+' ||
+        normRange === '90plus' ||
+        normRange === '91120' ||
+        normRange === '91120days' ||
+        normRange === '121150' ||
+        normRange === '121150days' ||
+        normRange === '151180' ||
+        normRange === '151180days' ||
+        normRange === '>180' ||
+        normRange === '>180day'
+      ) {
+        filters.push(`f."BalOver90" > 0`);
+      } else if (normRange === 'custom') {
+        if (query.startDate && query.endDate) {
+          filters.push(`EXISTS (SELECT 1 FROM procedurelog pl WHERE pl."PatNum" = p."PatNum" AND pl."ProcDate" BETWEEN '${query.startDate}' AND '${query.endDate}')`);
+        }
+      }
     }
 
     // 7. query.flags (Patient with Flags)
@@ -288,21 +319,37 @@ export class ReportGenerationService {
       }
     }
 
+    // 10. query.billingDate
+    if (query.billingDate === 'pt_last_statement_before') {
+      filters.push(`EXISTS (SELECT 1 FROM statement st WHERE st."PatNum" = p."PatNum" AND st."DateSent" IS NOT NULL)`);
+    } else if (query.billingDate === 'day_since_last_statement') {
+      filters.push(`EXISTS (SELECT 1 FROM statement st WHERE st."PatNum" = p."PatNum" AND st."DateSent" <= CURRENT_DATE - INTERVAL '30 days')`);
+    }
+
     const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
 
-    // 8. query.sortReport (Sorting)
-    let orderByClause = 'ORDER BY f."BalTotal" DESC';
+    // 11. query.sortReport (Sorting)
+    let orderByClause = 'ORDER BY f."BalTotal" DESC NULLS LAST';
     if (query.sortReport === 'low_to_high') {
-      orderByClause = 'ORDER BY f."BalTotal" ASC';
-    } else if (query.sortReport === 'a_to_z') {
-      orderByClause = 'ORDER BY p."FName" ASC, p."LName" ASC';
+      orderByClause = 'ORDER BY f."BalTotal" ASC NULLS LAST';
+    } else if (query.sortReport === 'a_to_z' || query.sortReport === 'pt_first_name') {
+      orderByClause = 'ORDER BY p."FName" ASC NULLS LAST, p."LName" ASC NULLS LAST';
+    } else if (query.sortReport === 'pt_last_name') {
+      orderByClause = 'ORDER BY p."LName" ASC NULLS LAST, p."FName" ASC NULLS LAST';
+    } else if (query.sortReport === 'carrier') {
+      orderByClause = 'ORDER BY c."CarrierName" ASC NULLS LAST';
+    } else if (query.sortReport === 'last_billed') {
+      orderByClause = 'ORDER BY "LastStatementDate" DESC NULLS LAST';
+    } else if (query.sortReport === 'flag') {
+      orderByClause = 'ORDER BY p."PatNum" DESC';
     }
 
     const sql = `
       SELECT 
         p."PatNum", p."FName", p."LName", p."PatStatus", p."PriProv",
         f."Bal_0_30", f."Bal_31_60", f."Bal_61_90", f."BalOver90", f."InsEst", f."BalTotal", f."PayPlanDue",
-        c."CarrierName"
+        c."CarrierName",
+        (SELECT MAX(st."DateSent") FROM statement st WHERE st."PatNum" = p."PatNum") AS "LastStatementDate"
       FROM patient p
       LEFT JOIN famaging f ON p."PatNum" = f."PatNum"
       LEFT JOIN patplan pp ON p."PatNum" = pp."PatNum" AND pp."Ordinal" = 1
@@ -343,18 +390,19 @@ export class ReportGenerationService {
 
       const pNumStr = p.PatNum.toString();
       const patientFlags = meta[pNumStr]?.patientFlags || [];
+      const lastBilledDate = p.LastStatementDate ? new Date(p.LastStatementDate).toLocaleDateString() : '';
 
       return {
         id: pNumStr,
         flags: patientFlags,
-        name: `${p.FName} ${p.LName}`,
+        name: `${p.FName || ''} ${p.LName || ''}`.trim() || 'Unknown Patient',
         insuranceName: p.CarrierName || null,
         buckets,
         total: balance,
         totalOwings: balance + (patientOnly ? 0 : insEst),
         paymentPlan: Number(p.PayPlanDue) || 0,
         credit: balance < 0 ? Math.abs(balance) : 0,
-        lastBilled: ''
+        lastBilled: lastBilledDate
       };
     });
 
