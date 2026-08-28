@@ -19,6 +19,7 @@ import {
   recordBatchPaymentValidator,
   batchInvoicesValidator,
   quickStatusUpdateValidator,
+  voidAndRecreateValidator,
   paymentIdParamValidator,
   uncompleteProceduresValidator,
 } from '../validators/claim.validator';
@@ -1583,6 +1584,70 @@ router.post(
   requirePermission('claims.update'),
   validate([...claimIdValidator, ...quickStatusUpdateValidator]),
   claimController.quickStatusUpdate.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/{claimId}/void-and-recreate:
+ *   post:
+ *     summary: Void and recreate a claim
+ *     description: Voids an existing submitted/processed claim and returns it to the unsent queue (readyForSubmission status), resetting submission timestamps and recording an audit trail entry.
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: claimId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID of the claim to void and recreate
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               note:
+ *                 type: string
+ *                 description: Reason or note for voiding and recreating
+ *                 example: "Voided and recreated - returned to unsent queue"
+ *     responses:
+ *       200:
+ *         description: Claim voided and recreated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     claim:
+ *                       $ref: '#/components/schemas/Claim'
+ *                 message:
+ *                   type: string
+ *                   example: "Claim voided and recreated successfully"
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Claim not found
+ *       500:
+ *         description: Internal server error
+ */
+router.post(
+  '/:claimId/void-and-recreate',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('claims.update'),
+  validate([...claimIdValidator, ...voidAndRecreateValidator]),
+  claimController.voidAndRecreate.bind(claimController)
 );
 
 /**

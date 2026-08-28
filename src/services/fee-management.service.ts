@@ -32,23 +32,23 @@ export class FeeManagementService {
     if (params.search) {
       const search = params.search.trim();
       const exactCategory = await prisma.definition.findFirst({
-        where: { Category: 1, ItemName: search },
+        where: { Category: 1, ItemName: { equals: search, mode: 'insensitive' } },
       });
 
       if (exactCategory) {
         where.ProcCat = exactCategory.DefNum;
       } else {
         where.OR = [
-          { ProcCode: { contains: search } },
-          { Descript: { contains: search } },
-          { definition: { ItemName: { contains: search } } },
+          { ProcCode: { contains: search, mode: 'insensitive' } },
+          { Descript: { contains: search, mode: 'insensitive' } },
+          { definition: { ItemName: { contains: search, mode: 'insensitive' } } },
         ];
       }
     }
 
     if (params.category) {
       where.definition = {
-        ItemName: { equals: params.category },
+        ItemName: { equals: params.category, mode: 'insensitive' },
       };
     }
 
@@ -430,14 +430,14 @@ export class FeeManagementService {
     if (params.search) {
       const search = params.search.trim();
       where.OR = [
-        { ProcCode: { contains: search } },
-        { Descript: { contains: search } },
+        { ProcCode: { contains: search, mode: 'insensitive' } },
+        { Descript: { contains: search, mode: 'insensitive' } },
       ];
     }
 
     if (params.category) {
       where.definition = {
-        ItemName: { equals: params.category },
+        ItemName: { equals: params.category, mode: 'insensitive' },
       };
     }
 

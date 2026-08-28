@@ -709,7 +709,72 @@ describe('Claims Procedures Fallback', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
+
+  describe('Void and Recreate Claim', () => {
+    it('successfully voids a submitted claim, resets dates, and returns it to unsent queue with readyForSubmission status', async () => {
+      const token = uniqueToken('void-rec');
+      const patient = await createPatientRecord(token);
+      const claimNum = BigInt(Date.now() + 1234);
+
+      // Create a submitted claim (ClaimStatus = 'S', DateSent set)
+      await prisma.claim.create({
+        data: {
+          ClaimNum: claimNum,
+          PatNum: patient.PatNum,
+          ClaimStatus: 'S',
+          ClaimType: 'Primary',
+          ClaimFee: 300,
+          DateService: new Date('2026-03-01'),
+          DateSent: new Date('2026-03-02'),
+          Narrative: JSON.stringify({
+            status: 'submitted',
+            submissionDate: new Date('2026-03-02').toISOString(),
+          }),
+        },
+      });
+
+      // Call void-and-recreate endpoint
+      const voidRes = await request(app)
+        .post(`/api/claims/${claimNum}/void-and-recreate`)
+        .set(authHeader)
+        .send({ note: 'Voided and recreated test claim' });
+
+      expect(voidRes.status).toBe(200);
+      expect(voidRes.body?.success).toBe(true);
+      expect(voidRes.body?.message).toBe('Claim voided and recreated successfully');
+      
+      const voidedClaim = voidRes.body?.data?.claim;
+      expect(voidedClaim).toBeDefined();
+      expect(voidedClaim.status).toBe('readyForSubmission');
+      expect(voidedClaim.dateSent).toBeNull();
+
+      // Check in DB directly
+      const dbClaim = await prisma.claim.findUnique({
+        where: { ClaimNum: claimNum },
+      });
+      expect(dbClaim?.ClaimStatus).toBe('W'); // W = readyForSubmission
+      expect(dbClaim?.DateSent).toBeNull();
+
+      // Verify it appears in unsent queue
+      const unsentRes = await request(app)
+        .get(`/api/claims?patientId=${patient.PatNum}&tab=unsent`)
+        .set(authHeader);
+
+      expect(unsentRes.status).toBe(200);
+      const unsentClaims = unsentRes.body?.data?.claims ?? [];
+      const found = unsentClaims.find((c: any) => c.id === claimNum.toString());
+      expect(found).toBeDefined();
+      expect(found.status).toBe('readyForSubmission');
+
+      // Clean up
+      await prisma.claimtracking.deleteMany({ where: { ClaimNum: claimNum } });
+      await prisma.claim.delete({ where: { ClaimNum: claimNum } });
+      await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
+      await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    });
+  });
 });
+
 
 
 
