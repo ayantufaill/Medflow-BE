@@ -3,6 +3,42 @@ import { prisma } from '../config/db';
 import { NotFoundError } from '../utils/error.util';
 import { getNextId } from '../utils/opendental-ids.util';
 
+// Scope resolution for the practice-info -> clinic mapping. Read this before
+// touching getPracticeInfo/getPracticeInfoById/updatePracticeInfo/
+// deletePracticeInfo/getAllPracticeInfo below:
+//
+// practiceInfoId IS a clinic.ClinicNum — there is no separate PracticeInfo
+// table. Every method here was originally written before Group/Branch
+// tenancy existed and queried `clinic` completely unscoped (getPracticeInfo
+// used to just grab whichever clinic had the highest ClinicNum in the whole
+// database — silently wrong for any install with more than one clinic, not
+// just an access-control gap). Callers now thread branchAccess through:
+//   - reads (list, getById, "current") check against groupClinicIds — every
+//     clinic in the caller's practicegroup, mirroring the read-visibility
+//     convention already used for patients (see resolveBranchAccess).
+//   - writes (update, delete) check against clinicIds — the caller's own
+//     assigned clinic(s) only, mirroring the write-scope convention
+//     documented on BranchAccess itself.
+// An empty/undefined scope array is treated as unrestricted, matching the
+// same "no scope resolved = today's single-practice deployment" convention
+// used throughout (see prisma/rls/02-policies.sql) — this keeps a true
+// single-clinic install with no group/branch data working exactly as before.
+
+const assertClinicInScope = (clinicNum: bigint, allowedClinicIds?: bigint[]): void => {
+  if (!allowedClinicIds || allowedClinicIds.length === 0) return;
+  if (!allowedClinicIds.includes(clinicNum)) {
+    throw new NotFoundError('Practice info not found');
+  }
+};
+
+const getHomeClinicNum = async (userId: string): Promise<bigint | null> => {
+  const user = await prisma.userod.findUnique({
+    where: { UserNum: BigInt(userId) },
+    select: { ClinicNum: true },
+  });
+  return user?.ClinicNum ?? null;
+};
+
 const PREF_PREFIX = 'medflow.practiceInfo.';
 const PREF_LICENSE_NUMBER = `${PREF_PREFIX}licenseNumber`;
 const PREF_TAX_ID = `${PREF_PREFIX}taxId`;
@@ -401,9 +437,13 @@ export class PracticeInfoService {
     }
   }
 
-  async getAllPracticeInfo(page = 1, limit = 10, search?: string) {
+  async getAllPracticeInfo(page = 1, limit = 10, search?: string, groupClinicIds?: bigint[]) {
     const skip = (page - 1) * limit;
     const where: any = {};
+
+    if (groupClinicIds && groupClinicIds.length > 0) {
+      where.ClinicNum = { in: groupClinicIds };
+    }
 
     if (search) {
       const searchValue = search.trim();
@@ -442,9 +482,12 @@ export class PracticeInfoService {
     };
   }
 
-  async getPracticeInfoById(practiceInfoId: string) {
+  async getPracticeInfoById(practiceInfoId: string, groupClinicIds?: bigint[]) {
+    const clinicNum = BigInt(practiceInfoId);
+    assertClinicInScope(clinicNum, groupClinicIds);
+
     const row = await prisma.clinic.findUnique({
-      where: { ClinicNum: BigInt(practiceInfoId) },
+      where: { ClinicNum: clinicNum },
     });
     if (!row) {
       throw new NotFoundError('Practice info not found');
@@ -454,10 +497,34 @@ export class PracticeInfoService {
     return this.mapClinicToPracticeInfo(row, metaMap.get(row.ClinicNum.toString()) ?? {});
   }
 
-  async getPracticeInfo() {
-    const row = await prisma.clinic.findFirst({
-      orderBy: { ClinicNum: 'desc' },
-    });
+  /**
+   * Resolves "the current practice" for a caller. Defaults to the caller's
+   * own home clinic (userod.ClinicNum — the same source resolveBranchAccess
+   * uses); an explicit branchId lets a Group/Branch Admin view a sibling
+   * clinic in their group instead. Falls back to the first group clinic,
+   * then (only when no scope resolves at all, e.g. a bare single-clinic
+   * install with no userclinic/group data yet) the most recently created
+   * clinic — preserves prior behavior for that case.
+   */
+  async getPracticeInfo(opts?: { userId?: string; branchId?: string; groupClinicIds?: bigint[] }) {
+    const { userId, branchId, groupClinicIds } = opts ?? {};
+
+    let clinicNum: bigint | null = null;
+
+    if (branchId) {
+      clinicNum = BigInt(branchId);
+      assertClinicInScope(clinicNum, groupClinicIds);
+    } else if (userId) {
+      clinicNum = await getHomeClinicNum(userId);
+    }
+
+    if (clinicNum === null && groupClinicIds && groupClinicIds.length > 0) {
+      clinicNum = groupClinicIds[0];
+    }
+
+    const row = clinicNum !== null
+      ? await prisma.clinic.findUnique({ where: { ClinicNum: clinicNum } })
+      : await prisma.clinic.findFirst({ orderBy: { ClinicNum: 'desc' } });
     if (!row) return null;
 
     const metaMap = await this.getClinicMetaMap([row.ClinicNum]);
@@ -488,9 +555,12 @@ export class PracticeInfoService {
     return this.mapClinicToPracticeInfo(clinic, metaMap.get(clinic.ClinicNum.toString()) ?? {});
   }
 
-  async updatePracticeInfo(practiceInfoId: string, updates: Partial<PracticeInfoPayload>) {
+  async updatePracticeInfo(practiceInfoId: string, updates: Partial<PracticeInfoPayload>, clinicIds?: bigint[]) {
+    const clinicNum = BigInt(practiceInfoId);
+    assertClinicInScope(clinicNum, clinicIds);
+
     const clinic = await prisma.clinic.findUnique({
-      where: { ClinicNum: BigInt(practiceInfoId) },
+      where: { ClinicNum: clinicNum },
     });
     if (!clinic) {
       throw new NotFoundError('Practice info not found');
@@ -517,9 +587,12 @@ export class PracticeInfoService {
     return this.mapClinicToPracticeInfo(updated, metaMap.get(updated.ClinicNum.toString()) ?? {});
   }
 
-  async deletePracticeInfo(practiceInfoId: string): Promise<void> {
+  async deletePracticeInfo(practiceInfoId: string, clinicIds?: bigint[]): Promise<void> {
+    const clinicNum = BigInt(practiceInfoId);
+    assertClinicInScope(clinicNum, clinicIds);
+
     const clinic = await prisma.clinic.findUnique({
-      where: { ClinicNum: BigInt(practiceInfoId) },
+      where: { ClinicNum: clinicNum },
     });
     if (!clinic) {
       throw new NotFoundError('Practice info not found');
@@ -738,8 +811,8 @@ export class PracticeInfoService {
   /**
  * Get office timings as 7-day array
  */
-async getOfficeTimings() {
-  const practice = await this.getPracticeInfo();
+async getOfficeTimings(opts?: { userId?: string; branchId?: string; groupClinicIds?: bigint[] }) {
+  const practice = await this.getPracticeInfo(opts);
   if (!practice) {
     throw new NotFoundError('Practice info not found');
   }
@@ -783,17 +856,17 @@ async updateOfficeTimings(timings: Array<{
   isOpen: boolean;
   openTime: string;
   closeTime: string;
-}>) {
-  const practice = await this.getPracticeInfo();
+}>, opts?: { userId?: string; branchId?: string; groupClinicIds?: bigint[]; clinicIds?: bigint[] }) {
+  const practice = await this.getPracticeInfo(opts);
   if (!practice) {
     throw new NotFoundError('Practice info not found');
   }
 
   await this.updatePracticeInfo(practice._id, {
     officeTimings: { days: timings } as any,
-  });
+  }, opts?.clinicIds);
 
-  return this.getOfficeTimings();
+  return this.getOfficeTimings({ branchId: practice._id, groupClinicIds: opts?.groupClinicIds });
 }
 }
 
