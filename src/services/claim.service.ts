@@ -2327,6 +2327,7 @@ export class ClaimService {
           PatNum: BigInt(patId),
           ShortGUID: `INV${statementNum.toString()}`,
           BalTotal: 125.00,
+          IsInvoice: 1,
           NoteBold: JSON.stringify({ deliveryPreference, generatedAt: new Date().toISOString() }),
         },
       });

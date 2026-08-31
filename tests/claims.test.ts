@@ -773,6 +773,52 @@ describe('Claims Procedures Fallback', () => {
       await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
     });
   });
+
+  describe('Batch Invoices', () => {
+    it('creates batch invoices with IsInvoice: 1 and appears in patient composite ledger', async () => {
+      const token = uniqueToken('batch-inv');
+      const patient = await createPatientRecord(token);
+
+      // Generate batch invoice
+      const batchRes = await request(app)
+        .post('/api/claims/batch-invoices')
+        .set(authHeader)
+        .send({
+          patientIds: [patient.PatNum.toString()],
+          deliveryPreference: 'Email & SMS',
+        });
+
+      expect(batchRes.status).toBe(200);
+      expect(batchRes.body?.success).toBe(true);
+      expect(batchRes.body?.data?.invoicesGenerated).toBe(1);
+
+      const generatedInvoiceId = batchRes.body?.data?.results?.[0]?.invoiceId;
+      expect(generatedInvoiceId).toBeDefined();
+
+      // Verify IsInvoice in DB
+      const statement = await prisma.statement.findUnique({
+        where: { StatementNum: BigInt(generatedInvoiceId) },
+      });
+      expect(statement).toBeDefined();
+      expect(statement?.IsInvoice).toBe(1);
+
+      // Verify it appears in patient composite ledger
+      const ledgerRes = await request(app)
+        .get(`/api/invoices/patient/${patient.PatNum}/composite`)
+        .set(authHeader);
+
+      expect(ledgerRes.status).toBe(200);
+      expect(ledgerRes.body?.success).toBe(true);
+      const invoices = ledgerRes.body?.data?.invoices ?? [];
+      const foundInLedger = invoices.some((inv: any) => inv.id === generatedInvoiceId || inv.invoiceNumber === statement?.ShortGUID);
+      expect(foundInLedger).toBe(true);
+
+      // Clean up
+      await prisma.statement.deleteMany({ where: { PatNum: patient.PatNum } });
+      await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
+      await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    });
+  });
 });
 
 
