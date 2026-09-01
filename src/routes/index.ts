@@ -66,6 +66,7 @@ import formTemplateRoutes from './form-template.routes';
 import publicBookingRoutes from './public-booking.routes';
 import taskRoutes from './task.routes';
 import timeclockRoutes from './timeclock.routes';
+import patientReportRoutes from './patient-report.routes';
 
 const router = Router();
 router.use('/coverage-groups', coverageGroupRoutes);
@@ -82,6 +83,7 @@ router.use('/practice-info', practiceInfoRoutes);
 router.use('/patients', patientInsuranceRoutes);
 router.use('/patients', patientRoutes);
 router.use('/patients', patientMembershipRoutes);
+router.use('/patients', patientReportRoutes);
 router.use('/insurance-companies', insuranceCompanyRoutes);
 router.use('/insurance-plans', insurancePlanRoutes);
 router.use('/coverage-templates', coverageTemplateRoutes);

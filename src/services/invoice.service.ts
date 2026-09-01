@@ -161,27 +161,41 @@ export class InvoiceService {
 
       const normalizeCat = (str: string) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-      const addCategoryPercentage = (catName: string, cov: number) => {
+      const addCategoryPercentage = (catName: string, cov: number, subLabel?: string) => {
         if (!catName || typeof cov !== 'number') return;
         const norm = normalizeCat(catName);
-        categoryPercentages.set(norm, cov);
+        const normSub = subLabel ? normalizeCat(subLabel) : '';
+
+        if (normSub) {
+          categoryPercentages.set(`${norm}${normSub}`, cov);
+        } else {
+          categoryPercentages.set(norm, cov);
+        }
 
         // Map common category aliases
-        if (norm.includes('diagnostic')) categoryPercentages.set('diagnostic', cov);
+        const aliases: string[] = [];
+        if (norm.includes('diagnostic')) aliases.push('diagnostic');
         if (norm.includes('prevent') || norm === 'preventative' || norm === 'preventive') {
-          categoryPercentages.set('preventative', cov);
-          categoryPercentages.set('preventive', cov);
+          aliases.push('preventative', 'preventive');
         }
-        if (norm.includes('restor')) categoryPercentages.set('restorative', cov);
-        if (norm.includes('endo')) categoryPercentages.set('endodontics', cov);
-        if (norm.includes('perio')) categoryPercentages.set('periodontics', cov);
-        if (norm.includes('remov')) categoryPercentages.set('prosthodonticsremovable', cov);
-        if (norm.includes('maxillofac')) categoryPercentages.set('maxillofacialprosthetics', cov);
-        if (norm.includes('implant')) categoryPercentages.set('implantservices', cov);
-        if (norm.includes('fixed')) categoryPercentages.set('prosthodonticsfixed', cov);
-        if (norm.includes('surg') || norm.includes('oral')) categoryPercentages.set('oralsurgery', cov);
-        if (norm.includes('ortho')) categoryPercentages.set('orthodontics', cov);
-        if (norm.includes('adjunc') || norm.includes('general')) categoryPercentages.set('adjunctgeneral', cov);
+        if (norm.includes('restor')) aliases.push('restorative');
+        if (norm.includes('endo')) aliases.push('endodontics');
+        if (norm.includes('perio')) aliases.push('periodontics');
+        if (norm.includes('remov')) aliases.push('prosthodonticsremovable');
+        if (norm.includes('maxillofac')) aliases.push('maxillofacialprosthetics');
+        if (norm.includes('implant')) aliases.push('implantservices');
+        if (norm.includes('fixed')) aliases.push('prosthodonticsfixed');
+        if (norm.includes('surg') || norm.includes('oral')) aliases.push('oralsurgery');
+        if (norm.includes('ortho')) aliases.push('orthodontics');
+        if (norm.includes('adjunc') || norm.includes('general')) aliases.push('adjunctgeneral');
+
+        for (const alias of aliases) {
+          if (normSub) {
+            categoryPercentages.set(`${alias}${normSub}`, cov);
+          } else {
+            categoryPercentages.set(alias, cov);
+          }
+        }
       };
 
       // Process coverageCategoryTable (can be Array or Object)
@@ -197,8 +211,18 @@ export class InvoiceService {
                 if (subItem.code && typeof subItem.coverage === 'number') {
                   procCodePercentages.set(String(subItem.code).toUpperCase().trim(), subItem.coverage);
                 } else if (subItem.label && typeof subItem.coverage === 'number') {
-                  addCategoryPercentage(subItem.label, subItem.coverage);
-                  if (catName) addCategoryPercentage(catName, subItem.coverage);
+                  const subLabel = String(subItem.label);
+                  const normSub = normalizeCat(subLabel);
+                  if (!categoryPercentages.has(normSub)) {
+                    categoryPercentages.set(normSub, subItem.coverage);
+                  }
+                  if (catName) {
+                    addCategoryPercentage(catName, subItem.coverage, subLabel);
+                    const normCat = normalizeCat(catName);
+                    if (!categoryPercentages.has(normCat)) {
+                      categoryPercentages.set(normCat, subItem.coverage);
+                    }
+                  }
                 }
               }
             }
@@ -213,8 +237,16 @@ export class InvoiceService {
               if (subItem.code && typeof subItem.coverage === 'number') {
                 procCodePercentages.set(String(subItem.code).toUpperCase().trim(), subItem.coverage);
               } else if (subItem.label && typeof subItem.coverage === 'number') {
-                addCategoryPercentage(subItem.label, subItem.coverage);
-                addCategoryPercentage(catKey, subItem.coverage);
+                const subLabel = String(subItem.label);
+                const normSub = normalizeCat(subLabel);
+                if (!categoryPercentages.has(normSub)) {
+                  categoryPercentages.set(normSub, subItem.coverage);
+                }
+                addCategoryPercentage(catKey, subItem.coverage, subLabel);
+                const normCat = normalizeCat(catKey);
+                if (!categoryPercentages.has(normCat)) {
+                  categoryPercentages.set(normCat, subItem.coverage);
+                }
               }
             }
           }
@@ -231,6 +263,30 @@ export class InvoiceService {
         }
       }
 
+      // Batch fetch missing procedure codes for serviceIds to avoid N+1 queries
+      const missingServiceIds = items
+        .filter((item) => !item.cptCode && !item.code && !item.procedureCode && !item.procCode && item.serviceId)
+        .map((item) => {
+          try {
+            return BigInt(item.serviceId);
+          } catch {
+            return null;
+          }
+        })
+        .filter((id): id is bigint => id !== null);
+
+      const resolvedProcCodes = missingServiceIds.length > 0
+        ? await prisma.procedurecode.findMany({
+            where: { CodeNum: { in: missingServiceIds } },
+            select: { CodeNum: true, ProcCode: true },
+          })
+        : [];
+      const serviceIdToProcCodeMap = new Map(
+        resolvedProcCodes
+          .filter((p) => p.CodeNum !== null && p.CodeNum !== undefined)
+          .map((p) => [p.CodeNum!.toString(), p.ProcCode])
+      );
+
       for (const item of items) {
         const charge = Number(item.totalPrice ?? item.charge ?? item.ProcFee ?? item.unitPrice ?? 0);
         if (item.dbi) {
@@ -241,8 +297,7 @@ export class InvoiceService {
 
         let procCodeString = item.cptCode || item.code || item.procedureCode || item.procCode || '';
         if (!procCodeString && item.serviceId) {
-          const procCode = await prisma.procedurecode.findUnique({ where: { CodeNum: BigInt(item.serviceId) } });
-          if (procCode) procCodeString = procCode.ProcCode;
+          procCodeString = serviceIdToProcCodeMap.get(item.serviceId.toString()) || '';
         }
 
         if (!procCodeString) continue;
@@ -261,6 +316,7 @@ export class InvoiceService {
         if (percent === undefined) {
           const numMatch = cleanCode.match(/\d+/);
           const num = numMatch ? parseInt(numMatch[0], 10) : null;
+          const numStr = numMatch ? numMatch[0] : '';
           let catKey = '';
 
           if (num !== null) {
@@ -278,7 +334,19 @@ export class InvoiceService {
             else catKey = 'adjunctgeneral';
           }
 
-          if (catKey && categoryPercentages.has(catKey)) {
+          // Special subcategory handling for Periodontics (Basic vs Major)
+          if (catKey === 'periodontics') {
+            const isBasicPerio = ['4341', '4342', '4346', '4355', '4910', '4920', '4921'].includes(numStr);
+            if (isBasicPerio) {
+              percent = categoryPercentages.get('periodonticsbasic')
+                ?? categoryPercentages.get('periodontics')
+                ?? categoryPercentages.get('basic');
+            } else {
+              percent = categoryPercentages.get('periodonticsmajor')
+                ?? categoryPercentages.get('periodontics')
+                ?? categoryPercentages.get('major');
+            }
+          } else if (catKey && categoryPercentages.has(catKey)) {
             percent = categoryPercentages.get(catKey);
           }
         }
@@ -799,13 +867,19 @@ export class InvoiceService {
     const invoice = await this.getStatementById(invoiceId);
     if (!invoice) throw new NotFoundError('Invoice not found');
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
-    const patient = invoice.PatNum
-      ? await prisma.patient.findUnique({ where: { PatNum: invoice.PatNum } })
-      : null;
-    const appointment = await this.resolveAppointment(meta.appointmentId ?? null);
-    const provider = await this.resolveProvider(meta.providerId ?? appointment?.providerId ?? null);
-    const insuranceCompany = await this.resolveInsuranceCompany(meta.insuranceCompanyId ?? null);
-    const items = await this.getInvoiceItems(invoice.StatementNum);
+
+    const [patient, appointment, directProvider, insuranceCompany, items] = await Promise.all([
+      invoice.PatNum
+        ? prisma.patient.findUnique({ where: { PatNum: invoice.PatNum } })
+        : null,
+      this.resolveAppointment(meta.appointmentId ?? null),
+      this.resolveProvider(meta.providerId ?? null),
+      this.resolveInsuranceCompany(meta.insuranceCompanyId ?? null),
+      this.getInvoiceItems(invoice.StatementNum),
+    ]);
+
+    const provider = directProvider ?? (appointment?.providerId ? await this.resolveProvider(appointment.providerId) : null);
+
     return {
       invoice: {
         ...this.mapStatementToInvoice(invoice, meta),
@@ -1543,6 +1617,30 @@ export class InvoiceService {
           },
         });
       }
+    }
+
+    // Create an explicit $0.00 net-zero adjustment record for ledger audit trail
+    if (invoice.PatNum) {
+      const adjNum = await getNextId('adjustment', 'AdjNum');
+      const invoiceNumber = invoice.StatementNum.toString();
+      const adjNote = `Invoice #${invoiceNumber} - Income Transfer: $${outstandingInsurance.toFixed(2)} shifted from Insurance to Patient`;
+      const userNum = toBigInt(performedBy);
+
+      await prisma.adjustment.create({
+        data: {
+          AdjNum: adjNum,
+          PatNum: invoice.PatNum,
+          ProvNum: item.ProvNum ?? undefined,
+          ProcNum: procNum,
+          StatementNum: invoice.StatementNum,
+          AdjAmt: 0,
+          AdjDate: new Date(),
+          ProcDate: item.ProcDate ?? new Date(),
+          DateEntry: new Date(),
+          AdjNote: adjNote,
+          SecUserNumEntry: userNum ?? undefined,
+        },
+      });
     }
 
     // Recalculate invoice totals

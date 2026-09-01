@@ -112,6 +112,10 @@ export class PaymentService {
 
     if (filters.patientId) where.PatNum = BigInt(filters.patientId);
 
+    if (filters.invoiceId) {
+      where.PayNote = { contains: `"invoiceId":"${filters.invoiceId}"` };
+    }
+
     if (filters.startDate || filters.endDate) {
       where.PayDate = {};
       if (filters.startDate) where.PayDate.gte = new Date(filters.startDate);
@@ -129,10 +133,6 @@ export class PaymentService {
     ]);
 
     let payments = rows.map((row) => this.mapPaymentToApi(row));
-
-    if (filters.invoiceId) {
-      payments = payments.filter((payment) => payment.invoiceId === filters.invoiceId);
-    }
     if (filters.paymentMethod) {
       payments = payments.filter((payment) => payment.method === filters.paymentMethod);
     }

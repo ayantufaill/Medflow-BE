@@ -11,6 +11,10 @@
   },
   "servers": [
     {
+      "url": "/api",
+      "description": "Current Server (Auto-detected)"
+    },
+    {
       "url": "http://localhost:5001/api",
       "description": "Local Development Server"
     }
@@ -102,6 +106,9 @@
     },
     {
       "name": "Patients"
+    },
+    {
+      "name": "Patient Insurance"
     },
     {
       "name": "Payment Plans"
@@ -2113,6 +2120,35 @@
         }
       }
     },
+    "/appointments/day-tasks": {
+      "get": {
+        "summary": "Get all day tasks",
+        "tags": [
+          "Appointments"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
     "/appointments": {
       "get": {
         "summary": "Get all appointments",
@@ -3143,9 +3179,9 @@
         }
       },
       "patch": {
-        "summary": "Update appointment workspace",
+        "summary": "Patch :appointmentId workspace",
         "tags": [
-          "Appointments"
+          "Appointment"
         ],
         "security": [
           {
@@ -3158,13 +3194,13 @@
             "name": "appointmentId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "description": "Appointment ID"
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -3186,7 +3222,7 @@
         },
         "responses": {
           "200": {
-            "description": "Workspace updated successfully",
+            "description": "Successful response",
             "content": {
               "application/json": {
                 "schema": {
@@ -3213,7 +3249,7 @@
             "description": "Forbidden"
           },
           "404": {
-            "description": "Appointment not found"
+            "description": "Not found"
           }
         }
       }
@@ -3288,10 +3324,10 @@
         }
       },
       "post": {
-        "summary": "Add procedure to appointment",
+        "summary": "Post :appointmentId procedures",
         "description": "Add a dental procedure to an existing appointment",
         "tags": [
-          "Appointments"
+          "Appointment"
         ],
         "security": [
           {
@@ -3304,7 +3340,7 @@
             "name": "appointmentId",
             "required": true,
             "schema": {
-              "type": "integer",
+              "type": "string",
               "minimum": 1
             },
             "description": "The ID of the appointment",
@@ -3312,7 +3348,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -3383,6 +3419,24 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "201": {
             "description": "Procedure added successfully",
             "content": {
@@ -3433,13 +3487,13 @@
             "description": "Bad request - missing required fields or invalid data"
           },
           "401": {
-            "description": "Unauthorized - Invalid or missing token"
+            "description": "Unauthorized"
           },
           "403": {
             "description": "Forbidden - Insufficient permissions"
           },
           "404": {
-            "description": "Appointment not found"
+            "description": "Not found"
           },
           "422": {
             "description": "Validation failed - invalid procedure code"
@@ -3514,9 +3568,9 @@
         }
       },
       "post": {
-        "summary": "Add tag to appointment",
+        "summary": "Post :appointmentId tags",
         "tags": [
-          "Appointments"
+          "Appointment"
         ],
         "security": [
           {
@@ -3529,13 +3583,13 @@
             "name": "appointmentId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "description": "Appointment ID"
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -3560,6 +3614,24 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "201": {
             "description": "Tag added successfully",
             "content": {
@@ -3591,7 +3663,7 @@
             "description": "Forbidden"
           },
           "404": {
-            "description": "Appointment not found"
+            "description": "Not found"
           },
           "409": {
             "description": "Conflict - tag already exists"
@@ -3811,6 +3883,93 @@
           },
           "422": {
             "description": "Validation failed - invalid message content"
+          }
+        }
+      }
+    },
+    "/appointments/{appointmentId}/send-confirmation": {
+      "post": {
+        "summary": "Send a one-click appointment confirmation notification (email and/or SMS) to the patient",
+        "tags": [
+          "Appointments"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "appointmentId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "channels": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "email",
+                        "sms"
+                      ]
+                    },
+                    "description": "Defaults to ['email', 'sms'] if omitted"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Notification send result per channel"
+          },
+          "400": {
+            "description": "Bad request"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Appointment not found"
+          }
+        }
+      }
+    },
+    "/appointments/send-due-reminders": {
+      "post": {
+        "summary": "Manually trigger the due-reminders sweep (runs automatically every 15 minutes)",
+        "tags": [
+          "Appointments"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reminder sweep result"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
           }
         }
       }
@@ -4628,6 +4787,70 @@
         }
       }
     },
+    "/branches": {
+      "get": {
+        "summary": "Get the branches the authenticated user may access",
+        "tags": [
+          "Branches"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of accessible branches"
+          }
+        }
+      }
+    },
+    "/branches/analytics": {
+      "get": {
+        "summary": "Appointment analytics for one branch, or summed across all accessible branches",
+        "tags": [
+          "Branches"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "branchId",
+            "schema": {
+              "type": "string"
+            },
+            "description": "A branch id from GET /branches, or \"all\" (default) for the summed view"
+          },
+          {
+            "in": "query",
+            "name": "startDate",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Optional range start (ISO 8601). Defaults to the start of the current calendar year."
+          },
+          {
+            "in": "query",
+            "name": "endDate",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Optional range end (ISO 8601). Defaults to the end of the current calendar year."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Appointment analytics"
+          }
+        }
+      }
+    },
     "/claims": {
       "get": {
         "summary": "Get all claims",
@@ -4682,6 +4905,34 @@
           },
           "401": {
             "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/claims/{primaryClaimId}/generate-secondary": {
+      "post": {
+        "summary": "Generate a secondary claim from a primary claim",
+        "tags": [
+          "Claims"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "primaryClaimId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Secondary claim generated successfully"
           }
         }
       }
@@ -6053,6 +6304,92 @@
         }
       }
     },
+    "/claims/{claimId}/eob": {
+      "post": {
+        "summary": "Upload EOB document directly for a claim",
+        "tags": [
+          "Claims"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "claimId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  },
+                  "description": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "EOB document uploaded successfully"
+          }
+        }
+      }
+    },
+    "/claims/{claimId}/eob/{eobId}": {
+      "delete": {
+        "summary": "Delete EOB document directly from a claim",
+        "tags": [
+          "Claims"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "claimId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "eobId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "EOB document deleted successfully"
+          }
+        }
+      }
+    },
     "/claims/{claimId}/attachments": {
       "post": {
         "summary": "Upload multiple attachments for a claim",
@@ -6441,6 +6778,89 @@
         }
       }
     },
+    "/claims/{claimId}/void-and-recreate": {
+      "post": {
+        "summary": "Void and recreate a claim",
+        "description": "Voids an existing submitted/processed claim and returns it to the unsent queue (readyForSubmission status), resetting submission timestamps and recording an audit trail entry.",
+        "tags": [
+          "Claims"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "claimId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "ID of the claim to void and recreate"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "note": {
+                    "type": "string",
+                    "description": "Reason or note for voiding and recreating",
+                    "example": "Voided and recreated - returned to unsent queue"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Claim voided and recreated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "claim": {
+                          "$ref": "#/components/schemas/Claim"
+                        }
+                      }
+                    },
+                    "message": {
+                      "type": "string",
+                      "example": "Claim voided and recreated successfully"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Claim not found"
+          },
+          "500": {
+            "description": "Internal server error"
+          }
+        }
+      }
+    },
     "/claims/manual": {
       "post": {
         "summary": "Create a manual claim from selected procedures",
@@ -6657,6 +7077,66 @@
           },
           "500": {
             "description": "Internal server error"
+          }
+        }
+      }
+    },
+    "/claims/{claimId}/attachments/link": {
+      "post": {
+        "summary": "Link existing S3 EOB attachments to claim",
+        "tags": [
+          "Claims"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "claimId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "attachments"
+                ],
+                "properties": {
+                  "attachments": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "storagePath"
+                      ],
+                      "properties": {
+                        "filename": {
+                          "type": "string"
+                        },
+                        "storagePath": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Attachments linked successfully"
           }
         }
       }
@@ -7397,7 +7877,7 @@
         }
       },
       "post": {
-        "summary": "Create new product category",
+        "summary": "Post products",
         "tags": [
           "Clinical Management"
         ],
@@ -7407,7 +7887,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -7429,8 +7909,32 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "210": {
             "description": "Category created"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }
@@ -7713,6 +8217,37 @@
         }
       }
     },
+    "/clinical-management/checklists/categories/{categoryName}": {
+      "delete": {
+        "summary": "Delete checklist category by name",
+        "tags": [
+          "Clinical Management"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "categoryName",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Category deleted"
+          },
+          "404": {
+            "description": "Category not found"
+          }
+        }
+      }
+    },
     "/clinical-management/checklists/{checklistId}/items": {
       "post": {
         "summary": "Add item to checklist",
@@ -7918,7 +8453,7 @@
         }
       },
       "delete": {
-        "summary": "Delete checklist",
+        "summary": "Delete checklists :checklistId",
         "tags": [
           "Clinical Management"
         ],
@@ -7939,7 +8474,28 @@
         ],
         "responses": {
           "200": {
-            "description": "Checklist deleted"
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }
@@ -7972,6 +8528,78 @@
         }
       }
     },
+    "/clinical-management/checklists/items/{itemId}/choice/{choiceIndex}": {
+      "delete": {
+        "summary": "Delete choice from checklist item",
+        "tags": [
+          "Clinical Management"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "choiceIndex",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Choice deleted"
+          }
+        }
+      }
+    },
+    "/clinical-management/checklists/items/{itemId}/product/{productIndex}": {
+      "delete": {
+        "summary": "Delete product from checklist item",
+        "tags": [
+          "Clinical Management"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "productIndex",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Product deleted"
+          }
+        }
+      }
+    },
     "/clinical-management/prescription-templates": {
       "get": {
         "summary": "Get prescription templates",
@@ -7990,7 +8618,7 @@
         }
       },
       "post": {
-        "summary": "Create prescription template",
+        "summary": "Post prescription-templates",
         "tags": [
           "Clinical Management"
         ],
@@ -8000,7 +8628,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -8034,8 +8662,32 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "201": {
             "description": "Template created"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }
@@ -8095,7 +8747,7 @@
         }
       },
       "delete": {
-        "summary": "Delete prescription template",
+        "summary": "Delete prescription-templates :templateId",
         "tags": [
           "Clinical Management"
         ],
@@ -8116,7 +8768,28 @@
         ],
         "responses": {
           "200": {
-            "description": "Template deleted"
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }
@@ -8139,7 +8812,7 @@
         }
       },
       "put": {
-        "summary": "Update a clinical setting",
+        "summary": "Put settings",
         "tags": [
           "Clinical Management"
         ],
@@ -8149,7 +8822,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -8172,7 +8845,28 @@
         },
         "responses": {
           "200": {
-            "description": "Setting updated"
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }
@@ -8195,7 +8889,7 @@
         }
       },
       "put": {
-        "summary": "Save/Update recare schedule config",
+        "summary": "Put recare-config",
         "tags": [
           "Clinical Management"
         ],
@@ -8205,7 +8899,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -8224,7 +8918,46 @@
         },
         "responses": {
           "200": {
-            "description": "Config updated"
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/clinical-management/recare-config/run": {
+      "post": {
+        "summary": "Manually run the due-recare reminder sweep now (Admin only) — the same job the daily cron scheduler runs",
+        "tags": [
+          "Clinical Management"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Sweep result"
           }
         }
       }
@@ -8247,7 +8980,7 @@
         }
       },
       "put": {
-        "summary": "Save/Update treatment plan presentation configuration",
+        "summary": "Put treatment-plan-presentations",
         "tags": [
           "Clinical Management"
         ],
@@ -8257,7 +8990,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -8279,7 +9012,28 @@
         },
         "responses": {
           "200": {
-            "description": "Config updated"
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }
@@ -8302,7 +9056,7 @@
         }
       },
       "post": {
-        "summary": "Create informed consent template",
+        "summary": "Post consent-templates",
         "tags": [
           "Clinical Management"
         ],
@@ -8312,7 +9066,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -8334,8 +9088,32 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "201": {
             "description": "Consent template created"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }
@@ -8386,7 +9164,7 @@
         }
       },
       "delete": {
-        "summary": "Delete informed consent template",
+        "summary": "Delete consent-templates :templateId",
         "tags": [
           "Clinical Management"
         ],
@@ -8407,7 +9185,28 @@
         ],
         "responses": {
           "200": {
-            "description": "Consent template deleted"
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }
@@ -8430,7 +9229,7 @@
         }
       },
       "post": {
-        "summary": "Create pre/post-op template",
+        "summary": "Post instruction-templates",
         "tags": [
           "Clinical Management"
         ],
@@ -8440,7 +9239,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -8466,8 +9265,32 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "210": {
             "description": "Template created"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }
@@ -8521,7 +9344,7 @@
         }
       },
       "delete": {
-        "summary": "Delete instruction template",
+        "summary": "Delete instruction-templates :templateId",
         "tags": [
           "Clinical Management"
         ],
@@ -8542,7 +9365,28 @@
         ],
         "responses": {
           "200": {
-            "description": "Template deleted"
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }
@@ -9816,6 +10660,61 @@
         }
       }
     },
+    "/communication/gap-fills/settings": {
+      "get": {
+        "summary": "Get gap fills settings",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Gap fill settings"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create/Update gap fills settings",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "unscheduledNotificationEnabled": {
+                    "type": "boolean"
+                  },
+                  "showBookNow": {
+                    "type": "boolean"
+                  },
+                  "skipDays": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Gap fill settings saved"
+          }
+        }
+      }
+    },
     "/communication/gap-fills/{id}": {
       "delete": {
         "summary": "Delete gap fill configuration",
@@ -9913,6 +10812,102 @@
         "responses": {
           "200": {
             "description": "Review settings updated"
+          }
+        }
+      }
+    },
+    "/communication/bulk-text": {
+      "post": {
+        "summary": "Send bulk SMS to multiple patients",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "patientIds",
+                  "message"
+                ],
+                "properties": {
+                  "patientIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bulk texts sent"
+          },
+          "400": {
+            "description": "Invalid input"
+          }
+        }
+      }
+    },
+    "/communication/bulk-email": {
+      "post": {
+        "summary": "Send bulk email to multiple patients",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "patientIds",
+                  "subject",
+                  "message"
+                ],
+                "properties": {
+                  "patientIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "subject": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bulk email dispatch initiated"
+          },
+          "400": {
+            "description": "Invalid input"
           }
         }
       }
@@ -10670,6 +11665,37 @@
           },
           "404": {
             "description": "Document or note not found"
+          }
+        }
+      }
+    },
+    "/documents/{documentId}/unlink": {
+      "post": {
+        "summary": "Unlink document from patient",
+        "tags": [
+          "Documents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "documentId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Document unlinked successfully"
+          },
+          "404": {
+            "description": "Document not found"
           }
         }
       }
@@ -12130,6 +13156,227 @@
         }
       }
     },
+    "/form-templates": {
+      "get": {
+        "summary": "List portal form templates",
+        "tags": [
+          "Form Templates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "includeInactive",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of form templates"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create a new form template (Admin only)",
+        "tags": [
+          "Form Templates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "templateId",
+                  "name",
+                  "fields"
+                ],
+                "properties": {
+                  "templateId": {
+                    "type": "string",
+                    "example": "new-patient-intake"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "isActive": {
+                    "type": "boolean"
+                  },
+                  "fields": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "key",
+                        "label",
+                        "type"
+                      ],
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "text",
+                            "textarea",
+                            "email",
+                            "number",
+                            "phone",
+                            "date",
+                            "boolean",
+                            "select",
+                            "radio",
+                            "signature"
+                          ]
+                        },
+                        "required": {
+                          "type": "boolean"
+                        },
+                        "options": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "value": {
+                                "type": "string"
+                              },
+                              "label": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "order": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Form template created"
+          },
+          "409": {
+            "description": "templateId already exists"
+          }
+        }
+      }
+    },
+    "/form-templates/{templateId}": {
+      "get": {
+        "summary": "Get a single form template by its slug",
+        "tags": [
+          "Form Templates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Form template"
+          },
+          "404": {
+            "description": "Template not found"
+          }
+        }
+      },
+      "put": {
+        "summary": "Update a form template (Admin only)",
+        "tags": [
+          "Form Templates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Form template updated"
+          },
+          "404": {
+            "description": "Template not found"
+          }
+        }
+      }
+    },
+    "/form-templates/{templateId}/deactivate": {
+      "patch": {
+        "summary": "Soft-disable a form template (Admin only) — past submissions still reference its templateId",
+        "tags": [
+          "Form Templates"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "templateId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Form template deactivated"
+          },
+          "404": {
+            "description": "Template not found"
+          }
+        }
+      }
+    },
     "/insurance-companies": {
       "get": {
         "summary": "Get all insurance companies",
@@ -12362,6 +13609,485 @@
           },
           "404": {
             "description": "Insurance company not found"
+          }
+        }
+      }
+    },
+    "/insurance-companies/converted/old-payers": {
+      "get": {
+        "summary": "Get converted old-payers",
+        "tags": [
+          "Insurance Company"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/insurance-companies/converted/oryx-payers": {
+      "get": {
+        "summary": "Get converted oryx-payers",
+        "tags": [
+          "Insurance Company"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/insurance-companies/converted/matched": {
+      "get": {
+        "summary": "Get converted matched",
+        "tags": [
+          "Insurance Company"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/insurance-companies/converted/match": {
+      "post": {
+        "summary": "Post converted match",
+        "tags": [
+          "Insurance Company"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/insurance-companies/converted/match/{oldPayerId}": {
+      "delete": {
+        "summary": "Delete converted match :oldPayerId",
+        "tags": [
+          "Insurance Company"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "oldPayerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/insurance-companies/converted/fetch-matches": {
+      "post": {
+        "summary": "Post converted fetch-matches",
+        "tags": [
+          "Insurance Company"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/insurance-companies/vyne/office-payers": {
+      "get": {
+        "summary": "Get vyne office-payers",
+        "tags": [
+          "Insurance Company"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/insurance-companies/vyne/payers": {
+      "get": {
+        "summary": "Get vyne payers",
+        "tags": [
+          "Insurance Company"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/insurance-companies/vyne/matched": {
+      "get": {
+        "summary": "Get vyne matched",
+        "tags": [
+          "Insurance Company"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/insurance-companies/vyne/match": {
+      "post": {
+        "summary": "Post vyne match",
+        "tags": [
+          "Insurance Company"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/insurance-companies/vyne/match/{officePayerId}": {
+      "delete": {
+        "summary": "Delete vyne match :officePayerId",
+        "tags": [
+          "Insurance Company"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "officePayerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }
@@ -12599,6 +14325,104 @@
         }
       }
     },
+    "/insurance-plans/{planId}/benefits": {
+      "post": {
+        "summary": "Add a category maximum benefit",
+        "tags": [
+          "Insurance Plans"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "planId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Benefit created"
+          }
+        }
+      }
+    },
+    "/insurance-plans/{planId}/benefits/{benefitId}": {
+      "put": {
+        "summary": "Update a category maximum benefit",
+        "tags": [
+          "Insurance Plans"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "planId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "benefitId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Benefit updated"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a category maximum benefit",
+        "tags": [
+          "Insurance Plans"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "planId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "benefitId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Benefit deleted"
+          }
+        }
+      }
+    },
     "/insurance-plans/patients/{patientId}/coverages": {
       "get": {
         "summary": "Get patient insurance coverages",
@@ -12745,6 +14569,67 @@
           },
           "401": {
             "description": "Unauthorized"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create standalone invoice",
+        "tags": [
+          "Invoices"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "patientId",
+                  "items"
+                ],
+                "properties": {
+                  "patientId": {
+                    "type": "integer"
+                  },
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string"
+                        },
+                        "description": {
+                          "type": "string"
+                        },
+                        "charge": {
+                          "type": "number"
+                        },
+                        "ptPortion": {
+                          "type": "number"
+                        },
+                        "completed": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Invoice created"
+          },
+          "400": {
+            "description": "Validation error"
           }
         }
       }
@@ -13398,6 +15283,51 @@
         }
       }
     },
+    "/invoices/{invoiceId}/items/{itemId}/transfer-outstanding": {
+      "post": {
+        "summary": "Transfer outstanding insurance estimate to patient balance",
+        "description": "Moves the remaining insurance estimate (insPortion) for a line item to the patient's balance (ptPortion). Also updates the linked claim's InsPayEst and DedApplied fields and recalculates invoice totals.",
+        "tags": [
+          "Invoices"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoiceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "ID of the invoice"
+          },
+          {
+            "in": "path",
+            "name": "itemId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "ID of the line item (procedure log)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Insurance estimate transferred to patient balance"
+          },
+          "400": {
+            "description": "No outstanding insurance estimate to transfer, or invoice is voided"
+          },
+          "404": {
+            "description": "Invoice or item not found"
+          }
+        }
+      }
+    },
     "/kpis": {
       "get": {
         "summary": "Get rolling 12-month consolidated KPI metrics",
@@ -13409,9 +15339,47 @@
             "bearerAuth": []
           }
         ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "startDate",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Optional start date for custom range (ISO format)"
+          },
+          {
+            "in": "query",
+            "name": "endDate",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Optional end date for custom range (ISO format)"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Consolidated KPIs compiled successfully"
+          }
+        }
+      }
+    },
+    "/kpis/summary": {
+      "get": {
+        "summary": "Get top-card KPI summary (current month vs last month)",
+        "tags": [
+          "KPI Dashboard"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Returns Net Production, Total Collection, Seen Patients, and Case Accepted"
           }
         }
       }
@@ -13425,6 +15393,26 @@
         "security": [
           {
             "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "startDate",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Optional start date for custom range (ISO format)"
+          },
+          {
+            "in": "query",
+            "name": "endDate",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Optional end date for custom range (ISO format)"
           }
         ],
         "responses": {
@@ -14123,6 +16111,198 @@
         }
       }
     },
+    "/membership-plans": {
+      "get": {
+        "summary": "Get membership plan",
+        "tags": [
+          "Membership Plan"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "post": {
+        "summary": "Post membership plan",
+        "tags": [
+          "Membership Plan"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/membership-plans/{id}": {
+      "put": {
+        "summary": "Put :id",
+        "tags": [
+          "Membership Plan"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete :id",
+        "tags": [
+          "Membership Plan"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
     "/note-templates": {
       "get": {
         "summary": "Get all note templates",
@@ -14450,6 +16630,121 @@
         "responses": {
           "200": {
             "description": "Template status toggled"
+          }
+        }
+      }
+    },
+    "/notifications": {
+      "get": {
+        "summary": "Get the current staff user's notifications",
+        "tags": [
+          "Notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "default": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of notifications retrieved successfully"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing token"
+          }
+        }
+      }
+    },
+    "/notifications/unread-count": {
+      "get": {
+        "summary": "Get the current staff user's unread notification count",
+        "tags": [
+          "Notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Unread count retrieved successfully"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing token"
+          }
+        }
+      }
+    },
+    "/notifications/mark-all-read": {
+      "patch": {
+        "summary": "Mark all of the current staff user's notifications as read",
+        "tags": [
+          "Notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "All notifications marked as read"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing token"
+          }
+        }
+      }
+    },
+    "/notifications/{notificationId}/read": {
+      "patch": {
+        "summary": "Mark a single notification as read",
+        "tags": [
+          "Notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "notificationId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notification marked as read"
+          },
+          "401": {
+            "description": "Unauthorized - invalid or missing token"
+          },
+          "404": {
+            "description": "Notification not found"
           }
         }
       }
@@ -14923,6 +17218,42 @@
         }
       }
     },
+    "/patients/all/coverages": {
+      "get": {
+        "summary": "Get all insurances across all patients",
+        "tags": [
+          "Patient Insurance"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of all global insurances",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PatientInsurance"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/patients/{patientId}/insurance": {
       "get": {
         "summary": "Get patient insurances",
@@ -14976,7 +17307,7 @@
         }
       },
       "post": {
-        "summary": "Add insurance to patient",
+        "summary": "Post :patientId insurance",
         "tags": [
           "Patient Insurance"
         ],
@@ -14991,13 +17322,13 @@
             "name": "patientId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "example": 1
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -15084,6 +17415,24 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "201": {
             "description": "Insurance added successfully",
             "content": {
@@ -15110,11 +17459,14 @@
           "400": {
             "description": "Validation error"
           },
+          "401": {
+            "description": "Unauthorized"
+          },
           "403": {
             "description": "Forbidden"
           },
           "404": {
-            "description": "Patient or Insurance company not found"
+            "description": "Not found"
           }
         }
       }
@@ -15178,7 +17530,7 @@
         }
       },
       "put": {
-        "summary": "Update patient insurance",
+        "summary": "Put :patientId insurance :patientInsuranceId",
         "tags": [
           "Patient Insurance"
         ],
@@ -15193,7 +17545,7 @@
             "name": "patientId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "example": 1
           },
@@ -15202,13 +17554,13 @@
             "name": "patientInsuranceId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "example": 1
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -15279,7 +17631,7 @@
         },
         "responses": {
           "200": {
-            "description": "Insurance updated successfully",
+            "description": "Successful response",
             "content": {
               "application/json": {
                 "schema": {
@@ -15289,7 +17641,8 @@
                       "type": "boolean"
                     },
                     "data": {
-                      "$ref": "#/components/schemas/PatientInsurance"
+                      "$ref": "#/components/schemas/PatientInsurance",
+                      "type": "object"
                     }
                   }
                 }
@@ -15299,16 +17652,19 @@
           "400": {
             "description": "Validation error"
           },
+          "401": {
+            "description": "Unauthorized"
+          },
           "403": {
             "description": "Forbidden"
           },
           "404": {
-            "description": "Insurance not found"
+            "description": "Not found"
           }
         }
       },
       "delete": {
-        "summary": "Delete patient insurance",
+        "summary": "Delete :patientId insurance :patientInsuranceId",
         "tags": [
           "Patient Insurance"
         ],
@@ -15323,7 +17679,7 @@
             "name": "patientId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "example": 1
           },
@@ -15332,14 +17688,14 @@
             "name": "patientInsuranceId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "example": 1
           }
         ],
         "responses": {
           "200": {
-            "description": "Insurance deleted successfully",
+            "description": "Successful response",
             "content": {
               "application/json": {
                 "schema": {
@@ -15364,11 +17720,14 @@
               }
             }
           },
+          "401": {
+            "description": "Unauthorized"
+          },
           "403": {
             "description": "Forbidden"
           },
           "404": {
-            "description": "Insurance not found"
+            "description": "Not found"
           }
         }
       }
@@ -15491,6 +17850,94 @@
         "responses": {
           "201": {
             "description": "Patient referral created successfully"
+          }
+        }
+      }
+    },
+    "/patients/{patientId}/purchase-products": {
+      "post": {
+        "summary": "Purchase products for a patient",
+        "tags": [
+          "Patients"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "products": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "productName": {
+                          "type": "string"
+                        },
+                        "providerName": {
+                          "type": "string"
+                        },
+                        "quantity": {
+                          "type": "number"
+                        },
+                        "price": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successfully purchased products"
+          }
+        }
+      }
+    },
+    "/patients/{patientId}/unbilled-products": {
+      "get": {
+        "summary": "Get unbilled products/standalone procedures for a patient",
+        "tags": [
+          "Patients"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of unbilled products"
           }
         }
       }
@@ -15649,9 +18096,9 @@
         }
       },
       "post": {
-        "summary": "Create a new patient",
+        "summary": "Post patient",
         "tags": [
-          "Patients"
+          "Patient"
         ],
         "security": [
           {
@@ -15659,7 +18106,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -15732,6 +18179,24 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "201": {
             "description": "Patient created successfully",
             "content": {
@@ -15804,6 +18269,9 @@
           },
           "403": {
             "description": "Forbidden"
+          },
+          "404": {
+            "description": "Not found"
           },
           "409": {
             "description": "Duplicate patient",
@@ -16030,9 +18498,9 @@
     },
     "/patients/{patientId}": {
       "get": {
-        "summary": "Get patient by ID",
+        "summary": "Get :patientId",
         "tags": [
-          "Patients"
+          "Patient"
         ],
         "security": [
           {
@@ -16045,14 +18513,14 @@
             "name": "patientId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "example": 1
           }
         ],
         "responses": {
           "200": {
-            "description": "Patient details",
+            "description": "Successful response",
             "content": {
               "application/json": {
                 "schema": {
@@ -16111,7 +18579,7 @@
             "description": "Forbidden"
           },
           "404": {
-            "description": "Patient not found",
+            "description": "Not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -16230,9 +18698,9 @@
         }
       },
       "delete": {
-        "summary": "Delete (deactivate) patient — Admin only",
+        "summary": "Delete :patientId",
         "tags": [
-          "Patients"
+          "Patient"
         ],
         "security": [
           {
@@ -16245,14 +18713,14 @@
             "name": "patientId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "example": 1
           }
         ],
         "responses": {
           "200": {
-            "description": "Patient deactivated successfully",
+            "description": "Successful response",
             "content": {
               "application/json": {
                 "schema": {
@@ -16283,7 +18751,355 @@
             "description": "Forbidden - Admin only"
           },
           "404": {
-            "description": "Patient not found"
+            "description": "Not found"
+          }
+        }
+      },
+      "patch": {
+        "summary": "Patch :patientId",
+        "tags": [
+          "Patient"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/patients/bulk-delete": {
+      "post": {
+        "summary": "Bulk delete (deactivate) incomplete patients - Admin only",
+        "tags": [
+          "Patients"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "patientIds"
+                ],
+                "properties": {
+                  "patientIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Patients deactivated successfully"
+          }
+        }
+      }
+    },
+    "/patients/{patientId}/family-members": {
+      "post": {
+        "summary": "Add a family member",
+        "tags": [
+          "Patients"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "memberId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      }
+    },
+    "/patients/{patientId}/family-members/{memberId}": {
+      "delete": {
+        "summary": "Remove a family member",
+        "tags": [
+          "Patients"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "memberId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response"
+          }
+        }
+      }
+    },
+    "/patients/{patientId}/account-notes": {
+      "get": {
+        "summary": "Get :patientId account-notes",
+        "tags": [
+          "Patient"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "post": {
+        "summary": "Post :patientId account-notes",
+        "tags": [
+          "Patient"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/patients/{patientId}/account-notes/{noteId}": {
+      "put": {
+        "summary": "Put :patientId account-notes :noteId",
+        "tags": [
+          "Patient"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "noteId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }
@@ -16511,9 +19327,9 @@
         }
       },
       "patch": {
-        "summary": "Update patient workspace metadata",
+        "summary": "Patch :patientId workspace",
         "tags": [
-          "Patients"
+          "Patient"
         ],
         "security": [
           {
@@ -16526,13 +19342,13 @@
             "name": "patientId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "example": 1
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -16559,7 +19375,22 @@
         },
         "responses": {
           "200": {
-            "description": "Workspace updated"
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
           },
           "400": {
             "description": "Validation error"
@@ -16571,7 +19402,7 @@
             "description": "Forbidden"
           },
           "404": {
-            "description": "Patient not found"
+            "description": "Not found"
           }
         }
       }
@@ -16653,9 +19484,9 @@
         }
       },
       "patch": {
-        "summary": "Update patient medical history",
+        "summary": "Patch :patientId medical-history",
         "tags": [
-          "Patients"
+          "Patient"
         ],
         "security": [
           {
@@ -16668,13 +19499,13 @@
             "name": "patientId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "example": 1
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -16708,7 +19539,22 @@
         },
         "responses": {
           "200": {
-            "description": "Medical history updated"
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
           },
           "400": {
             "description": "Validation error"
@@ -16720,7 +19566,7 @@
             "description": "Forbidden"
           },
           "404": {
-            "description": "Patient not found"
+            "description": "Not found"
           }
         }
       }
@@ -16802,9 +19648,9 @@
         }
       },
       "patch": {
-        "summary": "Update patient dental history",
+        "summary": "Patch :patientId dental-history",
         "tags": [
-          "Patients"
+          "Patient"
         ],
         "security": [
           {
@@ -16817,13 +19663,13 @@
             "name": "patientId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "example": 1
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -16848,7 +19694,22 @@
         },
         "responses": {
           "200": {
-            "description": "Dental history updated"
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
           },
           "400": {
             "description": "Validation error"
@@ -16860,7 +19721,7 @@
             "description": "Forbidden"
           },
           "404": {
-            "description": "Patient not found"
+            "description": "Not found"
           }
         }
       }
@@ -17111,9 +19972,9 @@
         }
       },
       "post": {
-        "summary": "Add allergy to patient",
+        "summary": "Post :patientId allergies",
         "tags": [
-          "Patients"
+          "Patient"
         ],
         "security": [
           {
@@ -17126,13 +19987,13 @@
             "name": "patientId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "example": 1
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -17180,6 +20041,24 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "201": {
             "description": "Allergy added successfully",
             "content": {
@@ -17214,7 +20093,7 @@
             "description": "Forbidden"
           },
           "404": {
-            "description": "Patient not found"
+            "description": "Not found"
           }
         }
       }
@@ -17287,9 +20166,9 @@
         }
       },
       "put": {
-        "summary": "Update patient allergy",
+        "summary": "Put :patientId allergies :allergyId",
         "tags": [
-          "Patients"
+          "Patient"
         ],
         "security": [
           {
@@ -17302,7 +20181,7 @@
             "name": "patientId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "example": 1
           },
@@ -17311,13 +20190,13 @@
             "name": "allergyId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "example": 1
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -17347,7 +20226,7 @@
         },
         "responses": {
           "200": {
-            "description": "Allergy updated",
+            "description": "Successful response",
             "content": {
               "application/json": {
                 "schema": {
@@ -17375,14 +20254,14 @@
             "description": "Forbidden"
           },
           "404": {
-            "description": "Allergy not found"
+            "description": "Not found"
           }
         }
       },
       "delete": {
-        "summary": "Delete patient allergy",
+        "summary": "Delete :patientId allergies :allergyId",
         "tags": [
-          "Patients"
+          "Patient"
         ],
         "security": [
           {
@@ -17395,7 +20274,7 @@
             "name": "patientId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "example": 1
           },
@@ -17404,14 +20283,14 @@
             "name": "allergyId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "example": 1
           }
         ],
         "responses": {
           "200": {
-            "description": "Allergy deleted",
+            "description": "Successful response",
             "content": {
               "application/json": {
                 "schema": {
@@ -17442,7 +20321,7 @@
             "description": "Forbidden"
           },
           "404": {
-            "description": "Allergy not found"
+            "description": "Not found"
           }
         }
       }
@@ -17497,6 +20376,656 @@
           },
           "404": {
             "description": "Patient not found"
+          }
+        }
+      }
+    },
+    "/patients/{patientId}/communications/send": {
+      "post": {
+        "summary": "Post :patientId communications send",
+        "tags": [
+          "Patient"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/patients/{patientId}/update-requests": {
+      "get": {
+        "summary": "Get :patientId update-requests",
+        "tags": [
+          "Patient"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "post": {
+        "summary": "Post :patientId update-requests",
+        "tags": [
+          "Patient"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/patients/{patientId}/reconciliation/{requestId}": {
+      "get": {
+        "summary": "Get :patientId reconciliation :requestId",
+        "tags": [
+          "Patient"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/patients/{patientId}/reconciliation/{requestId}/apply": {
+      "post": {
+        "summary": "Post :patientId reconciliation :requestId apply",
+        "tags": [
+          "Patient"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/patients/{patientId}/audit-history": {
+      "get": {
+        "summary": "Get :patientId audit-history",
+        "tags": [
+          "Patient"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/patients/{patientId}/coverages": {
+      "get": {
+        "summary": "Get :patientId coverages",
+        "tags": [
+          "Patient"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "post": {
+        "summary": "Post :patientId coverages",
+        "tags": [
+          "Patient"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/patients/{patientId}/reports/summary": {
+      "get": {
+        "summary": "Get :patientId reports summary",
+        "tags": [
+          "Patient"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/patients/{patientId}/reports/showcase": {
+      "get": {
+        "summary": "Get :patientId reports showcase",
+        "tags": [
+          "Patient"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/patients/{patientId}/reports/concerns": {
+      "get": {
+        "summary": "Get :patientId reports concerns",
+        "tags": [
+          "Patient"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/patients/{patientId}/reports/refresh": {
+      "post": {
+        "summary": "Post :patientId reports refresh",
+        "tags": [
+          "Patient"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }
@@ -18698,6 +22227,9 @@
         "responses": {
           "200": {
             "description": "Form updated"
+          },
+          "409": {
+            "description": "Form is a signed consent record (signature field present) and can no longer be edited"
           }
         }
       }
@@ -18929,6 +22461,218 @@
         "responses": {
           "200": {
             "description": "Reply sent"
+          }
+        }
+      }
+    },
+    "/practice-groups": {
+      "post": {
+        "summary": "Create a new practice group (onboard a new independent practice)",
+        "tags": [
+          "Practice Groups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "config": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Practice group created"
+          }
+        }
+      },
+      "get": {
+        "summary": "List all practice groups with their branches",
+        "tags": [
+          "Practice Groups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of practice groups"
+          }
+        }
+      }
+    },
+    "/practice-groups/{groupId}": {
+      "get": {
+        "summary": "Get a practice group and its branches",
+        "tags": [
+          "Practice Groups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "groupId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Practice group detail"
+          },
+          "404": {
+            "description": "Practice group not found"
+          }
+        }
+      }
+    },
+    "/practice-groups/{groupId}/branches": {
+      "post": {
+        "summary": "Provision a new branch (clinic) under a practice group",
+        "tags": [
+          "Practice Groups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "groupId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "address": {
+                    "type": "string"
+                  },
+                  "city": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string"
+                  },
+                  "zip": {
+                    "type": "string"
+                  },
+                  "phone": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Branch created"
+          },
+          "404": {
+            "description": "Practice group not found"
+          }
+        }
+      }
+    },
+    "/practice-groups/{groupId}/admin": {
+      "post": {
+        "summary": "Create the first Group Admin user for a practice group, assigned to one of its branches",
+        "tags": [
+          "Practice Groups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "groupId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email",
+                  "firstName",
+                  "lastName",
+                  "clinicId"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "firstName": {
+                    "type": "string"
+                  },
+                  "lastName": {
+                    "type": "string"
+                  },
+                  "clinicId": {
+                    "type": "string",
+                    "description": "A branch id from POST /practice-groups/{groupId}/branches"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Admin user created — an email verification link was sent to set their password"
+          },
+          "404": {
+            "description": "Practice group or branch not found"
           }
         }
       }
@@ -19956,7 +23700,118 @@
                 "type": "object",
                 "properties": {
                   "scheduleConfig": {
-                    "type": "object"
+                    "type": "object",
+                    "properties": {
+                      "generalSettings": {
+                        "type": "object",
+                        "properties": {
+                          "enableHorizontalScroll": {
+                            "type": "boolean",
+                            "default": false
+                          },
+                          "minSlotWidth": {
+                            "type": "number",
+                            "default": 200
+                          },
+                          "showCalendar": {
+                            "type": "boolean",
+                            "default": true
+                          },
+                          "adjustableSlotHeight": {
+                            "type": "boolean",
+                            "default": false
+                          },
+                          "slotHeight": {
+                            "type": "number",
+                            "default": 50
+                          }
+                        }
+                      },
+                      "appointmentCardHeader": {
+                        "type": "object",
+                        "properties": {
+                          "patientNameFormat": {
+                            "type": "string",
+                            "default": "First Name Last Name"
+                          },
+                          "displayAge": {
+                            "type": "boolean",
+                            "default": true
+                          },
+                          "headerFontColor": {
+                            "type": "string",
+                            "default": "#ffffff"
+                          }
+                        }
+                      },
+                      "appointmentCardSettings": {
+                        "type": "object",
+                        "properties": {
+                          "defaultView": {
+                            "type": "string",
+                            "default": "List"
+                          },
+                          "infoToDisplay": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "treatmentScheduleSettings": {
+                        "type": "object",
+                        "properties": {
+                          "providerView": {
+                            "type": "string",
+                            "default": "Standard"
+                          },
+                          "chairView": {
+                            "type": "string",
+                            "default": "Standard"
+                          }
+                        }
+                      },
+                      "statusColors": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "name": {
+                              "type": "string"
+                            },
+                            "color1": {
+                              "type": "string"
+                            },
+                            "color2": {
+                              "type": "string",
+                              "default": ""
+                            },
+                            "anim": {
+                              "type": "string",
+                              "default": "None"
+                            }
+                          }
+                        }
+                      },
+                      "appointmentTypes": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "type": {
+                              "type": "string"
+                            },
+                            "providers": {
+                              "type": "number"
+                            },
+                            "time": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -20027,6 +23882,119 @@
         "responses": {
           "200": {
             "description": "List of dental procedure codes"
+          }
+        }
+      }
+    },
+    "/procedure-codes/buttons": {
+      "get": {
+        "summary": "Get all procedure buttons and their items",
+        "tags": [
+          "Procedure Codes"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of procedure button categories and items"
+          }
+        }
+      }
+    },
+    "/api/productivity/production-over-time": {
+      "get": {
+        "summary": "Get daily production totals over a date range",
+        "tags": [
+          "Productivity"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "startDate",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Start date (YYYY-MM-DD)"
+          },
+          {
+            "in": "query",
+            "name": "endDate",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "End date (YYYY-MM-DD)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of production data points"
+          }
+        }
+      }
+    },
+    "/api/productivity/production-by-provider": {
+      "get": {
+        "summary": "Get production totals grouped by provider",
+        "tags": [
+          "Productivity"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "startDate",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "endDate",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of production by provider"
+          }
+        }
+      }
+    },
+    "/api/productivity/production-by-operatory": {
+      "get": {
+        "summary": "Get production totals grouped by operatory",
+        "tags": [
+          "Productivity"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "startDate",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "endDate",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of production by operatory"
           }
         }
       }
@@ -21043,9 +25011,9 @@
         }
       },
       "post": {
-        "summary": "Create a provider (Admin only)",
+        "summary": "Post provider",
         "tags": [
-          "Providers"
+          "Provider"
         ],
         "security": [
           {
@@ -21053,7 +25021,7 @@
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -21097,6 +25065,24 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "201": {
             "description": "Provider created",
             "content": {
@@ -21118,8 +25104,14 @@
           "400": {
             "description": "Bad request - Missing required fields"
           },
+          "401": {
+            "description": "Unauthorized"
+          },
           "403": {
             "description": "Forbidden - Admin access required"
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }
@@ -21204,9 +25196,9 @@
         }
       },
       "put": {
-        "summary": "Update provider (Admin only)",
+        "summary": "Put :providerId",
         "tags": [
-          "Providers"
+          "Provider"
         ],
         "security": [
           {
@@ -21219,13 +25211,13 @@
             "name": "providerId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "description": "Provider ID"
           }
         ],
         "requestBody": {
-          "required": true,
+          "required": false,
           "content": {
             "application/json": {
               "schema": {
@@ -21270,7 +25262,7 @@
         },
         "responses": {
           "200": {
-            "description": "Provider updated",
+            "description": "Successful response",
             "content": {
               "application/json": {
                 "schema": {
@@ -21290,11 +25282,14 @@
           "400": {
             "description": "Bad request - Invalid data or missing body"
           },
+          "401": {
+            "description": "Unauthorized"
+          },
           "403": {
             "description": "Forbidden - Admin access required"
           },
           "404": {
-            "description": "Provider not found"
+            "description": "Not found"
           },
           "500": {
             "description": "Internal server error"
@@ -21302,9 +25297,9 @@
         }
       },
       "delete": {
-        "summary": "Delete provider (Admin only)",
+        "summary": "Delete :providerId",
         "tags": [
-          "Providers"
+          "Provider"
         ],
         "security": [
           {
@@ -21317,14 +25312,14 @@
             "name": "providerId",
             "required": true,
             "schema": {
-              "type": "integer"
+              "type": "string"
             },
             "description": "Provider ID"
           }
         ],
         "responses": {
           "200": {
-            "description": "Provider deleted successfully",
+            "description": "Successful response",
             "content": {
               "application/json": {
                 "schema": {
@@ -21335,6 +25330,9 @@
                     },
                     "message": {
                       "type": "string"
+                    },
+                    "data": {
+                      "type": "object"
                     }
                   },
                   "example": {
@@ -21345,11 +25343,14 @@
               }
             }
           },
+          "401": {
+            "description": "Unauthorized"
+          },
           "403": {
             "description": "Forbidden - Admin access required"
           },
           "404": {
-            "description": "Provider not found"
+            "description": "Not found"
           },
           "409": {
             "description": "Conflict - Cannot delete provider with existing appointments",
@@ -21529,6 +25530,140 @@
           },
           "404": {
             "description": "Provider not found"
+          }
+        }
+      }
+    },
+    "/public/booking/slots": {
+      "get": {
+        "summary": "Look up available appointment slots (no auth required)",
+        "tags": [
+          "Public Booking"
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "branchId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "providerId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "appointmentTypeId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Available start-time slots"
+          },
+          "400": {
+            "description": "Provider doesn't see patients at this branch, or isn't accepting new patients"
+          },
+          "404": {
+            "description": "Branch or provider not found"
+          }
+        }
+      }
+    },
+    "/public/booking/appointments": {
+      "post": {
+        "summary": "Book a slot as a guest (no auth required) — creates or reuses a patient record and reserves the slot pending staff confirmation",
+        "tags": [
+          "Public Booking"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "branchId",
+                  "providerId",
+                  "appointmentTypeId",
+                  "appointmentDate",
+                  "startTime",
+                  "firstName",
+                  "lastName",
+                  "dateOfBirth"
+                ],
+                "properties": {
+                  "branchId": {
+                    "type": "string"
+                  },
+                  "providerId": {
+                    "type": "string"
+                  },
+                  "appointmentTypeId": {
+                    "type": "string"
+                  },
+                  "appointmentDate": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "startTime": {
+                    "type": "string",
+                    "example": "09:00"
+                  },
+                  "chiefComplaint": {
+                    "type": "string"
+                  },
+                  "firstName": {
+                    "type": "string"
+                  },
+                  "lastName": {
+                    "type": "string"
+                  },
+                  "dateOfBirth": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "phone": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Booking request received, pending staff confirmation"
+          },
+          "400": {
+            "description": "Slot no longer available, or invalid request"
+          },
+          "404": {
+            "description": "Branch or provider not found"
+          },
+          "429": {
+            "description": "Too many booking attempts from this IP"
           }
         }
       }
@@ -22002,7 +26137,7 @@
       "get": {
         "summary": "Retrieve all saved report definitions",
         "tags": [
-          "Reports"
+          "Reporting"
         ],
         "security": [
           {
@@ -22018,7 +26153,7 @@
       "post": {
         "summary": "Save a new report definition",
         "tags": [
-          "Reports"
+          "Reporting"
         ],
         "security": [
           {
@@ -22075,7 +26210,7 @@
       "delete": {
         "summary": "Delete a saved report definition",
         "tags": [
-          "Reports"
+          "Reporting"
         ],
         "security": [
           {
@@ -22103,7 +26238,7 @@
       "post": {
         "summary": "Execute a dynamic report",
         "tags": [
-          "Reports"
+          "Reporting"
         ],
         "security": [
           {
@@ -22158,11 +26293,29 @@
         }
       }
     },
+    "/reports/denial-rates": {
+      "get": {
+        "summary": "Retrieve denial rate metrics grouped by carrier",
+        "tags": [
+          "Reporting"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Denial rates successfully compiled"
+          }
+        }
+      }
+    },
     "/reports/dashboard/metrics": {
       "get": {
         "summary": "Retrieve dashboard metrics and graph data",
         "tags": [
-          "Reports Dashboard"
+          "Reporting"
         ],
         "security": [
           {
@@ -22213,7 +26366,7 @@
       "get": {
         "summary": "Retrieve dashboard goals settings",
         "tags": [
-          "Reports Dashboard"
+          "Reporting"
         ],
         "security": [
           {
@@ -22229,7 +26382,7 @@
       "put": {
         "summary": "Update dashboard goals settings",
         "tags": [
-          "Reports Dashboard"
+          "Reporting"
         ],
         "security": [
           {
@@ -22289,7 +26442,7 @@
       "get": {
         "summary": "Retrieve financial report data by name",
         "tags": [
-          "Reports Section"
+          "Reporting"
         ],
         "security": [
           {
@@ -22341,7 +26494,7 @@
       "get": {
         "summary": "Retrieve clinical report data by name",
         "tags": [
-          "Reports Section"
+          "Reporting"
         ],
         "security": [
           {
@@ -22393,7 +26546,7 @@
       "get": {
         "summary": "Retrieve patient report data by name",
         "tags": [
-          "Reports Section"
+          "Reporting"
         ],
         "security": [
           {
@@ -22445,7 +26598,7 @@
       "get": {
         "summary": "Retrieve other system audit/login report data by name",
         "tags": [
-          "Reports Section"
+          "Reporting"
         ],
         "security": [
           {
@@ -23125,7 +27278,7 @@
         "summary": "Get all prescriptions",
         "description": "Returns a paginated list of prescriptions, optionally filtered by patient. Each prescription includes a joined medication name resolved via RxCui matching against the medication table, falling back to the raw prescribed drug text if no match is found.",
         "tags": [
-          "RX (Prescriptions)"
+          "Rx"
         ],
         "security": [
           {
@@ -23278,7 +27431,7 @@
         "summary": "Create a new prescription",
         "description": "Creates a new prescription, linked either to a specific medication via medicationId, or with a free-text description. At least one of medicationId or description is required.",
         "tags": [
-          "RX (Prescriptions)"
+          "Rx"
         ],
         "security": [
           {
@@ -23423,7 +27576,7 @@
         "summary": "Get formatted print data for a prescription",
         "description": "Returns a structured JSON payload of a prescription formatted for printing, including patient and provider details and the joined medication name.",
         "tags": [
-          "RX (Prescriptions)"
+          "Rx"
         ],
         "security": [
           {
@@ -23557,6 +27710,198 @@
           },
           "404": {
             "description": "Prescription not found"
+          }
+        }
+      }
+    },
+    "/schedule-blocks": {
+      "get": {
+        "summary": "Get schedule block",
+        "tags": [
+          "Schedule Block"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "post": {
+        "summary": "Post schedule block",
+        "tags": [
+          "Schedule Block"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/schedule-blocks/{blockId}": {
+      "put": {
+        "summary": "Update schedule block",
+        "tags": [
+          "Schedule Block"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "blockId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete :blockId",
+        "tags": [
+          "Schedule Block"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "blockId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Not found"
           }
         }
       }
@@ -23876,6 +28221,317 @@
         "responses": {
           "200": {
             "description": "Service status toggled successfully"
+          }
+        }
+      }
+    },
+    "/api/shortlist": {
+      "get": {
+        "summary": "Get all shortlist items",
+        "tags": [
+          "Shortlist"
+        ],
+        "responses": {
+          "200": {
+            "description": "Array of shortlist items"
+          }
+        }
+      },
+      "post": {
+        "summary": "Add a new item to the shortlist",
+        "tags": [
+          "Shortlist"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "patientId": {
+                    "type": "string"
+                  },
+                  "providerId": {
+                    "type": "string"
+                  },
+                  "durationMins": {
+                    "type": "number"
+                  },
+                  "preferredDay": {
+                    "type": "string"
+                  },
+                  "preferredTime": {
+                    "type": "string"
+                  },
+                  "procedures": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "notes": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Shortlist item created"
+          }
+        }
+      }
+    },
+    "/api/shortlist/{id}": {
+      "put": {
+        "summary": "Update an item in the shortlist",
+        "tags": [
+          "Shortlist"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Shortlist item updated"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Remove an item from the shortlist",
+        "tags": [
+          "Shortlist"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Shortlist item deleted"
+          }
+        }
+      }
+    },
+    "/tasks": {
+      "get": {
+        "summary": "Get all tasks with filters and pagination",
+        "tags": [
+          "Tasks"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create a new task (Admin only)",
+        "tags": [
+          "Tasks"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/tasks/lists": {
+      "get": {
+        "summary": "Get all task lists",
+        "tags": [
+          "Tasks"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/tasks/{taskId}": {
+      "get": {
+        "summary": "Get task details by ID",
+        "tags": [
+          "Tasks"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "put": {
+        "summary": "Update task (Admin only)",
+        "tags": [
+          "Tasks"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "summary": "Delete task (Admin only)",
+        "tags": [
+          "Tasks"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/tasks/{taskId}/comments": {
+      "post": {
+        "summary": "Add a comment to a task",
+        "tags": [
+          "Tasks"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/tasks/{taskId}/status": {
+      "patch": {
+        "summary": "Update task status",
+        "tags": [
+          "Tasks"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/timeclock/timesheets": {
+      "get": {
+        "summary": "Get timesheet records grouped by employee",
+        "tags": [
+          "TimeClock"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "startDate",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "endDate",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dateRange",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Aggregated timesheets and summary statistics"
+          }
+        }
+      }
+    },
+    "/timeclock/record": {
+      "post": {
+        "summary": "Add a new time clock record (Clock In / Clock Out / Break)",
+        "tags": [
+          "TimeClock"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "date",
+                  "time",
+                  "recordType"
+                ],
+                "properties": {
+                  "user": {
+                    "type": "string"
+                  },
+                  "employeeNum": {
+                    "type": "string"
+                  },
+                  "date": {
+                    "type": "string"
+                  },
+                  "time": {
+                    "type": "string"
+                  },
+                  "recordType": {
+                    "type": "string",
+                    "enum": [
+                      "Clock In",
+                      "Clock Out",
+                      "Break"
+                    ]
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Time clock record created successfully"
           }
         }
       }
@@ -24937,6 +29593,42 @@
         "responses": {
           "200": {
             "description": "Profile updated"
+          }
+        }
+      }
+    },
+    "/users/me/branch": {
+      "patch": {
+        "summary": "Set the caller's current branch",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "branchId"
+                ],
+                "properties": {
+                  "branchId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current branch updated"
           }
         }
       }

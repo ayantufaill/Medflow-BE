@@ -641,6 +641,24 @@ export class ClaimController {
     }
   }
 
+  async voidAndRecreate(req: Request, res: Response, next: NextFunction) {
+    try {
+      const claimId = req.params.claimId as string;
+      const result = await claimService.voidAndRecreateClaim(
+        claimId,
+        req.body.note,
+        req.userId
+      );
+      res.status(200).json({
+        success: true,
+        data: { claim: result },
+        message: 'Claim voided and recreated successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async uncompleteProcedures(req: Request, res: Response, next: NextFunction) {
     try {
       const result = await claimService.uncompleteProcedures(req.body.procedureIds);
