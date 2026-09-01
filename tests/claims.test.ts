@@ -643,6 +643,104 @@ describe('Claims Procedures Fallback', () => {
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
 
+  it('correctly calculates Basic (80%) vs Major (50%) Periodontics coverage estimates', async () => {
+    const token = uniqueToken('perio_cov');
+    const alphanumericToken = token.replace(/[^a-zA-Z0-9]/g, '');
+    const patient = await createPatientRecord(token);
+
+    const carrierNum = BigInt(Date.now());
+    await prisma.carrier.create({
+      data: {
+        CarrierNum: carrierNum,
+        CarrierName: `Carrier ${token}`,
+      },
+    });
+
+    // Create insurance with Periodontics Basic: 80% and Major: 50%
+    const insRes = await request(app)
+      .post(`/api/patients/${patient.PatNum}/insurance`)
+      .set(authHeader)
+      .send({
+        insuranceType: 'primary',
+        insuranceCompanyId: carrierNum.toString(),
+        relationshipToPatient: 'self',
+        effectiveDate: new Date().toISOString(),
+        policyNumber: `POL${alphanumericToken.substring(0, 10)}`,
+        subscriberName: 'Perio Subscriber',
+        subscriberDateOfBirth: '1990-01-01T00:00:00.000Z',
+        coverageCategoryTable: [
+          {
+            category: 'periodontics',
+            items: [
+              { id: 99, label: 'Basic', coverage: 80 },
+              { id: 10, label: 'Major', coverage: 50 },
+            ],
+          },
+        ],
+      });
+
+    expect(insRes.status).toBe(201);
+
+    // Create an invoice
+    const statement = await createInvoiceStatement({
+      patientId: patient.PatNum,
+      token: alphanumericToken,
+    });
+
+    // Add D4341 (Scaling & Root Planing - Basic Periodontics) -> Expected 80% ins, 20% pt
+    const basicPerioRes = await request(app)
+      .post(`/api/invoices/${statement.StatementNum}/items`)
+      .set(authHeader)
+      .send({
+        cptCode: 'D4341',
+        description: 'Periodontal scaling and root planing - four or more teeth',
+        quantity: 1,
+        unitPrice: 200,
+      });
+
+    expect(basicPerioRes.status).toBe(201);
+    const basicItem = basicPerioRes.body?.data?.item || basicPerioRes.body?.data;
+    expect(basicItem.insPortion).toBe(160); // 80% of 200
+    expect(basicItem.ptPortion).toBe(40);   // 20% of 200
+
+    // Add D4210 (Gingivectomy - Major Periodontics) -> Expected 50% ins, 50% pt
+    const majorPerioRes = await request(app)
+      .post(`/api/invoices/${statement.StatementNum}/items`)
+      .set(authHeader)
+      .send({
+        cptCode: 'D4210',
+        description: 'Gingivectomy or gingivoplasty - four or more contiguous teeth',
+        quantity: 1,
+        unitPrice: 300,
+      });
+
+    expect(majorPerioRes.status).toBe(201);
+    const majorItem = majorPerioRes.body?.data?.item || majorPerioRes.body?.data;
+    expect(majorItem.insPortion).toBe(150); // 50% of 300
+    expect(majorItem.ptPortion).toBe(150);  // 50% of 300
+
+    // Cleanup
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const patClaims = await prisma.claim.findMany({ where: { PatNum: patient.PatNum } });
+    const claimNums = patClaims.map(c => c.ClaimNum);
+    if (claimNums.length > 0) {
+      await prisma.claimtracking.deleteMany({ where: { ClaimNum: { in: claimNums } } });
+      await prisma.claimproc.deleteMany({ where: { ClaimNum: { in: claimNums } } });
+      await prisma.claim.deleteMany({ where: { PatNum: patient.PatNum } });
+    }
+    await prisma.procedurelog.deleteMany({ where: { StatementNum: statement.StatementNum } });
+    await prisma.patplan.deleteMany({ where: { PatNum: patient.PatNum } });
+    await prisma.inssub.deleteMany({ where: { Subscriber: patient.PatNum } });
+    const insPlans = await prisma.insplan.findMany({ where: { CarrierNum: carrierNum } });
+    for (const plan of insPlans) {
+      await prisma.insplan.delete({ where: { PlanNum: plan.PlanNum } });
+    }
+    await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
+    await prisma.statement.delete({ where: { StatementNum: statement.StatementNum } });
+    await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
+    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+  });
+
   it('supports uploading and deleting claim-level EOB documents', async () => {
     const token = uniqueToken('claim-eob');
     const patient = await createPatientRecord(token);
