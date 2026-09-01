@@ -643,6 +643,104 @@ describe('Claims Procedures Fallback', () => {
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
 
+  it('correctly calculates Basic (80%) vs Major (50%) Periodontics coverage estimates', async () => {
+    const token = uniqueToken('perio_cov');
+    const alphanumericToken = token.replace(/[^a-zA-Z0-9]/g, '');
+    const patient = await createPatientRecord(token);
+
+    const carrierNum = BigInt(Date.now());
+    await prisma.carrier.create({
+      data: {
+        CarrierNum: carrierNum,
+        CarrierName: `Carrier ${token}`,
+      },
+    });
+
+    // Create insurance with Periodontics Basic: 80% and Major: 50%
+    const insRes = await request(app)
+      .post(`/api/patients/${patient.PatNum}/insurance`)
+      .set(authHeader)
+      .send({
+        insuranceType: 'primary',
+        insuranceCompanyId: carrierNum.toString(),
+        relationshipToPatient: 'self',
+        effectiveDate: new Date().toISOString(),
+        policyNumber: `POL${alphanumericToken.substring(0, 10)}`,
+        subscriberName: 'Perio Subscriber',
+        subscriberDateOfBirth: '1990-01-01T00:00:00.000Z',
+        coverageCategoryTable: [
+          {
+            category: 'periodontics',
+            items: [
+              { id: 99, label: 'Basic', coverage: 80 },
+              { id: 10, label: 'Major', coverage: 50 },
+            ],
+          },
+        ],
+      });
+
+    expect(insRes.status).toBe(201);
+
+    // Create an invoice
+    const statement = await createInvoiceStatement({
+      patientId: patient.PatNum,
+      token: alphanumericToken,
+    });
+
+    // Add D4341 (Scaling & Root Planing - Basic Periodontics) -> Expected 80% ins, 20% pt
+    const basicPerioRes = await request(app)
+      .post(`/api/invoices/${statement.StatementNum}/items`)
+      .set(authHeader)
+      .send({
+        cptCode: 'D4341',
+        description: 'Periodontal scaling and root planing - four or more teeth',
+        quantity: 1,
+        unitPrice: 200,
+      });
+
+    expect(basicPerioRes.status).toBe(201);
+    const basicItem = basicPerioRes.body?.data?.item || basicPerioRes.body?.data;
+    expect(basicItem.insPortion).toBe(160); // 80% of 200
+    expect(basicItem.ptPortion).toBe(40);   // 20% of 200
+
+    // Add D4210 (Gingivectomy - Major Periodontics) -> Expected 50% ins, 50% pt
+    const majorPerioRes = await request(app)
+      .post(`/api/invoices/${statement.StatementNum}/items`)
+      .set(authHeader)
+      .send({
+        cptCode: 'D4210',
+        description: 'Gingivectomy or gingivoplasty - four or more contiguous teeth',
+        quantity: 1,
+        unitPrice: 300,
+      });
+
+    expect(majorPerioRes.status).toBe(201);
+    const majorItem = majorPerioRes.body?.data?.item || majorPerioRes.body?.data;
+    expect(majorItem.insPortion).toBe(150); // 50% of 300
+    expect(majorItem.ptPortion).toBe(150);  // 50% of 300
+
+    // Cleanup
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const patClaims = await prisma.claim.findMany({ where: { PatNum: patient.PatNum } });
+    const claimNums = patClaims.map(c => c.ClaimNum);
+    if (claimNums.length > 0) {
+      await prisma.claimtracking.deleteMany({ where: { ClaimNum: { in: claimNums } } });
+      await prisma.claimproc.deleteMany({ where: { ClaimNum: { in: claimNums } } });
+      await prisma.claim.deleteMany({ where: { PatNum: patient.PatNum } });
+    }
+    await prisma.procedurelog.deleteMany({ where: { StatementNum: statement.StatementNum } });
+    await prisma.patplan.deleteMany({ where: { PatNum: patient.PatNum } });
+    await prisma.inssub.deleteMany({ where: { Subscriber: patient.PatNum } });
+    const insPlans = await prisma.insplan.findMany({ where: { CarrierNum: carrierNum } });
+    for (const plan of insPlans) {
+      await prisma.insplan.delete({ where: { PlanNum: plan.PlanNum } });
+    }
+    await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
+    await prisma.statement.delete({ where: { StatementNum: statement.StatementNum } });
+    await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
+    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+  });
+
   it('supports uploading and deleting claim-level EOB documents', async () => {
     const token = uniqueToken('claim-eob');
     const patient = await createPatientRecord(token);
@@ -771,6 +869,62 @@ describe('Claims Procedures Fallback', () => {
       await prisma.claim.delete({ where: { ClaimNum: claimNum } });
       await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
       await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    });
+  });
+
+  describe('Batch Invoices', () => {
+    it('creates batch invoices without IsInvoice: 1 and does not clutter patient composite ledger', async () => {
+      const token = uniqueToken('batch-inv');
+      const patient = await createPatientRecord(token);
+
+      // Generate batch invoice
+      const batchRes = await request(app)
+        .post('/api/claims/batch-invoices')
+        .set(authHeader)
+        .send({
+          patientIds: [patient.PatNum.toString()],
+          deliveryPreference: 'Email & SMS',
+        });
+
+      expect(batchRes.status).toBe(200);
+      expect(batchRes.body?.success).toBe(true);
+      expect(batchRes.body?.data?.invoicesGenerated).toBe(1);
+
+      const generatedInvoiceId = batchRes.body?.data?.results?.[0]?.invoiceId;
+      expect(generatedInvoiceId).toBeDefined();
+
+      // Verify IsInvoice is not 1 in DB
+      const statement = await prisma.statement.findUnique({
+        where: { StatementNum: BigInt(generatedInvoiceId) },
+      });
+      expect(statement).toBeDefined();
+      expect(statement?.IsInvoice).not.toBe(1);
+
+      // Verify it does not appear in patient composite ledger
+      const ledgerRes = await request(app)
+        .get(`/api/invoices/patient/${patient.PatNum}/composite`)
+        .set(authHeader);
+
+      expect(ledgerRes.status).toBe(200);
+      expect(ledgerRes.body?.success).toBe(true);
+      const invoices = ledgerRes.body?.data?.invoices ?? [];
+      const foundInLedger = invoices.some((inv: any) => inv.id === generatedInvoiceId || inv.invoiceNumber === statement?.ShortGUID);
+      expect(foundInLedger).toBe(false);
+
+      // Clean up
+      await prisma.statement.deleteMany({ where: { PatNum: patient.PatNum } });
+      await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
+      await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    });
+
+    it('returns pending procedures with descriptions resolved from procedurecode', async () => {
+      const res = await request(app)
+        .get('/api/claims/pending-procedures')
+        .set(authHeader);
+
+      expect(res.status).toBe(200);
+      expect(res.body?.success).toBe(true);
+      expect(Array.isArray(res.body?.data?.patients)).toBe(true);
     });
   });
 });

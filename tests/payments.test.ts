@@ -106,4 +106,38 @@ describe('Payments', () => {
     expect(applicationSplit).toBeDefined();
     expect(applicationSplit?.SplitAmt).toBe(50.0);
   });
+
+  it('gets payments for a specific invoice using invoiceId filter in database', async () => {
+    const token = uniqueToken('inv_pay_filter');
+    const patient = await createPatientRecord(token);
+    const statement = await createInvoiceStatement({
+      patientId: patient.PatNum,
+      token,
+    });
+
+    const createRes = await request(app)
+      .post('/api/payments')
+      .set(authHeader)
+      .send({
+        invoiceId: statement.StatementNum.toString(),
+        patientId: patient.PatNum.toString(),
+        amount: 85.0,
+        paymentMethod: 'card',
+        paymentDate: new Date().toISOString(),
+        notes: `Test invoice payment ${token}`,
+      });
+
+    expect(createRes.status).toBe(201);
+    const paymentId = createRes.body.data.payment._id;
+
+    // Fetch payments by invoice
+    const invRes = await request(app)
+      .get(`/api/payments/invoice/${statement.StatementNum}`)
+      .set(authHeader);
+
+    expect(invRes.status).toBe(200);
+    expect(invRes.body?.success).toBe(true);
+    const payments = invRes.body?.data?.payments ?? [];
+    expect(payments.some((p: any) => p._id === paymentId || p.invoiceId === statement.StatementNum.toString())).toBe(true);
+  });
 });

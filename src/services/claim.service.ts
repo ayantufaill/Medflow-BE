@@ -2281,10 +2281,21 @@ export class ClaimService {
       include: {
         patient: true,
         provider_procedurelog_ProvNumToprovider: true,
+        procedurecode_procedurelog_CodeNumToprocedurecode: true,
       },
       orderBy: { ProcDate: 'desc' },
       take: 100,
     });
+
+    // Fetch descriptions for all OldCodes
+    const oldCodes = [...new Set(procs.map((p) => p.OldCode).filter(Boolean))] as string[];
+    const codes = oldCodes.length > 0
+      ? await prisma.procedurecode.findMany({
+          where: { ProcCode: { in: oldCodes } },
+          select: { ProcCode: true, Descript: true },
+        })
+      : [];
+    const descMap = new Map(codes.map((c) => [c.ProcCode, c.Descript]));
 
     // Group by patient
     const patientMap = new Map<string, { id: string; name: string; procedures: any[] }>();
@@ -2302,11 +2313,12 @@ export class ClaimService {
         patientMap.set(patId, { id: patId, name: patName, procedures: [] });
       }
 
+      const procCode = proc.OldCode ?? 'D0000';
       patientMap.get(patId)!.procedures.push({
         id: proc.ProcNum.toString(),  
         dos: proc.ProcDate?.toLocaleDateString() ?? '',
-        code: proc.OldCode ?? 'D0000',
-        description: proc.Surf ?? '',
+        code: procCode,
+        description: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? descMap.get(procCode) ?? proc.Surf ?? '',
         provider: provName,
         fee: proc.ProcFee ?? 0,
       });
