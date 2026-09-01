@@ -775,7 +775,7 @@ describe('Claims Procedures Fallback', () => {
   });
 
   describe('Batch Invoices', () => {
-    it('creates batch invoices with IsInvoice: 1 and appears in patient composite ledger', async () => {
+    it('creates batch invoices without IsInvoice: 1 and does not clutter patient composite ledger', async () => {
       const token = uniqueToken('batch-inv');
       const patient = await createPatientRecord(token);
 
@@ -795,14 +795,14 @@ describe('Claims Procedures Fallback', () => {
       const generatedInvoiceId = batchRes.body?.data?.results?.[0]?.invoiceId;
       expect(generatedInvoiceId).toBeDefined();
 
-      // Verify IsInvoice in DB
+      // Verify IsInvoice is not 1 in DB
       const statement = await prisma.statement.findUnique({
         where: { StatementNum: BigInt(generatedInvoiceId) },
       });
       expect(statement).toBeDefined();
-      expect(statement?.IsInvoice).toBe(1);
+      expect(statement?.IsInvoice).not.toBe(1);
 
-      // Verify it appears in patient composite ledger
+      // Verify it does not appear in patient composite ledger
       const ledgerRes = await request(app)
         .get(`/api/invoices/patient/${patient.PatNum}/composite`)
         .set(authHeader);
@@ -811,12 +811,22 @@ describe('Claims Procedures Fallback', () => {
       expect(ledgerRes.body?.success).toBe(true);
       const invoices = ledgerRes.body?.data?.invoices ?? [];
       const foundInLedger = invoices.some((inv: any) => inv.id === generatedInvoiceId || inv.invoiceNumber === statement?.ShortGUID);
-      expect(foundInLedger).toBe(true);
+      expect(foundInLedger).toBe(false);
 
       // Clean up
       await prisma.statement.deleteMany({ where: { PatNum: patient.PatNum } });
       await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
       await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    });
+
+    it('returns pending procedures with descriptions resolved from procedurecode', async () => {
+      const res = await request(app)
+        .get('/api/claims/pending-procedures')
+        .set(authHeader);
+
+      expect(res.status).toBe(200);
+      expect(res.body?.success).toBe(true);
+      expect(Array.isArray(res.body?.data?.patients)).toBe(true);
     });
   });
 });
