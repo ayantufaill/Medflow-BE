@@ -411,54 +411,59 @@ async getPatientBalance(patientId: string) {
 
   const patNum = BigInt(patientId);
 
-  // Sum all completed procedure fees
-  const procedureAgg = await prisma.procedurelog.aggregate({
-    where: { PatNum: patNum, ProcStatus: 2 },
-    _sum: { ProcFee: true },
-  });
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  // Sum all adjustments (negative adjustments reduce the balance)
-  const adjustmentAgg = await prisma.adjustment.aggregate({
-    where: { PatNum: patNum },
-    _sum: { AdjAmt: true },
-  });
-
-  // Sum all payments applied via paysplit (OpenDental native)
-  const paysplitAgg = await prisma.paysplit.aggregate({
-    where: { PatNum: patNum },
-    _sum: { SplitAmt: true },
-  });
-
-  // Sum all payments via invoice/payment system (MedFlow)
-  const invoicePaymentAgg = await prisma.payment.aggregate({
-    where: { PatNum: patNum },
-    _sum: { PayAmt: true },
-  });
+  // Run all aggregates and lookups concurrently to minimize DB latency
+  const [
+    procedureAgg,
+    adjustmentAgg,
+    paysplitAgg,
+    invoicePaymentAgg,
+    lastPayment,
+    overdueAgg,
+  ] = await Promise.all([
+    // Sum all completed procedure fees
+    prisma.procedurelog.aggregate({
+      where: { PatNum: patNum, ProcStatus: 2 },
+      _sum: { ProcFee: true },
+    }),
+    // Sum all adjustments (negative adjustments reduce the balance)
+    prisma.adjustment.aggregate({
+      where: { PatNum: patNum },
+      _sum: { AdjAmt: true },
+    }),
+    // Sum all payments applied via paysplit (OpenDental native)
+    prisma.paysplit.aggregate({
+      where: { PatNum: patNum },
+      _sum: { SplitAmt: true },
+    }),
+    // Sum all payments via invoice/payment system (MedFlow)
+    prisma.payment.aggregate({
+      where: { PatNum: patNum },
+      _sum: { PayAmt: true },
+    }),
+    // Last payment date
+    prisma.payment.findFirst({
+      where: { PatNum: patNum },
+      orderBy: { PayDate: 'desc' },
+      select: { PayDate: true },
+    }),
+    // Overdue: procedures older than 30 days
+    prisma.procedurelog.aggregate({
+      where: {
+        PatNum: patNum,
+        ProcStatus: 2,
+        ProcDate: { lt: thirtyDaysAgo },
+      },
+      _sum: { ProcFee: true },
+    }),
+  ]);
 
   const totalCharged = procedureAgg._sum.ProcFee ?? 0;
   const totalAdjustments = adjustmentAgg._sum.AdjAmt ?? 0;
   const totalPaid = (paysplitAgg._sum.SplitAmt ?? 0) + (invoicePaymentAgg._sum.PayAmt ?? 0);
   const balance = totalCharged + totalAdjustments - totalPaid;
-
-  // Last payment date
-  const lastPayment = await prisma.payment.findFirst({
-    where: { PatNum: patNum },
-    orderBy: { PayDate: 'desc' },
-    select: { PayDate: true },
-  });
-
-  // Overdue: procedures older than 30 days, proportional to outstanding balance
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-  const overdueAgg = await prisma.procedurelog.aggregate({
-    where: {
-      PatNum: patNum,
-      ProcStatus: 2,
-      ProcDate: { lt: thirtyDaysAgo },
-    },
-    _sum: { ProcFee: true },
-  });
 
   const overdueProcFee = overdueAgg._sum.ProcFee ?? 0;
   const overdueRatio = totalCharged > 0 ? overdueProcFee / totalCharged : 0;
@@ -615,6 +620,7 @@ async getPatientLastVisit(patientId: string) {
       preferredDentistId?: string;
       preferredHygienistId?: string;
       guarantorId?: string;
+      branchId?: string;
     },
     createdBy?: string
   ) {
@@ -801,6 +807,7 @@ async getPatientLastVisit(patientId: string) {
       patientFlags?: any[];
       financialResponsibility?: Record<string, any> | null;
       guarantorId?: string;
+      branchId?: string;
     },
     updatedBy?: string
   ) {
@@ -1661,6 +1668,39 @@ async getPatientHistoryAggregate(patientId: string) {
 
     const createdProcedures = [];
 
+    // Batch resolve existing procedure codes and product categories before the loop
+    const productNames = Array.from(new Set(products.map((p) => p.productName?.trim()).filter((n): n is string => Boolean(n))));
+    const existingProcCodes = productNames.length > 0
+      ? await prisma.procedurecode.findMany({
+          where: {
+            Descript: { in: productNames, mode: 'insensitive' },
+          },
+        })
+      : [];
+
+    const procCodeMap = new Map<string, any>();
+    for (const pc of existingProcCodes) {
+      if (pc.Descript) {
+        const key = pc.Descript.trim().toLowerCase();
+        if (!procCodeMap.has(key) || pc.ProcCode?.startsWith('PROD')) {
+          procCodeMap.set(key, pc);
+        }
+      }
+    }
+
+    let defaultProcCatDefNum: bigint | null = null;
+    const prodCat = await prisma.definition.findFirst({
+      where: { Category: 11, ItemName: { contains: 'Product', mode: 'insensitive' } },
+    });
+    if (prodCat) {
+      defaultProcCatDefNum = prodCat.DefNum;
+    } else {
+      const fallbackCat = await prisma.definition.findFirst({ where: { Category: 11 } });
+      if (fallbackCat) {
+        defaultProcCatDefNum = fallbackCat.DefNum;
+      }
+    }
+
     for (const product of products) {
       const { productName, providerName, quantity, price } = product;
 
@@ -1674,48 +1714,21 @@ async getPatientHistoryAggregate(patientId: string) {
           where: {
             OR: [
               { LName: { contains: last, mode: 'insensitive' } },
-              { FName: { contains: first, mode: 'insensitive' } }
-            ]
-          }
+              { FName: { contains: first, mode: 'insensitive' } },
+            ],
+          },
         });
         if (prov) {
           provNum = prov.ProvNum;
         }
       }
 
-      let procedureCode = await prisma.procedurecode.findFirst({
-        where: {
-          Descript: { equals: productName, mode: 'insensitive' },
-          ProcCode: { startsWith: 'PROD' }
-        }
-      });
-
-      if (!procedureCode) {
-        procedureCode = await prisma.procedurecode.findFirst({
-          where: { Descript: { equals: productName, mode: 'insensitive' } }
-        });
-      }
+      const cleanProdName = (productName || '').trim().toLowerCase();
+      let procedureCode = procCodeMap.get(cleanProdName);
 
       if (!procedureCode) {
         const codeNum = await getNextId('procedurecode', 'CodeNum');
-        const procCodeStr = "PROD" + codeNum.toString();
-
-        let procCatDefNum: bigint | null = null;
-
-        // Find existing "Products" category
-        const prodCat = await prisma.definition.findFirst({
-          where: { Category: 11, ItemName: { contains: 'Product', mode: 'insensitive' } }
-        });
-
-        if (prodCat) {
-          procCatDefNum = prodCat.DefNum;
-        } else {
-          // Fallback to first available category
-          const fallbackCat = await prisma.definition.findFirst({ where: { Category: 11 } });
-          if (fallbackCat) {
-            procCatDefNum = fallbackCat.DefNum;
-          }
-        }
+        const procCodeStr = 'PROD' + codeNum.toString();
 
         procedureCode = await prisma.procedurecode.create({
           data: {
@@ -1724,11 +1737,12 @@ async getPatientHistoryAggregate(patientId: string) {
             Descript: productName,
             AbbrDesc: productName.substring(0, 50),
             ProcTime: '/0',
-            ProcCat: procCatDefNum,
+            ProcCat: defaultProcCatDefNum,
             MedicalCode: null,
-            SubstitutionCode: null
-          }
+            SubstitutionCode: null,
+          },
         });
+        procCodeMap.set(cleanProdName, procedureCode);
       }
 
       const procNum = await getNextId('procedurelog', 'ProcNum');

@@ -74,6 +74,9 @@ export interface AuthResponse {
 
 export interface UserWithRoles extends Omit<AppUser, 'passwordHash'> {
   roles: AppRole[];
+  groupId?: number | null;
+  branchIds?: string[];
+  isGroupAdmin?: boolean;
 }
 
 // ─── Group Admin Permission Keys ──────────────────────────────────────────────

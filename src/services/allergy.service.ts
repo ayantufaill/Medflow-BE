@@ -119,14 +119,14 @@ export class AllergyService {
       });
       const usersMeta = await getUsersMeta(users.map((u) => u.UserNum));
 
-      const entries = await Promise.all(
+      const entries: [string, { _id: string; firstName: string; lastName: string; email: string | null }][] = await Promise.all(
         documentedByUserIds.map(async (docId) => {
           const user = users.find((u) => u.UserNum.toString() === docId);
           if (!user) {
             return [
               docId,
               { _id: docId, firstName: '', lastName: '', email: null },
-            ] as const;
+            ];
           }
           const mappedUser = await mapUser(user, usersMeta[user.UserNum.toString()]);
           return [
@@ -137,7 +137,7 @@ export class AllergyService {
               lastName: mappedUser.lastName,
               email: mappedUser.email ?? null,
             },
-          ] as const;
+          ];
         })
       );
       documentedByMap = new Map(entries);

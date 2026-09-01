@@ -66,6 +66,8 @@ type ClaimMeta = {
   planName?: string;
   treatingProviderName?: string;
   description?: string;
+  claimSubmissionReasonCode?: string;
+  serviceAuthExceptionCode?: string;
 };
 
 type ClaimFilters = {
@@ -352,8 +354,13 @@ export class ClaimService {
       } : null),
       insuranceType: meta.insuranceType ?? 'primary',
       status,
-      submissionDate: meta.submissionDate ? new Date(meta.submissionDate) : row.DateSent ?? row.DateService ?? null,
-      submittedDate: meta.submissionDate ? new Date(meta.submissionDate) : row.DateSent ?? row.DateService ?? null,
+      dateSent: row.DateSent ?? null,
+      submissionDate: (status === 'draft' || status === 'readyForSubmission')
+        ? null
+        : meta.submissionDate ? new Date(meta.submissionDate) : row.DateSent ?? null,
+      submittedDate: (status === 'draft' || status === 'readyForSubmission')
+        ? null
+        : meta.submissionDate ? new Date(meta.submissionDate) : row.DateSent ?? null,
       submittedAmount:
         Number(meta.submittedAmount ?? row.InsPayEst ?? meta.claimAmount ?? meta.totalAmount ?? row.ClaimFee) || 0,
       claimAmount: Number(meta.claimAmount ?? meta.totalAmount ?? row.ClaimFee ?? row.InsPayEst) || 0,
@@ -1283,6 +1290,8 @@ export class ClaimService {
       planName: string;
       treatingProviderName: string;
       description: string;
+      claimSubmissionReasonCode: string;
+      serviceAuthExceptionCode: string;
     }>,
     userId?: string
   ) {
@@ -1323,28 +1332,36 @@ export class ClaimService {
       description: updates.description ?? currentMeta.description,
       submissionDate:
         updates.submissionDate !== undefined
-          ? updates.submissionDate.toISOString()
-          : nextStatus === 'submitted' && !currentMeta.submissionDate
-            ? new Date().toISOString()
-            : currentMeta.submissionDate,
+          ? updates.submissionDate ? updates.submissionDate.toISOString() : undefined
+          : nextStatus === 'readyForSubmission' || nextStatus === 'draft'
+            ? undefined
+            : nextStatus === 'submitted' && !currentMeta.submissionDate
+              ? new Date().toISOString()
+              : currentMeta.submissionDate,
       deniedDate:
         updates.deniedDate !== undefined
           ? updates.deniedDate
             ? updates.deniedDate.toISOString()
             : undefined
-          : nextStatus === 'denied' && !currentMeta.deniedDate
-            ? new Date().toISOString()
-            : currentMeta.deniedDate,
+          : nextStatus === 'readyForSubmission' || nextStatus === 'draft'
+            ? undefined
+            : nextStatus === 'denied' && !currentMeta.deniedDate
+              ? new Date().toISOString()
+              : currentMeta.deniedDate,
       denialReason:
         updates.denialReason !== undefined
           ? updates.denialReason ?? undefined
-          : currentMeta.denialReason,
+          : nextStatus === 'readyForSubmission' || nextStatus === 'draft'
+            ? undefined
+            : currentMeta.denialReason,
       paidDate:
         updates.paidDate !== undefined
-          ? updates.paidDate.toISOString()
-          : nextStatus === 'paid' && !currentMeta.paidDate
-            ? new Date().toISOString()
-            : currentMeta.paidDate,
+          ? updates.paidDate ? updates.paidDate.toISOString() : undefined
+          : nextStatus === 'readyForSubmission' || nextStatus === 'draft'
+            ? undefined
+            : nextStatus === 'paid' && !currentMeta.paidDate
+              ? new Date().toISOString()
+              : currentMeta.paidDate,
       corrections: updates.corrections ?? currentMeta.corrections,
     };
 
@@ -1358,10 +1375,14 @@ export class ClaimService {
         InsPayAmt: updates.paidAmount ?? undefined,
         DedApplied: updates.patientResponsibility ?? undefined,
         PriorAuthorizationNumber: updates.predeterminationNumber ?? undefined,
-        DateSent: nextMeta.submissionDate ? new Date(nextMeta.submissionDate) : existing.DateSent,
-        DateReceived: nextStatus === 'paid' || nextStatus === 'partial'
-          ? (nextMeta.paidDate ? new Date(nextMeta.paidDate) : new Date())
-          : existing.DateReceived,
+        DateSent: (nextStatus === 'readyForSubmission' || nextStatus === 'draft')
+          ? null
+          : nextMeta.submissionDate ? new Date(nextMeta.submissionDate) : existing.DateSent,
+        DateReceived: (nextStatus === 'readyForSubmission' || nextStatus === 'draft')
+          ? null
+          : nextStatus === 'paid' || nextStatus === 'partial'
+            ? (nextMeta.paidDate ? new Date(nextMeta.paidDate) : new Date())
+            : existing.DateReceived,
         ClaimNote: updates.notes ?? undefined,
         Narrative: buildJson(nextMeta),
       },
@@ -2260,10 +2281,21 @@ export class ClaimService {
       include: {
         patient: true,
         provider_procedurelog_ProvNumToprovider: true,
+        procedurecode_procedurelog_CodeNumToprocedurecode: true,
       },
       orderBy: { ProcDate: 'desc' },
       take: 100,
     });
+
+    // Fetch descriptions for all OldCodes
+    const oldCodes = [...new Set(procs.map((p) => p.OldCode).filter(Boolean))] as string[];
+    const codes = oldCodes.length > 0
+      ? await prisma.procedurecode.findMany({
+          where: { ProcCode: { in: oldCodes } },
+          select: { ProcCode: true, Descript: true },
+        })
+      : [];
+    const descMap = new Map(codes.map((c) => [c.ProcCode, c.Descript]));
 
     // Group by patient
     const patientMap = new Map<string, { id: string; name: string; procedures: any[] }>();
@@ -2281,11 +2313,12 @@ export class ClaimService {
         patientMap.set(patId, { id: patId, name: patName, procedures: [] });
       }
 
+      const procCode = proc.OldCode ?? 'D0000';
       patientMap.get(patId)!.procedures.push({
         id: proc.ProcNum.toString(),  
         dos: proc.ProcDate?.toLocaleDateString() ?? '',
-        code: proc.OldCode ?? 'D0000',
-        description: proc.Surf ?? '',
+        code: procCode,
+        description: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? descMap.get(procCode) ?? proc.Surf ?? '',
         provider: provName,
         fee: proc.ProcFee ?? 0,
       });
@@ -2346,6 +2379,17 @@ export class ClaimService {
       {
         status,
         notes: note,
+      },
+      userId
+    );
+  }
+
+  async voidAndRecreateClaim(claimId: string, note?: string, userId?: string) {
+    return this.updateClaim(
+      claimId,
+      {
+        status: 'readyForSubmission',
+        notes: note || 'Voided and recreated - returned to unsent queue',
       },
       userId
     );

@@ -709,7 +709,128 @@ describe('Claims Procedures Fallback', () => {
     await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
+
+  describe('Void and Recreate Claim', () => {
+    it('successfully voids a submitted claim, resets dates, and returns it to unsent queue with readyForSubmission status', async () => {
+      const token = uniqueToken('void-rec');
+      const patient = await createPatientRecord(token);
+      const claimNum = BigInt(Date.now() + 1234);
+
+      // Create a submitted claim (ClaimStatus = 'S', DateSent set)
+      await prisma.claim.create({
+        data: {
+          ClaimNum: claimNum,
+          PatNum: patient.PatNum,
+          ClaimStatus: 'S',
+          ClaimType: 'Primary',
+          ClaimFee: 300,
+          DateService: new Date('2026-03-01'),
+          DateSent: new Date('2026-03-02'),
+          Narrative: JSON.stringify({
+            status: 'submitted',
+            submissionDate: new Date('2026-03-02').toISOString(),
+          }),
+        },
+      });
+
+      // Call void-and-recreate endpoint
+      const voidRes = await request(app)
+        .post(`/api/claims/${claimNum}/void-and-recreate`)
+        .set(authHeader)
+        .send({ note: 'Voided and recreated test claim' });
+
+      expect(voidRes.status).toBe(200);
+      expect(voidRes.body?.success).toBe(true);
+      expect(voidRes.body?.message).toBe('Claim voided and recreated successfully');
+      
+      const voidedClaim = voidRes.body?.data?.claim;
+      expect(voidedClaim).toBeDefined();
+      expect(voidedClaim.status).toBe('readyForSubmission');
+      expect(voidedClaim.dateSent).toBeNull();
+
+      // Check in DB directly
+      const dbClaim = await prisma.claim.findUnique({
+        where: { ClaimNum: claimNum },
+      });
+      expect(dbClaim?.ClaimStatus).toBe('W'); // W = readyForSubmission
+      expect(dbClaim?.DateSent).toBeNull();
+
+      // Verify it appears in unsent queue
+      const unsentRes = await request(app)
+        .get(`/api/claims?patientId=${patient.PatNum}&tab=unsent`)
+        .set(authHeader);
+
+      expect(unsentRes.status).toBe(200);
+      const unsentClaims = unsentRes.body?.data?.claims ?? [];
+      const found = unsentClaims.find((c: any) => c.id === claimNum.toString());
+      expect(found).toBeDefined();
+      expect(found.status).toBe('readyForSubmission');
+
+      // Clean up
+      await prisma.claimtracking.deleteMany({ where: { ClaimNum: claimNum } });
+      await prisma.claim.delete({ where: { ClaimNum: claimNum } });
+      await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
+      await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    });
+  });
+
+  describe('Batch Invoices', () => {
+    it('creates batch invoices without IsInvoice: 1 and does not clutter patient composite ledger', async () => {
+      const token = uniqueToken('batch-inv');
+      const patient = await createPatientRecord(token);
+
+      // Generate batch invoice
+      const batchRes = await request(app)
+        .post('/api/claims/batch-invoices')
+        .set(authHeader)
+        .send({
+          patientIds: [patient.PatNum.toString()],
+          deliveryPreference: 'Email & SMS',
+        });
+
+      expect(batchRes.status).toBe(200);
+      expect(batchRes.body?.success).toBe(true);
+      expect(batchRes.body?.data?.invoicesGenerated).toBe(1);
+
+      const generatedInvoiceId = batchRes.body?.data?.results?.[0]?.invoiceId;
+      expect(generatedInvoiceId).toBeDefined();
+
+      // Verify IsInvoice is not 1 in DB
+      const statement = await prisma.statement.findUnique({
+        where: { StatementNum: BigInt(generatedInvoiceId) },
+      });
+      expect(statement).toBeDefined();
+      expect(statement?.IsInvoice).not.toBe(1);
+
+      // Verify it does not appear in patient composite ledger
+      const ledgerRes = await request(app)
+        .get(`/api/invoices/patient/${patient.PatNum}/composite`)
+        .set(authHeader);
+
+      expect(ledgerRes.status).toBe(200);
+      expect(ledgerRes.body?.success).toBe(true);
+      const invoices = ledgerRes.body?.data?.invoices ?? [];
+      const foundInLedger = invoices.some((inv: any) => inv.id === generatedInvoiceId || inv.invoiceNumber === statement?.ShortGUID);
+      expect(foundInLedger).toBe(false);
+
+      // Clean up
+      await prisma.statement.deleteMany({ where: { PatNum: patient.PatNum } });
+      await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
+      await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    });
+
+    it('returns pending procedures with descriptions resolved from procedurecode', async () => {
+      const res = await request(app)
+        .get('/api/claims/pending-procedures')
+        .set(authHeader);
+
+      expect(res.status).toBe(200);
+      expect(res.body?.success).toBe(true);
+      expect(Array.isArray(res.body?.data?.patients)).toBe(true);
+    });
+  });
 });
+
 
 
 

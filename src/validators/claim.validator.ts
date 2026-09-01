@@ -147,6 +147,10 @@ export const quickStatusUpdateValidator: ValidationChain[] = [
   body('note').optional().isString().withMessage('note must be a string'),
 ];
 
+export const voidAndRecreateValidator: ValidationChain[] = [
+  body('note').optional().isString().withMessage('note must be a string'),
+];
+
 export const paymentIdParamValidator: ValidationChain[] = [
   param('paymentId').isString().notEmpty().withMessage('paymentId is required'),
 ];
