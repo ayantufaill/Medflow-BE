@@ -24,6 +24,7 @@ type StatementMeta = {
   patientPortion?: number;
   totalAmount?: number;
   writeoffAmount?: number;
+  adjustmentAmount?: number;
   status?: string;
   claimNumber?: string;
   claimSubmissionDate?: string;
@@ -764,6 +765,7 @@ export class InvoiceService {
       copayAmount: Number(meta.copayAmount) || 0,
       paidAmount: Number(meta.paidAmount) || 0,
       writeoffAmount: Number(meta.writeoffAmount) || 0,
+      adjustmentAmount: Number(meta.adjustmentAmount) || 0,
       balanceDue: Number(statement.BalTotal) || 0,
       taxAmount: Number(meta.taxAmount) || 0,
       discountAmount: Number(meta.discountAmount) || 0,
@@ -1341,12 +1343,34 @@ export class InvoiceService {
       return sum + (Number(itemMeta.paidAmount) || 0);
     }, 0);
 
-    // Balance due should NOT subtract totalWriteOff preemptively. It will be subtracted via payments/adjustments.
-    const balanceDue = roundCurrency(Math.max(0, subtotal - totalPaid));
+    const procNums = items.map((item) => item.ProcNum).filter((id): id is bigint => id !== null && id !== undefined);
+    const invoiceIdStr = invoice.StatementNum.toString();
+
+    // Fetch all formally posted adjustments associated with this invoice
+    const adjustments = await prisma.adjustment.findMany({
+      where: {
+        OR: [
+          { StatementNum: invoice.StatementNum },
+          ...(procNums.length > 0 ? [{ ProcNum: { in: procNums } }] : []),
+          { AdjNote: { contains: `Invoice #${invoiceIdStr}` } },
+        ],
+      },
+    });
+
+    const totalAdjustments = adjustments.reduce((sum, adj) => {
+      if (adj.AdjNote && adj.AdjNote.toLowerCase().includes('income transfer')) {
+        return sum;
+      }
+      return sum + Math.abs(Number(adj.AdjAmt) || 0);
+    }, 0);
+
+    // Balance due subtracts totalPaid AND formally posted adjustments (e.g. posted write-offs/discounts)
+    const balanceDue = roundCurrency(Math.max(0, subtotal - totalPaid - totalAdjustments));
     const nextMeta: StatementMeta = {
       ...meta,
       totalAmount: roundCurrency(totalAmount),
       writeoffAmount: roundCurrency(totalWriteOff),
+      adjustmentAmount: roundCurrency(totalAdjustments),
       taxAmount: roundCurrency(taxAmount),
       discountAmount: roundCurrency(discountAmount),
       insurancePortion,
@@ -1358,6 +1382,10 @@ export class InvoiceService {
       where: { StatementNum: invoice.StatementNum },
       data: { BalTotal: roundCurrency(balanceDue), InsEst: roundCurrency(insurancePortion), NoteBold: buildJson(nextMeta) },
     });
+
+    if (invoice.PatNum) {
+      await agingService.updatePatientAging(invoice.PatNum).catch(() => {});
+    }
 
     return this.mapStatementToInvoice(updated, nextMeta);
   }
