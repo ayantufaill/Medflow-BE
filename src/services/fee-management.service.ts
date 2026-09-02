@@ -2,6 +2,7 @@ import { prisma } from '../config/db';
 import { NotFoundError } from '../utils/error.util';
 import { mapServiceToApi } from '../utils/opendental-mappers.util';
 import { getNextId } from '../utils/opendental-ids.util';
+import { feeGuideAuditService } from './fee-guide-audit.service';
 
 export class FeeManagementService {
   async getFeeSchedules() {
@@ -156,7 +157,10 @@ export class FeeManagementService {
     }));
   }
 
-  async createFeeSchedule(data: { description: string; feeSchedType?: number; isGlobal?: boolean }) {
+  async createFeeSchedule(
+    data: { description: string; feeSchedType?: number; isGlobal?: boolean },
+    userId?: string | null
+  ) {
     const nextId = await getNextId('feesched', 'FeeSchedNum');
     const sched = await prisma.feesched.create({
       data: {
@@ -165,8 +169,22 @@ export class FeeManagementService {
         FeeSchedType: data.feeSchedType ?? 0,
         IsHidden: 0,
         IsGlobal: data.isGlobal ? 1 : 0,
+        SecUserNumEntry: userId && /^\d+$/.test(userId) ? BigInt(userId) : null,
+        SecDateEntry: new Date(),
       },
     });
+
+    await feeGuideAuditService.recordAuditLog({
+      feeSchedNum: sched.FeeSchedNum,
+      userId,
+      action: 'Create',
+      diffs: [
+        { key: 'description', old: '', new: sched.Description ?? '' },
+        { key: 'feeSchedType', old: '', new: sched.FeeSchedType ?? 0 },
+        { key: 'isGlobal', old: '', new: Boolean(sched.IsGlobal) },
+      ],
+    });
+
     return {
       _id: sched.FeeSchedNum.toString(),
       description: sched.Description ?? '',
@@ -178,7 +196,8 @@ export class FeeManagementService {
 
   async updateFeeSchedule(
     id: string,
-    updates: Partial<{ description: string; feeSchedType: number; isHidden: boolean; isGlobal: boolean }>
+    updates: Partial<{ description: string; feeSchedType: number; isHidden: boolean; isGlobal: boolean }>,
+    userId?: string | null
   ) {
     const feeSchedNum = BigInt(id);
     const existing = await prisma.feesched.findUnique({
@@ -195,8 +214,33 @@ export class FeeManagementService {
         FeeSchedType: updates.feeSchedType ?? undefined,
         IsHidden: updates.isHidden !== undefined ? (updates.isHidden ? 1 : 0) : undefined,
         IsGlobal: updates.isGlobal !== undefined ? (updates.isGlobal ? 1 : 0) : undefined,
+        SecDateTEdit: new Date(),
       },
     });
+
+    const oldState: Record<string, any> = {
+      description: existing.Description ?? '',
+      feeSchedType: existing.FeeSchedType ?? 0,
+      isHidden: Boolean(existing.IsHidden),
+      isGlobal: Boolean(existing.IsGlobal),
+    };
+
+    const newState: Record<string, any> = {
+      description: updated.Description ?? '',
+      feeSchedType: updated.FeeSchedType ?? 0,
+      isHidden: Boolean(updated.IsHidden),
+      isGlobal: Boolean(updated.IsGlobal),
+    };
+
+    const diffs = feeGuideAuditService.generateDiff(oldState, newState);
+    if (diffs.length > 0) {
+      await feeGuideAuditService.recordAuditLog({
+        feeSchedNum,
+        userId,
+        action: 'Update',
+        diffs,
+      });
+    }
 
     return {
       _id: updated.FeeSchedNum.toString(),
@@ -207,7 +251,7 @@ export class FeeManagementService {
     };
   }
 
-  async deleteFeeSchedule(id: string) {
+  async deleteFeeSchedule(id: string, userId?: string | null) {
     const feeSchedNum = BigInt(id);
     const existing = await prisma.feesched.findUnique({
       where: { FeeSchedNum: feeSchedNum },
@@ -219,12 +263,22 @@ export class FeeManagementService {
     // Soft delete/hide it
     await prisma.feesched.update({
       where: { FeeSchedNum: feeSchedNum },
-      data: { IsHidden: 1 },
+      data: { IsHidden: 1, SecDateTEdit: new Date() },
     });
+
+    await feeGuideAuditService.recordAuditLog({
+      feeSchedNum,
+      userId,
+      action: 'Delete',
+      diffs: [
+        { key: 'isHidden', old: false, new: true },
+      ],
+    });
+
     return { success: true };
   }
 
-  async copyFeeSchedule(id: string, description: string) {
+  async copyFeeSchedule(id: string, description: string, userId?: string | null) {
     const sourceSchedNum = BigInt(id);
     const sourceSched = await prisma.feesched.findUnique({
       where: { FeeSchedNum: sourceSchedNum },
@@ -241,6 +295,8 @@ export class FeeManagementService {
         FeeSchedType: sourceSched.FeeSchedType,
         IsHidden: sourceSched.IsHidden,
         IsGlobal: sourceSched.IsGlobal,
+        SecUserNumEntry: userId && /^\d+$/.test(userId) ? BigInt(userId) : null,
+        SecDateEntry: new Date(),
       },
     });
 
@@ -262,6 +318,16 @@ export class FeeManagementService {
         },
       });
     }
+
+    await feeGuideAuditService.recordAuditLog({
+      feeSchedNum: newSched.FeeSchedNum,
+      userId,
+      action: 'Create (Copy)',
+      diffs: [
+        { key: 'sourceFeeSchedNum', old: '', new: sourceSchedNum.toString() },
+        { key: 'description', old: sourceSched.Description ?? '', new: newSched.Description ?? '' },
+      ],
+    });
 
     return {
       _id: newSched.FeeSchedNum.toString(),
@@ -475,7 +541,11 @@ export class FeeManagementService {
     };
   }
 
-  async updateFeeScheduleFees(id: string, fees: Array<{ procCode: string; amount: number }>) {
+  async updateFeeScheduleFees(
+    id: string,
+    fees: Array<{ procCode: string; amount: number }>,
+    userId?: string | null
+  ) {
     const feeSchedNum = BigInt(id);
     const sched = await prisma.feesched.findUnique({
       where: { FeeSchedNum: feeSchedNum },
@@ -485,6 +555,8 @@ export class FeeManagementService {
     }
 
     const results = [];
+    const diffs: Array<{ key: string; old: any; new: any }> = [];
+
     for (const item of fees) {
       const code = await prisma.procedurecode.findFirst({
         where: { ProcCode: item.procCode },
@@ -494,6 +566,15 @@ export class FeeManagementService {
       const existingFee = await prisma.fee.findFirst({
         where: { CodeNum: code.CodeNum, FeeSched: feeSchedNum },
       });
+
+      const oldAmount = existingFee ? Number(existingFee.Amount) || 0 : 0;
+      if (oldAmount !== item.amount) {
+        diffs.push({
+          key: `${item.procCode} Fee`,
+          old: oldAmount,
+          new: item.amount,
+        });
+      }
 
       if (existingFee) {
         const updated = await prisma.fee.update({
@@ -517,7 +598,29 @@ export class FeeManagementService {
       }
     }
 
+    if (diffs.length > 0) {
+      await feeGuideAuditService.recordAuditLog({
+        feeSchedNum,
+        userId,
+        action: 'Fee Change',
+        diffs,
+      });
+    }
+
     return { success: true, count: results.length };
+  }
+
+  async getFeeGuideAuditHistory(id?: string) {
+    if (id) {
+      const feeSchedNum = BigInt(id);
+      const sched = await prisma.feesched.findUnique({
+        where: { FeeSchedNum: feeSchedNum },
+      });
+      if (!sched) {
+        throw new NotFoundError('Fee schedule not found');
+      }
+    }
+    return feeGuideAuditService.getAuditHistory(id);
   }
 
   async roundFeeScheduleFees(id: string, toNearest: number) {

@@ -22,6 +22,8 @@ type StatementMeta = {
   discountAmount?: number;
   insurancePortion?: number;
   patientPortion?: number;
+  totalAmount?: number;
+  writeoffAmount?: number;
   status?: string;
   claimNumber?: string;
   claimSubmissionDate?: string;
@@ -161,27 +163,41 @@ export class InvoiceService {
 
       const normalizeCat = (str: string) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-      const addCategoryPercentage = (catName: string, cov: number) => {
+      const addCategoryPercentage = (catName: string, cov: number, subLabel?: string) => {
         if (!catName || typeof cov !== 'number') return;
         const norm = normalizeCat(catName);
-        categoryPercentages.set(norm, cov);
+        const normSub = subLabel ? normalizeCat(subLabel) : '';
+
+        if (normSub) {
+          categoryPercentages.set(`${norm}${normSub}`, cov);
+        } else {
+          categoryPercentages.set(norm, cov);
+        }
 
         // Map common category aliases
-        if (norm.includes('diagnostic')) categoryPercentages.set('diagnostic', cov);
+        const aliases: string[] = [];
+        if (norm.includes('diagnostic')) aliases.push('diagnostic');
         if (norm.includes('prevent') || norm === 'preventative' || norm === 'preventive') {
-          categoryPercentages.set('preventative', cov);
-          categoryPercentages.set('preventive', cov);
+          aliases.push('preventative', 'preventive');
         }
-        if (norm.includes('restor')) categoryPercentages.set('restorative', cov);
-        if (norm.includes('endo')) categoryPercentages.set('endodontics', cov);
-        if (norm.includes('perio')) categoryPercentages.set('periodontics', cov);
-        if (norm.includes('remov')) categoryPercentages.set('prosthodonticsremovable', cov);
-        if (norm.includes('maxillofac')) categoryPercentages.set('maxillofacialprosthetics', cov);
-        if (norm.includes('implant')) categoryPercentages.set('implantservices', cov);
-        if (norm.includes('fixed')) categoryPercentages.set('prosthodonticsfixed', cov);
-        if (norm.includes('surg') || norm.includes('oral')) categoryPercentages.set('oralsurgery', cov);
-        if (norm.includes('ortho')) categoryPercentages.set('orthodontics', cov);
-        if (norm.includes('adjunc') || norm.includes('general')) categoryPercentages.set('adjunctgeneral', cov);
+        if (norm.includes('restor')) aliases.push('restorative');
+        if (norm.includes('endo')) aliases.push('endodontics');
+        if (norm.includes('perio')) aliases.push('periodontics');
+        if (norm.includes('remov')) aliases.push('prosthodonticsremovable');
+        if (norm.includes('maxillofac')) aliases.push('maxillofacialprosthetics');
+        if (norm.includes('implant')) aliases.push('implantservices');
+        if (norm.includes('fixed')) aliases.push('prosthodonticsfixed');
+        if (norm.includes('surg') || norm.includes('oral')) aliases.push('oralsurgery');
+        if (norm.includes('ortho')) aliases.push('orthodontics');
+        if (norm.includes('adjunc') || norm.includes('general')) aliases.push('adjunctgeneral');
+
+        for (const alias of aliases) {
+          if (normSub) {
+            categoryPercentages.set(`${alias}${normSub}`, cov);
+          } else {
+            categoryPercentages.set(alias, cov);
+          }
+        }
       };
 
       // Process coverageCategoryTable (can be Array or Object)
@@ -197,8 +213,18 @@ export class InvoiceService {
                 if (subItem.code && typeof subItem.coverage === 'number') {
                   procCodePercentages.set(String(subItem.code).toUpperCase().trim(), subItem.coverage);
                 } else if (subItem.label && typeof subItem.coverage === 'number') {
-                  addCategoryPercentage(subItem.label, subItem.coverage);
-                  if (catName) addCategoryPercentage(catName, subItem.coverage);
+                  const subLabel = String(subItem.label);
+                  const normSub = normalizeCat(subLabel);
+                  if (!categoryPercentages.has(normSub)) {
+                    categoryPercentages.set(normSub, subItem.coverage);
+                  }
+                  if (catName) {
+                    addCategoryPercentage(catName, subItem.coverage, subLabel);
+                    const normCat = normalizeCat(catName);
+                    if (!categoryPercentages.has(normCat)) {
+                      categoryPercentages.set(normCat, subItem.coverage);
+                    }
+                  }
                 }
               }
             }
@@ -213,8 +239,16 @@ export class InvoiceService {
               if (subItem.code && typeof subItem.coverage === 'number') {
                 procCodePercentages.set(String(subItem.code).toUpperCase().trim(), subItem.coverage);
               } else if (subItem.label && typeof subItem.coverage === 'number') {
-                addCategoryPercentage(subItem.label, subItem.coverage);
-                addCategoryPercentage(catKey, subItem.coverage);
+                const subLabel = String(subItem.label);
+                const normSub = normalizeCat(subLabel);
+                if (!categoryPercentages.has(normSub)) {
+                  categoryPercentages.set(normSub, subItem.coverage);
+                }
+                addCategoryPercentage(catKey, subItem.coverage, subLabel);
+                const normCat = normalizeCat(catKey);
+                if (!categoryPercentages.has(normCat)) {
+                  categoryPercentages.set(normCat, subItem.coverage);
+                }
               }
             }
           }
@@ -284,6 +318,7 @@ export class InvoiceService {
         if (percent === undefined) {
           const numMatch = cleanCode.match(/\d+/);
           const num = numMatch ? parseInt(numMatch[0], 10) : null;
+          const numStr = numMatch ? numMatch[0] : '';
           let catKey = '';
 
           if (num !== null) {
@@ -301,7 +336,19 @@ export class InvoiceService {
             else catKey = 'adjunctgeneral';
           }
 
-          if (catKey && categoryPercentages.has(catKey)) {
+          // Special subcategory handling for Periodontics (Basic vs Major)
+          if (catKey === 'periodontics') {
+            const isBasicPerio = ['4341', '4342', '4346', '4355', '4910', '4920', '4921'].includes(numStr);
+            if (isBasicPerio) {
+              percent = categoryPercentages.get('periodonticsbasic')
+                ?? categoryPercentages.get('periodontics')
+                ?? categoryPercentages.get('basic');
+            } else {
+              percent = categoryPercentages.get('periodonticsmajor')
+                ?? categoryPercentages.get('periodontics')
+                ?? categoryPercentages.get('major');
+            }
+          } else if (catKey && categoryPercentages.has(catKey)) {
             percent = categoryPercentages.get(catKey);
           }
         }
@@ -711,11 +758,12 @@ export class InvoiceService {
       providerId: meta.providerId ?? null,
       invoiceDate: statement.DateSent ?? null,
       dueDate: meta.dueDate ? new Date(meta.dueDate) : statement.DateRangeTo ?? null,
-      totalAmount: Number(statement.BalTotal) || 0,
+      totalAmount: Number(meta.totalAmount) || Number(statement.BalTotal) || 0,
       insurancePortion: Number(statement.InsEst) || Number(meta.insurancePortion) || 0,
       patientPortion: Number(meta.patientPortion) || 0,
       copayAmount: Number(meta.copayAmount) || 0,
       paidAmount: Number(meta.paidAmount) || 0,
+      writeoffAmount: Number(meta.writeoffAmount) || 0,
       balanceDue: Number(statement.BalTotal) || 0,
       taxAmount: Number(meta.taxAmount) || 0,
       discountAmount: Number(meta.discountAmount) || 0,
@@ -1250,9 +1298,24 @@ export class InvoiceService {
 
         insurancePortion += Number(enrichedItem.insPortion || 0);
         
-        if (originalMeta.insPortion !== enrichedItem.insPortion || originalMeta.ptPortion !== enrichedItem.ptPortion) {
+        const writeoffChanged =
+          originalMeta.writeoff !== enrichedItem.writeoff ||
+          originalMeta.estimatedWriteOff !== enrichedItem.estimatedWriteOff ||
+          originalMeta.allowedFee !== enrichedItem.allowedFee;
+
+        if (
+          originalMeta.insPortion !== enrichedItem.insPortion ||
+          originalMeta.ptPortion !== enrichedItem.ptPortion ||
+          writeoffChanged
+        ) {
           originalMeta.insPortion = enrichedItem.insPortion;
           originalMeta.ptPortion = enrichedItem.ptPortion;
+          // Persist write-off fields — fall back to existing value for non-PPO items
+          // (where calculateInsuranceEstimates leaves the field undefined) so we never
+          // accidentally zero out a manually-entered adjustment.
+          originalMeta.writeoff = enrichedItem.writeoff ?? originalMeta.writeoff ?? 0;
+          originalMeta.estimatedWriteOff = enrichedItem.estimatedWriteOff ?? originalMeta.estimatedWriteOff ?? 0;
+          originalMeta.allowedFee = enrichedItem.allowedFee ?? originalMeta.allowedFee ?? null;
           await prisma.procedurelog.update({
             where: { ProcNum: originalItem.ProcNum },
             data: { BillingNote: buildJson(originalMeta) }
@@ -1263,14 +1326,33 @@ export class InvoiceService {
       insurancePortion = Number(meta.insurancePortion) || 0;
     }
 
-    const patientPortion = roundCurrency(Math.max(0, subtotal - insurancePortion));
+    const totalWriteOff = items.reduce((sum, item) => {
+      const itemMeta = parseJson<any>(item.BillingNote);
+      return sum + (Number(itemMeta.writeoff) || 0);
+    }, 0);
+
+    const patientPortion = roundCurrency(items.reduce((sum, item) => {
+      const itemMeta = parseJson<any>(item.BillingNote);
+      return sum + (Number(itemMeta.ptPortion) || 0);
+    }, 0));
+
     const totalPaid = items.reduce((sum, item) => {
       const itemMeta = parseJson<any>(item.BillingNote);
       return sum + (Number(itemMeta.paidAmount) || 0);
     }, 0);
 
+    // Balance due should NOT subtract totalWriteOff preemptively. It will be subtracted via payments/adjustments.
     const balanceDue = roundCurrency(Math.max(0, subtotal - totalPaid));
-    const nextMeta: StatementMeta = { ...meta, taxAmount: roundCurrency(taxAmount), discountAmount: roundCurrency(discountAmount), insurancePortion, patientPortion, paidAmount: totalPaid };
+    const nextMeta: StatementMeta = {
+      ...meta,
+      totalAmount: roundCurrency(totalAmount),
+      writeoffAmount: roundCurrency(totalWriteOff),
+      taxAmount: roundCurrency(taxAmount),
+      discountAmount: roundCurrency(discountAmount),
+      insurancePortion,
+      patientPortion,
+      paidAmount: totalPaid,
+    };
 
     const updated = await prisma.statement.update({
       where: { StatementNum: invoice.StatementNum },
@@ -1364,13 +1446,13 @@ export class InvoiceService {
     let totalAmount = 0;
     let totalInsPortion = 0;
     let totalPtPortion = 0;
+    let totalWriteoff = 0;
 
-    const enrichedItems = await this.calculateInsuranceEstimates(patientId, data.items);
-
-    for (const item of enrichedItems) {
+    for (const item of data.items) {
       totalAmount += Number(item.charge ?? 0);
       totalInsPortion += Number(item.insPortion ?? 0);
       totalPtPortion += Number(item.ptPortion ?? 0);
+      totalWriteoff += Number(item.writeoff ?? 0);
     }
 
     const meta: StatementMeta = {
@@ -1380,6 +1462,8 @@ export class InvoiceService {
       discountAmount: 0,
       insurancePortion: totalInsPortion,
       patientPortion: totalPtPortion,
+      totalAmount: roundCurrency(totalAmount),
+      writeoffAmount: roundCurrency(totalWriteoff),
       status: 'draft',
       createdBy,
       dueDate: dueDate.toISOString(),

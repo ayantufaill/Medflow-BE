@@ -21,27 +21,86 @@ function getStatus(score: number): 'good' | 'moderate' | 'concern' {
 
 const TOOTH_NUMBERS = Array.from({ length: 32 }, (_, i) => (i + 1).toString());
 
+/**
+ * The perio chart stores data as:
+ *   chartData[tooth] = {
+ *     facial:  { probe: ['3','2','3'], recession: ['','1',''], bleeding: [0, 2], mobility: 'none', ... },
+ *     lingual: { probe: ['3','2','3'], recession: ['','1',''], bleeding: [0, 2], mobility: 'none', ... }
+ *   }
+ * 
+ * bleeding is an ARRAY OF SITE INDICES (e.g. [0, 2] means sites 0 and 2 are bleeding).
+ * probe values are STRINGS like '3', '5', etc.
+ * recession values are STRINGS like '', '1', '2'.
+ * mobility is a STRING like 'none', '1', '2', '3'.
+ */
+
+function getBleedingSiteCount(toothData: any): number {
+  let count = 0;
+  for (const side of ['facial', 'lingual']) {
+    const sideData = toothData?.[side];
+    if (!sideData?.bleeding || !Array.isArray(sideData.bleeding)) continue;
+    count += sideData.bleeding.length;
+  }
+  return count;
+}
+
 function hasBleedingOnTooth(toothData: any): boolean {
-  if (!toothData?.bleeding) return false;
-  const arr = Array.isArray(toothData.bleeding) ? toothData.bleeding : Object.values(toothData.bleeding);
-  return arr.some((v: any) => v === 1 || v === true);
+  return getBleedingSiteCount(toothData) > 0;
+}
+
+function getInterproximalBleedingSiteCount(toothData: any): number {
+  let count = 0;
+  for (const side of ['facial', 'lingual']) {
+    const sideData = toothData?.[side];
+    if (!sideData?.bleeding || !Array.isArray(sideData.bleeding)) continue;
+    // Interproximal = sites 0 (mesial) and 2 (distal)
+    for (const idx of sideData.bleeding) {
+      if (idx === 0 || idx === 2) count++;
+    }
+  }
+  return count;
 }
 
 function hasRecessionOnTooth(toothData: any): boolean {
-  if (!toothData?.recession) return false;
-  const arr = Array.isArray(toothData.recession) ? toothData.recession : Object.values(toothData.recession);
-  return arr.some((v: any) => Number(v) > 0);
+  for (const side of ['facial', 'lingual']) {
+    const sideData = toothData?.[side];
+    if (!sideData?.recession) continue;
+    const arr = Array.isArray(sideData.recession) ? sideData.recession : [];
+    if (arr.some((v: any) => Number(v) > 0)) return true;
+  }
+  return false;
 }
 
 function hasDeepProbingOnTooth(toothData: any, threshold = 5): boolean {
-  if (!toothData?.probing) return false;
-  const arr = Array.isArray(toothData.probing) ? toothData.probing : Object.values(toothData.probing);
-  return arr.some((v: any) => Number(v) >= threshold);
+  for (const side of ['facial', 'lingual']) {
+    const sideData = toothData?.[side];
+    if (!sideData?.probe) continue;
+    const arr = Array.isArray(sideData.probe) ? sideData.probe : [];
+    if (arr.some((v: any) => Number(v) >= threshold)) return true;
+  }
+  return false;
 }
 
 function hasMobility(toothData: any): boolean {
-  if (!toothData?.mobility) return false;
-  return toothData.mobility !== 'none' && toothData.mobility !== 0 && toothData.mobility !== '0';
+  for (const side of ['facial', 'lingual']) {
+    const sideData = toothData?.[side];
+    if (!sideData?.mobility) continue;
+    if (sideData.mobility !== 'none' && sideData.mobility !== 0 && sideData.mobility !== '0') {
+      return true;
+    }
+  }
+  return false;
+}
+
+function getTotalProbingSites(toothData: any): number {
+  let count = 0;
+  for (const side of ['facial', 'lingual']) {
+    const sideData = toothData?.[side];
+    if (!sideData?.probe) continue;
+    const arr = Array.isArray(sideData.probe) ? sideData.probe : [];
+    count += arr.length;
+  }
+  return count;
 }
 
 // ─── Section builders ───────────────────────────────────────────────
@@ -402,24 +461,23 @@ function buildHomeCare(perioExam: any) {
   const chartData = perioExam.examData.chartData ?? perioExam.examData;
 
   // Calculate bleeding percentage
-  let totalSites = 0;
+  let validTeethCount = 0;
   let bleedingSites = 0;
   let interproximalBleedingSites = 0;
 
   for (const tooth of TOOTH_NUMBERS) {
     const td = chartData[tooth];
-    if (!td?.bleeding) continue;
-    const arr = Array.isArray(td.bleeding) ? td.bleeding : Object.values(td.bleeding);
-    totalSites += arr.length;
-    arr.forEach((v: any, i: number) => {
-      if (v === 1 || v === true) {
-        bleedingSites++;
-        // Interproximal sites are typically indices 0, 2 (mesial/distal)
-        if (i === 0 || i === 2) interproximalBleedingSites++;
-      }
-    });
+    if (!td) continue;
+    
+    // Check if tooth exists by checking if it has facial/lingual properties
+    if (td.facial || td.lingual) {
+      validTeethCount++;
+      bleedingSites += getBleedingSiteCount(td);
+      interproximalBleedingSites += getInterproximalBleedingSiteCount(td);
+    }
   }
 
+  const totalSites = validTeethCount * 6; // 6 sites per tooth (3 facial, 3 lingual)
   const bleedingPct = totalSites > 0 ? Math.round((bleedingSites / totalSites) * 100) : 0;
 
   // Oral Hygiene assessment
