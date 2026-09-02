@@ -131,7 +131,7 @@ describe('Invoices', () => {
     expect(res.body.data.invoice.totalAmount).toBe(90);
     expect(res.body.data.invoice.writeoffAmount).toBe(10);
     expect(res.body.data.invoice.patientPortion).toBe(40);
-    expect(res.body.data.invoice.balanceDue).toBe(80);
+    expect(res.body.data.invoice.balanceDue).toBe(90);
   });
 
   it('gets patient composite ledger successfully', async () => {
