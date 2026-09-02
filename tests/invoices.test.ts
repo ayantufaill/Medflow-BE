@@ -128,6 +128,10 @@ describe('Invoices', () => {
     expect(res.status).toBe(201);
     expect(res.body.success).toBe(true);
     expect(res.body.data.invoice.patientId).toBe(patient.PatNum.toString());
+    expect(res.body.data.invoice.totalAmount).toBe(90);
+    expect(res.body.data.invoice.writeoffAmount).toBe(10);
+    expect(res.body.data.invoice.patientPortion).toBe(40);
+    expect(res.body.data.invoice.balanceDue).toBe(80);
   });
 
   it('gets patient composite ledger successfully', async () => {

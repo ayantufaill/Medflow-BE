@@ -22,6 +22,8 @@ type StatementMeta = {
   discountAmount?: number;
   insurancePortion?: number;
   patientPortion?: number;
+  totalAmount?: number;
+  writeoffAmount?: number;
   status?: string;
   claimNumber?: string;
   claimSubmissionDate?: string;
@@ -756,11 +758,12 @@ export class InvoiceService {
       providerId: meta.providerId ?? null,
       invoiceDate: statement.DateSent ?? null,
       dueDate: meta.dueDate ? new Date(meta.dueDate) : statement.DateRangeTo ?? null,
-      totalAmount: Number(statement.BalTotal) || 0,
+      totalAmount: Number(meta.totalAmount) || Number(statement.BalTotal) || 0,
       insurancePortion: Number(statement.InsEst) || Number(meta.insurancePortion) || 0,
       patientPortion: Number(meta.patientPortion) || 0,
       copayAmount: Number(meta.copayAmount) || 0,
       paidAmount: Number(meta.paidAmount) || 0,
+      writeoffAmount: Number(meta.writeoffAmount) || 0,
       balanceDue: Number(statement.BalTotal) || 0,
       taxAmount: Number(meta.taxAmount) || 0,
       discountAmount: Number(meta.discountAmount) || 0,
@@ -1323,14 +1326,33 @@ export class InvoiceService {
       insurancePortion = Number(meta.insurancePortion) || 0;
     }
 
-    const patientPortion = roundCurrency(Math.max(0, subtotal - insurancePortion));
+    const totalWriteOff = items.reduce((sum, item) => {
+      const itemMeta = parseJson<any>(item.BillingNote);
+      return sum + (Number(itemMeta.writeoff) || 0);
+    }, 0);
+
+    const patientPortion = roundCurrency(items.reduce((sum, item) => {
+      const itemMeta = parseJson<any>(item.BillingNote);
+      return sum + (Number(itemMeta.ptPortion) || 0);
+    }, 0));
+
     const totalPaid = items.reduce((sum, item) => {
       const itemMeta = parseJson<any>(item.BillingNote);
       return sum + (Number(itemMeta.paidAmount) || 0);
     }, 0);
 
+    // Balance due should NOT subtract totalWriteOff preemptively. It will be subtracted via payments/adjustments.
     const balanceDue = roundCurrency(Math.max(0, subtotal - totalPaid));
-    const nextMeta: StatementMeta = { ...meta, taxAmount: roundCurrency(taxAmount), discountAmount: roundCurrency(discountAmount), insurancePortion, patientPortion, paidAmount: totalPaid };
+    const nextMeta: StatementMeta = {
+      ...meta,
+      totalAmount: roundCurrency(totalAmount),
+      writeoffAmount: roundCurrency(totalWriteOff),
+      taxAmount: roundCurrency(taxAmount),
+      discountAmount: roundCurrency(discountAmount),
+      insurancePortion,
+      patientPortion,
+      paidAmount: totalPaid,
+    };
 
     const updated = await prisma.statement.update({
       where: { StatementNum: invoice.StatementNum },
@@ -1424,13 +1446,13 @@ export class InvoiceService {
     let totalAmount = 0;
     let totalInsPortion = 0;
     let totalPtPortion = 0;
+    let totalWriteoff = 0;
 
-    const enrichedItems = await this.calculateInsuranceEstimates(patientId, data.items);
-
-    for (const item of enrichedItems) {
+    for (const item of data.items) {
       totalAmount += Number(item.charge ?? 0);
       totalInsPortion += Number(item.insPortion ?? 0);
       totalPtPortion += Number(item.ptPortion ?? 0);
+      totalWriteoff += Number(item.writeoff ?? 0);
     }
 
     const meta: StatementMeta = {
@@ -1440,6 +1462,8 @@ export class InvoiceService {
       discountAmount: 0,
       insurancePortion: totalInsPortion,
       patientPortion: totalPtPortion,
+      totalAmount: roundCurrency(totalAmount),
+      writeoffAmount: roundCurrency(totalWriteoff),
       status: 'draft',
       createdBy,
       dueDate: dueDate.toISOString(),

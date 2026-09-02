@@ -47,6 +47,8 @@ import kpiRoutes from './kpi.routes';
 import communicationRoutes from './communication.routes';
 import clinicalManagementRoutes from './clinical-management.routes';
 import feeManagementRoutes from './fee-management.routes';
+import { feeManagementController } from '../controllers/fee-management.controller';
+import { authenticate } from '../middleware/auth.middleware';
 import adminFinanceRoutes from './admin-finance.routes';
 import paymentTerminalRoutes from './payment-terminal.routes';
 import membershipPlanRoutes from './membership-plan.routes';
@@ -125,6 +127,11 @@ router.use('/kpis', kpiRoutes);
 router.use('/communication', communicationRoutes);
 router.use('/clinical-management', clinicalManagementRoutes);
 router.use('/fee-management', feeManagementRoutes);
+router.get(
+  ['/admin/finance-management/fee-guides/audit-history', '/admin/finance-management/fee-guides/:id/audit-history'],
+  authenticate,
+  feeManagementController.getFeeGuideAuditHistory.bind(feeManagementController)
+);
 router.use('/admin-finance', adminFinanceRoutes);
 router.use('/payment-terminals', paymentTerminalRoutes);
 router.use('/membership-plans', membershipPlanRoutes);
