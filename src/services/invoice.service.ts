@@ -1295,9 +1295,24 @@ export class InvoiceService {
 
         insurancePortion += Number(enrichedItem.insPortion || 0);
         
-        if (originalMeta.insPortion !== enrichedItem.insPortion || originalMeta.ptPortion !== enrichedItem.ptPortion) {
+        const writeoffChanged =
+          originalMeta.writeoff !== enrichedItem.writeoff ||
+          originalMeta.estimatedWriteOff !== enrichedItem.estimatedWriteOff ||
+          originalMeta.allowedFee !== enrichedItem.allowedFee;
+
+        if (
+          originalMeta.insPortion !== enrichedItem.insPortion ||
+          originalMeta.ptPortion !== enrichedItem.ptPortion ||
+          writeoffChanged
+        ) {
           originalMeta.insPortion = enrichedItem.insPortion;
           originalMeta.ptPortion = enrichedItem.ptPortion;
+          // Persist write-off fields — fall back to existing value for non-PPO items
+          // (where calculateInsuranceEstimates leaves the field undefined) so we never
+          // accidentally zero out a manually-entered adjustment.
+          originalMeta.writeoff = enrichedItem.writeoff ?? originalMeta.writeoff ?? 0;
+          originalMeta.estimatedWriteOff = enrichedItem.estimatedWriteOff ?? originalMeta.estimatedWriteOff ?? 0;
+          originalMeta.allowedFee = enrichedItem.allowedFee ?? originalMeta.allowedFee ?? null;
           await prisma.procedurelog.update({
             where: { ProcNum: originalItem.ProcNum },
             data: { BillingNote: buildJson(originalMeta) }
