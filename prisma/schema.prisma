@@ -3053,6 +3053,7 @@ model feesched {
   insplan_insplan_AllowedFeeSchedTofeesched   insplan[]       @relation("insplan_AllowedFeeSchedTofeesched")
   patient                                     patient[]
   provider                                    provider[]
+  feeguideauditlog                            feeguideauditlog[]
 }
 
 model feeschedgroup {
@@ -7098,6 +7099,7 @@ model userod {
   claim                                             claim[]
   claimpayment                                      claimpayment[]
   claimproc                                         claimproc[]
+  feeguideauditlog                                  feeguideauditlog[]
   claimtracking                                     claimtracking[]
   cloudaddress                                      cloudaddress[]
   commlog                                           commlog[]
@@ -7896,4 +7898,17 @@ model patients_master {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   group       groups   @relation(fields: [groupId], references: [id], onDelete: Restrict)
+}
+
+model feeguideauditlog {
+  AuditLogNum BigInt   @id @default(autoincrement())
+  FeeSchedNum BigInt
+  UserNum     BigInt?
+  Action      String   @db.VarChar(50)
+  Diffs       Json
+  Timestamp   DateTime @default(now())
+  userod      userod?  @relation(fields: [UserNum], references: [UserNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_feeguideauditlog_UserNum")
+  feesched    feesched? @relation(fields: [FeeSchedNum], references: [FeeSchedNum], onDelete: Cascade, onUpdate: NoAction, map: "fk_feeguideauditlog_FeeSchedNum")
+
+  @@index([FeeSchedNum, Timestamp(sort: Desc)])
 }

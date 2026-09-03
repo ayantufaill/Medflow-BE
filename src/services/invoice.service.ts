@@ -22,6 +22,9 @@ type StatementMeta = {
   discountAmount?: number;
   insurancePortion?: number;
   patientPortion?: number;
+  totalAmount?: number;
+  writeoffAmount?: number;
+  adjustmentAmount?: number;
   status?: string;
   claimNumber?: string;
   claimSubmissionDate?: string;
@@ -124,7 +127,7 @@ export class InvoiceService {
   public async calculateInsuranceEstimates(patientId: bigint, items: any[]) {
     try {
       const patPlan = await prisma.patplan.findFirst({
-        where: { PatNum: patientId, IsPending: 0 },
+        where: { PatNum: patientId, OR: [{ IsPending: 0 }, { IsPending: null }] },
         orderBy: { Ordinal: 'asc' },
         include: {
           inssub: {
@@ -139,6 +142,8 @@ export class InvoiceService {
 
       const insPlan = patPlan?.inssub?.insplan;
       const allowedFeeMap = new Map<string, number>();
+      const planFeeMap = new Map<string, number>();
+      const defaultFeeMap = new Map<string, number>();
 
       if (insPlan?.AllowedFeeSched && insPlan.AllowedFeeSched > 0n) {
         const feeRecords = await prisma.fee.findMany({
@@ -148,6 +153,31 @@ export class InvoiceService {
         for (const f of feeRecords) {
           if (f.procedurecode?.ProcCode && f.Amount !== null && f.Amount !== undefined) {
             allowedFeeMap.set(f.procedurecode.ProcCode.toUpperCase().trim(), Number(f.Amount));
+          }
+        }
+      }
+
+      if (insPlan?.FeeSched && insPlan.FeeSched > 0n) {
+        const feeRecords = await prisma.fee.findMany({
+          where: { FeeSched: insPlan.FeeSched },
+          include: { procedurecode: true }
+        });
+        for (const f of feeRecords) {
+          if (f.procedurecode?.ProcCode && f.Amount !== null && f.Amount !== undefined) {
+            planFeeMap.set(f.procedurecode.ProcCode.toUpperCase().trim(), Number(f.Amount));
+          }
+        }
+      }
+
+      const defaultFeeSchedNum = await this.getDefaultFeeSchedNum();
+      if (defaultFeeSchedNum) {
+        const feeRecords = await prisma.fee.findMany({
+          where: { FeeSched: defaultFeeSchedNum },
+          include: { procedurecode: true }
+        });
+        for (const f of feeRecords) {
+          if (f.procedurecode?.ProcCode && f.Amount !== null && f.Amount !== undefined) {
+            defaultFeeMap.set(f.procedurecode.ProcCode.toUpperCase().trim(), Number(f.Amount));
           }
         }
       }
@@ -292,6 +322,9 @@ export class InvoiceService {
         if (item.dbi) {
           item.insPortion = 0;
           item.ptPortion = charge;
+          item.writeoff = 0;
+          item.estimatedWriteOff = 0;
+          item.balance = charge;
           continue;
         }
 
@@ -374,17 +407,52 @@ export class InvoiceService {
           }
         }
 
-        // Apply Allowed Fee logic if configured
-        const allowedFee = allowedFeeMap.get(cleanCode);
+        // 5. Standard CDT Category Default Fallback (matches cdtCategoryHelper)
+        if (percent === undefined) {
+          const numMatch = cleanCode.match(/\d+/);
+          const num = numMatch ? parseInt(numMatch[0], 10) : null;
+          if (num !== null) {
+            if (num < 2000) percent = 100; // Diagnostic & Preventative
+            else if (num < 5000) percent = 80; // Restorative, Endo, Perio
+            else if (num < 9000) percent = 50; // Prosthodontics, Implants, Surgery, Ortho
+            else percent = 80; // Adjunct General
+          } else {
+            percent = 100;
+          }
+        }
+
+        // Apply Allowed / Contracted Fee logic
+        const explicitAllowedFee =
+          item.allowedFee !== undefined && item.allowedFee !== null && Number(item.allowedFee) > 0
+            ? Number(item.allowedFee)
+            : item.originalFee !== undefined && item.originalFee !== null && Number(item.originalFee) > 0
+            ? Number(item.originalFee)
+            : item.baseFee !== undefined && item.baseFee !== null && Number(item.baseFee) > 0
+            ? Number(item.baseFee)
+            : undefined;
+
+        const resolvedAllowedFee =
+          explicitAllowedFee !== undefined
+            ? explicitAllowedFee
+            : allowedFeeMap.get(cleanCode) ?? planFeeMap.get(cleanCode) ?? defaultFeeMap.get(cleanCode);
+
         let basisFee = charge;
         let estimatedWriteOff = 0;
 
-        if (allowedFee !== undefined && allowedFee < charge) {
-          estimatedWriteOff = roundCurrency(charge - allowedFee);
-          basisFee = allowedFee;
-          item.allowedFee = allowedFee;
+        if (resolvedAllowedFee !== undefined && resolvedAllowedFee > 0 && charge > resolvedAllowedFee) {
+          estimatedWriteOff = roundCurrency(charge - resolvedAllowedFee);
+          basisFee = resolvedAllowedFee;
+          item.allowedFee = resolvedAllowedFee;
           item.estimatedWriteOff = estimatedWriteOff;
           item.writeoff = estimatedWriteOff;
+        } else if (resolvedAllowedFee !== undefined && resolvedAllowedFee > 0) {
+          item.allowedFee = resolvedAllowedFee;
+          item.estimatedWriteOff = 0;
+          item.writeoff = 0;
+          basisFee = charge;
+        } else {
+          item.writeoff = 0;
+          item.estimatedWriteOff = 0;
         }
 
         if (percent !== undefined) {
@@ -392,10 +460,11 @@ export class InvoiceService {
           item.insPortion = insPortion;
           item.ptPortion = roundCurrency(Math.max(0, basisFee - insPortion));
           item.coveragePct = percent;
-        } else if (allowedFee !== undefined && allowedFee < charge) {
+        } else {
           item.insPortion = 0;
           item.ptPortion = basisFee;
         }
+        item.balance = charge;
       }
     } catch (err) {
       console.warn('[InvoiceService] Failed to calculate insurance estimates:', err);
@@ -756,11 +825,13 @@ export class InvoiceService {
       providerId: meta.providerId ?? null,
       invoiceDate: statement.DateSent ?? null,
       dueDate: meta.dueDate ? new Date(meta.dueDate) : statement.DateRangeTo ?? null,
-      totalAmount: Number(statement.BalTotal) || 0,
+      totalAmount: Number(meta.totalAmount) || Number(statement.BalTotal) || 0,
       insurancePortion: Number(statement.InsEst) || Number(meta.insurancePortion) || 0,
       patientPortion: Number(meta.patientPortion) || 0,
       copayAmount: Number(meta.copayAmount) || 0,
       paidAmount: Number(meta.paidAmount) || 0,
+      writeoffAmount: Number(meta.writeoffAmount) || 0,
+      adjustmentAmount: Number(meta.adjustmentAmount) || 0,
       balanceDue: Number(statement.BalTotal) || 0,
       taxAmount: Number(meta.taxAmount) || 0,
       discountAmount: Number(meta.discountAmount) || 0,
@@ -1295,9 +1366,24 @@ export class InvoiceService {
 
         insurancePortion += Number(enrichedItem.insPortion || 0);
         
-        if (originalMeta.insPortion !== enrichedItem.insPortion || originalMeta.ptPortion !== enrichedItem.ptPortion) {
+        const writeoffChanged =
+          originalMeta.writeoff !== enrichedItem.writeoff ||
+          originalMeta.estimatedWriteOff !== enrichedItem.estimatedWriteOff ||
+          originalMeta.allowedFee !== enrichedItem.allowedFee;
+
+        if (
+          originalMeta.insPortion !== enrichedItem.insPortion ||
+          originalMeta.ptPortion !== enrichedItem.ptPortion ||
+          writeoffChanged
+        ) {
           originalMeta.insPortion = enrichedItem.insPortion;
           originalMeta.ptPortion = enrichedItem.ptPortion;
+          // Persist write-off fields — fall back to existing value for non-PPO items
+          // (where calculateInsuranceEstimates leaves the field undefined) so we never
+          // accidentally zero out a manually-entered adjustment.
+          originalMeta.writeoff = enrichedItem.writeoff ?? originalMeta.writeoff ?? 0;
+          originalMeta.estimatedWriteOff = enrichedItem.estimatedWriteOff ?? originalMeta.estimatedWriteOff ?? 0;
+          originalMeta.allowedFee = enrichedItem.allowedFee ?? originalMeta.allowedFee ?? null;
           await prisma.procedurelog.update({
             where: { ProcNum: originalItem.ProcNum },
             data: { BillingNote: buildJson(originalMeta) }
@@ -1308,19 +1394,64 @@ export class InvoiceService {
       insurancePortion = Number(meta.insurancePortion) || 0;
     }
 
-    const patientPortion = roundCurrency(Math.max(0, subtotal - insurancePortion));
+    const totalWriteOff = items.reduce((sum, item) => {
+      const itemMeta = parseJson<any>(item.BillingNote);
+      return sum + (Number(itemMeta.writeoff) || 0);
+    }, 0);
+
+    const patientPortion = roundCurrency(items.reduce((sum, item) => {
+      const itemMeta = parseJson<any>(item.BillingNote);
+      return sum + (Number(itemMeta.ptPortion) || 0);
+    }, 0));
+
     const totalPaid = items.reduce((sum, item) => {
       const itemMeta = parseJson<any>(item.BillingNote);
       return sum + (Number(itemMeta.paidAmount) || 0);
     }, 0);
 
-    const balanceDue = roundCurrency(Math.max(0, subtotal - totalPaid));
-    const nextMeta: StatementMeta = { ...meta, taxAmount: roundCurrency(taxAmount), discountAmount: roundCurrency(discountAmount), insurancePortion, patientPortion, paidAmount: totalPaid };
+    const procNums = items.map((item) => item.ProcNum).filter((id): id is bigint => id !== null && id !== undefined);
+    const invoiceIdStr = invoice.StatementNum.toString();
+
+    // Fetch all formally posted adjustments associated with this invoice
+    const adjustments = await prisma.adjustment.findMany({
+      where: {
+        OR: [
+          { StatementNum: invoice.StatementNum },
+          ...(procNums.length > 0 ? [{ ProcNum: { in: procNums } }] : []),
+          { AdjNote: { contains: `Invoice #${invoiceIdStr}` } },
+        ],
+      },
+    });
+
+    const totalAdjustments = adjustments.reduce((sum, adj) => {
+      if (adj.AdjNote && adj.AdjNote.toLowerCase().includes('income transfer')) {
+        return sum;
+      }
+      return sum + Math.abs(Number(adj.AdjAmt) || 0);
+    }, 0);
+
+    // Balance due subtracts totalPaid AND formally posted adjustments (e.g. posted write-offs/discounts)
+    const balanceDue = roundCurrency(Math.max(0, subtotal - totalPaid - totalAdjustments));
+    const nextMeta: StatementMeta = {
+      ...meta,
+      totalAmount: roundCurrency(totalAmount),
+      writeoffAmount: roundCurrency(totalWriteOff),
+      adjustmentAmount: roundCurrency(totalAdjustments),
+      taxAmount: roundCurrency(taxAmount),
+      discountAmount: roundCurrency(discountAmount),
+      insurancePortion,
+      patientPortion,
+      paidAmount: totalPaid,
+    };
 
     const updated = await prisma.statement.update({
       where: { StatementNum: invoice.StatementNum },
       data: { BalTotal: roundCurrency(balanceDue), InsEst: roundCurrency(insurancePortion), NoteBold: buildJson(nextMeta) },
     });
+
+    if (invoice.PatNum) {
+      await agingService.updatePatientAging(invoice.PatNum).catch(() => {});
+    }
 
     return this.mapStatementToInvoice(updated, nextMeta);
   }
@@ -1409,13 +1540,13 @@ export class InvoiceService {
     let totalAmount = 0;
     let totalInsPortion = 0;
     let totalPtPortion = 0;
+    let totalWriteoff = 0;
 
-    const enrichedItems = await this.calculateInsuranceEstimates(patientId, data.items);
-
-    for (const item of enrichedItems) {
+    for (const item of data.items) {
       totalAmount += Number(item.charge ?? 0);
       totalInsPortion += Number(item.insPortion ?? 0);
       totalPtPortion += Number(item.ptPortion ?? 0);
+      totalWriteoff += Number(item.writeoff ?? 0);
     }
 
     const meta: StatementMeta = {
@@ -1425,6 +1556,8 @@ export class InvoiceService {
       discountAmount: 0,
       insurancePortion: totalInsPortion,
       patientPortion: totalPtPortion,
+      totalAmount: roundCurrency(totalAmount),
+      writeoffAmount: roundCurrency(totalWriteoff),
       status: 'draft',
       createdBy,
       dueDate: dueDate.toISOString(),

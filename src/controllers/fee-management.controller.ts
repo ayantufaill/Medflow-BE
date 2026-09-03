@@ -69,7 +69,7 @@ export class FeeManagementController {
         description,
         feeSchedType: feeSchedType !== undefined ? parseInt(feeSchedType, 10) : 0,
         isGlobal: isGlobal !== undefined ? Boolean(isGlobal) : true,
-      });
+      }, req.userId);
       res.status(201).json({
         success: true,
         data: created,
@@ -88,7 +88,7 @@ export class FeeManagementController {
         feeSchedType: feeSchedType !== undefined ? parseInt(feeSchedType, 10) : undefined,
         isHidden: isHidden !== undefined ? Boolean(isHidden) : undefined,
         isGlobal: isGlobal !== undefined ? Boolean(isGlobal) : undefined,
-      });
+      }, req.userId);
       res.status(200).json({
         success: true,
         data: updated,
@@ -101,7 +101,7 @@ export class FeeManagementController {
   async deleteFeeSchedule(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      await feeManagementService.deleteFeeSchedule(id as string);
+      await feeManagementService.deleteFeeSchedule(id as string, req.userId);
       res.status(200).json({
         success: true,
         message: 'Fee schedule deleted successfully',
@@ -115,7 +115,7 @@ export class FeeManagementController {
     try {
       const { id } = req.params;
       const { description } = req.body;
-      const copied = await feeManagementService.copyFeeSchedule(id as string, description as string);
+      const copied = await feeManagementService.copyFeeSchedule(id as string, description as string, req.userId);
       res.status(201).json({
         success: true,
         data: copied,
@@ -207,7 +207,7 @@ export class FeeManagementController {
       const { id } = req.params;
       const { fees } = req.body;
 
-      const result = await feeManagementService.updateFeeScheduleFees(id as string, fees);
+      const result = await feeManagementService.updateFeeScheduleFees(id as string, fees, req.userId);
       res.status(200).json({
         success: true,
         data: result,
@@ -255,11 +255,26 @@ export class FeeManagementController {
       const { id } = req.params;
       const { fees } = req.body;
 
-      const result = await feeManagementService.updateFeeScheduleFees(id as string, fees);
+      const result = await feeManagementService.updateFeeScheduleFees(id as string, fees, req.userId);
       res.status(200).json({
         success: true,
         message: 'Fees uploaded successfully',
         data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getFeeGuideAuditHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const history = await feeManagementService.getFeeGuideAuditHistory(id);
+      res.status(200).json({
+        success: true,
+        data: {
+          auditEvents: history,
+        },
       });
     } catch (error) {
       next(error);

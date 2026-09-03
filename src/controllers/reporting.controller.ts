@@ -4,7 +4,8 @@ import { reportingService } from '../services/reporting.service';
 export class ReportingController {
   async getDenialRates(req: Request, res: Response, next: NextFunction) {
     try {
-      const data = await reportingService.getDenialRates();
+      const branchId = req.query.branchId as string | undefined;
+      const data = await reportingService.getDenialRates(branchId);
       res.status(200).json({
         success: true,
         data,

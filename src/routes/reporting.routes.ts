@@ -16,6 +16,27 @@ const router = Router();
 
 /**
  * @swagger
+ * /reports/denial-rates:
+ *   get:
+ *     summary: Retrieve claim denial rates by payer
+ *     tags: [Reporting]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Denial rate statistics grouped by payer
+ */
+router.get(
+  '/denial-rates',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('reports.read'),
+  reportingController.getDenialRates.bind(reportingController)
+);
+
+/**
+ * @swagger
  * /reports/definitions:
  *   get:
  *     summary: Retrieve all saved report definitions

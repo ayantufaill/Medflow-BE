@@ -123,6 +123,8 @@ router.put('/codes/:procCode/fees', feeManagementController.updateProcedureFees.
  *       404:
  *         description: Fee schedule not found
  */
+router.get('/guides/audit-history', feeManagementController.getFeeGuideAuditHistory.bind(feeManagementController));
+router.get('/guides/:id/audit-history', feeManagementController.getFeeGuideAuditHistory.bind(feeManagementController));
 router.get('/guides/:id', feeManagementController.getFeeScheduleById.bind(feeManagementController));
 
 /**
