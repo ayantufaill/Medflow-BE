@@ -32,6 +32,7 @@ type ClaimStatus =
 
 type ClaimMeta = {
   invoiceId?: string;
+  primaryClaimId?: string;
   treatmentPlanId?: string;
   procedures?: any[];
   selectedItems?: any[];
@@ -1241,7 +1242,7 @@ export class ClaimService {
 
     if (existingSecondary) {
       const meta = parseJson<ClaimMeta>(existingSecondary.Narrative);
-      return this.mapClaim(existingSecondary, meta);
+      return this.mapClaim(existingSecondary, meta, {});
     }
 
     // Find the patient's secondary insurance plan
