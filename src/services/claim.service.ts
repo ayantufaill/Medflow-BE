@@ -496,6 +496,9 @@ export class ClaimService {
           status: procLog.ProcStatus ?? null,
           quantity: procLog.UnitQty ?? 1,
           fee: cp.FeeBilled ?? procLog.ProcFee ?? 0,
+          insPayEst: Number(cp.InsPayEst) || 0,
+          writeOffEst: Number(cp.WriteOffEst) || Number(cp.WriteOff) || 0,
+          allowedOverride: Number(cp.AllowedOverride) || 0,
           providerId: procLog.ProvNum?.toString() ?? null,
           providerName: procLog.provider_procedurelog_ProvNumToprovider ? `${procLog.provider_procedurelog_ProvNumToprovider.FName} ${procLog.provider_procedurelog_ProvNumToprovider.LName}`.trim() : null,
           dateOfService: procLog.ProcDate ?? null,
@@ -1197,6 +1200,187 @@ export class ClaimService {
     return this.mapClaim(created, claimMeta, {
       insurance: insuranceCompanyId ? insuranceById.get(insuranceCompanyId) : null,
       procedures: claimMeta.procedures || [],
+    });
+  }
+
+  async generateSecondaryClaim(primaryClaimId: string, userId?: string) {
+    const claimNum = toBigInt(primaryClaimId);
+    if (!claimNum) {
+      throw new NotFoundError('Invalid primary claim ID');
+    }
+
+    const primaryClaim = await prisma.claim.findUnique({
+      where: { ClaimNum: claimNum },
+      include: {
+        patient: true,
+        insplan_claim_PlanNumToinsplan: {
+          include: { carrier: true },
+        },
+      },
+    });
+
+    if (!primaryClaim || primaryClaim.ClaimType === 'PreAuth') {
+      throw new NotFoundError('Primary claim not found');
+    }
+
+    const primaryMeta = parseJson<ClaimMeta>(primaryClaim.Narrative);
+
+    // Check if secondary claim already exists
+    const existingSecondary = await prisma.claim.findFirst({
+      where: {
+        ClaimType: { in: ['Secondary', 'S'] },
+        Narrative: { contains: `"primaryClaimId":"${primaryClaim.ClaimNum.toString()}"` },
+      },
+      include: {
+        patient: true,
+        insplan_claim_PlanNumToinsplan: {
+          include: { carrier: true },
+        },
+      },
+    });
+
+    if (existingSecondary) {
+      const meta = parseJson<ClaimMeta>(existingSecondary.Narrative);
+      return this.mapClaim(existingSecondary, meta);
+    }
+
+    // Find the patient's secondary insurance plan
+    let secondaryPlanNum = primaryClaim.PlanNum;
+    let secondaryInsSubNum = primaryClaim.InsSubNum;
+    let secondaryCarrierId = primaryMeta.insuranceCompanyId;
+    let secondaryPolicyNumber = primaryMeta.policyNumber;
+
+    if (primaryClaim.PatNum) {
+      const patPlans = await prisma.patplan.findMany({
+        where: {
+          PatNum: primaryClaim.PatNum,
+        },
+        orderBy: { Ordinal: 'asc' },
+        include: {
+          inssub: {
+            include: {
+              insplan: {
+                include: { carrier: true },
+              },
+            },
+          },
+        },
+      });
+
+      const secondaryPatPlan = patPlans.find(
+        (p) => p.Ordinal === 2 || (p.inssub?.insplan?.PlanNum && p.inssub.insplan.PlanNum !== primaryClaim.PlanNum)
+      );
+
+      if (secondaryPatPlan?.inssub?.insplan) {
+        secondaryPlanNum = secondaryPatPlan.inssub.insplan.PlanNum;
+        secondaryInsSubNum = secondaryPatPlan.inssub.InsSubNum;
+        if (secondaryPatPlan.inssub.insplan.CarrierNum) {
+          secondaryCarrierId = secondaryPatPlan.inssub.insplan.CarrierNum.toString();
+        }
+        if (secondaryPatPlan.inssub.SubscriberID) {
+          secondaryPolicyNumber = secondaryPatPlan.inssub.SubscriberID;
+        }
+      }
+    }
+
+    const primaryFee = Number(primaryClaim.ClaimFee) || Number(primaryMeta.claimAmount) || 0;
+    const primaryPaid = Number(primaryClaim.InsPayAmt) || Number(primaryMeta.paidAmount) || 0;
+    const remainingBalance = Math.max(0, primaryFee - primaryPaid);
+    const secondaryAmount = remainingBalance > 0 ? remainingBalance : primaryFee;
+
+    const secondaryClaimNum = await getNextId('claim', 'ClaimNum');
+    const claimIdentifier = await this.generateClaimNumber();
+    const status: ClaimStatus = 'draft';
+
+    const secondaryMeta: ClaimMeta = {
+      invoiceId: primaryMeta.invoiceId,
+      primaryClaimId: primaryClaim.ClaimNum.toString(),
+      insuranceCompanyId: secondaryCarrierId ?? primaryMeta.insuranceCompanyId,
+      insuranceType: 'secondary',
+      status,
+      claimAmount: secondaryAmount,
+      submittedAmount: secondaryAmount,
+      totalAmount: primaryFee,
+      paidAmount: 0,
+      patientResponsibility: remainingBalance,
+      policyNumber: secondaryPolicyNumber ?? primaryMeta.policyNumber,
+      notes: `Secondary claim generated from Primary Claim #${primaryClaim.ClaimNum}. Primary Paid: $${primaryPaid.toFixed(2)}`,
+    };
+
+    const createdSecondary = await prisma.claim.create({
+      data: {
+        ClaimNum: secondaryClaimNum,
+        PatNum: primaryClaim.PatNum,
+        PlanNum: secondaryPlanNum,
+        InsSubNum: secondaryInsSubNum,
+        ProvTreat: primaryClaim.ProvTreat,
+        ProvBill: primaryClaim.ProvBill,
+        ClinicNum: primaryClaim.ClinicNum,
+        ClaimType: 'Secondary',
+        ClaimStatus: claimStatusToCode(status),
+        DateService: primaryClaim.DateService ?? new Date(),
+        ClaimFee: secondaryAmount,
+        InsPayEst: secondaryAmount,
+        InsPayAmt: 0,
+        DedApplied: remainingBalance,
+        PreAuthString: claimIdentifier,
+        PriorAuthorizationNumber: claimIdentifier,
+        ClaimIdentifier: claimIdentifier,
+        Narrative: buildJson(secondaryMeta as any),
+      },
+      include: {
+        patient: true,
+        insplan_claim_PlanNumToinsplan: {
+          include: { carrier: true },
+        },
+      },
+    });
+
+    // Copy primary claim procedures to secondary claimproc records
+    const primaryClaimProcs = await prisma.claimproc.findMany({
+      where: { ClaimNum: primaryClaim.ClaimNum },
+    });
+
+    if (primaryClaimProcs.length > 0) {
+      for (const cp of primaryClaimProcs) {
+        const nextCpNum = await getNextId('claimproc', 'ClaimProcNum');
+        await prisma.claimproc.create({
+          data: {
+            ClaimProcNum: nextCpNum,
+            ProcNum: cp.ProcNum,
+            ClaimNum: createdSecondary.ClaimNum,
+            PatNum: primaryClaim.PatNum,
+            ProvNum: cp.ProvNum,
+            PlanNum: secondaryPlanNum,
+            InsSubNum: secondaryInsSubNum,
+            ClinicNum: cp.ClinicNum,
+            DateCP: new Date(),
+            ProcDate: cp.ProcDate,
+            DateEntry: new Date(),
+            Status: 0,
+            FeeBilled: cp.FeeBilled,
+            InsPayEst: secondaryAmount,
+            DedApplied: remainingBalance,
+            InsPayAmt: 0,
+          },
+        });
+      }
+    }
+
+    await this.createStatusHistoryEntry(
+      createdSecondary.ClaimNum.toString(),
+      status,
+      `Secondary claim created from Primary Claim #${primaryClaim.ClaimNum}`,
+      userId
+    );
+
+    const [insuranceById] = await Promise.all([
+      this.buildInsuranceContext(secondaryCarrierId ? [secondaryCarrierId] : []),
+    ]);
+
+    return this.mapClaim(createdSecondary, secondaryMeta, {
+      insurance: secondaryCarrierId ? insuranceById.get(secondaryCarrierId) : null,
+      procedures: primaryMeta.procedures || [],
     });
   }
 
@@ -2911,96 +3095,6 @@ private mapClaimStatus(status: string | null): string {
     }
 
     return this.getClaimById(newClaim.ClaimNum.toString());
-  }
-  async generateSecondaryClaim(primaryClaimId: string, userId?: string) {
-    const claimNum = BigInt(primaryClaimId);
-
-    // 1. Fetch Primary Claim
-    const primaryClaim = await prisma.claim.findUnique({
-      where: { ClaimNum: claimNum },
-      include: {
-        claimproc: true,
-      }
-    });
-
-    if (!primaryClaim) {
-      throw new NotFoundError('Primary claim not found');
-    }
-
-    if (primaryClaim.ClaimType === 'Secondary') {
-      throw new BadRequestError('Claim is already a secondary claim');
-    }
-
-    // 2. Find Secondary Insurance for Patient
-    const patPlans = await prisma.patplan.findMany({
-      where: { PatNum: primaryClaim.PatNum },
-      orderBy: { Ordinal: 'asc' }
-    });
-
-    const secondaryPlan = patPlans.find(p => p.Ordinal === 2);
-    if (!secondaryPlan) {
-      throw new BadRequestError('Patient does not have secondary insurance');
-    }
-
-    // 3. Create Secondary Claim
-    const newClaimNum = await getNextId('claim', 'ClaimNum');
-    const claimNumber = await this.generateClaimNumber();
-
-    const claimMeta = {
-      status: 'draft',
-      insuranceType: 'secondary',
-      notes: `Secondary claim generated from primary claim ${primaryClaim.ClaimNum}`,
-    };
-
-    const secondaryClaim = await prisma.claim.create({
-      data: {
-        ClaimNum: newClaimNum,
-        PatNum: primaryClaim.PatNum,
-        DateService: primaryClaim.DateService,
-        DateSent: new Date(),
-        ClaimStatus: 'W', // Waiting/Draft
-        ClaimType: 'Secondary',
-        ProvTreat: primaryClaim.ProvTreat,
-        ProvBill: primaryClaim.ProvBill,
-        ClinicNum: primaryClaim.ClinicNum,
-        PlanNum: secondaryPlan.InsSubNum, // assuming InsSubNum is mapping to PlanNum for this simplistic schema or we need to find the plan
-        InsSubNum: secondaryPlan.InsSubNum,
-        ClaimFee: primaryClaim.ClaimFee,
-        PreAuthString: claimNumber,
-        PriorAuthorizationNumber: claimNumber,
-        ClaimIdentifier: claimNumber,
-        Narrative: buildJson(claimMeta),
-      }
-    });
-
-    // 4. Duplicate claimprocs and mark them as secondary
-    for (const cp of primaryClaim.claimproc) {
-      const claimProcNum = await getNextId('claimproc', 'ClaimProcNum');
-      await prisma.claimproc.create({
-        data: {
-          ...cp,
-          ClaimProcNum: claimProcNum,
-          ClaimNum: newClaimNum,
-          Status: 0, // Unsent
-          InsPayEst: 0, // Recalculate or leave 0 for secondary
-          InsPayAmt: 0,
-          DateCP: new Date(),
-          DateEntry: new Date(),
-          Remarks: `Generated from primary claimproc ${cp.ClaimProcNum}`,
-        }
-      });
-    }
-
-    if (userId) {
-      await this.createStatusHistoryEntry(
-        newClaimNum.toString(),
-        'draft',
-        `Secondary claim generated from primary claim ${primaryClaimId}`,
-        userId
-      );
-    }
-
-    return this.getClaimById(newClaimNum.toString());
   }
 
   async linkAttachments(
