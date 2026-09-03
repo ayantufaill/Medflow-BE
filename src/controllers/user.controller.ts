@@ -73,8 +73,10 @@ export class UserController {
           error: { message: 'User ID is required' },
         });
       }
-      
-      const user = await userService.getUserById(userId);
+
+      // Read visibility: group-wide (a sibling branch's Admin can still look
+      // up a user in the same practice group), same as elsewhere in this app.
+      const user = await userService.getUserById(userId, req.branchAccess?.groupClinicIds);
 
       // Log user view activity
       if (req.userId) {
@@ -122,11 +124,18 @@ export class UserController {
           error: { message: 'User ID is required' },
         });
       }
-      
-      const user = await userService.updateUser(userId, updates, {
-        ipAddress: getClientIp(req),
-        userAgent: getUserAgent(req),
-      });
+
+      // Write scope: narrowed to the caller's own clinic(s), not the whole
+      // group — editing another branch's user is an Admin-of-that-branch action.
+      const user = await userService.updateUser(
+        userId,
+        updates,
+        {
+          ipAddress: getClientIp(req),
+          userAgent: getUserAgent(req),
+        },
+        req.branchAccess?.clinicIds
+      );
       res.status(200).json({
         success: true,
         data: { user },
@@ -210,7 +219,7 @@ export class UserController {
       const { roleId } = req.body;
       const assignedBy = req.userId || 'system';
 
-      const user = await userService.assignRole(userId, roleId, assignedBy);
+      const user = await userService.assignRole(userId, roleId, assignedBy, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: { user },
@@ -231,7 +240,7 @@ export class UserController {
         });
       }
       
-      const result = await userService.removeRole(userId, roleId);
+      const result = await userService.removeRole(userId, roleId, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: result,
@@ -252,7 +261,7 @@ export class UserController {
         });
       }
       
-      const result = await userService.deleteUser(userId, req.userId ?? 'system');
+      const result = await userService.deleteUser(userId, req.userId ?? 'system', req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: result,
@@ -273,7 +282,7 @@ export class UserController {
         });
       }
       
-      const result = await userService.activateUser(userId);
+      const result = await userService.activateUser(userId, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: result,
@@ -294,7 +303,7 @@ export class UserController {
         });
       }
       
-      const result = await userService.deactivateUser(userId);
+      const result = await userService.deactivateUser(userId, req.branchAccess?.clinicIds);
       res.status(200).json({
         success: true,
         data: result,
@@ -436,7 +445,7 @@ export class UserController {
         });
       }
 
-      await userService.assignUserRoles(userId, finalRoleIds);
+      await userService.assignUserRoles(userId, finalRoleIds, req.branchAccess?.clinicIds);
 
       res.status(200).json({
         success: true,
