@@ -25,6 +25,35 @@ const sanitizeUser = (user: AppUser) => {
   return rest;
 };
 
+/**
+ * Throws NotFoundError (not 403 — avoids confirming a cross-tenant user exists
+ * at all) if the target user isn't visible from the caller's clinic scope.
+ * Same bypass rule used elsewhere in this app (see getAllUsers below, and
+ * practice-info.service.ts's assertClinicInScope): an empty/undefined
+ * allowedClinicIds means the caller has no resolved scope at all — a true
+ * system Admin, or a not-yet-onboarded single-practice deployment — and stays
+ * unrestricted rather than being locked out of every user.
+ */
+const assertUserInScope = async (targetUserId: string, allowedClinicIds?: bigint[]): Promise<void> => {
+  if (!allowedClinicIds || allowedClinicIds.length === 0) return;
+
+  const targetUserNum = BigInt(targetUserId);
+  const [homeClinic, assignments] = await Promise.all([
+    prisma.userod.findUnique({ where: { UserNum: targetUserNum }, select: { ClinicNum: true } }),
+    prisma.userclinic.findMany({ where: { UserNum: targetUserNum }, select: { ClinicNum: true } }),
+  ]);
+
+  const inScope =
+    (homeClinic?.ClinicNum !== null &&
+      homeClinic?.ClinicNum !== undefined &&
+      allowedClinicIds.includes(homeClinic.ClinicNum)) ||
+    assignments.some((a) => a.ClinicNum !== null && allowedClinicIds.includes(a.ClinicNum));
+
+  if (!inScope) {
+    throw new NotFoundError('User not found');
+  }
+};
+
 export class UserService {
   async getAllUsers(
     page = 1,
@@ -172,13 +201,14 @@ export class UserService {
     return this.getAllUsers(page, limit, undefined, role.UserGroupNum.toString(), status);
   }
 
-  async getUserById(userId: string): Promise<UserWithRoles> {
+  async getUserById(userId: string, allowedClinicIds?: bigint[]): Promise<UserWithRoles> {
     const user = await prisma.userod.findUnique({
       where: { UserNum: BigInt(userId) },
     });
     if (!user) {
       throw new NotFoundError('User not found');
     }
+    await assertUserInScope(userId, allowedClinicIds);
 
     const mapped = await mapUser(user);
     const userRoles = await prisma.usergroupattach.findMany({
@@ -207,7 +237,8 @@ export class UserService {
       preferredLanguage?: string;
       isActive?: boolean;
     },
-    requestInfo?: { ipAddress?: string; userAgent?: string }
+    requestInfo?: { ipAddress?: string; userAgent?: string },
+    allowedClinicIds?: bigint[]
   ) {
     const user = await prisma.userod.findUnique({
       where: { UserNum: BigInt(userId) },
@@ -215,6 +246,7 @@ export class UserService {
     if (!user) {
       throw new NotFoundError('User not found');
     }
+    await assertUserInScope(userId, allowedClinicIds);
 
     const meta = await getUserMeta(user.UserNum);
     const oldValues = {
@@ -291,13 +323,14 @@ export class UserService {
     return { message: 'Password updated successfully' };
   }
 
-  async assignRole(userId: string, roleId: string, assignedBy: string) {
+  async assignRole(userId: string, roleId: string, assignedBy: string, allowedClinicIds?: bigint[]) {
     const user = await prisma.userod.findUnique({
       where: { UserNum: BigInt(userId) },
     });
     if (!user) {
       throw new NotFoundError('User not found');
     }
+    await assertUserInScope(userId, allowedClinicIds);
 
     const role = await prisma.usergroup.findUnique({
       where: { UserGroupNum: BigInt(roleId) },
@@ -325,13 +358,14 @@ export class UserService {
     return { message: 'Role assigned successfully' };
   }
 
-  async removeRole(userId: string, roleId: string) {
+  async removeRole(userId: string, roleId: string, allowedClinicIds?: bigint[]) {
     const userRole = await prisma.usergroupattach.findFirst({
       where: { UserNum: BigInt(userId), UserGroupNum: BigInt(roleId) },
     });
     if (!userRole) {
       throw new NotFoundError('Role assignment not found');
     }
+    await assertUserInScope(userId, allowedClinicIds);
 
     await prisma.usergroupattach.delete({
       where: { UserGroupAttachNum: userRole.UserGroupAttachNum },
@@ -455,13 +489,14 @@ export class UserService {
     return { message: 'Password set successfully' };
   }
 
-  async deleteUser(userId: string, deletedBy: string) {
+  async deleteUser(userId: string, deletedBy: string, allowedClinicIds?: bigint[]) {
     const user = await prisma.userod.findUnique({
       where: { UserNum: BigInt(userId) },
     });
     if (!user) {
       throw new NotFoundError('User not found');
     }
+    await assertUserInScope(userId, allowedClinicIds);
 
     await prisma.usergroupattach.deleteMany({ where: { UserNum: user.UserNum } });
     await prisma.userodpref.deleteMany({ where: { UserNum: user.UserNum } });
@@ -472,13 +507,14 @@ export class UserService {
     return { message: 'User deleted successfully' };
   }
 
-  async activateUser(userId: string) {
+  async activateUser(userId: string, allowedClinicIds?: bigint[]) {
     const user = await prisma.userod.findUnique({
       where: { UserNum: BigInt(userId) },
     });
     if (!user) {
       throw new NotFoundError('User not found');
     }
+    await assertUserInScope(userId, allowedClinicIds);
 
     await prisma.userod.update({
       where: { UserNum: user.UserNum },
@@ -491,13 +527,14 @@ export class UserService {
     return { message: 'User activated successfully' };
   }
 
-  async deactivateUser(userId: string) {
+  async deactivateUser(userId: string, allowedClinicIds?: bigint[]) {
     const user = await prisma.userod.findUnique({
       where: { UserNum: BigInt(userId) },
     });
     if (!user) {
       throw new NotFoundError('User not found');
     }
+    await assertUserInScope(userId, allowedClinicIds);
 
     await prisma.userod.update({
       where: { UserNum: user.UserNum },
@@ -655,7 +692,7 @@ export class UserService {
     return { loginHistory: history, history, pagination: { page, limit, total, pages } };
   }
 
-  async assignUserRoles(userId: string, roleIds: string[]): Promise<void> {
+  async assignUserRoles(userId: string, roleIds: string[], allowedClinicIds?: bigint[]): Promise<void> {
     const userNum = BigInt(userId);
     const user = await prisma.userod.findUnique({
       where: { UserNum: userNum },
@@ -663,6 +700,7 @@ export class UserService {
     if (!user) {
       throw new NotFoundError('User not found');
     }
+    await assertUserInScope(userId, allowedClinicIds);
 
     const bigIntRoleIds = roleIds.map((id) => BigInt(id));
     const roles = await prisma.usergroup.findMany({

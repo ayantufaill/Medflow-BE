@@ -3,6 +3,7 @@ import { NotFoundError, ConflictError, BadRequestError } from '../utils/error.ut
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import {
+  formatDateOnly,
   mapInsuranceTypeToOrdinal,
   mapOrdinalToInsuranceType,
   mapRelationshipFromDb,
@@ -38,6 +39,42 @@ const resolveValidFeeSchedNum = async (val: any): Promise<bigint | null> => {
   });
   return exists ? parsed : null;
 };
+
+/**
+ * Given a resolved fee schedule value and a coverage type string, returns
+ * the correct FeeSched, AllowedFeeSched, and PlanType values to write on insplan.
+ *
+ * PPO plans (coverageType contains 'ppo'):
+ *   - AllowedFeeSched = feeSchedVal  (drives automatic write-off in invoice service)
+ *   - FeeSched        = null         (falls back to practice UCR for billed charge)
+ *   - PlanType        = 'p'
+ *
+ * Capitation / Medicaid plans:
+ *   - FeeSched        = feeSchedVal
+ *   - AllowedFeeSched = null
+ *   - PlanType        = 'c'
+ *
+ * All other plans (standard):
+ *   - FeeSched        = feeSchedVal
+ *   - AllowedFeeSched = null
+ *   - PlanType        = ''
+ */
+function resolveFeeSchedFields(
+  feeSchedVal: bigint | null,
+  coverageType: string | undefined | null
+): { FeeSched: bigint | null; AllowedFeeSched: bigint | null; PlanType: string } {
+  const type = (coverageType ?? '').toLowerCase().trim();
+  const isPPO = type.includes('ppo');
+  const isCapitation = type.includes('capitation') || type.includes('medicaid');
+
+  if (isPPO) {
+    return { FeeSched: null, AllowedFeeSched: feeSchedVal, PlanType: 'p' };
+  }
+  if (isCapitation) {
+    return { FeeSched: feeSchedVal, AllowedFeeSched: null, PlanType: 'c' };
+  }
+  return { FeeSched: feeSchedVal, AllowedFeeSched: null, PlanType: '' };
+}
 
 export class PatientInsuranceService {
   /**
@@ -121,7 +158,7 @@ export class PatientInsuranceService {
         groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
         groupName: patplan.inssub?.insplan?.GroupName ?? null,
         subscriberName: meta?.subscriberName ?? '',
-        subscriberDateOfBirth: meta?.subscriberDateOfBirth ?? null,
+        subscriberDateOfBirth: formatDateOnly(meta?.subscriberDateOfBirth),
         relationshipToPatient: mapRelationshipFromDb(patplan.Relationship),
         insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
         effectiveDate: patplan.inssub?.DateEffective ?? null,
@@ -144,9 +181,14 @@ export class PatientInsuranceService {
         coverageLimits: meta?.coverageLimits ?? null,
         coverageCategoryTable: meta?.coverageCategoryTable ?? [],
         coverageBookData: meta?.coverageBookData ?? [],
-        planFeeGuide: (patplan.inssub?.insplan?.FeeSched && patplan.inssub.insplan.FeeSched !== 0n)
-          ? patplan.inssub.insplan.FeeSched.toString()
-          : (meta?.planFeeGuide ? String(meta.planFeeGuide) : null),
+        planFeeGuide: (() => {
+          const fsched = patplan.inssub?.insplan?.FeeSched;
+          const allowed = patplan.inssub?.insplan?.AllowedFeeSched;
+          const dbVal = (allowed && allowed !== 0n)
+            ? allowed.toString()
+            : (fsched && fsched !== 0n) ? fsched.toString() : null;
+          return dbVal ?? (meta?.planFeeGuide ? String(meta.planFeeGuide) : null);
+        })(),
         coverageType: meta?.coverageType ?? null,
         subscriberSsn: meta?.subscriberSsn ?? null,
         renewalMonth: meta?.renewalMonth ?? null,
@@ -251,7 +293,7 @@ export class PatientInsuranceService {
         groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
         groupName: patplan.inssub?.insplan?.GroupName ?? null,
         subscriberName: meta?.subscriberName ?? '',
-        subscriberDateOfBirth: meta?.subscriberDateOfBirth ?? null,
+        subscriberDateOfBirth: formatDateOnly(meta?.subscriberDateOfBirth),
         relationshipToPatient: mapRelationshipFromDb(patplan.Relationship),
         insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
         effectiveDate: patplan.inssub?.DateEffective ?? null,
@@ -273,9 +315,14 @@ export class PatientInsuranceService {
         coverageLimits: meta?.coverageLimits ?? null,
         coverageCategoryTable: meta?.coverageCategoryTable ?? [],
         coverageBookData: meta?.coverageBookData ?? [],
-        planFeeGuide: (patplan.inssub?.insplan?.FeeSched && patplan.inssub.insplan.FeeSched !== 0n)
-          ? patplan.inssub.insplan.FeeSched.toString()
-          : (meta?.planFeeGuide ? String(meta.planFeeGuide) : null),
+        planFeeGuide: (() => {
+          const fsched = patplan.inssub?.insplan?.FeeSched;
+          const allowed = patplan.inssub?.insplan?.AllowedFeeSched;
+          const dbVal = (allowed && allowed !== 0n)
+            ? allowed.toString()
+            : (fsched && fsched !== 0n) ? fsched.toString() : null;
+          return dbVal ?? (meta?.planFeeGuide ? String(meta.planFeeGuide) : null);
+        })(),
         coverageType: meta?.coverageType ?? null,
         subscriberSsn: meta?.subscriberSsn ?? null,
         renewalMonth: meta?.renewalMonth ?? null,
@@ -350,7 +397,7 @@ export class PatientInsuranceService {
       groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
       groupName: patplan.inssub?.insplan?.GroupName ?? null,
       subscriberName: insuranceMeta.subscriberName ?? '',
-      subscriberDateOfBirth: insuranceMeta.subscriberDateOfBirth ?? null,
+      subscriberDateOfBirth: formatDateOnly(insuranceMeta.subscriberDateOfBirth),
       relationshipToPatient: mapRelationshipFromDb(patplan.Relationship),
       insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
       effectiveDate: patplan.inssub?.DateEffective ?? null,
@@ -373,9 +420,14 @@ export class PatientInsuranceService {
       coverageLimits: insuranceMeta.coverageLimits ?? null,
       coverageCategoryTable: insuranceMeta.coverageCategoryTable ?? [],
       coverageBookData: insuranceMeta.coverageBookData ?? [],
-      planFeeGuide: (patplan.inssub?.insplan?.FeeSched && patplan.inssub.insplan.FeeSched !== 0n)
-        ? patplan.inssub.insplan.FeeSched.toString()
-        : (insuranceMeta.planFeeGuide ? String(insuranceMeta.planFeeGuide) : null),
+      planFeeGuide: (() => {
+        const fsched = patplan.inssub?.insplan?.FeeSched;
+        const allowed = patplan.inssub?.insplan?.AllowedFeeSched;
+        const dbVal = (allowed && allowed !== 0n)
+          ? allowed.toString()
+          : (fsched && fsched !== 0n) ? fsched.toString() : null;
+        return dbVal ?? (insuranceMeta.planFeeGuide ? String(insuranceMeta.planFeeGuide) : null);
+      })(),
       coverageType: insuranceMeta.coverageType ?? null,
       subscriberSsn: insuranceMeta.subscriberSsn ?? null,
       renewalMonth: insuranceMeta.renewalMonth ?? null,
@@ -486,9 +538,24 @@ export class PatientInsuranceService {
 
     let insSubNum: bigint;
 
+    // Resolve fee schedule fields once — used in both the new-plan and Smart Link paths
+    const feeSchedVal = await resolveValidFeeSchedNum(data.planFeeGuide);
+    const feeSchedFields = resolveFeeSchedFields(feeSchedVal, data.coverageType);
+
     if (existingInsSub) {
-      // Intercept and use existing subscriber record
+      // Smart Link: reuse existing subscriber record but patch the shared insplan
+      // with the correct PPO/standard fee schedule fields so write-offs work correctly.
       insSubNum = existingInsSub.InsSubNum;
+      if (existingInsSub.PlanNum) {
+        await prisma.insplan.update({
+          where: { PlanNum: existingInsSub.PlanNum },
+          data: {
+            FeeSched: feeSchedFields.FeeSched ?? undefined,
+            AllowedFeeSched: feeSchedFields.AllowedFeeSched ?? undefined,
+            PlanType: feeSchedFields.PlanType,
+          },
+        });
+      }
     } else {
       const planNum = await getNextId('insplan', 'PlanNum');
       insSubNum = await getNextId('inssub', 'InsSubNum');
@@ -501,6 +568,9 @@ export class PatientInsuranceService {
           GroupName: data.groupName ?? null,
           PlanNote: data.notes ?? null,
           IsHidden: 0,
+          FeeSched: feeSchedFields.FeeSched,
+          AllowedFeeSched: feeSchedFields.AllowedFeeSched,
+          PlanType: feeSchedFields.PlanType,
         },
       });
 
@@ -530,7 +600,7 @@ export class PatientInsuranceService {
 
     await setPatientInsuranceMeta(patPlanNum, {
       subscriberName: data.subscriberName ?? null,
-      subscriberDateOfBirth: data.subscriberDateOfBirth ?? null,
+      subscriberDateOfBirth: formatDateOnly(data.subscriberDateOfBirth),
       copayAmount: data.copayAmount ?? null,
       deductibleAmount: data.deductibleAmount ?? null,
       autoVerify: data.autoVerify ?? true,
@@ -674,9 +744,21 @@ export class PatientInsuranceService {
       });
     }
     if (patplan.inssub?.insplan) {
-      let feeSchedVal: bigint | null | undefined = undefined;
-      if (updates.planFeeGuide !== undefined) {
-        feeSchedVal = await resolveValidFeeSchedNum(updates.planFeeGuide);
+      // Determine whether fee-schedule-related fields need to be updated.
+      // We recalculate whenever the caller changes either planFeeGuide OR coverageType,
+      // because changing the coverage type alone should re-route an existing fee schedule.
+      let updatedFeeSchedFields:
+        | { FeeSched: bigint | null; AllowedFeeSched: bigint | null; PlanType: string }
+        | undefined;
+
+      if (updates.planFeeGuide !== undefined || updates.coverageType !== undefined) {
+        const effectiveCoverageType = updates.coverageType ?? currentMeta.coverageType;
+        const rawFeeGuide =
+          updates.planFeeGuide !== undefined
+            ? updates.planFeeGuide
+            : currentMeta.planFeeGuide;
+        const feeSchedVal = await resolveValidFeeSchedNum(rawFeeGuide);
+        updatedFeeSchedFields = resolveFeeSchedFields(feeSchedVal, effectiveCoverageType);
       }
 
       await prisma.insplan.update({
@@ -686,7 +768,14 @@ export class PatientInsuranceService {
           GroupNum: updates.groupNumber ?? undefined,
           GroupName: updates.groupName ?? undefined,
           PlanNote: updates.notes ?? undefined,
-          FeeSched: feeSchedVal,
+          // Only spread fee schedule fields when the caller changed planFeeGuide or coverageType
+          ...(updatedFeeSchedFields !== undefined
+            ? {
+                FeeSched: updatedFeeSchedFields.FeeSched,
+                AllowedFeeSched: updatedFeeSchedFields.AllowedFeeSched,
+                PlanType: updatedFeeSchedFields.PlanType,
+              }
+            : {}),
         },
       });
     }
@@ -726,7 +815,9 @@ export class PatientInsuranceService {
     await setPatientInsuranceMeta(patplan.PatPlanNum, {
       subscriberName: updates.subscriberName ?? currentMeta.subscriberName ?? null,
       subscriberDateOfBirth:
-        updates.subscriberDateOfBirth ?? currentMeta.subscriberDateOfBirth ?? null,
+        updates.subscriberDateOfBirth !== undefined
+          ? formatDateOnly(updates.subscriberDateOfBirth)
+          : formatDateOnly(currentMeta.subscriberDateOfBirth),
       copayAmount: updates.copayAmount ?? currentMeta.copayAmount ?? null,
       deductibleAmount:
         updates.deductibleAmount ?? currentMeta.deductibleAmount ?? null,
