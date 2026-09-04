@@ -27,6 +27,7 @@ const procedureCodes = [
   // ── I. Diagnostic (D0100–D0999) ──────────────────────────────────────────
   { code: 'D0120', desc: 'Periodic oral evaluation',                                           abbr: 'Periodic exam',         coverage: 'Preventive Services', cat: 'Diagnostic' },
   { code: 'D0140', desc: 'Limited oral evaluation',                                            abbr: 'Limited exam',          coverage: 'Preventive Services', cat: 'Diagnostic' },
+  { code: 'D0145', desc: 'Oral evaluation for a patient under 3 years of age',                abbr: 'Oral eval <3yrs',       coverage: 'Preventive Services', cat: 'Diagnostic' },
   { code: 'D0150', desc: 'Comprehensive oral evaluation',                                      abbr: 'Comp exam',             coverage: 'Preventive Services', cat: 'Diagnostic' },
   { code: 'D0160', desc: 'Detailed and extensive oral evaluation',                             abbr: 'Detailed exam',         coverage: 'Preventive Services', cat: 'Diagnostic' },
   { code: 'D0170', desc: 'Re-evaluation, limited problem focused',                             abbr: 'Re-eval',               coverage: 'Preventive Services', cat: 'Diagnostic' },
@@ -47,6 +48,9 @@ const procedureCodes = [
   { code: 'D0350', desc: 'Oral/facial photographic images',                                    abbr: 'Photo images',          cat: 'Diagnostic' },
   { code: 'D0364', desc: 'Cone beam CT capture',                                               abbr: 'CBCT capture',          cat: 'Diagnostic' },
   { code: 'D0470', desc: 'Diagnostic casts',                                                   abbr: 'Diagnostic casts',      cat: 'Diagnostic' },
+  { code: 'D0601', desc: 'Caries risk assessment and documentation - low risk',                abbr: 'Caries risk low',       coverage: 'Preventive Services', cat: 'Diagnostic' },
+  { code: 'D0602', desc: 'Caries risk assessment and documentation - moderate risk',           abbr: 'Caries risk mod',       coverage: 'Preventive Services', cat: 'Diagnostic' },
+  { code: 'D0603', desc: 'Caries risk assessment and documentation - high risk',               abbr: 'Caries risk high',      coverage: 'Preventive Services', cat: 'Diagnostic' },
 
   // ── II. Preventive (D1000–D1999) ─────────────────────────────────────────
   { code: 'D1110', desc: 'Prophylaxis - adult',                                                abbr: 'Adult cleaning',        coverage: 'Preventive Services', cat: 'Preventive' },
@@ -62,6 +66,8 @@ const procedureCodes = [
   { code: 'D1354', desc: 'Interim caries arresting medicament',                                abbr: 'Caries arrest',         cat: 'Preventive' },
   { code: 'D1510', desc: 'Space maintainer - fixed, unilateral',                               abbr: 'Space maint fixed',     coverage: 'Preventive Services', cat: 'Preventive' },
   { code: 'D1516', desc: 'Space maintainer - fixed, bilateral',                                abbr: 'Space maint bilateral', coverage: 'Preventive Services', cat: 'Preventive' },
+  { code: 'D1520', desc: 'Space maintainer - removable, unilateral',                           abbr: 'Space maint remov uni', coverage: 'Preventive Services', cat: 'Preventive' },
+  { code: 'D1526', desc: 'Space maintainer - removable, bilateral',                            abbr: 'Space maint remov bi',  coverage: 'Preventive Services', cat: 'Preventive' },
   { code: 'D1550', desc: 'Re-cement or re-bond space maintainer',                              abbr: 'Re-cement space maint', coverage: 'Preventive Services', cat: 'Preventive' },
   { code: 'D1555', desc: 'Removal of fixed space maintainer',                                  abbr: 'Remove space maint',    coverage: 'Preventive Services', cat: 'Preventive' },
 
@@ -74,6 +80,7 @@ const procedureCodes = [
   { code: 'D2331', desc: 'Resin-based composite - two surfaces, anterior',                     abbr: 'Composite 2surf ant',   coverage: 'Basic Services', cat: 'Restorative' },
   { code: 'D2332', desc: 'Resin-based composite - three surfaces, anterior',                   abbr: 'Composite 3surf ant',   coverage: 'Basic Services', cat: 'Restorative' },
   { code: 'D2335', desc: 'Resin-based composite - four+ surfaces, anterior',                   abbr: 'Composite 4+surf ant',  coverage: 'Basic Services', cat: 'Restorative' },
+  { code: 'D2390', desc: 'Resin-based composite crown, anterior',                              abbr: 'Composite crown ant',   coverage: 'Basic Services', cat: 'Restorative' },
   { code: 'D2391', desc: 'Resin-based composite - one surface, posterior',                     abbr: 'Composite 1surf post',  coverage: 'Basic Services', cat: 'Restorative' },
   { code: 'D2392', desc: 'Resin-based composite - two surfaces, posterior',                    abbr: 'Composite 2surf post',  coverage: 'Basic Services', cat: 'Restorative' },
   { code: 'D2393', desc: 'Resin-based composite - three surfaces, posterior',                  abbr: 'Composite 3surf post',  coverage: 'Basic Services', cat: 'Restorative' },
@@ -88,9 +95,15 @@ const procedureCodes = [
   { code: 'D2750', desc: 'Crown - porcelain fused to high noble metal',                        abbr: 'Crown PFM high noble',  coverage: 'Major Services', cat: 'Restorative' },
   { code: 'D2751', desc: 'Crown - porcelain fused to predominantly base metal',                abbr: 'Crown PFM base',        coverage: 'Major Services', cat: 'Restorative' },
   { code: 'D2752', desc: 'Crown - porcelain fused to noble metal',                             abbr: 'Crown PFM noble',       coverage: 'Major Services', cat: 'Restorative' },
+  { code: 'D2780', desc: 'Crown - 3/4 cast high noble metal',                                  abbr: 'Crown 3/4 HN',          coverage: 'Major Services', cat: 'Restorative' },
+  { code: 'D2781', desc: 'Crown - 3/4 cast predominantly base metal',                          abbr: 'Crown 3/4 base',        coverage: 'Major Services', cat: 'Restorative' },
+  { code: 'D2782', desc: 'Crown - 3/4 cast noble metal',                                       abbr: 'Crown 3/4 noble',       coverage: 'Major Services', cat: 'Restorative' },
+  { code: 'D2783', desc: 'Crown - 3/4 porcelain/ceramic',                                      abbr: 'Crown 3/4 ceramic',     coverage: 'Major Services', cat: 'Restorative' },
   { code: 'D2790', desc: 'Crown - full cast high noble metal',                                 abbr: 'Crown full cast HN',    coverage: 'Major Services', cat: 'Restorative' },
   { code: 'D2791', desc: 'Crown - full cast predominantly base metal',                         abbr: 'Crown full cast base',  coverage: 'Major Services', cat: 'Restorative' },
   { code: 'D2792', desc: 'Crown - full cast noble metal',                                      abbr: 'Crown full cast noble', coverage: 'Major Services', cat: 'Restorative' },
+  { code: 'D2794', desc: 'Crown - titanium and titanium alloys',                               abbr: 'Crown titanium',        coverage: 'Major Services', cat: 'Restorative' },
+  { code: 'D2799', desc: 'Provisional crown - interim diagnostic restoration',                 abbr: 'Provisional crown',     coverage: 'Major Services', cat: 'Restorative' },
   { code: 'D2910', desc: 'Recement or re-bond inlay, onlay, veneer or partial coverage restoration', abbr: 'Recement inlay',  cat: 'Restorative' },
   { code: 'D2915', desc: 'Recement or re-bond indirectly fabricated or prefabricated post and core', abbr: 'Recement post',  cat: 'Restorative' },
   { code: 'D2920', desc: 'Recement or re-bond crown',                                          abbr: 'Recement crown',        cat: 'Restorative' },
@@ -142,9 +155,18 @@ const procedureCodes = [
   // ── VIII. Implant Services (D6000–D6199) ─────────────────────────────────
   { code: 'D6010', desc: 'Surgical placement of implant body: endosteal implant',              abbr: 'Implant placement',     coverage: 'Major Services', cat: 'Implant Services' },
   { code: 'D6056', desc: 'Prefabricated abutment',                                             abbr: 'Prefab abutment',       coverage: 'Major Services', cat: 'Implant Services' },
+  { code: 'D6057', desc: 'Custom fabricated abutment - includes placement',                    abbr: 'Custom abutment',       coverage: 'Major Services', cat: 'Implant Services' },
   { code: 'D6058', desc: 'Abutment supported porcelain/ceramic crown',                         abbr: 'Implant crown ceramic', coverage: 'Major Services', cat: 'Implant Services' },
+  { code: 'D6059', desc: 'Abutment supported porcelain fused to metal crown (high noble metal)', abbr: 'Abutment PFM HN',     coverage: 'Major Services', cat: 'Implant Services' },
+  { code: 'D6060', desc: 'Abutment supported porcelain fused to metal crown (base metal)',     abbr: 'Abutment PFM base',     coverage: 'Major Services', cat: 'Implant Services' },
+  { code: 'D6061', desc: 'Abutment supported porcelain fused to metal crown (noble metal)',    abbr: 'Abutment PFM noble',    coverage: 'Major Services', cat: 'Implant Services' },
+  { code: 'D6062', desc: 'Abutment supported cast metal crown (high noble metal)',             abbr: 'Abutment cast HN',      coverage: 'Major Services', cat: 'Implant Services' },
+  { code: 'D6063', desc: 'Abutment supported cast metal crown (predominantly base metal)',     abbr: 'Abutment cast base',    coverage: 'Major Services', cat: 'Implant Services' },
+  { code: 'D6064', desc: 'Abutment supported cast metal crown (noble metal)',                  abbr: 'Abutment cast noble',   coverage: 'Major Services', cat: 'Implant Services' },
   { code: 'D6065', desc: 'Implant supported porcelain/ceramic crown',                          abbr: 'Implant crown supported',coverage: 'Major Services', cat: 'Implant Services' },
   { code: 'D6066', desc: 'Implant supported porcelain fused to metal crown',                   abbr: 'Implant crown PFM',     coverage: 'Major Services', cat: 'Implant Services' },
+  { code: 'D6067', desc: 'Implant supported metal crown',                                      abbr: 'Implant crown metal',   coverage: 'Major Services', cat: 'Implant Services' },
+  { code: 'D6068', desc: 'Abutment supported retainer for porcelain/ceramic FPD',              abbr: 'Abutment retainer ceramic', coverage: 'Major Services', cat: 'Implant Services' },
 
   // ── IX. Prosthodontics, fixed (D6200–D6999) ──────────────────────────────
   // (placeholder — add specific codes here as needed)
