@@ -138,7 +138,23 @@ export class InvoiceService {
         }
       });
 
-      if (!patPlan?.PatPlanNum) return items;
+      if (!patPlan?.PatPlanNum) {
+        // No active insurance plan — assign 100% of each item's charge to the patient
+        return items.map((item: any) => {
+          const charge = roundCurrency(
+            Number(item.totalPrice ?? item.charge ?? item.ProcFee ?? item.unitPrice ?? 0)
+          );
+          return {
+            ...item,
+            ptPortion: charge,
+            insPortion: 0,
+            writeoff: 0,
+            estimatedWriteOff: 0,
+            coveragePct: 0,
+            balance: charge,
+          };
+        });
+      }
 
       const insPlan = patPlan?.inssub?.insplan;
       const allowedFeeMap = new Map<string, number>();
@@ -1512,6 +1528,7 @@ export class InvoiceService {
     data: {
       patientId: string;
       items: Array<{
+        id?: string;        // ProcNum of an existing unbilled record, if present
         code: string;
         description: string;
         date?: string;
@@ -1581,7 +1598,6 @@ export class InvoiceService {
     });
 
     for (const item of data.items) {
-      const procNum = await getNextId('procedurelog', 'ProcNum');
       const service = await prisma.procedurecode.findFirst({ where: { ProcCode: item.code } });
 
       let provNum: bigint | null = null;
@@ -1611,43 +1627,67 @@ export class InvoiceService {
           parsedTooth = item.site.trim();
         }
       }
-      
+
       const toothNum = parsedTooth.length > 0 && parsedTooth.length <= 2 ? parsedTooth : null;
       const toothRange = parsedTooth.length > 2 ? parsedTooth : null;
       const surf = parsedSurf.length > 0 ? parsedSurf : null;
 
-      await prisma.procedurelog.create({
-        data: {
-          ProcNum: procNum,
-          PatNum: patientId,
-          ProvNum: provNum,
-          ProcDate: item.date ? new Date(item.date) : new Date(),
-          ProcFee: Number(item.charge ?? 0),
-          UnitQty: 1,
-          CodeNum: service?.CodeNum ?? null,
-          StatementNum: statementNum,
-          ProcStatus: item.completed ? 2 : 1,
-          ToothNum: toothNum,
-          ToothRange: toothRange,
-          Surf: surf,
-          BillingNote: buildJson({
-            description: item.description,
-            unitPrice: Number(item.charge ?? 0),
-            quantity: 1,
-            cptCode: item.code,
-            serviceId: service?.CodeNum?.toString() ?? null,
-            site: item.site ?? 'None',
-            provider: item.provider ?? 'Default',
-            writeoff: Number(item.writeoff ?? 0),
-            ptPortion: Number(item.ptPortion ?? 0),
-            insPortion: Number(item.insPortion ?? 0),
-            charge: Number(item.charge ?? 0),
-            balance: Number(item.balance ?? 0),
-            dbi: Boolean(item.dbi),
-            completed: Boolean(item.completed),
-          }),
-        },
+      const billingNote = buildJson({
+        description: item.description,
+        unitPrice: Number(item.charge ?? 0),
+        quantity: 1,
+        cptCode: item.code,
+        serviceId: service?.CodeNum?.toString() ?? null,
+        site: item.site ?? 'None',
+        provider: item.provider ?? 'Default',
+        writeoff: Number(item.writeoff ?? 0),
+        ptPortion: Number(item.ptPortion ?? 0),
+        insPortion: Number(item.insPortion ?? 0),
+        charge: Number(item.charge ?? 0),
+        balance: Number(item.balance ?? 0),
+        dbi: Boolean(item.dbi),
+        completed: Boolean(item.completed),
       });
+
+      // If item carries an existing ProcNum (unbilled product), update it in-place
+      // instead of creating a duplicate record.
+      const existingProcNum = item.id && /^\d+$/.test(item.id) ? toBigInt(item.id) : null;
+      const existingRecord = existingProcNum
+        ? await prisma.procedurelog.findUnique({ where: { ProcNum: existingProcNum } })
+        : null;
+
+      if (existingRecord) {
+        // Link the existing record to the new invoice — marks it as "billed"
+        await prisma.procedurelog.update({
+          where: { ProcNum: existingProcNum! },
+          data: {
+            StatementNum: statementNum,
+            ProcStatus: item.completed ? 2 : 1,
+            ProvNum: provNum ?? existingRecord.ProvNum,
+            BillingNote: billingNote,
+          },
+        });
+      } else {
+        // No existing record — create a brand-new procedure log entry
+        const procNum = await getNextId('procedurelog', 'ProcNum');
+        await prisma.procedurelog.create({
+          data: {
+            ProcNum: procNum,
+            PatNum: patientId,
+            ProvNum: provNum,
+            ProcDate: item.date ? new Date(item.date) : new Date(),
+            ProcFee: Number(item.charge ?? 0),
+            UnitQty: 1,
+            CodeNum: service?.CodeNum ?? null,
+            StatementNum: statementNum,
+            ProcStatus: item.completed ? 2 : 1,
+            ToothNum: toothNum,
+            ToothRange: toothRange,
+            Surf: surf,
+            BillingNote: billingNote,
+          },
+        });
+      }
     }
 
     await this.recalculateInvoice(statementNum.toString());
@@ -1712,7 +1752,23 @@ export class InvoiceService {
     if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
 
     const itemMeta = parseJson<any>(item.BillingNote);
-    const outstandingInsurance = roundCurrency(Number(itemMeta.insPortion || 0));
+
+    // ── Compute the true remaining balance ────────────────────────────────────
+    // initialIns  = the original insurance estimate stored in BillingNote
+    // totalFee    = the gross procedure charge
+    // writeoff    = write-off amount already applied
+    // paidAmount  = sum of all payments (patient + insurance) already recorded
+    // netOwed     = what is actually owed after write-off
+    // remaining   = netOwed minus anything already paid
+    // outstandingInsurance = min(initialIns, remaining) — never transfer more
+    //                        than what is genuinely still outstanding
+    const initialIns  = roundCurrency(Number(itemMeta.insPortion || 0));
+    const totalFee    = roundCurrency(Number(item.ProcFee || 0));
+    const writeoff    = roundCurrency(Number(itemMeta.writeoff || itemMeta.estimatedWriteOff || 0));
+    const paidAmount  = roundCurrency(Number(itemMeta.paidAmount || 0));
+    const netOwed     = roundCurrency(Math.max(0, totalFee - writeoff));
+    const remaining   = roundCurrency(Math.max(0, netOwed - paidAmount));
+    const outstandingInsurance = roundCurrency(Math.min(initialIns, remaining));
 
     if (outstandingInsurance <= 0) {
       throw new BadRequestError('No outstanding insurance estimate to transfer for this item');

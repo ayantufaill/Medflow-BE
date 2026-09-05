@@ -20,7 +20,7 @@ async function main() {
     const procCode = code.ProcCode.toUpperCase();
 
     // Mapping logic based on general dental codes
-    if (procCode.startsWith('D2') || ['D1351', 'D1352', 'D1353'].includes(procCode)) {
+    if (procCode.startsWith('D2') || ['D1351', 'D1353'].includes(procCode)) {
       newArea = 'SURFACE';
     } else if (procCode.startsWith('D3') || procCode.startsWith('D7')) {
       newArea = 'TOOTH';
