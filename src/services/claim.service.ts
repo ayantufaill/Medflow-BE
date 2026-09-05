@@ -915,8 +915,8 @@ export class ClaimService {
     });
 
     const attachments = await this.getClaimDocuments(claimId);
-    claim.attachments = attachments;
-    claim.hasAttachment = attachments.length > 0;
+    (claim as any).attachments = attachments;
+    (claim as any).hasAttachment = attachments.length > 0;
 
     return claim;
   }
