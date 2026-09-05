@@ -41,10 +41,19 @@ export class AuthorizationController {
 
   async requestAuthorization(req: Request, res: Response, next: NextFunction) {
     try {
+      const rawProcedures = req.body.procedureIds || req.body.procedures;
+      const normalizedProcedures = Array.isArray(rawProcedures)
+        ? rawProcedures.map((id: any) => String(id))
+        : undefined;
+      const normalizedServiceId =
+        req.body.serviceId !== undefined && req.body.serviceId !== null
+          ? String(req.body.serviceId)
+          : undefined;
+
       const authorization = await authorizationService.createAuthorization({
-        patientId: req.body.patientId,
-        insuranceCompanyId: req.body.insuranceCompanyId,
-        serviceId: req.body.serviceId,
+        patientId: String(req.body.patientId),
+        insuranceCompanyId: req.body.insuranceCompanyId ? String(req.body.insuranceCompanyId) : undefined,
+        serviceId: normalizedServiceId,
         authorizationNumber: req.body.authorizationNumber,
         requestedDate: req.body.requestedDate ? new Date(req.body.requestedDate) : undefined,
         approvedDate: req.body.approvedDate ? new Date(req.body.approvedDate) : undefined,
@@ -54,6 +63,10 @@ export class AuthorizationController {
         unitsUsed: req.body.unitsUsed,
         notes: req.body.notes,
         requestedBy: req.userId,
+        tags: Array.isArray(req.body.tags) ? req.body.tags.map(String) : undefined,
+        procedures: normalizedProcedures,
+        procedureIds: normalizedProcedures,
+        order: req.body.order,
       });
 
       res.status(201).json({
@@ -69,6 +82,15 @@ export class AuthorizationController {
   async updateAuthorization(req: Request, res: Response, next: NextFunction) {
     try {
       const authorizationId = req.params.authorizationId as string;
+      const rawProcedures = req.body.procedureIds || req.body.procedures;
+      const normalizedProcedures = Array.isArray(rawProcedures)
+        ? rawProcedures.map((id: any) => String(id))
+        : undefined;
+      const normalizedServiceId =
+        req.body.serviceId !== undefined && req.body.serviceId !== null
+          ? String(req.body.serviceId)
+          : undefined;
+
       const authorization = await authorizationService.updateAuthorization(authorizationId, {
         approvedDate: req.body.approvedDate ? new Date(req.body.approvedDate) : undefined,
         expirationDate: req.body.expirationDate ? new Date(req.body.expirationDate) : undefined,
@@ -76,9 +98,13 @@ export class AuthorizationController {
         unitsAuthorized: req.body.unitsAuthorized,
         unitsUsed: req.body.unitsUsed,
         notes: req.body.notes,
-        insuranceCompanyId: req.body.insuranceCompanyId,
-        serviceId: req.body.serviceId,
+        insuranceCompanyId: req.body.insuranceCompanyId ? String(req.body.insuranceCompanyId) : undefined,
+        serviceId: normalizedServiceId,
         requestedBy: req.userId,
+        tags: Array.isArray(req.body.tags) ? req.body.tags.map(String) : undefined,
+        procedures: normalizedProcedures,
+        procedureIds: normalizedProcedures,
+        order: req.body.order,
       });
 
       res.status(200).json({
