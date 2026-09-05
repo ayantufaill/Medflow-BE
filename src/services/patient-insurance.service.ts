@@ -3,6 +3,7 @@ import { NotFoundError, ConflictError, BadRequestError } from '../utils/error.ut
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import {
+  formatDateOnly,
   mapInsuranceTypeToOrdinal,
   mapOrdinalToInsuranceType,
   mapRelationshipFromDb,
@@ -157,7 +158,7 @@ export class PatientInsuranceService {
         groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
         groupName: patplan.inssub?.insplan?.GroupName ?? null,
         subscriberName: meta?.subscriberName ?? '',
-        subscriberDateOfBirth: meta?.subscriberDateOfBirth ?? null,
+        subscriberDateOfBirth: formatDateOnly(meta?.subscriberDateOfBirth),
         relationshipToPatient: mapRelationshipFromDb(patplan.Relationship),
         insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
         effectiveDate: patplan.inssub?.DateEffective ?? null,
@@ -292,7 +293,7 @@ export class PatientInsuranceService {
         groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
         groupName: patplan.inssub?.insplan?.GroupName ?? null,
         subscriberName: meta?.subscriberName ?? '',
-        subscriberDateOfBirth: meta?.subscriberDateOfBirth ?? null,
+        subscriberDateOfBirth: formatDateOnly(meta?.subscriberDateOfBirth),
         relationshipToPatient: mapRelationshipFromDb(patplan.Relationship),
         insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
         effectiveDate: patplan.inssub?.DateEffective ?? null,
@@ -396,7 +397,7 @@ export class PatientInsuranceService {
       groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
       groupName: patplan.inssub?.insplan?.GroupName ?? null,
       subscriberName: insuranceMeta.subscriberName ?? '',
-      subscriberDateOfBirth: insuranceMeta.subscriberDateOfBirth ?? null,
+      subscriberDateOfBirth: formatDateOnly(insuranceMeta.subscriberDateOfBirth),
       relationshipToPatient: mapRelationshipFromDb(patplan.Relationship),
       insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
       effectiveDate: patplan.inssub?.DateEffective ?? null,
@@ -599,7 +600,7 @@ export class PatientInsuranceService {
 
     await setPatientInsuranceMeta(patPlanNum, {
       subscriberName: data.subscriberName ?? null,
-      subscriberDateOfBirth: data.subscriberDateOfBirth ?? null,
+      subscriberDateOfBirth: formatDateOnly(data.subscriberDateOfBirth),
       copayAmount: data.copayAmount ?? null,
       deductibleAmount: data.deductibleAmount ?? null,
       autoVerify: data.autoVerify ?? true,
@@ -814,7 +815,9 @@ export class PatientInsuranceService {
     await setPatientInsuranceMeta(patplan.PatPlanNum, {
       subscriberName: updates.subscriberName ?? currentMeta.subscriberName ?? null,
       subscriberDateOfBirth:
-        updates.subscriberDateOfBirth ?? currentMeta.subscriberDateOfBirth ?? null,
+        updates.subscriberDateOfBirth !== undefined
+          ? formatDateOnly(updates.subscriberDateOfBirth)
+          : formatDateOnly(currentMeta.subscriberDateOfBirth),
       copayAmount: updates.copayAmount ?? currentMeta.copayAmount ?? null,
       deductibleAmount:
         updates.deductibleAmount ?? currentMeta.deductibleAmount ?? null,
