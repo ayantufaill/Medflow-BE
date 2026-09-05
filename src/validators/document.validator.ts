@@ -1,5 +1,18 @@
 import { body, param, query } from 'express-validator';
 
+const allowedDocumentTypes = [
+  'insurance_card',
+  'id',
+  'lab_result',
+  'imaging',
+  'consent_form',
+  'treatment_plan',
+  'referral',
+  'prescription',
+  'preauth_attachment',
+  'other',
+];
+
 export const documentIdValidator = [
   param('documentId')
     .isString()
@@ -21,6 +34,13 @@ export const appointmentIdParamValidator = [
     .withMessage('Appointment ID is required'),
 ];
 
+export const authorizationIdParamValidator = [
+  param('authorizationId')
+    .isString()
+    .notEmpty()
+    .withMessage('Authorization ID is required'),
+];
+
 export const documentQueryValidator = [
   query('page')
     .optional()
@@ -36,9 +56,12 @@ export const documentQueryValidator = [
   query('appointmentId')
     .optional()
     .isString(),
+  query('authorizationId')
+    .optional()
+    .isString(),
   query('documentType')
     .optional()
-    .isIn(['insurance_card', 'id', 'lab_result', 'imaging', 'consent_form', 'treatment_plan', 'referral', 'prescription', 'other'])
+    .isIn(allowedDocumentTypes)
     .withMessage('Invalid document type'),
   query('startDate')
     .optional()
@@ -61,7 +84,7 @@ export const paginationQueryValidator = [
     .withMessage('Limit must be between 1 and 100'),
   query('documentType')
     .optional()
-    .isIn(['insurance_card', 'id', 'lab_result', 'imaging', 'consent_form', 'treatment_plan', 'referral', 'prescription', 'other'])
+    .isIn(allowedDocumentTypes)
     .withMessage('Invalid document type'),
 ];
 
@@ -73,6 +96,9 @@ export const createDocumentValidator = [
   body('appointmentId')
     .optional()
     .isString(),
+  body('authorizationId')
+    .optional()
+    .isString(),
   body('documentName')
     .isString()
     .notEmpty()
@@ -80,7 +106,7 @@ export const createDocumentValidator = [
     .isLength({ min: 1, max: 255 })
     .withMessage('Document name must be between 1 and 255 characters'),
   body('documentType')
-    .isIn(['insurance_card', 'id', 'lab_result', 'imaging', 'consent_form', 'treatment_plan', 'referral', 'prescription', 'other'])
+    .isIn(allowedDocumentTypes)
     .withMessage('Invalid document type'),
   body('storagePath')
     .optional()

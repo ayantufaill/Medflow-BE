@@ -30,6 +30,11 @@ export const createAuthorizationValidator: ValidationChain[] = [
   body('unitsUsed').optional().isInt({ min: 0 }).withMessage('unitsUsed must be >= 0'),
   body('notes').optional().isString().isLength({ max: 1000 }).withMessage('notes must be less than 1000 characters'),
   body('requestedBy').optional().isString().withMessage('requestedBy must be a string'),
+  body('tags').optional().isArray().withMessage('tags must be an array'),
+  body('tags.*').optional().isString().withMessage('tags items must be strings'),
+  body('procedures').optional().isArray().withMessage('procedures must be an array'),
+  body('procedureIds').optional().isArray().withMessage('procedureIds must be an array'),
+  body('order').optional().isString().withMessage('order must be a string'),
 ];
 
 export const updateAuthorizationValidator: ValidationChain[] = [
@@ -41,4 +46,9 @@ export const updateAuthorizationValidator: ValidationChain[] = [
   body('notes').optional().isString().isLength({ max: 1000 }).withMessage('notes must be less than 1000 characters'),
   body('insuranceCompanyId').optional().isString().withMessage('insuranceCompanyId must be a string'),
   body('serviceId').optional().isString().withMessage('serviceId must be a string'),
+  body('tags').optional().isArray().withMessage('tags must be an array'),
+  body('tags.*').optional().isString().withMessage('tags items must be strings'),
+  body('procedures').optional().isArray().withMessage('procedures must be an array'),
+  body('procedureIds').optional().isArray().withMessage('procedureIds must be an array'),
+  body('order').optional().isString().withMessage('order must be a string'),
 ];

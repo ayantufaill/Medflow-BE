@@ -12,6 +12,7 @@ export class DocumentController {
       const filters: {
         patientId?: string;
         appointmentId?: string;
+        authorizationId?: string;
         documentType?: string;
         startDate?: Date;
         endDate?: Date;
@@ -19,6 +20,7 @@ export class DocumentController {
 
       if (req.query.patientId) filters.patientId = req.query.patientId as string;
       if (req.query.appointmentId) filters.appointmentId = req.query.appointmentId as string;
+      if (req.query.authorizationId) filters.authorizationId = req.query.authorizationId as string;
       if (req.query.documentType) filters.documentType = req.query.documentType as string;
       if (req.query.startDate) filters.startDate = new Date(req.query.startDate as string);
       if (req.query.endDate) filters.endDate = new Date(req.query.endDate as string);
@@ -86,6 +88,21 @@ export class DocumentController {
     }
   }
 
+  async getDocumentsByAuthorization(req: Request, res: Response, next: NextFunction) {
+    try {
+      const authorizationId = req.params.authorizationId as string;
+
+      const documents = await documentService.getDocumentsByAuthorization(authorizationId);
+
+      res.status(200).json({
+        success: true,
+        data: { documents },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async createDocument(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.userId) {
@@ -129,6 +146,7 @@ export class DocumentController {
       const patientId = req.body.patientId as string | undefined;
       const documentType = req.body.documentType as string | undefined;
       const appointmentId = req.body.appointmentId as string | undefined;
+      const authorizationId = req.body.authorizationId as string | undefined;
       const documentName = (req.body.documentName as string | undefined) ?? uploadedFile.originalname;
       const description = req.body.description as string | undefined;
       const isConfidential = req.body.isConfidential === 'true' || req.body.isConfidential === true;
@@ -153,6 +171,7 @@ export class DocumentController {
         {
           patientId,
           appointmentId,
+          authorizationId,
           documentName,
           documentType,
           storagePath,

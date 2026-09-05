@@ -8,6 +8,7 @@ import {
   documentIdValidator,
   patientIdParamValidator,
   appointmentIdParamValidator,
+  authorizationIdParamValidator,
   documentQueryValidator,
   paginationQueryValidator,
   createDocumentValidator,
@@ -122,6 +123,31 @@ router.get(
   requirePermission('documents.read'),
   validate(appointmentIdParamValidator),
   documentController.getDocumentsByAppointment
+);
+
+/**
+ * @swagger
+ * /documents/authorization/{authorizationId}:
+ *   get:
+ *     summary: Get documents by authorization
+ *     tags: [Documents]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: authorizationId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: List of authorization documents
+ */
+router.get(
+  '/authorization/:authorizationId',
+  authenticate,
+  requirePermission('documents.read'),
+  validate(authorizationIdParamValidator),
+  documentController.getDocumentsByAuthorization
 );
 
 /**

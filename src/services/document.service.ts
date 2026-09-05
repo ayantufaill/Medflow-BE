@@ -27,6 +27,7 @@ const toIsoString = (value?: string | Date | null): string | undefined => {
 type DocumentMeta = {
   appointmentId?: string;
   clinicalNoteId?: string;
+  authorizationId?: string;
   documentType?: string;
   storagePath?: string;
   fileSizeInBytes?: number;
@@ -67,6 +68,7 @@ export class DocumentService {
       _id: doc.DocNum.toString(),
       patientId: patientIdObj,
       appointmentId: meta.appointmentId ?? null,
+      authorizationId: meta.authorizationId ?? null,
       documentName: doc.Description ?? doc.FileName ?? 'Document',
       documentType: meta.documentType ?? 'other',
       storagePath,
@@ -85,7 +87,7 @@ export class DocumentService {
     };
   }
 
-  async getAllDocuments(page = 1, limit = 10, filters: { patientId?: string; appointmentId?: string; documentType?: string } = {}) {
+  async getAllDocuments(page = 1, limit = 10, filters: { patientId?: string; appointmentId?: string; authorizationId?: string; documentType?: string } = {}) {
     const skip = (page - 1) * limit;
     const where: any = {};
 
@@ -105,6 +107,9 @@ export class DocumentService {
 
     if (filters.appointmentId) {
       documents = documents.filter((doc) => doc.appointmentId === filters.appointmentId);
+    }
+    if (filters.authorizationId) {
+      documents = documents.filter((doc) => doc.authorizationId === filters.authorizationId);
     }
     if (filters.documentType) {
       documents = documents.filter((doc) => doc.documentType === filters.documentType);
@@ -150,7 +155,9 @@ export class DocumentService {
   }
 
   async getDocumentsByAppointment(appointmentId: string) {
-    const docs = await prisma.document.findMany();
+    const docs = await prisma.document.findMany({
+      orderBy: { DateCreated: 'desc' },
+    });
     return docs
       .map((doc) => {
         const meta = parseJson<DocumentMeta>(doc.Note);
@@ -160,10 +167,24 @@ export class DocumentService {
       .map((item) => this.mapDocumentRow(item.doc));
   }
 
+  async getDocumentsByAuthorization(authorizationId: string) {
+    const docs = await prisma.document.findMany({
+      orderBy: { DateCreated: 'desc' },
+    });
+    return docs
+      .map((doc) => {
+        const meta = parseJson<DocumentMeta>(doc.Note);
+        return { doc, meta };
+      })
+      .filter((item) => item.meta.authorizationId === authorizationId)
+      .map((item) => this.mapDocumentRow(item.doc));
+  }
+
   async createDocument(
     data: {
       patientId: string;
       appointmentId?: string;
+      authorizationId?: string;
       documentName: string;
       documentType: string;
       storagePath?: string;
@@ -181,6 +202,7 @@ export class DocumentService {
     const docNum = await getNextId('document', 'DocNum');
     const payload: DocumentMeta = {
       appointmentId: data.appointmentId,
+      authorizationId: data.authorizationId,
       documentType: data.documentType,
       storagePath: data.storagePath,
       fileSizeInBytes: data.fileSizeInBytes,
@@ -215,6 +237,8 @@ export class DocumentService {
   async updateDocument(
     documentId: string,
     updates: Partial<{
+      appointmentId: string;
+      authorizationId: string;
       documentName: string;
       documentType: string;
       storagePath: string;
@@ -239,6 +263,8 @@ export class DocumentService {
     const meta = parseJson<DocumentMeta>(doc.Note);
     const nextMeta: DocumentMeta = {
       ...meta,
+      appointmentId: updates.appointmentId ?? meta.appointmentId,
+      authorizationId: updates.authorizationId ?? meta.authorizationId,
       documentType: updates.documentType ?? meta.documentType,
       storagePath: updates.storagePath ?? meta.storagePath,
       fileSizeInBytes: updates.fileSizeInBytes ?? meta.fileSizeInBytes,
