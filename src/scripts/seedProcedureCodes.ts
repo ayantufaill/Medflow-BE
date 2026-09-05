@@ -1,12 +1,10 @@
 import { prisma } from '../config/db';
 import { getNextId } from '../utils/opendental-ids.util';
-<<<<<<< Updated upstream
 import {
   CDT_2026_CATEGORIES,
   CDT_2026_PROCEDURES,
 } from '../data/cdt2026-data';
 import type { TreatmentArea } from '@prisma/client';
-=======
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Official ADA 12-category taxonomy
@@ -211,63 +209,12 @@ const procedureCodes = [
   { code: 'D9944', desc: 'Occlusal guard - hard appliance, full arch',                         abbr: 'Night guard hard',      cat: 'Adjunctive General Services' },
   { code: 'D9972', desc: 'External bleaching - per arch',                                      abbr: 'Bleaching per arch',    cat: 'Adjunctive General Services' },
 ];
->>>>>>> Stashed changes
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-<<<<<<< Updated upstream
-=======
-function getRequirements(code: string) {
-  const req = {
-    RequiresXRay: false,
-    RequiresNarrative: false,
-    RequiresPerioChart: false,
-    RequiresConsent: false,
-    RequiresMedicalNecessity: false,
-    RequiresToothImage: false,
-  };
 
-  if (['D0140', 'D0160'].includes(code)) req.RequiresNarrative = true;
-  if (['D0180'].includes(code)) req.RequiresPerioChart = true;
-
-  if (['D0210', 'D0220', 'D0230', 'D0240', 'D0250', 'D0270', 'D0272', 'D0273', 'D0274', 'D0277', 'D0330', 'D0340', 'D1351', 'D4346'].includes(code)) {
-    req.RequiresXRay = true;
-  }
-  if (['D4346'].includes(code)) {
-    req.RequiresNarrative = true;
-  }
-
-  const isAmalgam = code >= 'D2140' && code <= 'D2161';
-  const isComposite = code >= 'D2330' && code <= 'D2394';
-  if (isAmalgam || isComposite || ['D4341', 'D4342', 'D7140'].includes(code)) {
-    req.RequiresXRay = true;
-  }
-  if (['D4341', 'D4342'].includes(code)) {
-    req.RequiresPerioChart = true;
-  }
-
-  const isCrown = code >= 'D2740' && code <= 'D2799';
-  const isImplantAbutment = code >= 'D6056' && code <= 'D6068';
-  const isDenture = ['D5110', 'D5120', 'D5211', 'D5212', 'D5213', 'D5214'].includes(code);
-
-  if (isCrown || isImplantAbutment || isDenture || ['D2950', 'D3330', 'D7210', 'D6010'].includes(code)) {
-    req.RequiresXRay = true;
-  }
-  if (isCrown || isImplantAbutment || ['D2950', 'D6010'].includes(code)) {
-    req.RequiresNarrative = true;
-  }
-
-  if (['D8070', 'D8080', 'D8090', 'D8670', 'D8680'].includes(code)) {
-    req.RequiresXRay = true;
-    req.RequiresNarrative = true;
-  }
-
-  return req;
-}
-
->>>>>>> Stashed changes
 /** Ensure a `definition` row exists for a given ADA category name (Category=1).
  *  Returns the DefNum of the found or newly created row. */
 async function ensureCategoryDef(
