@@ -108,9 +108,11 @@ export class AuthorizationController {
   async printAuthorizationForm(req: Request, res: Response, next: NextFunction) {
     try {
       const authorizationId = req.params.authorizationId as string;
-      const printable = await authorizationService.getPrintableAuthorizationForm(authorizationId);
+      const pdfBuffer = await authorizationService.getPrintableAuthorizationForm(authorizationId);
 
-      res.status(200).type('text/plain').send(printable);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `inline; filename="authorization-${authorizationId}.pdf"`);
+      res.status(200).send(pdfBuffer);
     } catch (error) {
       next(error);
     }

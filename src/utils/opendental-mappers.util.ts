@@ -188,6 +188,16 @@ const calculatePatientStatus = (row: any): string => {
   return 'Inactive';
 };
 
+export const formatDateOnly = (date?: Date | string | null): string | null => {
+  if (!date) return null;
+  if (typeof date === 'string') return date.split('T')[0];
+  try {
+    return date.toISOString().split('T')[0];
+  } catch {
+    return null;
+  }
+};
+
 export const mapPatientToApi = (
   row: any,
   options?: {
@@ -244,7 +254,7 @@ export const mapPatientToApi = (
   middleName: row.MiddleI ?? null,
   lastName: row.LName ?? '',
   preferredName: row.Preferred ?? null,
-  dateOfBirth: row.Birthdate ?? null,
+  dateOfBirth: formatDateOnly(row.Birthdate),
   gender: mapGenderFromDb(row.Gender),
   sexAtBirth: options?.sexAtBirth ?? mapGenderFromDb(row.Gender),
   genderIdentity: options?.genderIdentity ?? mapGenderFromDb(row.Gender),

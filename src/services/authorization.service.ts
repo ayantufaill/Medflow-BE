@@ -2,6 +2,7 @@ import { prisma } from '../config/db';
 import { NotFoundError, ConflictError } from '../utils/error.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { mapPatientToApi } from '../utils/opendental-mappers.util';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 type AuthorizationStatus = 'requested' | 'pending' | 'approved' | 'denied' | 'expired' | 'cancelled';
 
@@ -519,37 +520,90 @@ export class AuthorizationService {
     });
   }
 
-  async getPrintableAuthorizationForm(authorizationId: string) {
+  async getPrintableAuthorizationForm(authorizationId: string): Promise<Buffer> {
     const authorization = await this.getAuthorizationById(authorizationId);
 
     const patientName = authorization.patient
       ? `${authorization.patient.firstName || ''} ${authorization.patient.lastName || ''}`.trim()
       : 'Unknown Patient';
 
-    const lines = [
-      'INSURANCE AUTHORIZATION FORM',
-      '============================',
-      `Authorization #: ${authorization.authorizationNumber || '-'}`,
-      `Status: ${authorization.status || '-'}`,
-      '',
-      `Patient: ${patientName || '-'}`,
-      `Insurance Company: ${authorization.insuranceCompany?.name || '-'}`,
-      `Service: ${authorization.service?.name || '-'}`,
-      `CPT Code: ${authorization.service?.cptCode || '-'}`,
-      '',
-      `Requested Date: ${authorization.requestedDate ? new Date(authorization.requestedDate).toISOString().slice(0, 10) : '-'}`,
-      `Approved Date: ${authorization.approvedDate ? new Date(authorization.approvedDate).toISOString().slice(0, 10) : '-'}`,
-      `Expiration Date: ${authorization.expirationDate ? new Date(authorization.expirationDate).toISOString().slice(0, 10) : '-'}`,
-      '',
-      `Units Authorized: ${authorization.unitsAuthorized ?? '-'}`,
-      `Units Used: ${authorization.unitsUsed ?? 0}`,
-      '',
-      `Notes: ${authorization.notes || '-'}`,
-      '',
-      `Generated At: ${new Date().toISOString()}`,
-    ];
+    const pdfDoc = await PDFDocument.create();
+    const page = pdfDoc.addPage([612, 792]);
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const colors = {
+      navy: rgb(0.05, 0.19, 0.34),
+      blue: rgb(0.12, 0.38, 0.75),
+      text: rgb(0.10, 0.14, 0.20),
+      muted: rgb(0.35, 0.40, 0.47),
+      border: rgb(0.82, 0.86, 0.91),
+      fill: rgb(0.96, 0.97, 0.99),
+      white: rgb(1, 1, 1),
+    };
+    const margin = 48;
+    const contentWidth = 516;
+    const formatDate = (date: Date | string | null | undefined) => (
+      date ? new Date(date).toISOString().slice(0, 10) : '-'
+    );
+    const drawSection = (title: string, y: number) => {
+      page.drawRectangle({ x: margin, y: y - 4, width: contentWidth, height: 24, color: colors.fill });
+      page.drawText(title, { x: margin + 10, y: y + 4, size: 10, font: boldFont, color: colors.navy });
+      return y - 38;
+    };
+    const drawField = (label: string, value: unknown, x: number, y: number, width: number) => {
+      page.drawText(label.toUpperCase(), { x, y, size: 7.5, font, color: colors.muted });
+      page.drawText(String(value || '-'), {
+        x, y: y - 14, size: 10.5, font: boldFont, color: colors.text, maxWidth: width,
+      });
+    };
 
-    return lines.join('\n');
+    page.drawRectangle({ x: 0, y: 710, width: 612, height: 82, color: colors.navy });
+    page.drawText('INSURANCE AUTHORIZATION FORM', { x: margin, y: 756, size: 19, font: boldFont, color: colors.white });
+    page.drawText('Patient coverage and service authorization record', { x: margin, y: 738, size: 9, font, color: rgb(0.82, 0.89, 0.98) });
+    page.drawText('AUTHORIZATION', { x: 402, y: 758, size: 7.5, font, color: rgb(0.75, 0.84, 0.94) });
+    page.drawText(String(authorization.authorizationNumber || '-'), { x: 402, y: 742, size: 12, font: boldFont, color: colors.white });
+    page.drawRectangle({ x: 402, y: 721, width: 112, height: 17, color: colors.blue });
+    page.drawText(String(authorization.status || '-').toUpperCase(), { x: 412, y: 726, size: 8, font: boldFont, color: colors.white });
+
+    let y = drawSection('PATIENT AND INSURANCE', 686);
+    drawField('Patient', patientName, margin + 12, y, 230);
+    drawField('Insurance company', authorization.insuranceCompany?.name, 318, y, 230);
+    y -= 58;
+    drawField('Patient ID', authorization.patientRefId, margin + 12, y, 230);
+    drawField('Payer ID', authorization.insuranceCompany?.payerId, 318, y, 230);
+
+    y = drawSection('AUTHORIZATION DETAILS', y - 48);
+    drawField('Service', authorization.service?.name, margin + 12, y, 230);
+    drawField('CPT code', authorization.service?.cptCode, 318, y, 230);
+    y -= 58;
+    drawField('Requested date', formatDate(authorization.requestedDate), margin + 12, y, 150);
+    drawField('Approved date', formatDate(authorization.approvedDate), 222, y, 150);
+    drawField('Expiration date', formatDate(authorization.expirationDate), 396, y, 150);
+    y -= 58;
+    drawField('Units authorized', authorization.unitsAuthorized, margin + 12, y, 150);
+    drawField('Units used', authorization.unitsUsed ?? 0, 222, y, 150);
+    drawField('Requested by', authorization.requestedBy, 396, y, 150);
+
+    y = drawSection('SERVICES', y - 48);
+    page.drawRectangle({ x: margin, y: y - 22, width: contentWidth, height: 24, color: colors.navy });
+    page.drawText('SERVICE', { x: margin + 10, y: y - 14, size: 8, font: boldFont, color: colors.white });
+    page.drawText('CPT CODE', { x: 355, y: y - 14, size: 8, font: boldFont, color: colors.white });
+    page.drawText('UNITS', { x: 465, y: y - 14, size: 8, font: boldFont, color: colors.white });
+    page.drawRectangle({ x: margin, y: y - 52, width: contentWidth, height: 30, borderColor: colors.border, borderWidth: 1, color: colors.white });
+    page.drawText(String(authorization.service?.name || 'Authorization request'), { x: margin + 10, y: y - 41, size: 9.5, font, color: colors.text, maxWidth: 290 });
+    page.drawText(String(authorization.service?.cptCode || '-'), { x: 355, y: y - 41, size: 9.5, font, color: colors.text });
+    page.drawText(String(authorization.unitsAuthorized ?? '-'), { x: 465, y: y - 41, size: 9.5, font, color: colors.text });
+
+    y -= 88;
+    y = drawSection('NOTES', y);
+    page.drawText(String(authorization.notes || 'No notes provided.'), { x: margin + 12, y: y - 8, size: 10, font, color: colors.text, maxWidth: contentWidth - 24 });
+
+    page.drawLine({ start: { x: margin, y: 52 }, end: { x: margin + contentWidth, y: 52 }, thickness: 1, color: colors.border });
+    page.drawText('Generated from MedFlow', { x: margin, y: 35, size: 8, font, color: colors.muted });
+    page.drawText(`Generated ${new Date().toISOString()}`, { x: 350, y: 35, size: 8, font, color: colors.muted });
+
+    const pdfBytes = await pdfDoc.save();
+    return Buffer.from(pdfBytes);
   }
 
   async deleteAuthorization(authorizationId: string) {

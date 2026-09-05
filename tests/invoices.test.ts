@@ -149,4 +149,60 @@ describe('Invoices', () => {
     expect(res.body.data).toHaveProperty('payments');
     expect(res.body.data).toHaveProperty('claims');
   });
+
+  it('subtracts formally posted adjustments from backend balanceDue', async () => {
+    const token = uniqueToken('adj-inv');
+    const patient = await createPatientRecord(token);
+
+    const payload = {
+      patientId: patient.PatNum.toString(),
+      items: [
+        {
+          code: 'D0120',
+          description: 'Periodic oral evaluation',
+          date: new Date().toISOString(),
+          writeoff: 25,
+          ptPortion: 135,
+          insPortion: 0,
+          charge: 160,
+          balance: 160,
+          completed: true,
+        },
+      ],
+    };
+
+    const invRes = await request(app)
+      .post('/api/invoices')
+      .set(authHeader)
+      .send(payload);
+
+    expect(invRes.status).toBe(201);
+    const invoiceId = invRes.body.data.invoice._id;
+    expect(invRes.body.data.invoice.totalAmount).toBe(160);
+    expect(invRes.body.data.invoice.balanceDue).toBe(160);
+
+    // Formally post a $25 write-off adjustment linked to this invoice
+    const adjRes = await request(app)
+      .post('/api/adjustments')
+      .set(authHeader)
+      .send({
+        patientId: patient.PatNum.toString(),
+        amount: 25,
+        date: new Date().toISOString(),
+        notes: `Invoice #${invoiceId} - PPO Write-off`,
+      });
+
+    expect(adjRes.status).toBe(201);
+
+    // Fetch the invoice and verify balanceDue is now reduced by the posted adjustment
+    const getRes = await request(app)
+      .get(`/api/invoices/${invoiceId}`)
+      .set(authHeader);
+
+    expect(getRes.status).toBe(200);
+    expect(getRes.body.data.invoice.totalAmount).toBe(160);
+    expect(getRes.body.data.invoice.writeoffAmount).toBe(25);
+    expect(getRes.body.data.invoice.adjustmentAmount).toBe(25);
+    expect(getRes.body.data.invoice.balanceDue).toBe(135);
+  });
 });

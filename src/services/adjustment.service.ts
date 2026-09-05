@@ -94,6 +94,7 @@ export class AdjustmentService {
       type?: string;
       providerId?: string;
       notes?: string;
+      invoiceId?: string;
     },
     userId: string
   ) {
@@ -102,6 +103,13 @@ export class AdjustmentService {
     }
 
     const adjNum = await getNextId('adjustment', 'AdjNum');
+    let statementNum: bigint | undefined = data.invoiceId && /^\d+$/.test(data.invoiceId) ? BigInt(data.invoiceId) : undefined;
+    if (!statementNum && data.notes) {
+      const match = data.notes.match(/Invoice\s*#\s*(\d+)/i);
+      if (match) {
+        statementNum = BigInt(match[1]);
+      }
+    }
     
     const adjustment = await prisma.adjustment.create({
       data: {
@@ -112,12 +120,18 @@ export class AdjustmentService {
         AdjType: data.type ? BigInt(data.type) : undefined,
         ProvNum: data.providerId ? BigInt(data.providerId) : undefined,
         AdjNote: data.notes,
+        StatementNum: statementNum,
         DateEntry: new Date(),
         SecUserNumEntry: BigInt(userId),
       },
     });
 
     await logActivity(userId, 'created', 'adjustments', adjustment.AdjNum.toString(), undefined, adjustment);
+
+    if (statementNum) {
+      const { invoiceService } = await import('./invoice.service');
+      await invoiceService.recalculateInvoice(statementNum.toString()).catch(() => {});
+    }
 
     return this.enrichAdjustment(this.mapAdjustmentToApi(adjustment));
   }
@@ -153,6 +167,11 @@ export class AdjustmentService {
 
     await logActivity(userId, 'updated', 'adjustments', adjustmentId, adjustment, updated);
 
+    if (updated.StatementNum) {
+      const { invoiceService } = await import('./invoice.service');
+      await invoiceService.recalculateInvoice(updated.StatementNum.toString()).catch(() => {});
+    }
+
     return this.enrichAdjustment(this.mapAdjustmentToApi(updated));
   }
 
@@ -165,7 +184,13 @@ export class AdjustmentService {
     }
 
     await prisma.adjustment.delete({ where: { AdjNum: adjustment.AdjNum } });
+
     await logActivity(userId, 'deleted', 'adjustments', adjustmentId, adjustment, undefined);
+
+    if (adjustment.StatementNum) {
+      const { invoiceService } = await import('./invoice.service');
+      await invoiceService.recalculateInvoice(adjustment.StatementNum.toString()).catch(() => {});
+    }
 
     return { message: 'Adjustment deleted successfully' };
   }

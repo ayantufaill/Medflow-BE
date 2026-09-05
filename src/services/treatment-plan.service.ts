@@ -68,14 +68,12 @@ export class TreatmentPlanService {
       insPortion += Number(item.insPortion || 0);
       ptPortion += Number(item.ptPortion || 0);
 
-      if (isVisits) {
-        item.insuranceAmount = `$${Number(item.insPortion || 0).toFixed(2)}`;
-        item.patientAmount = `$${Number(item.ptPortion || 0).toFixed(2)}`;
-        item.fee = `$${Number(item.charge || 0).toFixed(2)}`;
-      }
+      item.insuranceAmount = `$${Number(item.insPortion || 0).toFixed(2)}`;
+      item.patientAmount = `$${Number(item.ptPortion || 0).toFixed(2)}`;
+      item.fee = `$${Number(item.charge || 0).toFixed(2)}`;
     }
 
-    return { enrichedItems: items, insPortion, ptPortion, calcTotal };
+    return { enrichedItems: isVisits ? items : enrichedProcedures, insPortion, ptPortion, calcTotal };
   }
   async getAllTreatmentPlans(page = 1, limit = 10, patientId?: string) {
     const skip = (page - 1) * limit;
