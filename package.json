@@ -24,6 +24,8 @@
     "seed:appointments": "tsx src/scripts/seedAppointments.ts",
     "seed:medications": "tsx src/scripts/seedMedications.ts",
     "seed:feeschedules": "tsx src/scripts/seedFeeSchedules.ts",
+    "seed:procedurecodes": "tsx src/scripts/seedProcedureCodes.ts",
+    "verify:procedurecodes": "tsx src/scripts/verifyProcedureCodes.ts",
     "seed:procedure-prices": "tsx src/scripts/seedProcedurePrices.ts",
     "seed:claims:clean": "tsx src/scripts/seedClaimsComplete.ts",
     "seed:operatories": "tsx src/scripts/seedOperatories.ts",

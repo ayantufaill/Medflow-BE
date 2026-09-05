@@ -235,6 +235,7 @@ const mapDocument = (doc: any, claimId: string) => {
     _id: doc.DocNum.toString(),
     id: doc.DocNum.toString(),
     claimId,
+    name: doc.Description ?? doc.FileName ?? 'Document',
     patientId: doc.PatNum?.toString() ?? null,
     documentName: doc.Description ?? doc.FileName ?? 'Document',
     documentType: meta.documentType ?? 'claim_attachment',
@@ -580,6 +581,37 @@ export class ClaimService {
     }
   }
 
+  private async getDocumentsForClaims(claimIds: string[]) {
+    if (!claimIds.length) return new Map<string, any[]>();
+
+    const rows = await prisma.document.findMany({
+      where: {
+        OR: claimIds.map((id) => ({ Note: { contains: `"claimId":"${id}"` } })),
+      },
+      orderBy: { DateCreated: 'desc' },
+    });
+
+    const byClaimId = new Map<string, any[]>();
+    for (const doc of rows) {
+      const meta = parseJson<Record<string, any>>(doc.Note);
+      const claimId = String(meta.claimId || '');
+      if (!claimId) continue;
+      if (!byClaimId.has(claimId)) byClaimId.set(claimId, []);
+      byClaimId.get(claimId)!.push(mapDocument(doc, claimId));
+    }
+    return byClaimId;
+  }
+
+  private async attachDocumentsToPagedClaims(paged: any[]) {
+    if (!paged.length) return;
+    const documentsByClaimId = await this.getDocumentsForClaims(paged.map((c) => c.id));
+    for (const claim of paged) {
+      const docs = documentsByClaimId.get(claim.id) ?? [];
+      claim.attachments = docs;
+      claim.hasAttachment = docs.length > 0;
+    }
+  }
+
   private async getClaimRecord(claimId: string) {
     const claim = await prisma.claim.findUnique({
       where: { ClaimNum: BigInt(claimId) },
@@ -600,7 +632,7 @@ export class ClaimService {
       },
     });
 
-    if (!claim || claim.ClaimType === 'PreAuth') {
+    if (!claim) {
       throw new NotFoundError('Claim not found');
     }
 
@@ -808,6 +840,7 @@ export class ClaimService {
     const paged = claims.slice(skip, skip + limit);
 
     await this.attachProceduresToPagedClaims(paged);
+    await this.attachDocumentsToPagedClaims(paged);
 
     return {
       claims: paged,
@@ -880,6 +913,10 @@ export class ClaimService {
       insurance: meta.insuranceCompanyId ? insuranceById.get(meta.insuranceCompanyId) : null,
       procedures,
     });
+
+    const attachments = await this.getClaimDocuments(claimId);
+    claim.attachments = attachments;
+    claim.hasAttachment = attachments.length > 0;
 
     return claim;
   }
@@ -2080,6 +2117,7 @@ export class ClaimService {
     const paged = claims.slice(skip, skip + limit);
 
     await this.attachProceduresToPagedClaims(paged);
+    await this.attachDocumentsToPagedClaims(paged);
 
     return {
       claims: paged,

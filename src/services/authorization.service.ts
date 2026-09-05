@@ -16,6 +16,9 @@ type AuthMeta = {
   expirationDate?: string;
   serviceId?: string;
   insuranceCompanyId?: string;
+  tags?: string[];
+  procedureIds?: string[];
+  order?: string;
 };
 
 type AuthorizationFilters = {
@@ -31,6 +34,7 @@ type AuthViewContext = {
   patient?: any;
   insuranceCompany?: any;
   service?: any;
+  procedures?: any[];
 };
 
 const parseJson = <T>(value?: string | null): T => {
@@ -135,6 +139,7 @@ export class AuthorizationService {
     const patient = context.patient ? mapPatientToApi(context.patient) : null;
     const insuranceCompany = buildInsuranceCompanyView(context.insuranceCompany);
     const service = buildServiceView(context.service);
+    const procedures = context.procedures ?? (service ? [service] : []);
 
     return {
       _id: row.ClaimNum.toString(),
@@ -149,6 +154,10 @@ export class AuthorizationService {
       insuranceCompany,
       serviceId: service ?? meta.serviceId ?? null,
       service,
+      order: meta.order ?? 'Primary',
+      tags: meta.tags ?? [],
+      procedureIds: meta.procedureIds ?? [],
+      procedures,
       requestedDate: row.DateService ?? null,
       approvedDate: meta.approvedDate ? new Date(meta.approvedDate) : null,
       expirationDate: meta.expirationDate ? new Date(meta.expirationDate) : null,
@@ -221,6 +230,16 @@ export class AuthorizationService {
       )
     );
 
+    const procedureIds = Array.from(
+      new Set(
+        rows
+          .flatMap((row) => parseJson<AuthMeta>(row.Narrative).procedureIds || [])
+          .filter((value): value is string => Boolean(value))
+      )
+    );
+
+    const allServiceAndProcIds = Array.from(new Set([...serviceIds, ...procedureIds]));
+
     const insuranceCompanies = insuranceIds.length
       ? await prisma.carrier.findMany({
           where: {
@@ -233,35 +252,54 @@ export class AuthorizationService {
         })
       : [];
 
-    const services = serviceIds.length
+    const services = allServiceAndProcIds.length
       ? await prisma.procedurecode.findMany({
           where: {
-            CodeNum: {
-              in: serviceIds
-                .map((id) => toBigInt(id))
-                .filter((id): id is bigint => id !== null),
-            },
+            OR: [
+              {
+                CodeNum: {
+                  in: allServiceAndProcIds
+                    .map((id) => toBigInt(id))
+                    .filter((id): id is bigint => id !== null),
+                },
+              },
+              {
+                ProcCode: {
+                  in: allServiceAndProcIds.map((id) => String(id)),
+                },
+              },
+            ],
           },
         })
       : [];
 
     const insuranceById = new Map(insuranceCompanies.map((item) => [item.CarrierNum.toString(), item]));
-    const servicesById = new Map(
+    const servicesByCodeNum = new Map(
       services
         .filter((item) => item.CodeNum !== null)
         .map((item) => [item.CodeNum!.toString(), item])
     );
+    const servicesByProcCode = new Map(services.map((item) => [item.ProcCode, item]));
+
+    const resolveServiceOrProc = (idOrCode: string) => {
+      return servicesByCodeNum.get(idOrCode) || servicesByProcCode.get(idOrCode);
+    };
 
     let authorizations = rows.map((row) => {
       const meta = parseJson<AuthMeta>(row.Narrative);
       const insuranceCompany = meta.insuranceCompanyId
         ? insuranceById.get(meta.insuranceCompanyId)
         : undefined;
-      const service = meta.serviceId ? servicesById.get(meta.serviceId) : undefined;
+      const service = meta.serviceId ? resolveServiceOrProc(String(meta.serviceId)) : undefined;
+      const procedures = (meta.procedureIds || [])
+        .map((pId) => buildServiceView(resolveServiceOrProc(String(pId))))
+        .filter(Boolean);
+
       return this.buildAuthorization(row, meta, {
         patient: row.patient,
         insuranceCompany,
         service,
+        procedures: procedures.length > 0 ? procedures : undefined,
       });
     });
 
@@ -288,6 +326,7 @@ export class AuthorizationService {
           item.notes,
           item.insuranceCompany?.name,
           item.service?.name,
+          ...(item.tags || []),
           patientName,
         ]
           .filter(Boolean)
@@ -325,13 +364,44 @@ export class AuthorizationService {
       ? await prisma.carrier.findUnique({ where: { CarrierNum: BigInt(meta.insuranceCompanyId) } })
       : null;
     const service = meta.serviceId
-      ? await prisma.procedurecode.findUnique({ where: { CodeNum: BigInt(meta.serviceId) } })
+      ? await prisma.procedurecode.findFirst({
+          where: {
+            OR: [
+              ...(toBigInt(meta.serviceId) ? [{ CodeNum: toBigInt(meta.serviceId)! }] : []),
+              { ProcCode: String(meta.serviceId) },
+            ],
+          },
+        })
       : null;
+
+    let procedures: any[] = [];
+    if (meta.procedureIds && meta.procedureIds.length > 0) {
+      const procRows = await prisma.procedurecode.findMany({
+        where: {
+          OR: [
+            {
+              CodeNum: {
+                in: meta.procedureIds
+                  .map((id) => toBigInt(id))
+                  .filter((id): id is bigint => id !== null),
+              },
+            },
+            {
+              ProcCode: {
+                in: meta.procedureIds.map((id) => String(id)),
+              },
+            },
+          ],
+        },
+      });
+      procedures = procRows.map((proc) => buildServiceView(proc)).filter(Boolean);
+    }
 
     return this.buildAuthorization(auth, meta, {
       patient: auth.patient,
       insuranceCompany,
       service,
+      procedures: procedures.length > 0 ? procedures : undefined,
     });
   }
 
@@ -348,6 +418,10 @@ export class AuthorizationService {
     unitsUsed?: number;
     notes?: string;
     requestedBy?: string;
+    tags?: string[];
+    procedureIds?: string[];
+    procedures?: string[];
+    order?: string;
   }) {
     const authorizationNumber = data.authorizationNumber || (await this.generateAuthorizationNumber());
 
@@ -363,6 +437,8 @@ export class AuthorizationService {
 
     const status = normalizeStatus(data.status);
     const claimNum = await getNextId('claim', 'ClaimNum');
+    const rawProcIds = data.procedureIds || data.procedures;
+    const resolvedProcedureIds = rawProcIds ? rawProcIds.map((id) => String(id)) : undefined;
 
     const meta: AuthMeta = {
       unitsAuthorized: data.unitsAuthorized,
@@ -372,8 +448,11 @@ export class AuthorizationService {
       requestedBy: data.requestedBy,
       approvedDate: data.approvedDate ? data.approvedDate.toISOString() : undefined,
       expirationDate: data.expirationDate ? data.expirationDate.toISOString() : undefined,
-      serviceId: data.serviceId,
-      insuranceCompanyId: data.insuranceCompanyId,
+      serviceId: data.serviceId ? String(data.serviceId) : undefined,
+      insuranceCompanyId: data.insuranceCompanyId ? String(data.insuranceCompanyId) : undefined,
+      tags: data.tags ? data.tags.map((t) => String(t)) : [],
+      procedureIds: resolvedProcedureIds ?? (data.serviceId ? [String(data.serviceId)] : []),
+      order: data.order ?? 'Primary',
     };
 
     const auth = await prisma.claim.create({
@@ -398,13 +477,44 @@ export class AuthorizationService {
       ? await prisma.carrier.findUnique({ where: { CarrierNum: BigInt(data.insuranceCompanyId) } })
       : null;
     const service = data.serviceId
-      ? await prisma.procedurecode.findUnique({ where: { CodeNum: BigInt(data.serviceId) } })
+      ? await prisma.procedurecode.findFirst({
+          where: {
+            OR: [
+              ...(toBigInt(data.serviceId) ? [{ CodeNum: toBigInt(data.serviceId)! }] : []),
+              { ProcCode: String(data.serviceId) },
+            ],
+          },
+        })
       : null;
+
+    let procedures: any[] = [];
+    if (meta.procedureIds && meta.procedureIds.length > 0) {
+      const procRows = await prisma.procedurecode.findMany({
+        where: {
+          OR: [
+            {
+              CodeNum: {
+                in: meta.procedureIds
+                  .map((id) => toBigInt(id))
+                  .filter((id): id is bigint => id !== null),
+              },
+            },
+            {
+              ProcCode: {
+                in: meta.procedureIds.map((id) => String(id)),
+              },
+            },
+          ],
+        },
+      });
+      procedures = procRows.map((proc) => buildServiceView(proc)).filter(Boolean);
+    }
 
     return this.buildAuthorization(auth, meta, {
       patient: auth.patient,
       insuranceCompany,
       service,
+      procedures: procedures.length > 0 ? procedures : undefined,
     });
   }
 
@@ -420,6 +530,10 @@ export class AuthorizationService {
       insuranceCompanyId: string;
       serviceId: string;
       requestedBy: string;
+      tags: string[];
+      procedureIds: string[];
+      procedures: string[];
+      order: string;
     }>
   ) {
     const auth = await prisma.claim.findUnique({
@@ -434,6 +548,8 @@ export class AuthorizationService {
     const meta = parseJson<AuthMeta>(auth.Narrative);
     const previousStatus = normalizeStatus(meta.status ?? claimStatusToAuthStatus(auth.ClaimStatus));
     const nextStatus = updates.status ? normalizeStatus(updates.status) : previousStatus;
+    const rawProcIds = updates.procedureIds || updates.procedures;
+    const resolvedProcedureIds = rawProcIds ? rawProcIds.map((id) => String(id)) : undefined;
 
     const nextMeta: AuthMeta = {
       ...meta,
@@ -443,9 +559,12 @@ export class AuthorizationService {
       notes: updates.notes ?? meta.notes,
       approvedDate: updates.approvedDate ? updates.approvedDate.toISOString() : meta.approvedDate,
       expirationDate: updates.expirationDate ? updates.expirationDate.toISOString() : meta.expirationDate,
-      insuranceCompanyId: updates.insuranceCompanyId ?? meta.insuranceCompanyId,
-      serviceId: updates.serviceId ?? meta.serviceId,
+      insuranceCompanyId: updates.insuranceCompanyId ? String(updates.insuranceCompanyId) : meta.insuranceCompanyId,
+      serviceId: updates.serviceId ? String(updates.serviceId) : meta.serviceId,
       requestedBy: updates.requestedBy ?? meta.requestedBy,
+      tags: updates.tags ? updates.tags.map((t) => String(t)) : meta.tags,
+      procedureIds: resolvedProcedureIds ?? (meta.procedureIds ? meta.procedureIds.map((id) => String(id)) : undefined),
+      order: updates.order ?? meta.order,
     };
 
     const updated = await prisma.claim.update({
@@ -474,13 +593,44 @@ export class AuthorizationService {
       ? await prisma.carrier.findUnique({ where: { CarrierNum: BigInt(nextMeta.insuranceCompanyId) } })
       : null;
     const service = nextMeta.serviceId
-      ? await prisma.procedurecode.findUnique({ where: { CodeNum: BigInt(nextMeta.serviceId) } })
+      ? await prisma.procedurecode.findFirst({
+          where: {
+            OR: [
+              ...(toBigInt(nextMeta.serviceId) ? [{ CodeNum: toBigInt(nextMeta.serviceId)! }] : []),
+              { ProcCode: String(nextMeta.serviceId) },
+            ],
+          },
+        })
       : null;
+
+    let procedures: any[] = [];
+    if (nextMeta.procedureIds && nextMeta.procedureIds.length > 0) {
+      const procRows = await prisma.procedurecode.findMany({
+        where: {
+          OR: [
+            {
+              CodeNum: {
+                in: nextMeta.procedureIds
+                  .map((id) => toBigInt(id))
+                  .filter((id): id is bigint => id !== null),
+              },
+            },
+            {
+              ProcCode: {
+                in: nextMeta.procedureIds.map((id) => String(id)),
+              },
+            },
+          ],
+        },
+      });
+      procedures = procRows.map((proc) => buildServiceView(proc)).filter(Boolean);
+    }
 
     return this.buildAuthorization(updated, nextMeta, {
       patient: updated.patient,
       insuranceCompany,
       service,
+      procedures: procedures.length > 0 ? procedures : undefined,
     });
   }
 

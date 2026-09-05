@@ -1,5 +1,12 @@
 import { prisma } from '../config/db';
 import { getNextId } from '../utils/opendental-ids.util';
+<<<<<<< Updated upstream
+import {
+  CDT_2026_CATEGORIES,
+  CDT_2026_PROCEDURES,
+} from '../data/cdt2026-data';
+import type { TreatmentArea } from '@prisma/client';
+=======
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Official ADA 12-category taxonomy
@@ -50,7 +57,6 @@ const procedureCodes = [
   { code: 'D0470', desc: 'Diagnostic casts',                                                   abbr: 'Diagnostic casts',      cat: 'Diagnostic' },
   { code: 'D0601', desc: 'Caries risk assessment and documentation - low risk',                abbr: 'Caries risk low',       coverage: 'Preventive Services', cat: 'Diagnostic' },
   { code: 'D0602', desc: 'Caries risk assessment and documentation - moderate risk',           abbr: 'Caries risk mod',       coverage: 'Preventive Services', cat: 'Diagnostic' },
-  { code: 'D0603', desc: 'Caries risk assessment and documentation - high risk',               abbr: 'Caries risk high',      coverage: 'Preventive Services', cat: 'Diagnostic' },
 
   // ── II. Preventive (D1000–D1999) ─────────────────────────────────────────
   { code: 'D1110', desc: 'Prophylaxis - adult',                                                abbr: 'Adult cleaning',        coverage: 'Preventive Services', cat: 'Preventive' },
@@ -61,15 +67,12 @@ const procedureCodes = [
   { code: 'D1320', desc: 'Tobacco counseling',                                                 abbr: 'Tobacco counsel',       coverage: 'Preventive Services', cat: 'Preventive' },
   { code: 'D1330', desc: 'Oral hygiene instructions',                                          abbr: 'OHI',                   coverage: 'Preventive Services', cat: 'Preventive' },
   { code: 'D1351', desc: 'Sealant - per tooth',                                                abbr: 'Sealant',               coverage: 'Preventive Services', cat: 'Preventive' },
-  { code: 'D1352', desc: 'Preventive resin restoration',                                       abbr: 'Preventive resin',      coverage: 'Preventive Services', cat: 'Preventive' },
   { code: 'D1353', desc: 'Sealant repair - per tooth',                                         abbr: 'Sealant repair',        cat: 'Preventive' },
   { code: 'D1354', desc: 'Interim caries arresting medicament',                                abbr: 'Caries arrest',         cat: 'Preventive' },
   { code: 'D1510', desc: 'Space maintainer - fixed, unilateral',                               abbr: 'Space maint fixed',     coverage: 'Preventive Services', cat: 'Preventive' },
   { code: 'D1516', desc: 'Space maintainer - fixed, bilateral',                                abbr: 'Space maint bilateral', coverage: 'Preventive Services', cat: 'Preventive' },
   { code: 'D1520', desc: 'Space maintainer - removable, unilateral',                           abbr: 'Space maint remov uni', coverage: 'Preventive Services', cat: 'Preventive' },
   { code: 'D1526', desc: 'Space maintainer - removable, bilateral',                            abbr: 'Space maint remov bi',  coverage: 'Preventive Services', cat: 'Preventive' },
-  { code: 'D1550', desc: 'Re-cement or re-bond space maintainer',                              abbr: 'Re-cement space maint', coverage: 'Preventive Services', cat: 'Preventive' },
-  { code: 'D1555', desc: 'Removal of fixed space maintainer',                                  abbr: 'Remove space maint',    coverage: 'Preventive Services', cat: 'Preventive' },
 
   // ── III. Restorative (D2000–D2999) ───────────────────────────────────────
   { code: 'D2140', desc: 'Amalgam - one surface, primary or permanent',                        abbr: 'Amalgam 1surf',         coverage: 'Basic Services', cat: 'Restorative' },
@@ -146,7 +149,6 @@ const procedureCodes = [
   { code: 'D5214', desc: 'Mandibular partial denture - cast metal framework',                  abbr: 'Partial cast mand',     coverage: 'Major Services', cat: 'Prosthodontics, removable' },
   { code: 'D5410', desc: 'Adjust complete denture - maxillary',                                abbr: 'Adjust CD max',         coverage: 'Major Services', cat: 'Prosthodontics, removable' },
   { code: 'D5411', desc: 'Adjust complete denture - mandibular',                               abbr: 'Adjust CD mand',        coverage: 'Major Services', cat: 'Prosthodontics, removable' },
-  { code: 'D5510', desc: 'Repair broken complete denture base',                                abbr: 'Repair CD base',        coverage: 'Major Services', cat: 'Prosthodontics, removable' },
   { code: 'D5520', desc: 'Replace missing or broken teeth - complete denture',                 abbr: 'Replace tooth CD',      coverage: 'Major Services', cat: 'Prosthodontics, removable' },
 
   // ── VII. Maxillofacial Prosthetics (D5900–D5999) ─────────────────────────
@@ -202,7 +204,6 @@ const procedureCodes = [
   { code: 'D9230', desc: 'Inhalation of nitrous oxide/analgesia, anxiolysis',                  abbr: 'Nitrous oxide',         cat: 'Adjunctive General Services' },
   { code: 'D9239', desc: 'Intravenous moderate sedation - first 15 minutes',                   abbr: 'IV sedation first',     cat: 'Adjunctive General Services' },
   { code: 'D9243', desc: 'Intravenous moderate sedation - each subsequent 15 min',             abbr: 'IV sedation addl',      cat: 'Adjunctive General Services' },
-  { code: 'D9248', desc: 'Non-intravenous conscious sedation',                                 abbr: 'Non-IV sedation',       cat: 'Adjunctive General Services' },
   { code: 'D9310', desc: 'Consultation - diagnostic service by a practitioner other than treating dentist', abbr: 'Consultation', cat: 'Adjunctive General Services' },
   { code: 'D9440', desc: 'Office visit - after regularly scheduled hours',                     abbr: 'After hours visit',     cat: 'Adjunctive General Services' },
   { code: 'D9910', desc: 'Application of desensitizing medicament',                            abbr: 'Desensitizing medicament', cat: 'Adjunctive General Services' },
@@ -210,11 +211,14 @@ const procedureCodes = [
   { code: 'D9944', desc: 'Occlusal guard - hard appliance, full arch',                         abbr: 'Night guard hard',      cat: 'Adjunctive General Services' },
   { code: 'D9972', desc: 'External bleaching - per arch',                                      abbr: 'Bleaching per arch',    cat: 'Adjunctive General Services' },
 ];
+>>>>>>> Stashed changes
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+<<<<<<< Updated upstream
+=======
 function getRequirements(code: string) {
   const req = {
     RequiresXRay: false,
@@ -228,7 +232,7 @@ function getRequirements(code: string) {
   if (['D0140', 'D0160'].includes(code)) req.RequiresNarrative = true;
   if (['D0180'].includes(code)) req.RequiresPerioChart = true;
 
-  if (['D0210', 'D0220', 'D0230', 'D0240', 'D0250', 'D0270', 'D0272', 'D0273', 'D0274', 'D0277', 'D0330', 'D0340', 'D1351', 'D1352', 'D4346'].includes(code)) {
+  if (['D0210', 'D0220', 'D0230', 'D0240', 'D0250', 'D0270', 'D0272', 'D0273', 'D0274', 'D0277', 'D0330', 'D0340', 'D1351', 'D4346'].includes(code)) {
     req.RequiresXRay = true;
   }
   if (['D4346'].includes(code)) {
@@ -263,6 +267,7 @@ function getRequirements(code: string) {
   return req;
 }
 
+>>>>>>> Stashed changes
 /** Ensure a `definition` row exists for a given ADA category name (Category=1).
  *  Returns the DefNum of the found or newly created row. */
 async function ensureCategoryDef(
@@ -300,65 +305,79 @@ async function ensureCategoryDef(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Main
+// Main Seeder
 // ─────────────────────────────────────────────────────────────────────────────
-async function seedProcedureCodes() {
-  console.log('='.repeat(60));
-  console.log('Seeding ADA procedure code categories & codes...');
-  console.log('='.repeat(60));
 
-  // 1. Ensure ALL 12 official ADA categories exist in definition table
-  //    (even if no procedure codes exist for that category yet)
+async function seedProcedureCodes() {
+  console.log('='.repeat(70));
+  console.log('Seeding ADA CDT 2026 procedure code categories & procedures...');
+  console.log('='.repeat(70));
+
+  // 1. Ensure ALL 12 official ADA categories exist in definition table (Category=1)
   const defNumCache = new Map<string, bigint>();
-  console.log(`\nStep 1: Ensuring all ${ADA_CATEGORIES.length} ADA categories exist in definition table...`);
-  for (const cat of ADA_CATEGORIES) {
+  console.log(`\nStep 1: Ensuring all ${CDT_2026_CATEGORIES.length} ADA categories exist in definition table...`);
+  for (const cat of CDT_2026_CATEGORIES) {
     await ensureCategoryDef(cat.name, cat.itemOrder, defNumCache);
   }
 
   // 2. Seed / update procedure codes
-  console.log(`\nStep 2: Seeding ${procedureCodes.length} procedure codes...`);
+  console.log(`\nStep 2: Processing ${CDT_2026_PROCEDURES.length} CDT procedure codes...`);
   let created = 0;
   let updated = 0;
-  let skipped = 0;
+  let unchanged = 0;
 
-  for (const proc of procedureCodes) {
+  for (const proc of CDT_2026_PROCEDURES) {
     const catDefNum = defNumCache.get(proc.cat);
     if (!catDefNum) {
       console.warn(`  ⚠ Unknown category "${proc.cat}" for code ${proc.code} — skipping`);
-      skipped++;
       continue;
     }
 
-    const reqs = getRequirements(proc.code);
+    const treatArea = (proc.treatArea || 'MOUTH') as TreatmentArea;
+    const reqs = {
+      RequiresXRay: Boolean(proc.requiresXRay),
+      RequiresNarrative: Boolean(proc.requiresNarrative),
+      RequiresPerioChart: Boolean(proc.requiresPerioChart),
+      RequiresConsent: Boolean(proc.requiresConsent),
+      RequiresMedicalNecessity: Boolean(proc.requiresMedicalNecessity),
+      RequiresToothImage: Boolean(proc.requiresToothImage),
+    };
 
     const existing = await prisma.procedurecode.findFirst({
       where: { ProcCode: proc.code },
     });
 
     if (existing) {
-      // Update if category changed (fixes previously-wrong ProcCat values)
-      if (
+      // Check if any field needs updating
+      const needsUpdate =
         existing.ProcCat !== catDefNum ||
-        existing.CoverageCategory !== (proc.coverage || null) || 
+        existing.Descript !== proc.desc ||
+        existing.AbbrDesc !== (proc.abbr || proc.desc.slice(0, 50)) ||
+        existing.TreatArea !== treatArea ||
+        existing.CoverageCategory !== (proc.coverage || null) ||
         existing.RequiresXRay !== reqs.RequiresXRay ||
         existing.RequiresNarrative !== reqs.RequiresNarrative ||
         existing.RequiresPerioChart !== reqs.RequiresPerioChart ||
         existing.RequiresConsent !== reqs.RequiresConsent ||
         existing.RequiresMedicalNecessity !== reqs.RequiresMedicalNecessity ||
-        existing.RequiresToothImage !== reqs.RequiresToothImage
-      ) {
+        existing.RequiresToothImage !== reqs.RequiresToothImage;
+
+      if (needsUpdate) {
         await prisma.procedurecode.update({
           where: { ProcCode: proc.code },
-          data: { 
+          data: {
+            Descript: proc.desc,
+            AbbrDesc: proc.abbr || proc.desc.slice(0, 50),
             ProcCat: catDefNum,
+            TreatArea: treatArea,
             CoverageCategory: proc.coverage || null,
-            ...reqs
+            LaymanTerm: proc.desc,
+            ...reqs,
           },
         });
         updated++;
-        console.log(`  ↻ Updated ${proc.code} → "${proc.cat}" (DefNum=${catDefNum})`);
       } else {
-        skipped++;
+        unchanged++;
       }
       continue;
     }
@@ -369,10 +388,10 @@ async function seedProcedureCodes() {
         CodeNum: codeNum,
         ProcCode: proc.code,
         Descript: proc.desc,
-        AbbrDesc: proc.abbr,
+        AbbrDesc: proc.abbr || proc.desc.slice(0, 50),
         ProcCat: catDefNum,
         ProcTime: '0',
-        TreatArea: 'MOUTH',
+        TreatArea: treatArea,
         NoBillIns: 0,
         IsProsth: 0,
         IsHygiene: false,
@@ -384,20 +403,22 @@ async function seedProcedureCodes() {
         SubstOnlyIf: 0,
         IsMultiVisit: 0,
         CanadaTimeUnits: 0,
-        IsRadiology: 0,
+        IsRadiology: proc.requiresXRay ? 1 : 0,
         BypassGlobalLock: 0,
         AreaAlsoToothRange: 0,
         LaymanTerm: proc.desc,
+        CoverageCategory: proc.coverage || null,
         ...reqs,
       },
     });
     created++;
-    console.log(`  ✔ Created ${proc.code} — "${proc.desc}" [${proc.cat}]`);
   }
 
-  console.log('\n' + '='.repeat(60));
-  console.log(`Done. Created: ${created} | Updated: ${updated} | Skipped: ${skipped}`);
-  console.log('='.repeat(60));
+  console.log('\n' + '='.repeat(70));
+  console.log(
+    `Seeding Complete! Created: ${created} | Updated: ${updated} | Unchanged: ${unchanged} | Total: ${CDT_2026_PROCEDURES.length}`
+  );
+  console.log('='.repeat(70));
 }
 
 seedProcedureCodes()
