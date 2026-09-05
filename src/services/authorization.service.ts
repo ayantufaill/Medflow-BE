@@ -265,7 +265,7 @@ export class AuthorizationService {
               },
               {
                 ProcCode: {
-                  in: allServiceAndProcIds,
+                  in: allServiceAndProcIds.map((id) => String(id)),
                 },
               },
             ],
@@ -290,9 +290,9 @@ export class AuthorizationService {
       const insuranceCompany = meta.insuranceCompanyId
         ? insuranceById.get(meta.insuranceCompanyId)
         : undefined;
-      const service = meta.serviceId ? resolveServiceOrProc(meta.serviceId) : undefined;
+      const service = meta.serviceId ? resolveServiceOrProc(String(meta.serviceId)) : undefined;
       const procedures = (meta.procedureIds || [])
-        .map((pId) => buildServiceView(resolveServiceOrProc(pId)))
+        .map((pId) => buildServiceView(resolveServiceOrProc(String(pId))))
         .filter(Boolean);
 
       return this.buildAuthorization(row, meta, {
@@ -368,7 +368,7 @@ export class AuthorizationService {
           where: {
             OR: [
               ...(toBigInt(meta.serviceId) ? [{ CodeNum: toBigInt(meta.serviceId)! }] : []),
-              { ProcCode: meta.serviceId },
+              { ProcCode: String(meta.serviceId) },
             ],
           },
         })
@@ -388,7 +388,7 @@ export class AuthorizationService {
             },
             {
               ProcCode: {
-                in: meta.procedureIds,
+                in: meta.procedureIds.map((id) => String(id)),
               },
             },
           ],
@@ -437,7 +437,8 @@ export class AuthorizationService {
 
     const status = normalizeStatus(data.status);
     const claimNum = await getNextId('claim', 'ClaimNum');
-    const resolvedProcedureIds = data.procedureIds || data.procedures;
+    const rawProcIds = data.procedureIds || data.procedures;
+    const resolvedProcedureIds = rawProcIds ? rawProcIds.map((id) => String(id)) : undefined;
 
     const meta: AuthMeta = {
       unitsAuthorized: data.unitsAuthorized,
@@ -447,10 +448,10 @@ export class AuthorizationService {
       requestedBy: data.requestedBy,
       approvedDate: data.approvedDate ? data.approvedDate.toISOString() : undefined,
       expirationDate: data.expirationDate ? data.expirationDate.toISOString() : undefined,
-      serviceId: data.serviceId,
-      insuranceCompanyId: data.insuranceCompanyId,
-      tags: data.tags ?? [],
-      procedureIds: resolvedProcedureIds ?? (data.serviceId ? [data.serviceId] : []),
+      serviceId: data.serviceId ? String(data.serviceId) : undefined,
+      insuranceCompanyId: data.insuranceCompanyId ? String(data.insuranceCompanyId) : undefined,
+      tags: data.tags ? data.tags.map((t) => String(t)) : [],
+      procedureIds: resolvedProcedureIds ?? (data.serviceId ? [String(data.serviceId)] : []),
       order: data.order ?? 'Primary',
     };
 
@@ -480,7 +481,7 @@ export class AuthorizationService {
           where: {
             OR: [
               ...(toBigInt(data.serviceId) ? [{ CodeNum: toBigInt(data.serviceId)! }] : []),
-              { ProcCode: data.serviceId },
+              { ProcCode: String(data.serviceId) },
             ],
           },
         })
@@ -500,7 +501,7 @@ export class AuthorizationService {
             },
             {
               ProcCode: {
-                in: meta.procedureIds,
+                in: meta.procedureIds.map((id) => String(id)),
               },
             },
           ],
@@ -547,7 +548,8 @@ export class AuthorizationService {
     const meta = parseJson<AuthMeta>(auth.Narrative);
     const previousStatus = normalizeStatus(meta.status ?? claimStatusToAuthStatus(auth.ClaimStatus));
     const nextStatus = updates.status ? normalizeStatus(updates.status) : previousStatus;
-    const resolvedProcedureIds = updates.procedureIds || updates.procedures;
+    const rawProcIds = updates.procedureIds || updates.procedures;
+    const resolvedProcedureIds = rawProcIds ? rawProcIds.map((id) => String(id)) : undefined;
 
     const nextMeta: AuthMeta = {
       ...meta,
@@ -557,11 +559,11 @@ export class AuthorizationService {
       notes: updates.notes ?? meta.notes,
       approvedDate: updates.approvedDate ? updates.approvedDate.toISOString() : meta.approvedDate,
       expirationDate: updates.expirationDate ? updates.expirationDate.toISOString() : meta.expirationDate,
-      insuranceCompanyId: updates.insuranceCompanyId ?? meta.insuranceCompanyId,
-      serviceId: updates.serviceId ?? meta.serviceId,
+      insuranceCompanyId: updates.insuranceCompanyId ? String(updates.insuranceCompanyId) : meta.insuranceCompanyId,
+      serviceId: updates.serviceId ? String(updates.serviceId) : meta.serviceId,
       requestedBy: updates.requestedBy ?? meta.requestedBy,
-      tags: updates.tags ?? meta.tags,
-      procedureIds: resolvedProcedureIds ?? meta.procedureIds,
+      tags: updates.tags ? updates.tags.map((t) => String(t)) : meta.tags,
+      procedureIds: resolvedProcedureIds ?? (meta.procedureIds ? meta.procedureIds.map((id) => String(id)) : undefined),
       order: updates.order ?? meta.order,
     };
 
@@ -595,7 +597,7 @@ export class AuthorizationService {
           where: {
             OR: [
               ...(toBigInt(nextMeta.serviceId) ? [{ CodeNum: toBigInt(nextMeta.serviceId)! }] : []),
-              { ProcCode: nextMeta.serviceId },
+              { ProcCode: String(nextMeta.serviceId) },
             ],
           },
         })
@@ -615,7 +617,7 @@ export class AuthorizationService {
             },
             {
               ProcCode: {
-                in: nextMeta.procedureIds,
+                in: nextMeta.procedureIds.map((id) => String(id)),
               },
             },
           ],
