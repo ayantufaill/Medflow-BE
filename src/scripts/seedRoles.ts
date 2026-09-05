@@ -4,12 +4,12 @@ import { setRoleMeta } from '../utils/opendental-auth.util';
 
 const roles = [
   { name: 'Admin', description: 'Administrator', permissions: { '*': true }, isSystemRole: true },
-  { name: 'Provider', description: 'Provider', permissions: {}, isSystemRole: true },
+  { name: 'Provider', description: 'Provider', permissions: { 'clinical-notes.create': true, 'clinical-notes.update': true, 'clinical-notes.read': true, 'clinical-notes.delete': true }, isSystemRole: true },
   { name: 'Staff', description: 'Staff', permissions: {}, isSystemRole: true },
   { name: 'Patient', description: 'Patient', permissions: {}, isSystemRole: true },
   { name: 'Receptionist', description: 'Front-desk staff — manages patient records, scheduling, and insurance intake.', permissions: {}, isSystemRole: true },
   { name: 'Billing Staff', description: 'Handles patient billing, insurance plans, and account balances.', permissions: {}, isSystemRole: true },
-  { name: 'Clinical Staff', description: 'Clinical support staff — assists with patient check-in/out and treatment documentation.', permissions: {}, isSystemRole: true },
+  { name: 'Clinical Staff', description: 'Clinical support staff — assists with patient check-in/out and treatment documentation.', permissions: { 'clinical-notes.create': true, 'clinical-notes.update': true, 'clinical-notes.read': true }, isSystemRole: true },
   {
     name: 'Super Admin',
     description: 'Operates the platform across every practice group — onboards/offboards practices, manages role definitions. Not a per-practice role.',

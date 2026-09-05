@@ -19,6 +19,9 @@ services:
       target: deps
     env_file:
       - .env.docker
+    environment:
+      DATABASE_URL: postgresql://medflow:MedflowPass123!@db:5432/medflow_db
+      DIRECT_DATABASE_URL: postgresql://medflow:MedflowPass123!@db:5432/medflow_db
     volumes:
       - .:/app
       - /app/node_modules
@@ -37,6 +40,8 @@ services:
       - .env.docker
     environment:
       CHOKIDAR_USEPOLLING: "1"
+      DATABASE_URL: postgresql://medflow:MedflowPass123!@db:5432/medflow_db
+      DIRECT_DATABASE_URL: postgresql://medflow:MedflowPass123!@db:5432/medflow_db
     volumes:
       - .:/app
       - /app/node_modules

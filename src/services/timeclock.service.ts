@@ -173,15 +173,17 @@ export class TimeClockService {
       const userRecord = empUserList.find((u) => u.EmployeeNum?.toString() === empKey);
 
       let userName = 'Unknown';
-      if (empRecord && (empRecord.FName || empRecord.LName)) {
-        userName = `${empRecord.FName || ''} ${empRecord.LName || ''}`.trim();
-      } else if (userRecord) {
+      if (userRecord) {
         const meta = usersMeta[userRecord.UserNum.toString()] || {};
         if (meta.firstName || meta.lastName) {
           userName = `${meta.firstName || ''} ${meta.lastName || ''}`.trim();
+        } else if (empRecord && (empRecord.FName || empRecord.LName)) {
+          userName = `${empRecord.FName || ''} ${empRecord.LName || ''}`.trim();
         } else {
           userName = userRecord.UserName || `Employee #${empKey}`;
         }
+      } else if (empRecord && (empRecord.FName || empRecord.LName)) {
+        userName = `${empRecord.FName || ''} ${empRecord.LName || ''}`.trim();
       }
 
       let roleName = 'Staff';
@@ -245,24 +247,66 @@ export class TimeClockService {
     }
 
     if (!targetEmployeeNum) {
-      const firstEmp = await prisma.employee.findFirst();
-      if (firstEmp) {
-        targetEmployeeNum = firstEmp.EmployeeNum;
-      } else {
-        throw new Error('No valid employee found for this record');
+      // Create a dedicated employee record for this user
+      const newEmpId = await getNextId('employee', 'EmployeeNum');
+      let fName = 'System';
+      let lName = 'Employee';
+
+      if (userId) {
+        const metaMap = await getUsersMeta([BigInt(userId)]);
+        const meta = metaMap[userId.toString()];
+        if (meta) {
+          fName = meta.firstName || 'User';
+          lName = meta.lastName || `#${userId}`;
+        }
       }
+
+      await prisma.employee.create({
+        data: {
+          EmployeeNum: newEmpId,
+          FName: fName,
+          LName: lName,
+          IsHidden: 0,
+        }
+      });
+      
+      if (userId) {
+        await prisma.userod.update({
+          where: { UserNum: BigInt(userId) },
+          data: { EmployeeNum: newEmpId }
+        });
+      }
+      
+      targetEmployeeNum = newEmpId;
     }
 
     const dateObj = new Date(date);
-    const timeObj = new Date(time);
+    
+    // Parse time which is typically in "HH:mm" format
+    let hours = 0;
+    let minutes = 0;
+    let seconds = 0;
+    if (time.includes(':')) {
+      const parts = time.split(':');
+      hours = parseInt(parts[0], 10) || 0;
+      minutes = parseInt(parts[1], 10) || 0;
+      if (parts[2]) seconds = parseInt(parts[2], 10) || 0;
+    } else {
+      const timeObj = new Date(time);
+      if (!isNaN(timeObj.getTime())) {
+        hours = timeObj.getHours();
+        minutes = timeObj.getMinutes();
+        seconds = timeObj.getSeconds();
+      }
+    }
 
     const combinedDateTime = new Date(
       dateObj.getFullYear(),
       dateObj.getMonth(),
       dateObj.getDate(),
-      timeObj.getHours(),
-      timeObj.getMinutes(),
-      timeObj.getSeconds()
+      hours,
+      minutes,
+      seconds
     );
 
     let clockStatus = 0;
