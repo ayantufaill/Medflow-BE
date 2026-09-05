@@ -54,6 +54,10 @@ export class AuthorizationController {
         unitsUsed: req.body.unitsUsed,
         notes: req.body.notes,
         requestedBy: req.userId,
+        tags: req.body.tags,
+        procedures: req.body.procedures,
+        procedureIds: req.body.procedureIds,
+        order: req.body.order,
       });
 
       res.status(201).json({
@@ -79,6 +83,10 @@ export class AuthorizationController {
         insuranceCompanyId: req.body.insuranceCompanyId,
         serviceId: req.body.serviceId,
         requestedBy: req.userId,
+        tags: req.body.tags,
+        procedures: req.body.procedures,
+        procedureIds: req.body.procedureIds,
+        order: req.body.order,
       });
 
       res.status(200).json({
