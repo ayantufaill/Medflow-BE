@@ -48,7 +48,6 @@ const subcategoryMapping: { [code: string]: string } = {
   'D5411': 'Denture adjustment',
 
   // Prosthodontics, Removable -> Denture repair
-  'D5510': 'Denture repair',
   'D5520': 'Denture repair',
 
   // Endodontics -> Pulp capping
