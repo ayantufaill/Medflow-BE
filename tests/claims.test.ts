@@ -927,7 +927,110 @@ describe('Claims Procedures Fallback', () => {
       expect(Array.isArray(res.body?.data?.patients)).toBe(true);
     });
   });
+
+  describe('Predeterminations & Attachments', () => {
+    it('supports getClaimById, quick-status update, and document attachments for PreAuth claims', async () => {
+      const token = uniqueToken('preauth-test');
+      const alphanumericToken = token.replace(/[^A-Za-z0-9]/g, '');
+      const patient = await createPatientRecord(alphanumericToken);
+
+      const claimNum = BigInt(Date.now() + Math.floor(Math.random() * 100000));
+      const docNum = BigInt(Date.now() + Math.floor(Math.random() * 100000) + 1);
+
+      // Create a PreAuth claim (Predetermination)
+      const claim = await prisma.claim.create({
+        data: {
+          ClaimNum: claimNum,
+          PatNum: patient.PatNum,
+          ClaimType: 'PreAuth',
+          ClaimStatus: 'W', // Waiting
+          ClaimFee: 350,
+          DateService: new Date(),
+          Narrative: JSON.stringify({
+            status: 'submitted',
+            claimAmount: 350,
+          }),
+        },
+      });
+
+      // Create an associated Document record
+      const doc = await prisma.document.create({
+        data: {
+          DocNum: docNum,
+          PatNum: patient.PatNum,
+          Description: 'XRay_Scan.pdf',
+          FileName: 'claim-documents/xray_scan_123.pdf',
+          Note: JSON.stringify({
+            claimId: claim.ClaimNum.toString(),
+            documentType: 'claim_attachment',
+            storagePath: 'claim-documents/xray_scan_123.pdf',
+          }),
+          DateCreated: new Date(),
+        },
+      });
+
+      // 1. Verify getClaimById (Fix #0, Fix #1, Fix #2)
+      const singleClaimRes = await request(app)
+        .get(`/api/claims/${claim.ClaimNum}`)
+        .set(authHeader);
+
+      expect(singleClaimRes.status).toBe(200);
+      const fetchedClaim = singleClaimRes.body?.data?.claim;
+      expect(fetchedClaim).toBeDefined();
+      expect(fetchedClaim.id).toBe(claim.ClaimNum.toString());
+      expect(fetchedClaim.hasAttachment).toBe(true);
+      expect(Array.isArray(fetchedClaim.attachments)).toBe(true);
+      expect(fetchedClaim.attachments.length).toBe(1);
+      expect(fetchedClaim.attachments[0].name).toBe('XRay_Scan.pdf');
+      expect(fetchedClaim.attachments[0].documentName).toBe('XRay_Scan.pdf');
+
+      // 2. Verify quickStatusUpdate on predetermination claim (Fix #0)
+      const statusRes = await request(app)
+        .post(`/api/claims/${claim.ClaimNum}/quick-status`)
+        .set(authHeader)
+        .send({
+          status: 'accepted',
+          note: 'Pre-determination approved by carrier',
+        });
+
+      expect(statusRes.status).toBe(200);
+      expect(statusRes.body?.success).toBe(true);
+
+      // 3. Verify getClaimDocuments on predetermination claim (Fix #0, Fix #2)
+      const docsRes = await request(app)
+        .get(`/api/claims/${claim.ClaimNum}/documents`)
+        .set(authHeader);
+
+      expect(docsRes.status).toBe(200);
+      const docs = docsRes.body?.data?.documents ?? docsRes.body?.data ?? [];
+      expect(Array.isArray(docs)).toBe(true);
+      expect(docs.length).toBe(1);
+      expect(docs[0].name).toBe('XRay_Scan.pdf');
+
+      // 4. Verify getAllClaims for predetermination tab includes attachments (Fix #1)
+      const listRes = await request(app)
+        .get(`/api/claims?tab=predetermination&patientId=${patient.PatNum}`)
+        .set(authHeader);
+
+      expect(listRes.status).toBe(200);
+      const predeterminations = listRes.body?.data?.claims ?? [];
+      const listed = predeterminations.find((c: any) => c.id === claim.ClaimNum.toString());
+      expect(listed).toBeDefined();
+      expect(listed.hasAttachment).toBe(true);
+      expect(listed.attachments?.length).toBe(1);
+      expect(listed.attachments[0].name).toBe('XRay_Scan.pdf');
+
+      // Cleanup
+      await prisma.document.delete({ where: { DocNum: docNum } });
+      await prisma.claimtracking.deleteMany({ where: { ClaimNum: claimNum } });
+      await prisma.claimproc.deleteMany({ where: { ClaimNum: claimNum } });
+      await prisma.claim.delete({ where: { ClaimNum: claimNum } });
+      await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
+      await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    });
+  });
 });
+
 
 
 
