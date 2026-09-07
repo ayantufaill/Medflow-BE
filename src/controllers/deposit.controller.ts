@@ -74,6 +74,32 @@ export class DepositController {
     }
   }
 
+  async voidDeposit(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const depositId = req.params.depositId as string;
+      const result = await depositService.voidDeposit(
+        depositId,
+        { reason: req.body?.reason || req.body?.notes },
+        req.userId
+      );
+
+      res.status(200).json({
+        success: true,
+        data: { deposit: result },
+        message: 'Deposit voided successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getDepositsByPatient(req: Request, res: Response, next: NextFunction) {
     try {
       const patientId = req.params.patientId as string;

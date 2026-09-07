@@ -15,20 +15,37 @@ const parseJson = <T>(value?: string | null): T => {
   }
 };
 
+const toBigInt = (value?: string | number | bigint | null): bigint | null => {
+  if (value === undefined || value === null) return null;
+  if (typeof value === 'bigint') return value;
+  if (typeof value === 'number') return BigInt(value);
+  return /^\d+$/.test(value) ? BigInt(value) : null;
+};
+
 export class DepositService {
   private mapDepositToApi(split: any) {
     const payment = split.payment;
     const meta = payment ? parseJson<any>(payment.PayNote) : {};
+    const isVoided = meta.status === 'void' || meta.status === 'voided';
     return {
       _id: split.SplitNum.toString(),
+      id: split.SplitNum.toString(),
+      depositId: split.SplitNum.toString(),
       paymentId: split.PayNum?.toString() ?? null,
       patientId: split.PatNum?.toString() ?? null,
-      amount: Number(split.SplitAmt) || 0,
+      amount: Number(split.SplitAmt) || (meta.originalAmount ? Number(meta.originalAmount) : 0),
+      originalAmount: meta.originalAmount ?? (isVoided ? undefined : Number(split.SplitAmt)),
       date: split.DatePay ?? null,
       depositType: meta.depositType ?? 'patient',
       paymentMethod: meta.paymentMethod ?? null,
       notes: meta.notes ?? null,
       unearnedType: split.UnearnedType?.toString() ?? null,
+      status: meta.status ?? 'completed',
+      isVoided,
+      isDeposit: true,
+      isPatientDeposit: (meta.depositType ?? 'patient') !== 'insurance',
+      voidReason: meta.voidReason ?? null,
+      voidedAt: meta.voidedAt ?? null,
     };
   }
 
@@ -85,15 +102,147 @@ export class DepositService {
   }
 
   async getDepositById(depositId: string) {
-    const split = await prisma.paysplit.findUnique({
-      where: { SplitNum: BigInt(depositId) },
+    const bigIntId = toBigInt(depositId);
+    if (!bigIntId) {
+      throw new NotFoundError('Deposit not found');
+    }
+
+    let split = await prisma.paysplit.findUnique({
+      where: { SplitNum: bigIntId },
       include: { payment: true },
     });
-    if (!split || !split.UnearnedType) {
+
+    if (!split) {
+      const payment = await prisma.payment.findUnique({
+        where: { PayNum: bigIntId },
+        include: { paysplit: true },
+      });
+      if (payment) {
+        split = payment.paysplit?.find((ps: any) => Number(ps.UnearnedType) > 0) || payment.paysplit?.[0] || null;
+        if (split) {
+          split.payment = payment;
+        }
+      }
+    }
+
+    if (!split) {
       throw new NotFoundError('Deposit not found');
     }
 
     return this.enrichDeposit(this.mapDepositToApi(split));
+  }
+
+  async voidDeposit(
+    depositId: string,
+    data: { reason?: string } = {},
+    userId: string
+  ) {
+    const bigIntId = toBigInt(depositId);
+    if (!bigIntId) {
+      throw new BadRequestError('Invalid deposit ID format');
+    }
+
+    // Locate deposit by SplitNum first, then PayNum
+    let split = await prisma.paysplit.findUnique({
+      where: { SplitNum: bigIntId },
+      include: { payment: { include: { paysplit: true } } },
+    });
+
+    let payment: any = null;
+
+    if (split) {
+      payment = split.payment;
+    } else {
+      payment = await prisma.payment.findUnique({
+        where: { PayNum: bigIntId },
+        include: { paysplit: true },
+      });
+      if (payment) {
+        split = payment.paysplit?.find((ps: any) => Number(ps.UnearnedType) > 0) || payment.paysplit?.[0] || null;
+      }
+    }
+
+    if (!payment) {
+      throw new NotFoundError('Deposit not found');
+    }
+
+    const meta = parseJson<any>(payment.PayNote);
+    if (meta.status === 'void' || meta.status === 'voided') {
+      throw new BadRequestError('Deposit is already voided');
+    }
+
+    const depositAmt = Number(split?.SplitAmt || meta.originalAmount || payment.PayAmt || 0);
+
+    // Verify patient's remaining unearned balance has not already been used
+    if (payment.PatNum) {
+      const unearnedAgg = await prisma.paysplit.aggregate({
+        where: {
+          PatNum: payment.PatNum,
+          UnearnedType: { gt: 0 },
+        },
+        _sum: { SplitAmt: true },
+      });
+      const currentUnearned = unearnedAgg._sum.SplitAmt ?? 0;
+      if (currentUnearned < depositAmt) {
+        throw new BadRequestError('Cannot void deposit: funds have already been allocated or used as account credit');
+      }
+    }
+
+    const nextMeta = {
+      ...meta,
+      status: 'void',
+      isVoided: true,
+      voidReason: data.reason ?? 'Voided deposit',
+      voidedAt: new Date().toISOString(),
+      voidedBy: userId,
+      originalAmount: meta.originalAmount ?? depositAmt,
+    };
+
+    const result = await prisma.$transaction(async (tx) => {
+      const updatedPayment = await tx.payment.update({
+        where: { PayNum: payment.PayNum },
+        data: {
+          PayAmt: 0,
+          PayNote: buildJson(nextMeta),
+        },
+      });
+
+      if (payment.paysplit && payment.paysplit.length > 0) {
+        await tx.paysplit.updateMany({
+          where: { PayNum: payment.PayNum },
+          data: {
+            SplitAmt: 0,
+            UnearnedType: null,
+          },
+        });
+      } else if (split) {
+        await tx.paysplit.update({
+          where: { SplitNum: split.SplitNum },
+          data: {
+            SplitAmt: 0,
+            UnearnedType: null,
+          },
+        });
+      }
+
+      return updatedPayment;
+    });
+
+    await logActivity(userId, 'voided', 'deposits', (split?.SplitNum ?? payment.PayNum).toString(), { payment, split }, result);
+
+    return {
+      _id: split ? split.SplitNum.toString() : payment.PayNum.toString(),
+      id: split ? split.SplitNum.toString() : payment.PayNum.toString(),
+      depositId: split ? split.SplitNum.toString() : payment.PayNum.toString(),
+      paymentId: payment.PayNum.toString(),
+      patientId: payment.PatNum?.toString() ?? null,
+      amount: 0,
+      originalAmount: nextMeta.originalAmount,
+      status: 'void',
+      isVoided: true,
+      voidReason: nextMeta.voidReason,
+      message: 'Deposit voided successfully',
+    };
   }
 
   async createDeposit(
