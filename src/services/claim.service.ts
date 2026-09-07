@@ -849,6 +849,8 @@ export class ClaimService {
         claims = claims.filter((claim) => claim.status !== 'draft');
       } else if (tab === 'outstanding') {
         claims = claims.filter((claim) => ['submitted', 'pending', 'partial', 'partially_paid', 'accepted', 'acceptedPaid', 'acceptedForProcessing', 'inProcess', 'eobUploaded'].includes(claim.status));
+      } else if (tab === 'predetermination') {
+        claims = claims.filter((claim) => !['rejected', 'denied', 'cancelled', 'error', 'validationError'].includes(claim.status));
       }
     }
 
@@ -2242,6 +2244,13 @@ export class ClaimService {
           : mapped.status === 'denied' || mapped.status === 'rejected' ? 'red' : 'yellow',
       };
     });
+
+    if (filters.status && filters.status !== 'all') {
+      const status = normalizeClaimStatus(filters.status);
+      claims = claims.filter((claim) => normalizeClaimStatus(claim.status) === status);
+    } else {
+      claims = claims.filter((claim) => !['rejected', 'denied', 'cancelled', 'error', 'validationError'].includes(claim.status));
+    }
 
     if (filters.search) {
       const search = filters.search.toLowerCase();
