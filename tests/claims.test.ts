@@ -1040,6 +1040,35 @@ describe('Claims Procedures Fallback', () => {
       expect(listed.procedures[0].code).toBe(testProcCode);
       expect(listed.procedures[0].description).toBe('Predetermination Composite Resin');
 
+      // 5. Verify that moving predetermination claim to 'rejected' excludes it from predetermination tab and moves it to rejected tab
+      const rejectRes = await request(app)
+        .post(`/api/claims/${claim.ClaimNum}/quick-status`)
+        .set(authHeader)
+        .send({
+          status: 'rejected',
+          note: 'Predetermination rejected by payer',
+        });
+      expect(rejectRes.status).toBe(200);
+
+      // Verify it is excluded from predetermination tab
+      const listAfterReject = await request(app)
+        .get(`/api/claims?tab=predetermination&patientId=${patient.PatNum}`)
+        .set(authHeader);
+      expect(listAfterReject.status).toBe(200);
+      const predeterminationsAfter = listAfterReject.body?.data?.claims ?? [];
+      const foundInPredetermination = predeterminationsAfter.find((c: any) => c.id === claim.ClaimNum.toString());
+      expect(foundInPredetermination).toBeUndefined();
+
+      // Verify it appears in rejected tab
+      const listRejected = await request(app)
+        .get(`/api/claims?tab=rejected&patientId=${patient.PatNum}`)
+        .set(authHeader);
+      expect(listRejected.status).toBe(200);
+      const rejectedClaims = listRejected.body?.data?.claims ?? [];
+      const foundInRejected = rejectedClaims.find((c: any) => c.id === claim.ClaimNum.toString());
+      expect(foundInRejected).toBeDefined();
+      expect(foundInRejected.id).toBe(claim.ClaimNum.toString());
+
       // Cleanup
       await prisma.document.delete({ where: { DocNum: docNum } });
       await prisma.claimtracking.deleteMany({ where: { ClaimNum: claimNum } });
