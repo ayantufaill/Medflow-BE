@@ -35,6 +35,7 @@ type ClaimMeta = {
   primaryClaimId?: string;
   treatmentPlanId?: string;
   procedures?: any[];
+  procedureIds?: string[];
   selectedItems?: any[];
   insuranceCompanyId?: string;
   insuranceType?: string;
@@ -384,6 +385,7 @@ export class ClaimService {
       createdAt: row.SecDateEntry ?? row.DateService ?? null,
       updatedAt: row.SecDateTEdit ?? row.DateService ?? null,
       procedures: context.procedures ?? [],
+      procedureIds: meta.procedureIds ?? (Array.isArray(meta.procedures) ? meta.procedures.map((p: any) => typeof p === 'string' ? p : p.code || p.id || p._id).filter(Boolean) : []),
       selectedItems: meta.selectedItems || [],
       claimFormat: meta.claimFormat ?? (row.ClaimType === 'Manual' ? 'Paper' : 'E-claim'),
       isHidden: meta.isHidden ?? false,
@@ -576,6 +578,88 @@ export class ClaimService {
       }
     }
 
+    // Fallback: For PreAuth / predetermination claims without claimproc or invoice, resolve via meta.procedureIds
+    const claimsWithMetaProcs = paged.filter(
+      (c) => (!proceduresByClaimId.has(c.id) || proceduresByClaimId.get(c.id)!.length === 0) &&
+             ((c.procedureIds && c.procedureIds.length > 0) || (c.meta?.procedureIds && c.meta.procedureIds.length > 0))
+    );
+
+    if (claimsWithMetaProcs.length > 0) {
+      const allProcIds = Array.from(
+        new Set(
+          claimsWithMetaProcs.flatMap((c) => (c.procedureIds || c.meta?.procedureIds || []))
+            .map((id: any) => String(id).trim())
+            .filter((id: string) => Boolean(id))
+        )
+      );
+
+      if (allProcIds.length > 0) {
+        const codeNumBigInts = allProcIds
+          .map((id) => toBigInt(id))
+          .filter((id): id is bigint => id !== null);
+
+        const procCodes = await prisma.procedurecode.findMany({
+          where: {
+            OR: [
+              ...(codeNumBigInts.length > 0 ? [{ CodeNum: { in: codeNumBigInts } }] : []),
+              { ProcCode: { in: allProcIds } },
+            ],
+          },
+          include: {
+            fee: true,
+          },
+        });
+
+        const byCodeNum = new Map<string, any>();
+        const byProcCode = new Map<string, any>();
+        for (const pc of procCodes) {
+          if (pc.CodeNum !== null && pc.CodeNum !== undefined) {
+            byCodeNum.set(pc.CodeNum.toString(), pc);
+          }
+          if (pc.ProcCode) {
+            byProcCode.set(pc.ProcCode, pc);
+          }
+        }
+
+        for (const claim of claimsWithMetaProcs) {
+          const ids: string[] = (claim.procedureIds || claim.meta?.procedureIds || []).map((id: any) => String(id).trim());
+          const procs = ids.map((id) => {
+            const pc = byCodeNum.get(id) || byProcCode.get(id);
+            const providerName = claim.treatingProvider
+              ? (typeof claim.treatingProvider === 'string'
+                  ? claim.treatingProvider
+                  : `${claim.treatingProvider.firstName || ''} ${claim.treatingProvider.lastName || ''}`.trim() || null)
+              : (claim.billingProvider
+                  ? `${claim.billingProvider.firstName || ''} ${claim.billingProvider.lastName || ''}`.trim() || null
+                  : null);
+
+            return {
+              id: pc?.CodeNum?.toString() ?? id,
+              _id: pc?.CodeNum?.toString() ?? id,
+              appointmentId: null,
+              patientId: claim.patientRefId || claim.patientId || null,
+              codeNum: pc?.CodeNum?.toString() ?? null,
+              code: pc?.ProcCode ?? id,
+              name: pc?.Descript ?? pc?.AbbrDesc ?? pc?.LaymanTerm ?? 'Procedure',
+              description: pc?.Descript ?? pc?.AbbrDesc ?? pc?.LaymanTerm ?? 'Procedure',
+              tooth: null,
+              surface: null,
+              status: null,
+              quantity: 1,
+              fee: pc?.fee?.[0]?.Amount ? Number(pc.fee[0].Amount) : 0,
+              providerId: claim.billingProvider?._id || claim.treatingProvider?._id || null,
+              providerName,
+              dateOfService: claim.dateSent || claim.submissionDate || claim.createdAt || null,
+              placeOfService: null,
+              createdAt: claim.createdAt || null,
+            };
+          });
+
+          proceduresByClaimId.set(claim.id, procs);
+        }
+      }
+    }
+
     for (const claim of paged) {
       claim.procedures = proceduresByClaimId.get(claim.id) ?? [];
     }
@@ -643,8 +727,6 @@ export class ClaimService {
     const where: any = {};
     if (filters.tab && filters.tab.toLowerCase() === 'predetermination') {
       where.ClaimType = 'PreAuth';
-    } else {
-      where.ClaimType = { not: 'PreAuth' };
     }
 
     if (filters.patientId) {
@@ -767,6 +849,8 @@ export class ClaimService {
         claims = claims.filter((claim) => claim.status !== 'draft');
       } else if (tab === 'outstanding') {
         claims = claims.filter((claim) => ['submitted', 'pending', 'partial', 'partially_paid', 'accepted', 'acceptedPaid', 'acceptedForProcessing', 'inProcess', 'eobUploaded'].includes(claim.status));
+      } else if (tab === 'predetermination') {
+        claims = claims.filter((claim) => !['rejected', 'denied', 'cancelled', 'error', 'validationError'].includes(claim.status));
       }
     }
 
@@ -903,6 +987,70 @@ export class ClaimService {
             dateOfService: proc.ProcDate ?? null,
             placeOfService: proc.PlaceService ?? null,
             createdAt: proc.SecDateEntry ?? null,
+          };
+        });
+      }
+    }
+
+    if (procedures.length === 0 && meta.procedureIds && meta.procedureIds.length > 0) {
+      const procIds = meta.procedureIds.map((id: any) => String(id).trim()).filter(Boolean);
+      if (procIds.length > 0) {
+        const codeNumBigInts = procIds
+          .map((id) => toBigInt(id))
+          .filter((id): id is bigint => id !== null);
+
+        const procCodes = await prisma.procedurecode.findMany({
+          where: {
+            OR: [
+              ...(codeNumBigInts.length > 0 ? [{ CodeNum: { in: codeNumBigInts } }] : []),
+              { ProcCode: { in: procIds } },
+            ],
+          },
+          include: {
+            fee: true,
+          },
+        });
+
+        const byCodeNum = new Map<string, any>();
+        const byProcCode = new Map<string, any>();
+        for (const pc of procCodes) {
+          if (pc.CodeNum !== null && pc.CodeNum !== undefined) {
+            byCodeNum.set(pc.CodeNum.toString(), pc);
+          }
+          if (pc.ProcCode) {
+            byProcCode.set(pc.ProcCode, pc);
+          }
+        }
+
+        const billingProv = row.provider_claim_ProvBillToprovider;
+        const treatProv = row.provider_claim_ProvTreatToprovider;
+        const providerName = treatProv
+          ? `${treatProv.FName || ''} ${treatProv.LName || ''}`.trim() || null
+          : billingProv
+            ? `${billingProv.FName || ''} ${billingProv.LName || ''}`.trim() || null
+            : null;
+
+        procedures = procIds.map((id) => {
+          const pc = byCodeNum.get(id) || byProcCode.get(id);
+          return {
+            id: pc?.CodeNum?.toString() ?? id,
+            _id: pc?.CodeNum?.toString() ?? id,
+            appointmentId: null,
+            patientId: row.PatNum?.toString() ?? null,
+            codeNum: pc?.CodeNum?.toString() ?? null,
+            code: pc?.ProcCode ?? id,
+            name: pc?.Descript ?? pc?.AbbrDesc ?? pc?.LaymanTerm ?? 'Procedure',
+            description: pc?.Descript ?? pc?.AbbrDesc ?? pc?.LaymanTerm ?? 'Procedure',
+            tooth: null,
+            surface: null,
+            status: null,
+            quantity: 1,
+            fee: pc?.fee?.[0]?.Amount ? Number(pc.fee[0].Amount) : 0,
+            providerId: treatProv?.ProvNum?.toString() ?? billingProv?.ProvNum?.toString() ?? null,
+            providerName,
+            dateOfService: row.DateSent ?? row.DateService ?? null,
+            placeOfService: null,
+            createdAt: row.SecDateEntry ?? row.DateService ?? null,
           };
         });
       }
@@ -2096,6 +2244,13 @@ export class ClaimService {
           : mapped.status === 'denied' || mapped.status === 'rejected' ? 'red' : 'yellow',
       };
     });
+
+    if (filters.status && filters.status !== 'all') {
+      const status = normalizeClaimStatus(filters.status);
+      claims = claims.filter((claim) => normalizeClaimStatus(claim.status) === status);
+    } else {
+      claims = claims.filter((claim) => !['rejected', 'denied', 'cancelled', 'error', 'validationError'].includes(claim.status));
+    }
 
     if (filters.search) {
       const search = filters.search.toLowerCase();

@@ -28,6 +28,7 @@ type DocumentMeta = {
   appointmentId?: string;
   clinicalNoteId?: string;
   authorizationId?: string;
+  claimId?: string;
   documentType?: string;
   storagePath?: string;
   fileSizeInBytes?: number;
@@ -203,6 +204,7 @@ export class DocumentService {
     const payload: DocumentMeta = {
       appointmentId: data.appointmentId,
       authorizationId: data.authorizationId,
+      claimId: data.authorizationId, // Assuming claimId is same as authorizationId for now
       documentType: data.documentType,
       storagePath: data.storagePath,
       fileSizeInBytes: data.fileSizeInBytes,
