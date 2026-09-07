@@ -40,6 +40,7 @@
     "docker:seed:operatories": "docker exec medflow-be-api-1 npm run seed:operatories",
     "docker:seed:all": "docker exec medflow-be-api-1 npm run seed:all",
     "delete:tooth-services": "tsx src/scripts/deleteToothPlantingServices.ts",
+    "remove:patient-insurances": "tsx src/scripts/removePatientInsurances.ts",
     "schema:map": "node scripts/generateSchemaRelationMap.mjs"
   },
   "keywords": [],
