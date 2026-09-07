@@ -193,4 +193,121 @@ describe('Deposits & Deposit Slips API', () => {
       expect(res.body.data.deposit.amount).toBe(200.0);
     });
   });
+
+  describe('Void Deposit API', () => {
+    it('successfully voids a deposit via PATCH /api/deposits/:depositId/void and updates unearned pool', async () => {
+      const token = uniqueToken('dep_void');
+      const patient = await createPatientRecord(token);
+
+      // 1. Create a deposit of $250.00
+      const createRes = await request(app)
+        .post('/api/deposits')
+        .set(authHeader)
+        .send({
+          patientId: patient.PatNum.toString(),
+          amount: 250.0,
+          paymentMethod: 'Check',
+          depositType: 'patient',
+          notes: 'Prepayment to be voided',
+        });
+
+      expect(createRes.status).toBe(201);
+      const deposit = createRes.body.data.deposit;
+      const depositId = deposit._id;
+      const paymentId = deposit.paymentId;
+
+      // Verify unearned pool has 250
+      const unearnedBefore = await prisma.paysplit.aggregate({
+        where: { PatNum: patient.PatNum, UnearnedType: { gt: 0 } },
+        _sum: { SplitAmt: true },
+      });
+      expect(unearnedBefore._sum.SplitAmt).toBe(250);
+
+      // 2. Void via PATCH /api/deposits/:depositId/void
+      const voidRes = await request(app)
+        .patch(`/api/deposits/${depositId}/void`)
+        .set(authHeader)
+        .send({
+          reason: 'Customer cancelled plan',
+        });
+
+      expect(voidRes.status).toBe(200);
+      expect(voidRes.body.success).toBe(true);
+      expect(voidRes.body.data.deposit.status).toBe('void');
+      expect(voidRes.body.data.deposit.isVoided).toBe(true);
+      expect(voidRes.body.data.deposit.amount).toBe(0);
+      expect(voidRes.body.data.deposit.originalAmount).toBe(250);
+      expect(voidRes.body.data.deposit.voidReason).toBe('Customer cancelled plan');
+
+      // 3. Verify unearned pool is now 0
+      const unearnedAfter = await prisma.paysplit.aggregate({
+        where: { PatNum: patient.PatNum, UnearnedType: { gt: 0 } },
+        _sum: { SplitAmt: true },
+      });
+      expect(unearnedAfter._sum.SplitAmt ?? 0).toBe(0);
+
+      // 4. Verify GET /api/deposits/:depositId returns voided state
+      const getRes = await request(app)
+        .get(`/api/deposits/${depositId}`)
+        .set(authHeader);
+      expect(getRes.status).toBe(200);
+      expect(getRes.body.data.deposit.status).toBe('void');
+      expect(getRes.body.data.deposit.isVoided).toBe(true);
+
+      // 5. Verify attempting to void again returns 400
+      const reVoidRes = await request(app)
+        .patch(`/api/deposits/${depositId}/void`)
+        .set(authHeader)
+        .send({ reason: 'Try again' });
+      expect(reVoidRes.status).toBe(400);
+
+      // 6. Verify payments API (consumed by composite ledger) returns the deposit with void status & deposit flags
+      const ledgerRes = await request(app)
+        .get(`/api/payments/patient/${patient.PatNum}`)
+        .set(authHeader);
+      expect(ledgerRes.status).toBe(200);
+      const payments = ledgerRes.body?.data?.payments ?? [];
+      const foundPayment = payments.find((p: any) => p._id === paymentId);
+      expect(foundPayment).toBeDefined();
+      expect(foundPayment.isDeposit).toBe(true);
+      expect(foundPayment.isPatientDeposit).toBe(true);
+      expect(foundPayment.status).toBe('void');
+      expect(foundPayment.isVoided).toBe(true);
+    });
+
+    it('successfully voids a deposit via DELETE /api/deposits/:depositId using paymentId', async () => {
+      const token = uniqueToken('dep_del');
+      const patient = await createPatientRecord(token);
+
+      const createRes = await request(app)
+        .post('/api/deposits')
+        .set(authHeader)
+        .send({
+          patientId: patient.PatNum.toString(),
+          amount: 150.0,
+          paymentMethod: 'Card',
+          depositType: 'patient',
+          notes: 'Deposit to delete',
+        });
+
+      expect(createRes.status).toBe(201);
+      const paymentId = createRes.body.data.deposit.paymentId;
+
+      // Void using DELETE with paymentId
+      const deleteRes = await request(app)
+        .delete(`/api/deposits/${paymentId}`)
+        .set(authHeader);
+
+      expect(deleteRes.status).toBe(200);
+      expect(deleteRes.body.data.deposit.status).toBe('void');
+      expect(deleteRes.body.data.deposit.isVoided).toBe(true);
+
+      // Verify unearned pool is 0
+      const unearned = await prisma.paysplit.aggregate({
+        where: { PatNum: patient.PatNum, UnearnedType: { gt: 0 } },
+        _sum: { SplitAmt: true },
+      });
+      expect(unearned._sum.SplitAmt ?? 0).toBe(0);
+    });
+  });
 });

@@ -36,6 +36,11 @@ type PaymentMeta = {
   status?: string;
   notes?: string;
   voidReason?: string;
+  voidedAt?: string;
+  voidedBy?: string;
+  originalAmount?: number;
+  isDeposit?: boolean;
+  depositType?: string;
   isAccountCredit?: boolean;
   appliedCreditAmount?: number;
 };
@@ -44,24 +49,41 @@ export class PaymentService {
   private mapPaymentToApi(row: any) {
     const meta = parseJson<PaymentMeta>(row.PayNote);
     const receiptNumber = meta.referenceNumber ?? row.PayNum.toString();
+    const isDeposit = Boolean(meta.isDeposit || (row.paysplit && row.paysplit.some((ps: any) => Number(ps.UnearnedType) > 0)));
+    const depositSplit = row.paysplit?.find((ps: any) => Number(ps.UnearnedType) > 0);
+    const isPatientDeposit = Boolean(meta.isDeposit && meta.depositType !== 'insurance') ||
+      Boolean(depositSplit && Number(depositSplit.UnearnedType) === 1);
+    const isVoided = String(meta.status || '').toLowerCase() === 'void' || String(meta.status || '').toLowerCase() === 'voided';
+    const amount = isVoided && meta.originalAmount ? 0 : (Number(row.PayAmt) || (meta.originalAmount ? Number(meta.originalAmount) : 0));
+
     return {
       _id: row.PayNum.toString(),
+      id: row.PayNum.toString(),
+      paymentId: row.PayNum.toString(),
+      depositId: depositSplit?.SplitNum?.toString() ?? (isDeposit ? row.PayNum.toString() : null),
       patientId: row.PatNum?.toString() ?? null,
       invoiceId: meta.invoiceId ?? null,
       receiptNumber,
       paymentCode: receiptNumber,
-      amount: Number(row.PayAmt) || 0,
-      method: meta.method ?? meta.paymentMethod ?? null,
-      paymentMethod: meta.paymentMethod ?? meta.method ?? null,
-      paymentSource: meta.paymentSource ?? null,
+      amount,
+      originalAmount: meta.originalAmount ?? (isVoided ? undefined : Number(row.PayAmt)),
+      method: isDeposit ? (meta.depositType === 'insurance' ? 'Insurance Deposit' : 'Patient Deposit') : (meta.method ?? meta.paymentMethod ?? null),
+      paymentMethod: isDeposit ? (meta.depositType === 'insurance' ? 'Insurance Deposit' : 'Patient Deposit') : (meta.paymentMethod ?? meta.method ?? null),
+      paymentSource: meta.paymentSource ?? (isDeposit ? 'deposit' : null),
       referenceNumber: meta.referenceNumber ?? null,
       processorFee: Number(meta.processorFee) || 0,
       status: meta.status ?? 'completed',
+      isVoided,
       paidAt: meta.paidAt ? new Date(meta.paidAt) : row.PayDate ?? null,
       paymentDate: meta.paidAt ? new Date(meta.paidAt) : row.PayDate ?? null,
       notes: meta.notes ?? null,
       isAccountCredit: meta.isAccountCredit ?? false,
       appliedCreditAmount: meta.appliedCreditAmount ?? undefined,
+      isDeposit,
+      isPatientDeposit,
+      depositType: meta.depositType ?? (isDeposit ? 'patient' : null),
+      voidReason: meta.voidReason ?? null,
+      voidedAt: meta.voidedAt ?? null,
     };
   }
 
@@ -125,6 +147,7 @@ export class PaymentService {
     const [rows, total] = await Promise.all([
       prisma.payment.findMany({
         where,
+        include: { paysplit: true },
         orderBy: { PayDate: 'desc' },
         skip,
         take: limit,
@@ -508,6 +531,22 @@ export class PaymentService {
   }
 
   async voidPayment(paymentId: string, reason: string | undefined, userId: string) {
+    const payment = await prisma.payment.findUnique({
+      where: { PayNum: BigInt(paymentId) },
+      include: { paysplit: true },
+    });
+    if (!payment) {
+      throw new NotFoundError('Payment not found');
+    }
+
+    const meta = parseJson<PaymentMeta>(payment.PayNote);
+    const isDeposit = Boolean(meta.isDeposit || (payment.paysplit && payment.paysplit.some((ps) => Number(ps.UnearnedType) > 0)));
+
+    if (isDeposit) {
+      const { depositService } = await import('./deposit.service');
+      return depositService.voidDeposit(paymentId, { reason }, userId);
+    }
+
     return this.updatePayment(
       paymentId,
       {
