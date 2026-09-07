@@ -13,14 +13,25 @@ import { getPatientInsuranceMeta, setPatientInsuranceMeta, getPatientInsurancesM
 import { claimService } from './claim.service';
 
 const safeBigInt = (val: any): bigint => {
-  if (val === undefined || val === null || val === '') return 0n;
-  const str = String(val).trim();
-  if (str === 'null' || str === 'undefined' || str === 'none' || str === 'None') return 0n;
-  try {
-    return BigInt(str);
-  } catch (e) {
-    return 0n;
+  if (typeof val === 'bigint') return val;
+  if (typeof val === 'number') return BigInt(val);
+  if (typeof val === 'string' && /^\d+$/.test(val)) return BigInt(val);
+  return BigInt(0);
+};
+
+const toDbDate = (val?: Date | string | null): Date | null | undefined => {
+  if (val === undefined) return undefined;
+  if (val === null || val === '') return null;
+  if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      return new Date(`${trimmed}T00:00:00.000Z`);
+    }
+    const d = new Date(trimmed);
+    return isNaN(d.getTime()) ? null : d;
   }
+  return null;
 };
 
 const resolveValidFeeSchedNum = async (val: any): Promise<bigint | null> => {
@@ -580,8 +591,8 @@ export class PatientInsuranceService {
           PlanNum: planNum,
           Subscriber: BigInt(patientId),
           SubscriberID: data.policyNumber,
-          DateEffective: data.effectiveDate,
-          DateTerm: data.expirationDate ?? null,
+          DateEffective: toDbDate(data.effectiveDate) ?? null,
+          DateTerm: toDbDate(data.expirationDate) ?? null,
           SubscNote: data.notes ?? null,
         },
       });
@@ -737,8 +748,8 @@ export class PatientInsuranceService {
         where: { InsSubNum: patplan.inssub.InsSubNum },
         data: {
           SubscriberID: updates.policyNumber ?? undefined,
-          DateEffective: updates.effectiveDate ?? undefined,
-          DateTerm: updates.expirationDate ?? undefined,
+          DateEffective: toDbDate(updates.effectiveDate),
+          DateTerm: toDbDate(updates.expirationDate),
           SubscNote: updates.notes ?? undefined,
         },
       });

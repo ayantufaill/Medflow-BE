@@ -3,7 +3,7 @@ import { depositController } from '../controllers/deposit.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
-import { requirePermission } from '../middleware/permission.middleware';
+import { requirePermission, requireAnyPermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
   depositIdValidator,
@@ -256,6 +256,85 @@ router.post(
   requirePermission('deposits.create'),
   validate(createDepositValidator),
   depositController.createDeposit.bind(depositController)
+);
+
+/**
+ * @swagger
+ * /deposits/{depositId}/void:
+ *   patch:
+ *     summary: Void a deposit
+ *     tags: [Deposits]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: depositId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason: { type: string }
+ *     responses:
+ *       200:
+ *         description: Deposit voided successfully
+ *       400:
+ *         description: Invalid request or already voided
+ *       404:
+ *         description: Deposit not found
+ */
+router.patch(
+  '/:depositId/void',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requireAnyPermission('deposits.update', 'deposits.delete', 'payments.update'),
+  validate(depositIdValidator),
+  depositController.voidDeposit.bind(depositController)
+);
+
+router.post(
+  '/:depositId/void',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requireAnyPermission('deposits.update', 'deposits.delete', 'payments.update'),
+  validate(depositIdValidator),
+  depositController.voidDeposit.bind(depositController)
+);
+
+/**
+ * @swagger
+ * /deposits/{depositId}:
+ *   delete:
+ *     summary: Void/Delete a deposit
+ *     tags: [Deposits]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: depositId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Deposit voided successfully
+ *       400:
+ *         description: Invalid request or already voided
+ *       404:
+ *         description: Deposit not found
+ */
+router.delete(
+  '/:depositId',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requireAnyPermission('deposits.update', 'deposits.delete', 'payments.update'),
+  validate(depositIdValidator),
+  depositController.voidDeposit.bind(depositController)
 );
 
 export default router;
