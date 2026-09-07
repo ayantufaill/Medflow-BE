@@ -107,7 +107,7 @@ export class DepositService {
       throw new NotFoundError('Deposit not found');
     }
 
-    let split = await prisma.paysplit.findUnique({
+    let split: any = await prisma.paysplit.findUnique({
       where: { SplitNum: bigIntId },
       include: { payment: true },
     });
@@ -228,7 +228,7 @@ export class DepositService {
       return updatedPayment;
     });
 
-    await logActivity(userId, 'voided', 'deposits', (split?.SplitNum ?? payment.PayNum).toString(), { payment, split }, result);
+    await logActivity(userId, 'status_updated', 'deposits', (split?.SplitNum ?? payment.PayNum).toString(), { payment, split }, result);
 
     return {
       _id: split ? split.SplitNum.toString() : payment.PayNum.toString(),
