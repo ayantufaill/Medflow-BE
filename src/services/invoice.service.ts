@@ -139,18 +139,25 @@ export class InvoiceService {
       });
 
       if (!patPlan?.PatPlanNum) {
-        // No active insurance plan — assign 100% of each item's charge to the patient
+        // No active insurance plan — preserve manually specified portions if provided, otherwise assign charge (minus writeoff) to patient
         return items.map((item: any) => {
           const charge = roundCurrency(
             Number(item.totalPrice ?? item.charge ?? item.ProcFee ?? item.unitPrice ?? 0)
           );
+          const existingWriteoff = roundCurrency(Number(item.writeoff ?? item.estimatedWriteOff ?? 0));
+          const ptPortion = item.ptPortion !== undefined && item.ptPortion !== null
+            ? roundCurrency(Number(item.ptPortion))
+            : roundCurrency(Math.max(0, charge - existingWriteoff));
+          const insPortion = item.insPortion !== undefined && item.insPortion !== null
+            ? roundCurrency(Number(item.insPortion))
+            : 0;
           return {
             ...item,
-            ptPortion: charge,
-            insPortion: 0,
-            writeoff: 0,
-            estimatedWriteOff: 0,
-            coveragePct: 0,
+            ptPortion,
+            insPortion,
+            writeoff: existingWriteoff,
+            estimatedWriteOff: existingWriteoff,
+            coveragePct: item.coveragePct ?? 0,
             balance: charge,
           };
         });
@@ -159,7 +166,6 @@ export class InvoiceService {
       const insPlan = patPlan?.inssub?.insplan;
       const allowedFeeMap = new Map<string, number>();
       const planFeeMap = new Map<string, number>();
-      const defaultFeeMap = new Map<string, number>();
 
       if (insPlan?.AllowedFeeSched && insPlan.AllowedFeeSched > 0n) {
         const feeRecords = await prisma.fee.findMany({
@@ -181,19 +187,6 @@ export class InvoiceService {
         for (const f of feeRecords) {
           if (f.procedurecode?.ProcCode && f.Amount !== null && f.Amount !== undefined) {
             planFeeMap.set(f.procedurecode.ProcCode.toUpperCase().trim(), Number(f.Amount));
-          }
-        }
-      }
-
-      const defaultFeeSchedNum = await this.getDefaultFeeSchedNum();
-      if (defaultFeeSchedNum) {
-        const feeRecords = await prisma.fee.findMany({
-          where: { FeeSched: defaultFeeSchedNum },
-          include: { procedurecode: true }
-        });
-        for (const f of feeRecords) {
-          if (f.procedurecode?.ProcCode && f.Amount !== null && f.Amount !== undefined) {
-            defaultFeeMap.set(f.procedurecode.ProcCode.toUpperCase().trim(), Number(f.Amount));
           }
         }
       }
@@ -450,7 +443,7 @@ export class InvoiceService {
         const resolvedAllowedFee =
           explicitAllowedFee !== undefined
             ? explicitAllowedFee
-            : allowedFeeMap.get(cleanCode) ?? planFeeMap.get(cleanCode) ?? defaultFeeMap.get(cleanCode);
+            : allowedFeeMap.get(cleanCode) ?? (insPlan?.PlanType === 'p' ? planFeeMap.get(cleanCode) : undefined);
 
         let basisFee = charge;
         let estimatedWriteOff = 0;
@@ -467,8 +460,12 @@ export class InvoiceService {
           item.writeoff = 0;
           basisFee = charge;
         } else {
-          item.writeoff = 0;
-          item.estimatedWriteOff = 0;
+          const manualWriteoff = roundCurrency(Number(item.writeoff ?? item.estimatedWriteOff ?? 0));
+          item.writeoff = manualWriteoff;
+          item.estimatedWriteOff = manualWriteoff;
+          if (manualWriteoff > 0 && charge > manualWriteoff) {
+            basisFee = roundCurrency(charge - manualWriteoff);
+          }
         }
 
         if (percent !== undefined) {
@@ -1400,9 +1397,10 @@ export class InvoiceService {
           originalMeta.writeoff = enrichedItem.writeoff ?? originalMeta.writeoff ?? 0;
           originalMeta.estimatedWriteOff = enrichedItem.estimatedWriteOff ?? originalMeta.estimatedWriteOff ?? 0;
           originalMeta.allowedFee = enrichedItem.allowedFee ?? originalMeta.allowedFee ?? null;
+          originalItem.BillingNote = buildJson(originalMeta);
           await prisma.procedurelog.update({
             where: { ProcNum: originalItem.ProcNum },
-            data: { BillingNote: buildJson(originalMeta) }
+            data: { BillingNote: originalItem.BillingNote }
           });
         }
       }
