@@ -937,6 +937,17 @@ describe('Claims Procedures Fallback', () => {
       const claimNum = BigInt(Date.now() + Math.floor(Math.random() * 100000));
       const docNum = BigInt(Date.now() + Math.floor(Math.random() * 100000) + 1);
 
+      const testProcCode = 'D' + Math.floor(1000 + Math.random() * 9000).toString();
+      const testCodeNum = BigInt(Date.now() + Math.floor(Math.random() * 10000) + 100);
+      await prisma.procedurecode.create({
+        data: {
+          CodeNum: testCodeNum,
+          ProcCode: testProcCode,
+          Descript: 'Predetermination Composite Resin',
+          AbbrDesc: 'Comp Resin',
+        },
+      });
+
       // Create a PreAuth claim (Predetermination)
       const claim = await prisma.claim.create({
         data: {
@@ -949,6 +960,7 @@ describe('Claims Procedures Fallback', () => {
           Narrative: JSON.stringify({
             status: 'submitted',
             claimAmount: 350,
+            procedureIds: [testProcCode],
           }),
         },
       });
@@ -969,7 +981,7 @@ describe('Claims Procedures Fallback', () => {
         },
       });
 
-      // 1. Verify getClaimById (Fix #0, Fix #1, Fix #2)
+      // 1. Verify getClaimById (Fix #0, Fix #1, Fix #2, and PreAuth procedure fallback)
       const singleClaimRes = await request(app)
         .get(`/api/claims/${claim.ClaimNum}`)
         .set(authHeader);
@@ -983,6 +995,10 @@ describe('Claims Procedures Fallback', () => {
       expect(fetchedClaim.attachments.length).toBe(1);
       expect(fetchedClaim.attachments[0].name).toBe('XRay_Scan.pdf');
       expect(fetchedClaim.attachments[0].documentName).toBe('XRay_Scan.pdf');
+      expect(Array.isArray(fetchedClaim.procedures)).toBe(true);
+      expect(fetchedClaim.procedures.length).toBe(1);
+      expect(fetchedClaim.procedures[0].code).toBe(testProcCode);
+      expect(fetchedClaim.procedures[0].description).toBe('Predetermination Composite Resin');
 
       // 2. Verify quickStatusUpdate on predetermination claim (Fix #0)
       const statusRes = await request(app)
@@ -1007,7 +1023,7 @@ describe('Claims Procedures Fallback', () => {
       expect(docs.length).toBe(1);
       expect(docs[0].name).toBe('XRay_Scan.pdf');
 
-      // 4. Verify getAllClaims for predetermination tab includes attachments (Fix #1)
+      // 4. Verify getAllClaims for predetermination tab includes attachments (Fix #1) and procedures
       const listRes = await request(app)
         .get(`/api/claims?tab=predetermination&patientId=${patient.PatNum}`)
         .set(authHeader);
@@ -1019,12 +1035,17 @@ describe('Claims Procedures Fallback', () => {
       expect(listed.hasAttachment).toBe(true);
       expect(listed.attachments?.length).toBe(1);
       expect(listed.attachments[0].name).toBe('XRay_Scan.pdf');
+      expect(Array.isArray(listed.procedures)).toBe(true);
+      expect(listed.procedures.length).toBe(1);
+      expect(listed.procedures[0].code).toBe(testProcCode);
+      expect(listed.procedures[0].description).toBe('Predetermination Composite Resin');
 
       // Cleanup
       await prisma.document.delete({ where: { DocNum: docNum } });
       await prisma.claimtracking.deleteMany({ where: { ClaimNum: claimNum } });
       await prisma.claimproc.deleteMany({ where: { ClaimNum: claimNum } });
       await prisma.claim.delete({ where: { ClaimNum: claimNum } });
+      await prisma.procedurecode.delete({ where: { ProcCode: testProcCode } });
       await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
       await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
     });
