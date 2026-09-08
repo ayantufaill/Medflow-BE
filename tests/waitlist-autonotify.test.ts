@@ -92,8 +92,6 @@ describe('Waitlist Auto-Notification Engine', () => {
         AppointmentTypeNum: testApptTypeId,
         AptDateTime: targetDate,
         Pattern: '30',
-        Op: 1n,
-        ClinicNum: 1n,
         AptStatus: 0, // Scheduled (0 = scheduled, 1 = completed in OpenDental)
       },
     });
