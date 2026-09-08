@@ -42,3 +42,10 @@ export const emitToUser = (userId: string, event: string, payload: unknown): voi
   if (!io) return;
   io.to(`user:${userId}`).emit(event, payload);
 };
+
+export const getIO = (): SocketIOServer | null => io;
+
+export const broadcastEvent = (event: string, payload: unknown): void => {
+  if (!io) return;
+  io.emit(event, payload);
+};

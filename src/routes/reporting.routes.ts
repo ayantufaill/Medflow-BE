@@ -10,6 +10,7 @@ import {
   runReportValidator,
   reportIdParamValidator,
   archiveReportValidator,
+  financialReportQueryValidator,
 } from '../validators/reporting.validator';
 
 const router = Router();
@@ -336,6 +337,19 @@ import { reportGenerationController } from '../controllers/report-generation.con
  *           type: string
  *           enum: [Daily, Weekly, Monthly, Yearly]
  *         description: Reporting period granularity (default Daily)
+ *       - in: query
+ *         name: billingBeforeDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Filter statements before this date when billingDate is pt_last_statement_before
+ *       - in: query
+ *         name: billingDaysSince
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 3650
+ *         description: Filter statements older than this number of days when billingDate is day_since_last_statement
  *     responses:
  *       200:
  *         description: Financial report data compiled successfully
@@ -346,6 +360,7 @@ router.get(
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('reports.read'),
+  validate(financialReportQueryValidator),
   reportGenerationController.getFinancialReport.bind(reportGenerationController)
 );
 

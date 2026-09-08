@@ -41,9 +41,12 @@ export class AuthorizationController {
 
   async requestAuthorization(req: Request, res: Response, next: NextFunction) {
     try {
-      const rawProcedures = req.body.procedureIds || req.body.procedures;
-      const normalizedProcedures = Array.isArray(rawProcedures)
-        ? rawProcedures.map((id: any) => String(id))
+      const rawProcedures = req.body.procedures;
+      const rawProcedureIds = req.body.procedureIds;
+      const normalizedProcedureIds = Array.isArray(rawProcedureIds)
+        ? rawProcedureIds.map((id: any) => String(id))
+        : Array.isArray(rawProcedures)
+        ? rawProcedures.map((p: any) => typeof p === 'string' ? p : String(p.id || p._id || p.code || p.cptCode || p.procedureCode))
         : undefined;
       const normalizedServiceId =
         req.body.serviceId !== undefined && req.body.serviceId !== null
@@ -64,8 +67,8 @@ export class AuthorizationController {
         notes: req.body.notes,
         requestedBy: req.userId,
         tags: Array.isArray(req.body.tags) ? req.body.tags.map(String) : undefined,
-        procedures: normalizedProcedures,
-        procedureIds: normalizedProcedures,
+        procedures: Array.isArray(rawProcedures) ? rawProcedures : undefined,
+        procedureIds: normalizedProcedureIds,
         order: req.body.order,
       });
 
@@ -82,9 +85,12 @@ export class AuthorizationController {
   async updateAuthorization(req: Request, res: Response, next: NextFunction) {
     try {
       const authorizationId = req.params.authorizationId as string;
-      const rawProcedures = req.body.procedureIds || req.body.procedures;
-      const normalizedProcedures = Array.isArray(rawProcedures)
-        ? rawProcedures.map((id: any) => String(id))
+      const rawProcedures = req.body.procedures;
+      const rawProcedureIds = req.body.procedureIds;
+      const normalizedProcedureIds = Array.isArray(rawProcedureIds)
+        ? rawProcedureIds.map((id: any) => String(id))
+        : Array.isArray(rawProcedures)
+        ? rawProcedures.map((p: any) => typeof p === 'string' ? p : String(p.id || p._id || p.code || p.cptCode || p.procedureCode))
         : undefined;
       const normalizedServiceId =
         req.body.serviceId !== undefined && req.body.serviceId !== null
@@ -102,8 +108,8 @@ export class AuthorizationController {
         serviceId: normalizedServiceId,
         requestedBy: req.userId,
         tags: Array.isArray(req.body.tags) ? req.body.tags.map(String) : undefined,
-        procedures: normalizedProcedures,
-        procedureIds: normalizedProcedures,
+        procedures: Array.isArray(rawProcedures) ? rawProcedures : undefined,
+        procedureIds: normalizedProcedureIds,
         order: req.body.order,
       });
 
@@ -139,6 +145,20 @@ export class AuthorizationController {
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `inline; filename="authorization-${authorizationId}.pdf"`);
       res.status(200).send(pdfBuffer);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deleteAuthorization(req: Request, res: Response, next: NextFunction) {
+    try {
+      const authorizationId = req.params.authorizationId as string;
+      await authorizationService.deleteAuthorization(authorizationId);
+
+      res.status(200).json({
+        success: true,
+        data: null,
+      });
     } catch (error) {
       next(error);
     }

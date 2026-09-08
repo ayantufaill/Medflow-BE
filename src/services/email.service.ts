@@ -372,7 +372,6 @@ MedFlow
     const fromName = process.env.FROM_NAME || 'MedFlow';
 
     this.ensureTransporter();
-
     if (!this.transporter) {
       console.log('='.repeat(50));
       console.log('ESTIMATE SENT TO PATIENT (Console Mode)');
