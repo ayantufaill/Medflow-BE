@@ -1,5 +1,5 @@
 import { prisma } from '../config/db';
-import { getPatientsMeta } from '../utils/opendental-auth.util';
+import { getPatientsMeta, PATIENT_META_FKEYTYPE } from '../utils/opendental-auth.util';
 import { BadRequestError } from '../utils/error.util';
 
 export class ReportGenerationService {
@@ -224,7 +224,7 @@ export class ReportGenerationService {
       const provNum = Number(query.provider);
       if (!isNaN(provNum)) {
         filters.push(`p."PriProv" = $${paramIdx++}`);
-        params.push(provNum);
+        params.push(BigInt(provNum));
       }
     }
 
@@ -300,9 +300,21 @@ export class ReportGenerationService {
 
     // 7. query.flags (Patient with Flags)
     if (query.flags === 'with') {
-      filters.push(`EXISTS (SELECT 1 FROM patfield pf WHERE pf."PatNum" = p."PatNum")`);
+      filters.push(`EXISTS (
+        SELECT 1 FROM userodpref up 
+        WHERE up."Fkey" = p."PatNum" 
+          AND up."FkeyType" = ${PATIENT_META_FKEYTYPE} 
+          AND up."ValueString" LIKE '%patientFlags%' 
+          AND up."ValueString" NOT LIKE '%"patientFlags":[]%'
+      )`);
     } else if (query.flags === 'without') {
-      filters.push(`NOT EXISTS (SELECT 1 FROM patfield pf WHERE pf."PatNum" = p."PatNum")`);
+      filters.push(`NOT EXISTS (
+        SELECT 1 FROM userodpref up 
+        WHERE up."Fkey" = p."PatNum" 
+          AND up."FkeyType" = ${PATIENT_META_FKEYTYPE} 
+          AND up."ValueString" LIKE '%patientFlags%' 
+          AND up."ValueString" NOT LIKE '%"patientFlags":[]%'
+      )`);
     }
 
     // 8. query.branch
@@ -316,10 +328,13 @@ export class ReportGenerationService {
 
     // 9. query.carrier
     if (query.carrier && query.carrier !== 'all') {
+      const knownCarriers = ['delta', 'cigna', 'metlife', 'aetna'];
+      const isNamedCarrier = knownCarriers.includes(query.carrier.toLowerCase());
       const carrierId = Number(query.carrier);
-      if (!isNaN(carrierId)) {
+
+      if (!isNaN(carrierId) && !isNamedCarrier) {
         filters.push(`c."CarrierNum" = $${paramIdx++}`);
-        params.push(carrierId);
+        params.push(BigInt(carrierId));
       } else {
         // Safe parameterized carrier name matching
         filters.push(`c."CarrierName" ILIKE $${paramIdx++}`);
@@ -346,7 +361,11 @@ export class ReportGenerationService {
       if (!Number.isInteger(daysSince) || daysSince < 1 || daysSince > 3650) {
         throw new BadRequestError('billingDaysSince must be an integer between 1 and 3650');
       }
-      filters.push(`(SELECT MAX(st."DateSent") FROM statement st WHERE st."PatNum" = p."PatNum") <= CURRENT_DATE - ($${paramIdx++} * INTERVAL '1 day')`);
+      filters.push(`(
+        NOT EXISTS (SELECT 1 FROM statement st WHERE st."PatNum" = p."PatNum")
+        OR
+        (SELECT MAX(st."DateSent") FROM statement st WHERE st."PatNum" = p."PatNum") <= CURRENT_DATE - ($${paramIdx++} * INTERVAL '1 day')
+      )`);
       params.push(daysSince);
     }
 
@@ -373,7 +392,9 @@ export class ReportGenerationService {
         p."PatNum", p."FName", p."LName", p."PatStatus", p."PriProv",
         f."Bal_0_30", f."Bal_31_60", f."Bal_61_90", f."BalOver90", f."InsEst", f."BalTotal", f."PayPlanDue",
         c."CarrierName",
-        (SELECT MAX(st."DateSent") FROM statement st WHERE st."PatNum" = p."PatNum") AS "LastStatementDate"
+        (SELECT MAX(st."DateSent") FROM statement st WHERE st."PatNum" = p."PatNum") AS "LastStatementDate",
+        (SELECT MAX(ps."DatePay") FROM paysplit ps WHERE ps."PatNum" = p."PatNum") AS "LastPatientPaymentDate",
+        (SELECT MAX(cp."DateCP") FROM claimproc cp WHERE cp."PatNum" = p."PatNum" AND cp."Status" IN (1, 4, 5) AND cp."InsPayAmt" > 0) AS "LastInsPaymentDate"
       FROM patient p
       LEFT JOIN famaging f ON p."PatNum" = f."PatNum"
       LEFT JOIN patplan pp ON p."PatNum" = pp."PatNum" AND pp."Ordinal" = 1
@@ -392,6 +413,10 @@ export class ReportGenerationService {
 
     const agingBuckets = ['0 - 30 days', '31 - 60 days', '61 - 90 days', '91 - 120 days', '121 - 150 days', '151 - 180 days', '> 180 day'];
 
+    const isResetPatient = query.resetOnPatientPayment === 'reset_any';
+    const isResetInsurance = query.resetOnInsurancePayment === 'reset';
+    const now = new Date();
+
     const report = rawPatients.map((p) => {
       const bal0_30 = Number(p.Bal_0_30) || 0;
       const bal31_60 = Number(p.Bal_31_60) || 0;
@@ -406,11 +431,38 @@ export class ReportGenerationService {
         buckets[bucket] = { pt: 0, ins: 0 };
       });
 
-      // Distribute appropriately based on famaging table
-      buckets['0 - 30 days'] = { pt: bal0_30, ins: insEst };
-      buckets['31 - 60 days'] = { pt: bal31_60, ins: 0 };
-      buckets['61 - 90 days'] = { pt: bal61_90, ins: 0 };
-      buckets['91 - 120 days'] = { pt: balOver90, ins: 0 };
+      let resetClock = false;
+      if (isResetPatient && p.LastPatientPaymentDate) {
+        const payDate = new Date(p.LastPatientPaymentDate);
+        if (!isNaN(payDate.getTime())) {
+          const daysSincePay = Math.floor((now.getTime() - payDate.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysSincePay <= 30) {
+            resetClock = true;
+          }
+        }
+      }
+
+      if (isResetInsurance && p.LastInsPaymentDate) {
+        const insPayDate = new Date(p.LastInsPaymentDate);
+        if (!isNaN(insPayDate.getTime())) {
+          const daysSinceInsPay = Math.floor((now.getTime() - insPayDate.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysSinceInsPay <= 30) {
+            resetClock = true;
+          }
+        }
+      }
+
+      if (resetClock && balance > 0) {
+        buckets['0 - 30 days'] = { pt: balance, ins: insEst };
+        buckets['31 - 60 days'] = { pt: 0, ins: 0 };
+        buckets['61 - 90 days'] = { pt: 0, ins: 0 };
+        buckets['91 - 120 days'] = { pt: 0, ins: 0 };
+      } else {
+        buckets['0 - 30 days'] = { pt: bal0_30, ins: insEst };
+        buckets['31 - 60 days'] = { pt: bal31_60, ins: 0 };
+        buckets['61 - 90 days'] = { pt: bal61_90, ins: 0 };
+        buckets['91 - 120 days'] = { pt: balOver90, ins: 0 };
+      }
 
       const pNumStr = p.PatNum.toString();
       const patientFlags = meta[pNumStr]?.patientFlags || [];
