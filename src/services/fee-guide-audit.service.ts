@@ -35,6 +35,28 @@ export class FeeGuideAuditService {
     return diffs;
   }
 
+  private static tableEnsured = false;
+  private async ensureTable() {
+    if (FeeGuideAuditService.tableEnsured) return;
+    try {
+      await prisma.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS feeguideauditlog (
+          "AuditLogNum" BIGSERIAL PRIMARY KEY,
+          "FeeSchedNum" BIGINT NOT NULL,
+          "UserNum" BIGINT,
+          "Action" VARCHAR(50) NOT NULL,
+          "Diffs" JSONB NOT NULL DEFAULT '[]'::jsonb,
+          "Timestamp" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS "feeguideauditlog_FeeSchedNum_Timestamp_idx" 
+        ON feeguideauditlog ("FeeSchedNum", "Timestamp" DESC);
+      `);
+      FeeGuideAuditService.tableEnsured = true;
+    } catch {
+      // ignore table creation errors
+    }
+  }
+
   /**
    * Record a new audit log entry for a fee guide.
    */
@@ -45,6 +67,7 @@ export class FeeGuideAuditService {
     diffs: AuditDiff[];
   }): Promise<void> {
     try {
+      await this.ensureTable();
       const feeSchedNum = BigInt(params.feeSchedNum);
       const userNum = params.userId && /^\d+$/.test(params.userId) ? BigInt(params.userId) : null;
 
@@ -81,58 +104,64 @@ export class FeeGuideAuditService {
    * Retrieve audit history for a specific fee guide or all fee guides.
    */
   async getAuditHistory(feeSchedNum?: string | bigint) {
-    const where: any = {};
-    if (feeSchedNum !== undefined && feeSchedNum !== null && feeSchedNum !== '') {
-      where.FeeSchedNum = BigInt(feeSchedNum);
-    }
-
-    const logs = await prisma.feeguideauditlog.findMany({
-      where,
-      orderBy: { Timestamp: 'desc' },
-      include: {
-        userod: {
-          select: {
-            UserNum: true,
-            UserName: true,
-          },
-        },
-        feesched: {
-          select: {
-            FeeSchedNum: true,
-            Description: true,
-          },
-        },
-      },
-      take: 200,
-    });
-
-    return logs.map((log) => {
-      let diffs: AuditDiff[] = [];
-      if (Array.isArray(log.Diffs)) {
-        diffs = log.Diffs as unknown as AuditDiff[];
-      } else if (typeof log.Diffs === 'string') {
-        try {
-          diffs = JSON.parse(log.Diffs);
-        } catch {
-          diffs = [];
-        }
+    await this.ensureTable();
+    try {
+      const where: any = {};
+      if (feeSchedNum !== undefined && feeSchedNum !== null && feeSchedNum !== '') {
+        where.FeeSchedNum = BigInt(feeSchedNum);
       }
 
-      const actorName = log.userod?.UserName || 'System';
-      const feeGuideName = log.feesched?.Description || `Fee Guide #${log.FeeSchedNum.toString()}`;
+      const logs = await prisma.feeguideauditlog.findMany({
+        where,
+        orderBy: { Timestamp: 'desc' },
+        include: {
+          userod: {
+            select: {
+              UserNum: true,
+              UserName: true,
+            },
+          },
+          feesched: {
+            select: {
+              FeeSchedNum: true,
+              Description: true,
+            },
+          },
+        },
+        take: 200,
+      });
 
-      return {
-        id: log.AuditLogNum.toString(),
-        changedAt: log.Timestamp.toISOString(),
-        actorName,
-        user: actorName,
-        feeGuideName,
-        name: feeGuideName,
-        action: log.Action,
-        differences: diffs,
-        diff: diffs,
-      };
-    });
+      return logs.map((log) => {
+        let diffs: AuditDiff[] = [];
+        if (Array.isArray(log.Diffs)) {
+          diffs = log.Diffs as unknown as AuditDiff[];
+        } else if (typeof log.Diffs === 'string') {
+          try {
+            diffs = JSON.parse(log.Diffs);
+          } catch {
+            diffs = [];
+          }
+        }
+
+        const actorName = log.userod?.UserName || 'System';
+        const feeGuideName = log.feesched?.Description || `Fee Guide #${log.FeeSchedNum.toString()}`;
+
+        return {
+          id: log.AuditLogNum.toString(),
+          changedAt: log.Timestamp.toISOString(),
+          actorName,
+          user: actorName,
+          feeGuideName,
+          name: feeGuideName,
+          action: log.Action,
+          differences: diffs,
+          diff: diffs,
+        };
+      });
+    } catch (error) {
+      console.error('Failed to retrieve fee guide audit history:', error);
+      return [];
+    }
   }
 }
 

@@ -3,7 +3,7 @@ import app from '../../src/app';
 import { prisma } from '../../src/config/db';
 import { practiceGroupService } from '../../src/services/practice-group.service';
 import { hashPassword } from '../../src/utils/password.util';
-import { getUserMeta, setUserMeta } from '../../src/utils/opendental-auth.util';
+import { getUserMeta, setUserMeta, setRoleMeta } from '../../src/utils/opendental-auth.util';
 import { getNextId } from '../../src/utils/opendental-ids.util';
 import { uniqueToken } from './unique';
 
@@ -65,8 +65,12 @@ export async function createTenant(prefix = 'tenant'): Promise<Tenant> {
 }
 
 /**
- * A true platform operator — holds 'Super Admin' (which, unlike the per-practice
- * 'Admin' role, carries 'platform:manage_practice_groups' as an explicit named
+ * Creates a logged-in Super Admin caller with platform:manage_practice_groups
+ * capability — used by tests that verify Super Admin can operate across
+ * practice groups.
+ *
+ * Attaches the platform-level role via usergroup/usergroupattach, and explicitly
+ * grants 'platform:manage_practice_groups' in its role metadata (as an exact
  * permission rather than via the '*' wildcard) so assertCanOperateOnGroup's
  * platform-permission branch actually fires. Also attached to the literal
  * 'Admin' role, since practice-group.routes.ts gates on requireRoles('Admin')
@@ -76,8 +80,38 @@ export async function createTenant(prefix = 'tenant'): Promise<Tenant> {
  */
 export async function createSuperAdminAuthHeader(): Promise<{ Authorization: string }> {
   const token = uniqueToken('superadmin');
-  const superAdminRole = await prisma.usergroup.findFirstOrThrow({ where: { Description: 'Super Admin' } });
-  const adminRole = await prisma.usergroup.findFirstOrThrow({ where: { Description: 'Admin' } });
+  let superAdminRole = await prisma.usergroup.findFirst({ where: { Description: 'Super Admin' } });
+  if (!superAdminRole) {
+    const nextId = await getNextId('usergroup', 'UserGroupNum');
+    superAdminRole = await prisma.usergroup.create({
+      data: { UserGroupNum: nextId, Description: 'Super Admin' },
+    });
+    await setRoleMeta(superAdminRole.UserGroupNum, {
+      description: 'Super Admin',
+      permissions: {
+        'platform:manage_practice_groups': true,
+        'roles.create': true,
+        'roles.update': true,
+        'roles.delete': true,
+      },
+      isSystemRole: true,
+      isActive: true,
+    });
+  }
+
+  let adminRole = await prisma.usergroup.findFirst({ where: { Description: 'Admin' } });
+  if (!adminRole) {
+    const nextId = await getNextId('usergroup', 'UserGroupNum');
+    adminRole = await prisma.usergroup.create({
+      data: { UserGroupNum: nextId, Description: 'Admin' },
+    });
+    await setRoleMeta(adminRole.UserGroupNum, {
+      description: 'Admin',
+      permissions: { '*': true },
+      isSystemRole: true,
+      isActive: true,
+    });
+  }
 
   const email = `superadmin.${token}@example.com`.toLowerCase();
   const password = 'TestPass123!';
