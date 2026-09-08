@@ -1,5 +1,6 @@
+import crypto from 'crypto';
 import { prisma } from '../config/db';
-import { ConflictError, NotFoundError } from '../utils/error.util';
+import { BadRequestError, ConflictError, NotFoundError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { invoiceService } from './invoice.service';
@@ -58,6 +59,8 @@ type ClaimMeta = {
   createdBy?: string;
   sentDate?: string;
   declineReason?: string;
+  patientResponseToken?: string;
+  patientResponseTokenExpiresAt?: string;
   lineItems?: Array<{
     description: string;
     quantity: number;
@@ -453,14 +456,105 @@ export class EstimateService {
   }
 
   async sendEstimateToPatient(estimateId: string, userId: string) {
-    return this.updateEstimate(
-      estimateId,
-      {
-        status: 'sent',
-        sentDate: new Date(),
+    const estimate = await prisma.claim.findUnique({
+      where: { ClaimNum: BigInt(estimateId) },
+    });
+    if (!estimate) {
+      throw new NotFoundError('Estimate not found');
+    }
+
+    const meta = parseJson<ClaimMeta>(estimate.Narrative);
+    const token = crypto.randomBytes(24).toString('hex');
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    const nextMeta: ClaimMeta = {
+      ...meta,
+      sentDate: new Date().toISOString(),
+      patientResponseToken: token,
+      patientResponseTokenExpiresAt: expiresAt.toISOString(),
+    };
+
+    const updated = await prisma.claim.update({
+      where: { ClaimNum: BigInt(estimateId) },
+      data: {
+        ClaimStatus: statusToClaimStatus('sent'),
+        Narrative: buildJson(nextMeta),
       },
-      userId
+    });
+
+    await logActivity(
+      userId,
+      'updated',
+      'estimates',
+      estimateId,
+      this.mapClaimToEstimate(estimate, meta),
+      this.mapClaimToEstimate(updated, nextMeta),
+      undefined,
+      undefined,
+      'low'
     );
+
+    return this.mapClaimToEstimate(updated, nextMeta);
+  }
+
+  /**
+   * Record patient response (approve/decline) from email link. No auth required.
+   */
+  async recordPatientResponse(token: string, action: 'approve' | 'decline') {
+    if (!token?.trim()) {
+      throw new BadRequestError('Invalid link.');
+    }
+
+    const trimmedToken = token.trim();
+    const claims = await prisma.claim.findMany({
+      where: {
+        ClaimType: 'PreAuth',
+        Narrative: { contains: trimmedToken },
+      },
+    });
+
+    const match = claims.find((c) => {
+      const meta = parseJson<ClaimMeta>(c.Narrative);
+      return meta.patientResponseToken === trimmedToken;
+    });
+
+    if (!match) {
+      throw new NotFoundError('This link is invalid or has already been used.');
+    }
+
+    const currentStatus = claimStatusToStatus(match.ClaimStatus);
+    if (currentStatus !== 'sent') {
+      throw new BadRequestError('This estimate has already been responded to.');
+    }
+
+    const meta = parseJson<ClaimMeta>(match.Narrative);
+    const expiresAt = meta.patientResponseTokenExpiresAt
+      ? new Date(meta.patientResponseTokenExpiresAt)
+      : null;
+    if (expiresAt && expiresAt < new Date()) {
+      throw new BadRequestError('This link has expired.');
+    }
+
+    const nextMeta: ClaimMeta = {
+      ...meta,
+      approvedDate: action === 'approve' ? new Date().toISOString() : meta.approvedDate,
+      declineReason: action === 'decline' ? 'Declined by patient via response link' : meta.declineReason,
+    };
+    delete nextMeta.patientResponseToken;
+    delete nextMeta.patientResponseTokenExpiresAt;
+
+    await prisma.claim.update({
+      where: { ClaimNum: match.ClaimNum },
+      data: {
+        ClaimStatus: statusToClaimStatus(action === 'approve' ? 'approved' : 'declined'),
+        Narrative: buildJson(nextMeta),
+      },
+    });
+
+    return {
+      action,
+      estimateNumber: match.PreAuthString || `EST${match.ClaimNum}`,
+    };
   }
 
   async acceptEstimate(estimateId: string, userId: string) {

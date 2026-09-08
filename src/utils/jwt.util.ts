@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import type { JWTPayload, AuthTokens } from '../types/auth.types';
 import { prisma } from '../config/db';
@@ -33,9 +34,19 @@ export const generateTokens = (payload: Omit<JWTPayload, 'iat' | 'exp'>): AuthTo
   };
 };
 
+const hashToken = (token: string): string => {
+  return crypto.createHash('sha256').update(token).digest('hex');
+};
+
 const isTokenBlacklisted = async (token: string): Promise<boolean> => {
+  const hash = hashToken(token);
   const record = await prisma.sessiontoken.findFirst({
-    where: { SessionTokenHash: token },
+    where: {
+      OR: [
+        { SessionTokenHash: hash },
+        { SessionTokenHash: token.slice(0, 255) },
+      ],
+    },
   });
   if (!record) return false;
   if (record.Expiration && record.Expiration < new Date()) return false;
@@ -93,7 +104,7 @@ export const blacklistToken = async (
       await prisma.sessiontoken.create({
         data: {
           SessionTokenNum: nextId,
-          SessionTokenHash: token,
+          SessionTokenHash: hashToken(token),
           Expiration: expiresAt,
         },
       });
