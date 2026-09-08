@@ -223,4 +223,33 @@ router.get(
   authorizationController.printAuthorizationForm.bind(authorizationController)
 );
 
+/**
+ * @swagger
+ * /authorizations/{authorizationId}:
+ *   delete:
+ *     summary: Delete authorization by ID
+ *     tags: [Authorizations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: authorizationId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Authorization deleted
+ *       404:
+ *         description: Authorization not found
+ */
+router.delete(
+  '/:authorizationId',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('authorizations.delete'),
+  validate(authorizationIdValidator),
+  authorizationController.deleteAuthorization.bind(authorizationController)
+);
+
 export default router;
