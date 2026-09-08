@@ -1,4 +1,4 @@
-import { body, param, type ValidationChain } from 'express-validator';
+import { body, param, query, type ValidationChain } from 'express-validator';
 
 export const saveReportValidator: ValidationChain[] = [
   body('name').isString().notEmpty().withMessage('Report name is required'),
@@ -24,5 +24,20 @@ export const reportIdParamValidator: ValidationChain[] = [
 export const archiveReportValidator: ValidationChain[] = [
   body('type').isString().notEmpty().withMessage('Report type is required'),
   body('data').notEmpty().withMessage('Report data is required'),
+];
+
+export const financialReportQueryValidator: ValidationChain[] = [
+  query('billingBeforeDate')
+    .if(query('billingDate').equals('pt_last_statement_before'))
+    .notEmpty()
+    .withMessage('billingBeforeDate is required when billingDate is pt_last_statement_before')
+    .isISO8601()
+    .withMessage('billingBeforeDate must be a valid ISO8601 date'),
+  query('billingDaysSince')
+    .if(query('billingDate').equals('day_since_last_statement'))
+    .notEmpty()
+    .withMessage('billingDaysSince is required when billingDate is day_since_last_statement')
+    .isInt({ min: 1, max: 3650 })
+    .withMessage('billingDaysSince must be an integer between 1 and 3650'),
 ];
 

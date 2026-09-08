@@ -258,6 +258,14 @@ router.delete(
  *         description: Invoice created from estimate
  */
 router.post(
+  '/:estimateId/send',
+  authenticate,
+  requirePermission('invoices.update'),
+  validate(estimateIdValidator),
+  estimateController.sendToPatient.bind(estimateController)
+);
+
+router.post(
   '/:estimateId/convert',
   authenticate,
   resolveBranchAccess,

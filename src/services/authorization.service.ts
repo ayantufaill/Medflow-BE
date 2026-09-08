@@ -18,6 +18,7 @@ type AuthMeta = {
   insuranceCompanyId?: string;
   tags?: string[];
   procedureIds?: string[];
+  procedures?: any[];
   order?: string;
 };
 
@@ -242,35 +243,35 @@ export class AuthorizationService {
 
     const insuranceCompanies = insuranceIds.length
       ? await prisma.carrier.findMany({
-          where: {
-            CarrierNum: {
-              in: insuranceIds
-                .map((id) => toBigInt(id))
-                .filter((id): id is bigint => id !== null),
-            },
+        where: {
+          CarrierNum: {
+            in: insuranceIds
+              .map((id) => toBigInt(id))
+              .filter((id): id is bigint => id !== null),
           },
-        })
+        },
+      })
       : [];
 
     const services = allServiceAndProcIds.length
       ? await prisma.procedurecode.findMany({
-          where: {
-            OR: [
-              {
-                CodeNum: {
-                  in: allServiceAndProcIds
-                    .map((id) => toBigInt(id))
-                    .filter((id): id is bigint => id !== null),
-                },
+        where: {
+          OR: [
+            {
+              CodeNum: {
+                in: allServiceAndProcIds
+                  .map((id) => toBigInt(id))
+                  .filter((id): id is bigint => id !== null),
               },
-              {
-                ProcCode: {
-                  in: allServiceAndProcIds.map((id) => String(id)),
-                },
+            },
+            {
+              ProcCode: {
+                in: allServiceAndProcIds.map((id) => String(id)),
               },
-            ],
-          },
-        })
+            },
+          ],
+        },
+      })
       : [];
 
     const insuranceById = new Map(insuranceCompanies.map((item) => [item.CarrierNum.toString(), item]));
@@ -291,7 +292,7 @@ export class AuthorizationService {
         ? insuranceById.get(meta.insuranceCompanyId)
         : undefined;
       const service = meta.serviceId ? resolveServiceOrProc(String(meta.serviceId)) : undefined;
-      const procedures = (meta.procedureIds || [])
+      const procedures = meta.procedures || (meta.procedureIds || [])
         .map((pId) => buildServiceView(resolveServiceOrProc(String(pId))))
         .filter(Boolean);
 
@@ -365,17 +366,19 @@ export class AuthorizationService {
       : null;
     const service = meta.serviceId
       ? await prisma.procedurecode.findFirst({
-          where: {
-            OR: [
-              ...(toBigInt(meta.serviceId) ? [{ CodeNum: toBigInt(meta.serviceId)! }] : []),
-              { ProcCode: String(meta.serviceId) },
-            ],
-          },
-        })
+        where: {
+          OR: [
+            ...(toBigInt(meta.serviceId) ? [{ CodeNum: toBigInt(meta.serviceId)! }] : []),
+            { ProcCode: String(meta.serviceId) },
+          ],
+        },
+      })
       : null;
 
     let procedures: any[] = [];
-    if (meta.procedureIds && meta.procedureIds.length > 0) {
+    if (meta.procedures && meta.procedures.length > 0) {
+      procedures = meta.procedures;
+    } else if (meta.procedureIds && meta.procedureIds.length > 0) {
       const procRows = await prisma.procedurecode.findMany({
         where: {
           OR: [
@@ -420,9 +423,15 @@ export class AuthorizationService {
     requestedBy?: string;
     tags?: string[];
     procedureIds?: string[];
-    procedures?: string[];
+    procedures?: any[];
     order?: string;
   }) {
+    const activePlan = await prisma.patplan.findFirst({
+      where: { PatNum: BigInt(data.patientId) },
+    });
+    if (!activePlan) {
+      throw new ConflictError('Patient has no insurance coverage on file');
+    }
     const authorizationNumber = data.authorizationNumber || (await this.generateAuthorizationNumber());
 
     const existing = await prisma.claim.findFirst({
@@ -437,7 +446,19 @@ export class AuthorizationService {
 
     const status = normalizeStatus(data.status);
     const claimNum = await getNextId('claim', 'ClaimNum');
-    const rawProcIds = data.procedureIds || data.procedures;
+
+    let rawProcIds = data.procedureIds;
+    let fullProcedures = undefined;
+
+    if (data.procedures && data.procedures.length > 0) {
+      if (typeof data.procedures[0] === 'string') {
+        rawProcIds = rawProcIds || data.procedures;
+      } else {
+        fullProcedures = data.procedures;
+        rawProcIds = rawProcIds || data.procedures.map((p: any) => String(p.id || p._id || p.code || p.procedureCode));
+      }
+    }
+
     const resolvedProcedureIds = rawProcIds ? rawProcIds.map((id) => String(id)) : undefined;
 
     const meta: AuthMeta = {
@@ -452,8 +473,16 @@ export class AuthorizationService {
       insuranceCompanyId: data.insuranceCompanyId ? String(data.insuranceCompanyId) : undefined,
       tags: data.tags ? data.tags.map((t) => String(t)) : [],
       procedureIds: resolvedProcedureIds ?? (data.serviceId ? [String(data.serviceId)] : []),
+      procedures: fullProcedures,
       order: data.order ?? 'Primary',
     };
+
+    // AFTER — resolve a provider id from the submitted procedures and persist it on the claim row
+    const firstProcProviderId = fullProcedures?.find((p: any) => p?.providerId || p?.provider)?.providerId
+      ?? fullProcedures?.find((p: any) => p?.providerId || p?.provider)?.provider;
+    const provNum = firstProcProviderId && /^\d+$/.test(String(firstProcProviderId))
+      ? BigInt(String(firstProcProviderId))
+      : null;
 
     const auth = await prisma.claim.create({
       data: {
@@ -467,6 +496,8 @@ export class AuthorizationService {
         PreAuthString: authorizationNumber,
         ClaimNote: data.notes ?? null,
         Narrative: buildJson(meta),
+        ProvTreat: provNum,
+        ProvBill: provNum,
       },
       include: { patient: true },
     });
@@ -478,17 +509,19 @@ export class AuthorizationService {
       : null;
     const service = data.serviceId
       ? await prisma.procedurecode.findFirst({
-          where: {
-            OR: [
-              ...(toBigInt(data.serviceId) ? [{ CodeNum: toBigInt(data.serviceId)! }] : []),
-              { ProcCode: String(data.serviceId) },
-            ],
-          },
-        })
+        where: {
+          OR: [
+            ...(toBigInt(data.serviceId) ? [{ CodeNum: toBigInt(data.serviceId)! }] : []),
+            { ProcCode: String(data.serviceId) },
+          ],
+        },
+      })
       : null;
 
     let procedures: any[] = [];
-    if (meta.procedureIds && meta.procedureIds.length > 0) {
+    if (meta.procedures && meta.procedures.length > 0) {
+      procedures = meta.procedures;
+    } else if (meta.procedureIds && meta.procedureIds.length > 0) {
       const procRows = await prisma.procedurecode.findMany({
         where: {
           OR: [
@@ -532,7 +565,7 @@ export class AuthorizationService {
       requestedBy: string;
       tags: string[];
       procedureIds: string[];
-      procedures: string[];
+      procedures: any[];
       order: string;
     }>
   ) {
@@ -548,7 +581,19 @@ export class AuthorizationService {
     const meta = parseJson<AuthMeta>(auth.Narrative);
     const previousStatus = normalizeStatus(meta.status ?? claimStatusToAuthStatus(auth.ClaimStatus));
     const nextStatus = updates.status ? normalizeStatus(updates.status) : previousStatus;
-    const rawProcIds = updates.procedureIds || updates.procedures;
+
+    let rawProcIds = updates.procedureIds;
+    let fullProcedures = meta.procedures;
+
+    if (updates.procedures && updates.procedures.length > 0) {
+      if (typeof updates.procedures[0] === 'string') {
+        rawProcIds = rawProcIds || updates.procedures;
+      } else {
+        fullProcedures = updates.procedures;
+        rawProcIds = rawProcIds || updates.procedures.map((p: any) => String(p.id || p._id || p.code || p.procedureCode));
+      }
+    }
+
     const resolvedProcedureIds = rawProcIds ? rawProcIds.map((id) => String(id)) : undefined;
 
     const nextMeta: AuthMeta = {
@@ -564,6 +609,7 @@ export class AuthorizationService {
       requestedBy: updates.requestedBy ?? meta.requestedBy,
       tags: updates.tags ? updates.tags.map((t) => String(t)) : meta.tags,
       procedureIds: resolvedProcedureIds ?? (meta.procedureIds ? meta.procedureIds.map((id) => String(id)) : undefined),
+      procedures: fullProcedures,
       order: updates.order ?? meta.order,
     };
 
@@ -594,17 +640,19 @@ export class AuthorizationService {
       : null;
     const service = nextMeta.serviceId
       ? await prisma.procedurecode.findFirst({
-          where: {
-            OR: [
-              ...(toBigInt(nextMeta.serviceId) ? [{ CodeNum: toBigInt(nextMeta.serviceId)! }] : []),
-              { ProcCode: String(nextMeta.serviceId) },
-            ],
-          },
-        })
+        where: {
+          OR: [
+            ...(toBigInt(nextMeta.serviceId) ? [{ CodeNum: toBigInt(nextMeta.serviceId)! }] : []),
+            { ProcCode: String(nextMeta.serviceId) },
+          ],
+        },
+      })
       : null;
 
     let procedures: any[] = [];
-    if (nextMeta.procedureIds && nextMeta.procedureIds.length > 0) {
+    if (nextMeta.procedures && nextMeta.procedures.length > 0) {
+      procedures = nextMeta.procedures;
+    } else if (nextMeta.procedureIds && nextMeta.procedureIds.length > 0) {
       const procRows = await prisma.procedurecode.findMany({
         where: {
           OR: [
@@ -661,10 +709,10 @@ export class AuthorizationService {
         timestamp: item.DateTimeEntry ?? null,
         changedBy: item.userod
           ? {
-              _id: item.userod.UserNum.toString(),
-              firstName: item.userod.UserName ?? '',
-              lastName: '',
-            }
+            _id: item.userod.UserNum.toString(),
+            firstName: item.userod.UserName ?? '',
+            lastName: '',
+          }
           : null,
       };
     });
@@ -676,6 +724,42 @@ export class AuthorizationService {
     const patientName = authorization.patient
       ? `${authorization.patient.firstName || ''} ${authorization.patient.lastName || ''}`.trim()
       : 'Unknown Patient';
+
+    // Resolve requestedBy from user ID to a human-readable name
+    let requestedByName = authorization.requestedBy;
+    if (requestedByName && /^\d+$/.test(String(requestedByName))) {
+      try {
+        const user = await prisma.userod.findUnique({
+          where: { UserNum: BigInt(requestedByName) },
+        });
+        if (user) {
+          requestedByName = user.UserName || requestedByName;
+        }
+      } catch {
+        // keep raw value if lookup fails
+      }
+    }
+
+    // If insuranceCompany is not set, try to resolve from the patient's insurance plan
+    let insuranceCompany = authorization.insuranceCompany;
+    if (!insuranceCompany && authorization.patientRefId) {
+      try {
+        const patSub = await prisma.inssub.findFirst({
+          where: { Subscriber: BigInt(authorization.patientRefId) },
+          include: {
+            insplan: {
+              include: { carrier: true },
+            },
+          },
+          orderBy: { InsSubNum: 'asc' },
+        });
+        if (patSub?.insplan?.carrier) {
+          insuranceCompany = buildInsuranceCompanyView(patSub.insplan.carrier);
+        }
+      } catch {
+        // keep null if lookup fails
+      }
+    }
 
     const pdfDoc = await PDFDocument.create();
     const page = pdfDoc.addPage([612, 792]);
@@ -723,28 +807,39 @@ export class AuthorizationService {
     drawField('Payer ID', authorization.insuranceCompany?.payerId, 318, y, 230);
 
     y = drawSection('AUTHORIZATION DETAILS', y - 48);
-    drawField('Service', authorization.service?.name, margin + 12, y, 230);
-    drawField('CPT code', authorization.service?.cptCode, 318, y, 230);
+    const mainService = authorization.service || (authorization.procedures && authorization.procedures[0]) || null;
+    drawField('Service', mainService?.name || mainService?.description || 'Authorization request', margin + 12, y, 230);
+    drawField('CPT code', mainService?.cptCode || mainService?.code || '-', 318, y, 230);
     y -= 58;
     drawField('Requested date', formatDate(authorization.requestedDate), margin + 12, y, 150);
     drawField('Approved date', formatDate(authorization.approvedDate), 222, y, 150);
     drawField('Expiration date', formatDate(authorization.expirationDate), 396, y, 150);
-    y -= 58;
-    drawField('Units authorized', authorization.unitsAuthorized, margin + 12, y, 150);
-    drawField('Units used', authorization.unitsUsed ?? 0, 222, y, 150);
-    drawField('Requested by', authorization.requestedBy, 396, y, 150);
 
     y = drawSection('SERVICES', y - 48);
     page.drawRectangle({ x: margin, y: y - 22, width: contentWidth, height: 24, color: colors.navy });
     page.drawText('SERVICE', { x: margin + 10, y: y - 14, size: 8, font: boldFont, color: colors.white });
     page.drawText('CPT CODE', { x: 355, y: y - 14, size: 8, font: boldFont, color: colors.white });
     page.drawText('UNITS', { x: 465, y: y - 14, size: 8, font: boldFont, color: colors.white });
-    page.drawRectangle({ x: margin, y: y - 52, width: contentWidth, height: 30, borderColor: colors.border, borderWidth: 1, color: colors.white });
-    page.drawText(String(authorization.service?.name || 'Authorization request'), { x: margin + 10, y: y - 41, size: 9.5, font, color: colors.text, maxWidth: 290 });
-    page.drawText(String(authorization.service?.cptCode || '-'), { x: 355, y: y - 41, size: 9.5, font, color: colors.text });
-    page.drawText(String(authorization.unitsAuthorized ?? '-'), { x: 465, y: y - 41, size: 9.5, font, color: colors.text });
 
-    y -= 88;
+    const proceduresToPrint = authorization.procedures?.length ? authorization.procedures : [mainService].filter(Boolean);
+
+    if (proceduresToPrint.length === 0) {
+      page.drawRectangle({ x: margin, y: y - 52, width: contentWidth, height: 30, borderColor: colors.border, borderWidth: 1, color: colors.white });
+      page.drawText('Authorization request', { x: margin + 10, y: y - 41, size: 9.5, font, color: colors.text, maxWidth: 290 });
+      page.drawText('-', { x: 355, y: y - 41, size: 9.5, font, color: colors.text });
+      page.drawText(String(authorization.unitsAuthorized ?? '-'), { x: 465, y: y - 41, size: 9.5, font, color: colors.text });
+      y -= 88;
+    } else {
+      let rectY = y - 52;
+      for (const proc of proceduresToPrint) {
+        page.drawRectangle({ x: margin, y: rectY, width: contentWidth, height: 30, borderColor: colors.border, borderWidth: 1, color: colors.white });
+        page.drawText(String(proc?.name || proc?.description || 'Authorization request'), { x: margin + 10, y: rectY + 11, size: 9.5, font, color: colors.text, maxWidth: 290 });
+        page.drawText(String(proc?.cptCode || proc?.code || '-'), { x: 355, y: rectY + 11, size: 9.5, font, color: colors.text });
+        page.drawText(String(authorization.unitsAuthorized ?? '-'), { x: 465, y: rectY + 11, size: 9.5, font, color: colors.text });
+        rectY -= 30;
+      }
+      y = rectY - 36;
+    }
     y = drawSection('NOTES', y);
     page.drawText(String(authorization.notes || 'No notes provided.'), { x: margin + 12, y: y - 8, size: 10, font, color: colors.text, maxWidth: contentWidth - 24 });
 
@@ -765,8 +860,39 @@ export class AuthorizationService {
       throw new NotFoundError('Authorization not found');
     }
 
-    await prisma.claim.delete({ where: { ClaimNum: auth.ClaimNum } });
-    return { message: 'Authorization deleted successfully' };
+    // Cascade delete any claims that were generated from this authorization
+    if (auth.PreAuthString || auth.PriorAuthorizationNumber) {
+      const authString = auth.PreAuthString || auth.PriorAuthorizationNumber;
+      if (authString) {
+        const associatedClaims = await prisma.claim.findMany({
+          where: { 
+            OR: [
+              { PriorAuthorizationNumber: authString },
+              { PreAuthString: authString }
+            ],
+            ClaimNum: { not: auth.ClaimNum } 
+          }
+        });
+        
+        for (const associatedClaim of associatedClaims) {
+          await prisma.$transaction([
+            prisma.claimtracking.deleteMany({ where: { ClaimNum: associatedClaim.ClaimNum } }),
+            prisma.claimproc.deleteMany({ where: { ClaimNum: associatedClaim.ClaimNum } }),
+            prisma.claimattach.deleteMany({ where: { ClaimNum: associatedClaim.ClaimNum } }),
+            prisma.claim.delete({ where: { ClaimNum: associatedClaim.ClaimNum } }),
+          ]);
+        }
+      }
+    }
+
+    await prisma.$transaction([
+      prisma.claimtracking.deleteMany({ where: { ClaimNum: auth.ClaimNum } }),
+      prisma.claimproc.deleteMany({ where: { ClaimNum: auth.ClaimNum } }),
+      prisma.claimattach.deleteMany({ where: { ClaimNum: auth.ClaimNum } }),
+      prisma.claim.delete({ where: { ClaimNum: auth.ClaimNum } }),
+    ]);
+
+    return { message: 'Authorization and associated claims deleted successfully' };
   }
 }
 
