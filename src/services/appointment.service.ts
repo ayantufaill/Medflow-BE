@@ -340,10 +340,22 @@ export class AppointmentService {
   ) {
     const meta = options?.preloadedAptMeta ?? await getAppointmentMeta(appointment.AptNum);
     const dbStatus = mapAppointmentStatusFromDb(appointment.AptStatus);
-    const resolvedStatus =
-      dbStatus === 'completed' || dbStatus === 'cancelled' || dbStatus === 'no_show'
-        ? dbStatus
-        : (meta.status ?? dbStatus);
+    let resolvedStatus = meta?.status ?? dbStatus;
+
+    // Evaluate on-demand auto-no-show:
+    // If status is in ['scheduled', 'unconfirmed', 'preconfirmed', 'confirmed'] and past end_time + 60m
+    if (
+      appointment.AptDateTime &&
+      ['scheduled', 'unconfirmed', 'preconfirmed', 'confirmed'].includes(resolvedStatus.toLowerCase())
+    ) {
+      const durationMinutes = getDurationMinutesFromPattern(appointment.Pattern);
+      const endTime = new Date(new Date(appointment.AptDateTime).getTime() + durationMinutes * 60 * 1000);
+      const cutoffTime = new Date(endTime.getTime() + 60 * 60 * 1000);
+      if (Date.now() > cutoffTime.getTime()) {
+        this.evaluateAutoNoShow(appointment, meta).catch(() => {});
+        resolvedStatus = 'no_show';
+      }
+    }
     const mapped: any = mapAppointmentToApi(appointment, {
       ...options,
       requiresInterpreter: meta.requiresInterpreter ?? false,
@@ -1133,7 +1145,45 @@ async getPatientAppointments(patientId: string, limit = 10) {
       throw new NotFoundError('Appointment not found');
     }
 
-    const targetStatus = updates.status !== undefined ? updates.status : mapAppointmentStatusFromDb(appointment.AptStatus);
+    const existingMeta = await getAppointmentMeta(appointment.AptNum);
+    const dbStatus = mapAppointmentStatusFromDb(appointment.AptStatus);
+    const currentStatus = existingMeta?.status ?? dbStatus;
+
+    const isCurrentlyCheckedOut =
+      currentStatus === 'completed' ||
+      currentStatus === 'checked_out_complete' ||
+      currentStatus === 'checked_out_incomplete';
+
+    // 1. If currently checked out, status is locked - no further changes allowed
+    if (isCurrentlyCheckedOut && updates.status !== undefined && updates.status !== currentStatus) {
+      throw new BadRequestError('This appointment has already been checked out and its status is locked.');
+    }
+
+    const targetStatus = updates.status !== undefined ? updates.status : currentStatus;
+    const isTargetCheckout =
+      targetStatus === 'completed' ||
+      targetStatus === 'checked_out_complete' ||
+      targetStatus === 'checked_out_incomplete';
+
+    // 2. An appointment can only be manually marked as Checked Out if now >= start time
+    if (updates.status !== undefined && isTargetCheckout && !isCurrentlyCheckedOut) {
+      let apptStartDateTime: Date | null = appointment.AptDateTime ? new Date(appointment.AptDateTime) : null;
+      if (updates.appointmentDate && updates.startTime) {
+        apptStartDateTime = toDateTime(new Date(updates.appointmentDate), updates.startTime);
+      } else if (updates.appointmentDate && appointment.AptDateTime) {
+        const timeStr = formatMinutesToTime(
+          appointment.AptDateTime.getHours() * 60 + appointment.AptDateTime.getMinutes()
+        );
+        apptStartDateTime = toDateTime(new Date(updates.appointmentDate), timeStr);
+      } else if (updates.startTime && appointment.AptDateTime) {
+        apptStartDateTime = toDateTime(appointment.AptDateTime, updates.startTime);
+      }
+
+      if (apptStartDateTime && Date.now() < apptStartDateTime.getTime()) {
+        throw new BadRequestError('Cannot check out an appointment before its scheduled start time.');
+      }
+    }
+
     const isInactiveStatus = targetStatus === 'no_show' || targetStatus === 'cancelled' || targetStatus === 'pending';
 
     // If updating date/time or provider, check for conflicts (including buffers and room)
@@ -1254,13 +1304,6 @@ async getPatientAppointments(patientId: string, limit = 10) {
         userod: true,
       },
     });
-
-    const existingMeta = await getAppointmentMeta(appointment.AptNum);
-    const dbStatus = mapAppointmentStatusFromDb(appointment.AptStatus);
-    const currentStatus =
-      dbStatus === 'completed' || dbStatus === 'cancelled' || dbStatus === 'no_show'
-        ? dbStatus
-        : (existingMeta.status ?? dbStatus);
 
     const hasStatusChanged = updates.status !== undefined && updates.status !== currentStatus;
     const nextSystemEvents = [...(existingMeta.systemEvents ?? [])];
@@ -1848,6 +1891,103 @@ async getPatientAppointments(patientId: string, limit = 10) {
   }
 
   /**
+   * Evaluates whether an appointment should automatically transition to 'no_show'.
+   * Formula: now > appointment_end_time + 60 minutes AND status in ['scheduled', 'unconfirmed', 'preconfirmed', 'confirmed'].
+   */
+  async evaluateAutoNoShow(appointment: any, meta?: any): Promise<string | null> {
+    if (!appointment?.AptDateTime) return null;
+
+    const aptMeta = meta ?? await getAppointmentMeta(appointment.AptNum);
+    const dbStatus = mapAppointmentStatusFromDb(appointment.AptStatus);
+    const currentStatus = (aptMeta?.status ?? dbStatus).toLowerCase();
+
+    const AUTO_NO_SHOW_ELIGIBLE_STATUSES = ['scheduled', 'unconfirmed', 'preconfirmed', 'confirmed'];
+    if (!AUTO_NO_SHOW_ELIGIBLE_STATUSES.includes(currentStatus)) {
+      return null;
+    }
+
+    const durationMinutes = getDurationMinutesFromPattern(appointment.Pattern);
+    const endTime = new Date(new Date(appointment.AptDateTime).getTime() + durationMinutes * 60 * 1000);
+    const cutoffTime = new Date(endTime.getTime() + 60 * 60 * 1000);
+
+    if (Date.now() <= cutoffTime.getTime()) {
+      return null;
+    }
+
+    // Past 60 minutes after end time -> Auto transition to 'no_show'
+    await prisma.appointment.update({
+      where: { AptNum: appointment.AptNum },
+      data: {
+        AptStatus: mapAppointmentStatusToDb('no_show'),
+      },
+    });
+
+    const newEvent = {
+      id: `event-${Date.now()}`,
+      type: 'status_changed',
+      message: 'Status automatically changed to No Show (past appointment window + 60m buffer)',
+      createdAt: new Date().toISOString(),
+      createdBy: 'System',
+    };
+
+    await setAppointmentMeta(appointment.AptNum, {
+      ...aptMeta,
+      status: 'no_show',
+      systemEvents: [...(aptMeta?.systemEvents ?? []), newEvent],
+    });
+
+    if (appointment.ProvNum && appointment.AptDateTime) {
+      try {
+        const { waitlistService } = await import('./waitlist.service.js');
+        await waitlistService.matchAndNotifyForCancellation({
+          appointmentId: appointment.AptNum.toString(),
+          providerId: appointment.ProvNum.toString(),
+          appointmentTypeId: appointment.AppointmentTypeNum ? appointment.AppointmentTypeNum.toString() : null,
+          appointmentDateTime: new Date(appointment.AptDateTime),
+        });
+      } catch (e) {
+        // Ignore waitlist notification errors in background
+      }
+    }
+
+    try {
+      const { getIO } = await import('../sockets/socket.js');
+      getIO()?.emit('appointment:status_changed', {
+        appointmentId: appointment.AptNum.toString(),
+        status: 'no_show',
+      });
+    } catch (e) {}
+
+    return 'no_show';
+  }
+
+  /**
+   * Sweeps all scheduled appointments that are past their end time + 60 minute buffer,
+   * transitioning them to 'no_show'.
+   */
+  async autoUpdateNoShowAppointments(): Promise<{ checked: number; updated: number }> {
+    const cutoffThreshold = new Date(Date.now() - 60 * 60 * 1000);
+    const candidates = await prisma.appointment.findMany({
+      where: {
+        AptStatus: 0,
+        AptDateTime: {
+          lt: cutoffThreshold,
+        },
+      },
+    });
+
+    let updated = 0;
+    for (const apt of candidates) {
+      const res = await this.evaluateAutoNoShow(apt);
+      if (res) {
+        updated++;
+      }
+    }
+
+    return { checked: candidates.length, updated };
+  }
+
+  /**
    * Check-in patient
    */
   async checkInAppointment(appointmentId: string, checkedInBy: string) {
@@ -2279,12 +2419,23 @@ async getPatientAppointments(patientId: string, limit = 10) {
       throw new NotFoundError('Appointment not found');
     }
 
-    const currentStatus = mapAppointmentStatusFromDb(appointment.AptStatus);
+    const meta = await getAppointmentMeta(appointment.AptNum);
+    const dbStatus = mapAppointmentStatusFromDb(appointment.AptStatus);
+    const currentStatus = meta?.status ?? dbStatus;
+
     if (currentStatus === 'cancelled') {
       throw new BadRequestError('Cannot check out a cancelled appointment');
     }
-    if (currentStatus === 'completed') {
-      throw new BadRequestError('Appointment is already checked out');
+    if (
+      currentStatus === 'completed' ||
+      currentStatus === 'checked_out_complete' ||
+      currentStatus === 'checked_out_incomplete'
+    ) {
+      throw new BadRequestError('Appointment has already been checked out and its status is locked.');
+    }
+
+    if (appointment.AptDateTime && Date.now() < new Date(appointment.AptDateTime).getTime()) {
+      throw new BadRequestError('Cannot check out an appointment before its scheduled start time.');
     }
 
     const oldData = await this.mapAppointmentWithMeta(appointment);

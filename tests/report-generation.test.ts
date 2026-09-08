@@ -24,6 +24,58 @@ describe('Reports Section APIs', () => {
       }
     });
 
+    it('returns 400 when billingDate is pt_last_statement_before and billingBeforeDate is missing or malformed', async () => {
+      // Missing billingBeforeDate
+      const missingRes = await request(app)
+        .get('/api/reports/financial/aging?billingDate=pt_last_statement_before')
+        .set(authHeader);
+      expect(missingRes.status).toBe(400);
+
+      // Malformed billingBeforeDate
+      const malformedRes = await request(app)
+        .get('/api/reports/financial/aging?billingDate=pt_last_statement_before&billingBeforeDate=invalid-date')
+        .set(authHeader);
+      expect(malformedRes.status).toBe(400);
+    });
+
+    it('returns 400 when billingDate is day_since_last_statement and billingDaysSince is missing or out of 1-3650 range', async () => {
+      // Missing billingDaysSince
+      const missingRes = await request(app)
+        .get('/api/reports/financial/aging?billingDate=day_since_last_statement')
+        .set(authHeader);
+      expect(missingRes.status).toBe(400);
+
+      // Exceeds max 3650
+      const exceedRes = await request(app)
+        .get('/api/reports/financial/aging?billingDate=day_since_last_statement&billingDaysSince=99999')
+        .set(authHeader);
+      expect(exceedRes.status).toBe(400);
+
+      // Less than 1
+      const zeroRes = await request(app)
+        .get('/api/reports/financial/aging?billingDate=day_since_last_statement&billingDaysSince=0')
+        .set(authHeader);
+      expect(zeroRes.status).toBe(400);
+    });
+
+    it('returns 200 with valid billingDate options', async () => {
+      // Valid pt_last_statement_before
+      const ptRes = await request(app)
+        .get('/api/reports/financial/aging?billingDate=pt_last_statement_before&billingBeforeDate=2026-05-01')
+        .set(authHeader);
+      expect(ptRes.status).toBe(200);
+      expect(ptRes.body.success).toBe(true);
+      expect(Array.isArray(ptRes.body.data)).toBe(true);
+
+      // Valid day_since_last_statement
+      const daysRes = await request(app)
+        .get('/api/reports/financial/aging?billingDate=day_since_last_statement&billingDaysSince=30')
+        .set(authHeader);
+      expect(daysRes.status).toBe(200);
+      expect(daysRes.body.success).toBe(true);
+      expect(Array.isArray(daysRes.body.data)).toBe(true);
+    });
+
     it('gets production report', async () => {
       const res = await request(app)
         .get('/api/reports/financial/production?range=Monthly&date=2026-05-22')

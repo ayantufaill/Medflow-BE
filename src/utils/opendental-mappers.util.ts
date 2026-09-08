@@ -390,6 +390,8 @@ export const mapAppointmentStatusFromDb = (status?: number | null): string => {
 export const mapAppointmentStatusToDb = (status?: string | null): number => {
   switch (status) {
     case 'completed':
+    case 'checked_out_complete':
+    case 'checked_out_incomplete':
       return 1;
     case 'no_show':
       return 3;
