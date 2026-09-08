@@ -336,7 +336,7 @@ export class ReportGenerationService {
       if (isNaN(beforeDate.getTime())) {
         throw new BadRequestError('Invalid billingBeforeDate date format');
       }
-      filters.push(`EXISTS (SELECT 1 FROM statement st WHERE st."PatNum" = p."PatNum" AND st."DateSent" < $${paramIdx++})`);
+      filters.push(`(SELECT MAX(st."DateSent") FROM statement st WHERE st."PatNum" = p."PatNum") < $${paramIdx++}`);
       params.push(beforeDate);
     } else if (query.billingDate === 'day_since_last_statement') {
       if (query.billingDaysSince === undefined || query.billingDaysSince === null || query.billingDaysSince === '') {
@@ -346,7 +346,7 @@ export class ReportGenerationService {
       if (!Number.isInteger(daysSince) || daysSince < 1 || daysSince > 3650) {
         throw new BadRequestError('billingDaysSince must be an integer between 1 and 3650');
       }
-      filters.push(`EXISTS (SELECT 1 FROM statement st WHERE st."PatNum" = p."PatNum" AND st."DateSent" <= CURRENT_DATE - ($${paramIdx++} * INTERVAL '1 day'))`);
+      filters.push(`(SELECT MAX(st."DateSent") FROM statement st WHERE st."PatNum" = p."PatNum") <= CURRENT_DATE - ($${paramIdx++} * INTERVAL '1 day')`);
       params.push(daysSince);
     }
 
