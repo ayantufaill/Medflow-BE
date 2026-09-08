@@ -39,6 +39,8 @@ export class FeeGuideAuditService {
   private async ensureTable() {
     if (FeeGuideAuditService.tableEnsured) return;
     try {
+      // NOTE: Prisma's $executeRawUnsafe does not support multiple statements.
+      // Split into separate calls to avoid silent failures.
       await prisma.$executeRawUnsafe(`
         CREATE TABLE IF NOT EXISTS feeguideauditlog (
           "AuditLogNum" BIGSERIAL PRIMARY KEY,
@@ -47,13 +49,21 @@ export class FeeGuideAuditService {
           "Action" VARCHAR(50) NOT NULL,
           "Diffs" JSONB NOT NULL DEFAULT '[]'::jsonb,
           "Timestamp" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
+        )
+      `);
+      await prisma.$executeRawUnsafe(`
         CREATE INDEX IF NOT EXISTS "feeguideauditlog_FeeSchedNum_Timestamp_idx" 
-        ON feeguideauditlog ("FeeSchedNum", "Timestamp" DESC);
+        ON feeguideauditlog ("FeeSchedNum", "Timestamp" DESC)
       `);
       FeeGuideAuditService.tableEnsured = true;
-    } catch {
-      // ignore table creation errors
+    } catch (err) {
+      // If the table already exists, that's fine — mark as ensured.
+      // Only skip if error indicates table already exists.
+      const msg = (err as Error)?.message ?? '';
+      if (msg.includes('already exists') || msg.includes('feeguideauditlog')) {
+        FeeGuideAuditService.tableEnsured = true;
+      }
+      // Otherwise leave tableEnsured = false so next call retries.
     }
   }
 

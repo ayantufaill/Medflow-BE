@@ -26,6 +26,7 @@ describe('Fee Guide Audit History', () => {
     }
 
     // Ensure feeguideauditlog table exists on database
+    // NOTE: Split into two calls - Prisma's $executeRawUnsafe does not support multiple statements.
     await prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS feeguideauditlog (
         "AuditLogNum" BIGSERIAL PRIMARY KEY,
@@ -34,9 +35,11 @@ describe('Fee Guide Audit History', () => {
         "Action" VARCHAR(50) NOT NULL,
         "Diffs" JSONB NOT NULL DEFAULT '[]'::jsonb,
         "Timestamp" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
-      );
+      )
+    `).catch(() => {});
+    await prisma.$executeRawUnsafe(`
       CREATE INDEX IF NOT EXISTS "feeguideauditlog_FeeSchedNum_Timestamp_idx" 
-      ON feeguideauditlog ("FeeSchedNum", "Timestamp" DESC);
+      ON feeguideauditlog ("FeeSchedNum", "Timestamp" DESC)
     `).catch(() => {});
   });
 
