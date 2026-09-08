@@ -60,15 +60,16 @@ export const createAppointmentRecord = async (options: {
   patientId: bigint;
   providerId: bigint;
   token: string;
+  date?: Date;
 }) => {
   const AptNum = nextUniqueId();
-  const now = new Date();
+  const aptDateTime = options.date ?? new Date();
   return prisma.appointment.create({
     data: {
       AptNum,
       PatNum: options.patientId,
       ProvNum: options.providerId,
-      AptDateTime: now,
+      AptDateTime: aptDateTime,
       Pattern: '30',
       ProcDescript: `Complaint ${options.token}`,
       Note: `Note ${options.token}`,

@@ -1,5 +1,6 @@
 import { prisma } from '../config/db';
 import { getPatientsMeta } from '../utils/opendental-auth.util';
+import { BadRequestError } from '../utils/error.util';
 
 export class ReportGenerationService {
   /**
@@ -328,9 +329,25 @@ export class ReportGenerationService {
 
     // 10. query.billingDate
     if (query.billingDate === 'pt_last_statement_before') {
-      filters.push(`EXISTS (SELECT 1 FROM statement st WHERE st."PatNum" = p."PatNum" AND st."DateSent" IS NOT NULL)`);
+      if (!query.billingBeforeDate) {
+        throw new BadRequestError('billingBeforeDate is required when billingDate is pt_last_statement_before');
+      }
+      const beforeDate = new Date(query.billingBeforeDate);
+      if (isNaN(beforeDate.getTime())) {
+        throw new BadRequestError('Invalid billingBeforeDate date format');
+      }
+      filters.push(`EXISTS (SELECT 1 FROM statement st WHERE st."PatNum" = p."PatNum" AND st."DateSent" < $${paramIdx++})`);
+      params.push(beforeDate);
     } else if (query.billingDate === 'day_since_last_statement') {
-      filters.push(`EXISTS (SELECT 1 FROM statement st WHERE st."PatNum" = p."PatNum" AND st."DateSent" <= CURRENT_DATE - INTERVAL '30 days')`);
+      if (query.billingDaysSince === undefined || query.billingDaysSince === null || query.billingDaysSince === '') {
+        throw new BadRequestError('billingDaysSince is required when billingDate is day_since_last_statement');
+      }
+      const daysSince = Number(query.billingDaysSince);
+      if (!Number.isInteger(daysSince) || daysSince < 1 || daysSince > 3650) {
+        throw new BadRequestError('billingDaysSince must be an integer between 1 and 3650');
+      }
+      filters.push(`EXISTS (SELECT 1 FROM statement st WHERE st."PatNum" = p."PatNum" AND st."DateSent" <= CURRENT_DATE - ($${paramIdx++} * INTERVAL '1 day'))`);
+      params.push(daysSince);
     }
 
     const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
