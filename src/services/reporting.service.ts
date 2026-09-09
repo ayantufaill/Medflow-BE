@@ -51,6 +51,22 @@ export class ReportingService {
     }
   }
 
+  async getCarriers() {
+    const carriers = await prisma.carrier.findMany({
+      where: { IsHidden: 0 },
+      select: {
+        CarrierNum: true,
+        CarrierName: true,
+      },
+      orderBy: { CarrierName: 'asc' },
+    });
+
+    return carriers.map(c => ({
+      id: c.CarrierNum.toString(),
+      name: c.CarrierName || 'Unknown Carrier'
+    }));
+  }
+
   async getSavedReports() {
     const docs = await prisma.document.findMany({
       where: {

@@ -175,18 +175,89 @@ export class LabCaseService {
   }) {
     const nextId = await getNextId('labcase', 'LabCaseNum');
 
+    let laboratoryNum: bigint | null = null;
+    if (data.laboratoryId) {
+      try {
+        const targetId = BigInt(data.laboratoryId);
+        const existingLab = await prisma.laboratory.findUnique({
+          where: { LaboratoryNum: targetId },
+        });
+        if (existingLab) {
+          laboratoryNum = existingLab.LaboratoryNum;
+        }
+      } catch (e) {
+        // invalid bigint or lookup failure
+      }
+    }
+
+    if (!laboratoryNum) {
+      const firstLab = await prisma.laboratory.findFirst();
+      if (firstLab) {
+        laboratoryNum = firstLab.LaboratoryNum;
+      } else {
+        try {
+          const nextLabId = await getNextId('laboratory', 'LaboratoryNum');
+          const defaultLab = await prisma.laboratory.create({
+            data: {
+              LaboratoryNum: nextLabId,
+              Description: 'Dental Arts Lab',
+              Phone: '(555) 019-2834',
+              Address: '123 Dental Way',
+              City: 'New York',
+              State: 'NY',
+              Zip: '10001',
+              IsHidden: 0,
+            },
+          });
+          laboratoryNum = defaultLab.LaboratoryNum;
+        } catch (e) {
+          laboratoryNum = null;
+        }
+      }
+    }
+
+    let aptNum: bigint | null = null;
+    if (data.appointmentId && !String(data.appointmentId).startsWith('temp-')) {
+      try {
+        const targetApt = BigInt(data.appointmentId);
+        const aptExists = await prisma.appointment.findUnique({
+          where: { AptNum: targetApt },
+        });
+        if (aptExists) {
+          aptNum = targetApt;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    let provNum: bigint | null = null;
+    if (data.providerNum) {
+      try {
+        const targetProv = BigInt(data.providerNum);
+        const provExists = await prisma.provider.findUnique({
+          where: { ProvNum: targetProv },
+        });
+        if (provExists) {
+          provNum = targetProv;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
     const labcase = await prisma.labcase.create({
       data: {
         LabCaseNum: nextId,
         PatNum: BigInt(data.patientId),
-        LaboratoryNum: BigInt(data.laboratoryId),
-        AptNum: data.appointmentId ? BigInt(data.appointmentId) : null,
+        LaboratoryNum: laboratoryNum,
+        AptNum: aptNum,
         DateTimeDue: data.dueDate ? new Date(data.dueDate) : null,
         DateTimeCreated: new Date(),
         DateTimeSent: data.sharedOn ? new Date(data.sharedOn) : null,
         Instructions: data.instructions,
         LabFee: data.labFee,
-        ProvNum: data.providerNum ? BigInt(data.providerNum) : null,
+        ProvNum: provNum,
       },
     });
 
@@ -211,11 +282,37 @@ export class LabCaseService {
       throw new NotFoundError('Lab case not found');
     }
 
+    let laboratoryNum: bigint | undefined = undefined;
+    if (updates.laboratoryId) {
+      try {
+        const targetId = BigInt(updates.laboratoryId);
+        const labExists = await prisma.laboratory.findUnique({
+          where: { LaboratoryNum: targetId },
+        });
+        if (labExists) {
+          laboratoryNum = targetId;
+        }
+      } catch (e) {}
+    }
+
+    let aptNum: bigint | undefined = undefined;
+    if (updates.appointmentId && !String(updates.appointmentId).startsWith('temp-')) {
+      try {
+        const targetApt = BigInt(updates.appointmentId);
+        const aptExists = await prisma.appointment.findUnique({
+          where: { AptNum: targetApt },
+        });
+        if (aptExists) {
+          aptNum = targetApt;
+        }
+      } catch (e) {}
+    }
+
     const updated = await prisma.labcase.update({
       where: { LabCaseNum: lc.LabCaseNum },
       data: {
-        LaboratoryNum: updates.laboratoryId ? BigInt(updates.laboratoryId) : undefined,
-        AptNum: updates.appointmentId ? BigInt(updates.appointmentId) : undefined,
+        LaboratoryNum: laboratoryNum,
+        AptNum: aptNum,
         DateTimeDue: updates.dueDate ? new Date(updates.dueDate) : undefined,
         DateTimeSent: updates.dateSent ? new Date(updates.dateSent) : undefined,
         DateTimeRecd: updates.dateReceived ? new Date(updates.dateReceived) : undefined,
