@@ -223,8 +223,9 @@ export class ReportGenerationService {
     if (query.provider && query.provider !== 'all') {
       const provNum = Number(query.provider);
       if (!isNaN(provNum)) {
-        filters.push(`p."PriProv" = $${paramIdx++}`);
-        params.push(BigInt(provNum));
+        filters.push(`(p."PriProv" = $${paramIdx} OR EXISTS (SELECT 1 FROM procedurelog pl WHERE pl."PatNum" = p."PatNum" AND pl."ProvNum" = $${paramIdx + 1}))`);
+        params.push(BigInt(provNum), BigInt(provNum));
+        paramIdx += 2;
       }
     }
 
@@ -291,9 +292,10 @@ export class ReportGenerationService {
       ) {
         filters.push(`f."BalOver90" > 0`);
       } else if (normRange === 'custom') {
-        if (query.startDate && query.endDate) {
-          filters.push(`EXISTS (SELECT 1 FROM procedurelog pl WHERE pl."PatNum" = p."PatNum" AND pl."ProcDate" BETWEEN $${paramIdx++}::date AND $${paramIdx++}::date)`);
-          params.push(query.startDate, query.endDate);
+        if (query.customArRangeStart && query.customArRangeEnd) {
+          filters.push(`EXISTS (SELECT 1 FROM procedurelog pl WHERE pl."PatNum" = p."PatNum" AND pl."ProcDate" BETWEEN $${paramIdx}::date AND $${paramIdx + 1}::date)`);
+          params.push(query.customArRangeStart, query.customArRangeEnd);
+          paramIdx += 2;
         }
       }
     }
@@ -321,8 +323,9 @@ export class ReportGenerationService {
     if (query.branch && query.branch !== 'all') {
       const branchId = Number(query.branch);
       if (!isNaN(branchId)) {
-        filters.push(`p."ClinicNum" = $${paramIdx++}`);
-        params.push(branchId);
+        filters.push(`(p."ClinicNum" = $${paramIdx} OR EXISTS (SELECT 1 FROM procedurelog pl WHERE pl."PatNum" = p."PatNum" AND pl."ClinicNum" = $${paramIdx + 1}))`);
+        params.push(BigInt(branchId), BigInt(branchId));
+        paramIdx += 2;
       }
     }
 
@@ -481,6 +484,29 @@ export class ReportGenerationService {
         lastBilled: lastBilledDate
       };
     });
+
+    // Post-query sort for fields not available in SQL (flags come from metadata)
+    if (query.sortReport === 'flag') {
+      report.sort((a: any, b: any) => {
+        const aHasFlags = a.flags && a.flags.length > 0 ? 1 : 0;
+        const bHasFlags = b.flags && b.flags.length > 0 ? 1 : 0;
+        return bHasFlags - aHasFlags; // Patients with flags first
+      });
+    } else if (query.sortReport === 'carrier') {
+      report.sort((a: any, b: any) => {
+        if (!a.insuranceName && !b.insuranceName) return 0;
+        if (!a.insuranceName) return 1;
+        if (!b.insuranceName) return -1;
+        return a.insuranceName.localeCompare(b.insuranceName);
+      });
+    } else if (query.sortReport === 'last_billed') {
+      report.sort((a: any, b: any) => {
+        if (!a.lastBilled && !b.lastBilled) return 0;
+        if (!a.lastBilled) return 1;
+        if (!b.lastBilled) return -1;
+        return new Date(b.lastBilled).getTime() - new Date(a.lastBilled).getTime();
+      });
+    }
 
     if (report.length === 0) {
       return [];

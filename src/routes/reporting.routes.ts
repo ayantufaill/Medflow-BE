@@ -59,6 +59,27 @@ router.get(
 
 /**
  * @swagger
+ * /reports/carriers:
+ *   get:
+ *     summary: Retrieve list of insurance carriers for reports
+ *     tags: [Reporting]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of carriers
+ */
+router.get(
+  '/carriers',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('reports.read'),
+  reportingController.getCarriers.bind(reportingController)
+);
+
+/**
+ * @swagger
  * /reports/definitions:
  *   post:
  *     summary: Save a new report definition

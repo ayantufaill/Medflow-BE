@@ -1541,6 +1541,7 @@ export class InvoiceService {
         completed?: boolean;
       }>;
       addClaim?: boolean;
+      branchId?: string;
     },
     createdBy: string
   ) {
@@ -1673,6 +1674,7 @@ export class InvoiceService {
             ProcNum: procNum,
             PatNum: patientId,
             ProvNum: provNum,
+            ClinicNum: data.branchId ? BigInt(data.branchId) : null,
             ProcDate: item.date ? new Date(item.date) : new Date(),
             ProcFee: Number(item.charge ?? 0),
             UnitQty: 1,
