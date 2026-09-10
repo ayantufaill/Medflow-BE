@@ -223,13 +223,13 @@ export class TreatmentPlanService {
         let codeNum = BigInt(0);
         if (item.procedureCode) {
           const pc = await prisma.procedurecode.findFirst({ where: { ProcCode: item.procedureCode } });
-          if (pc) codeNum = pc.CodeNum;
+          if (pc?.CodeNum) codeNum = pc.CodeNum;
         }
 
         let provNum = BigInt(0);
         if (item.provider) {
           const prov = await prisma.provider.findFirst({ where: { Abbr: item.provider } });
-          if (prov) provNum = prov.ProvNum;
+          if (prov?.ProvNum) provNum = prov.ProvNum;
         }
 
         if (provNum === BigInt(0)) {
@@ -238,7 +238,7 @@ export class TreatmentPlanService {
             provNum = patient.PriProv;
           } else {
             const fallbackProv = await prisma.provider.findFirst({ where: { IsHidden: 0 } });
-            if (fallbackProv) provNum = fallbackProv.ProvNum;
+            if (fallbackProv?.ProvNum) provNum = fallbackProv.ProvNum;
           }
         }
 
