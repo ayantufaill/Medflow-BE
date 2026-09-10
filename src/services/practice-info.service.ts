@@ -36,8 +36,30 @@ const getHomeClinicNum = async (userId: string): Promise<bigint | null> => {
     where: { UserNum: BigInt(userId) },
     select: { ClinicNum: true },
   });
-  return user?.ClinicNum ?? null;
+  if (user?.ClinicNum) return user.ClinicNum;
+
+  const uc = await prisma.userclinic.findFirst({
+    where: { UserNum: BigInt(userId) },
+    select: { ClinicNum: true },
+    orderBy: { ClinicNum: 'asc' },
+  });
+  if (uc?.ClinicNum) return uc.ClinicNum;
+
+  const firstClinic = await prisma.clinic.findFirst({
+    orderBy: { ClinicNum: 'asc' },
+  });
+  return firstClinic?.ClinicNum ?? null;
 };
+
+export const DEFAULT_PATIENT_FLAGS = [
+  { id: '1', category: 'Patient Communication', name: 'Send appointment reminder earlier than scheduled time', color: '#22c55e' },
+  { id: '2', category: 'Billing', name: 'alert', color: '#3b82f6' },
+  { id: '3', category: 'Billing', name: 'old patient', color: '#8b5cf6' },
+  { id: '4', category: 'Billing', name: 'family & friends', color: '#ef4444' },
+  { id: '5', category: 'Billing', name: 'late payment', color: '#ef4444' },
+  { id: '6', category: 'Billing', name: 'needs special care', color: '#3b82f6' },
+  { id: '7', category: 'Billing', name: 'TDS Member', color: '#22c55e' },
+];
 
 const PREF_PREFIX = 'medflow.practiceInfo.';
 const PREF_LICENSE_NUMBER = `${PREF_PREFIX}licenseNumber`;
@@ -299,7 +321,10 @@ export class PracticeInfoService {
       myChartSettings: meta.myChartSettings ?? {},
       officeTimings: meta.officeTimings ?? {},
       onlineSchedule: meta.onlineSchedule ?? {},
-      patientFlags: meta.patientFlags ?? [],
+      patientFlags:
+        meta.patientFlags !== null && meta.patientFlags !== undefined
+          ? meta.patientFlags
+          : DEFAULT_PATIENT_FLAGS,
       documentCategories: meta.documentCategories ?? {},
       scheduleConfig: meta.scheduleConfig ?? {},
       practiceSettings: meta.practiceSettings ?? {},
@@ -524,7 +549,7 @@ export class PracticeInfoService {
 
     const row = clinicNum !== null
       ? await prisma.clinic.findUnique({ where: { ClinicNum: clinicNum } })
-      : await prisma.clinic.findFirst({ orderBy: { ClinicNum: 'desc' } });
+      : await prisma.clinic.findFirst({ orderBy: { ClinicNum: 'asc' } });
     if (!row) return null;
 
     const metaMap = await this.getClinicMetaMap([row.ClinicNum]);

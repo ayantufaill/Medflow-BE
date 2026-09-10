@@ -1794,7 +1794,9 @@ export class ClaimService {
       description: updates.description ?? currentMeta.description,
       submissionDate:
         updates.submissionDate !== undefined
-          ? updates.submissionDate ? updates.submissionDate.toISOString() : undefined
+          ? updates.submissionDate
+            ? (updates.submissionDate instanceof Date ? updates.submissionDate.toISOString() : new Date(updates.submissionDate).toISOString())
+            : undefined
           : nextStatus === 'readyForSubmission' || nextStatus === 'draft'
             ? undefined
             : nextStatus === 'submitted' && !currentMeta.submissionDate
@@ -1803,7 +1805,7 @@ export class ClaimService {
       deniedDate:
         updates.deniedDate !== undefined
           ? updates.deniedDate
-            ? updates.deniedDate.toISOString()
+            ? (updates.deniedDate instanceof Date ? updates.deniedDate.toISOString() : new Date(updates.deniedDate).toISOString())
             : undefined
           : nextStatus === 'readyForSubmission' || nextStatus === 'draft'
             ? undefined
@@ -1818,7 +1820,9 @@ export class ClaimService {
             : currentMeta.denialReason,
       paidDate:
         updates.paidDate !== undefined
-          ? updates.paidDate ? updates.paidDate.toISOString() : undefined
+          ? updates.paidDate
+            ? (updates.paidDate instanceof Date ? updates.paidDate.toISOString() : new Date(updates.paidDate).toISOString())
+            : undefined
           : nextStatus === 'readyForSubmission' || nextStatus === 'draft'
             ? undefined
             : nextStatus === 'paid' && !currentMeta.paidDate
@@ -1858,6 +1862,24 @@ export class ClaimService {
         updates.notes ?? `Status changed from ${previousStatus} to ${nextStatus}`,
         userId
       );
+    }
+
+    // When claim is marked as paid, update associated claimproc items to status 1 (Received)
+    if (nextStatus === 'paid') {
+      const paidDateObj = nextMeta.paidDate ? new Date(nextMeta.paidDate) : new Date();
+      const pendingClaimProcs = await prisma.claimproc.findMany({
+        where: { ClaimNum: existing.ClaimNum, Status: 0 },
+      });
+      for (const cp of pendingClaimProcs) {
+        await prisma.claimproc.update({
+          where: { ClaimProcNum: cp.ClaimProcNum },
+          data: {
+            Status: 1, // Received
+            DateCP: paidDateObj,
+            InsPayAmt: (cp.InsPayAmt === 0 && cp.InsPayEst && cp.InsPayEst > 0) ? cp.InsPayEst : (cp.InsPayAmt ?? 0),
+          },
+        });
+      }
     }
 
     const [invoiceById, insuranceById, proceduresByClaimId] = await Promise.all([

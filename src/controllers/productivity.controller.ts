@@ -60,6 +60,43 @@ export class ProductivityController {
       next(error);
     }
   };
+
+  getPanelSummary = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { date, providerId } = req.query;
+
+      let dateStr = typeof date === 'string' ? date.trim() : '';
+      if (!dateStr) {
+        dateStr = new Date().toISOString().split('T')[0];
+      } else {
+        // Validate YYYY-MM-DD
+        const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+        if (!dateRegex.test(dateStr)) {
+          throw new BadRequestError('Invalid date format for date. Expected YYYY-MM-DD');
+        }
+        const [y, m, d] = dateStr.split('-').map(Number);
+        const parsed = new Date(Date.UTC(y, m - 1, d));
+        if (
+          isNaN(parsed.getTime()) ||
+          parsed.getUTCFullYear() !== y ||
+          parsed.getUTCMonth() !== m - 1 ||
+          parsed.getUTCDate() !== d
+        ) {
+          throw new BadRequestError('Invalid calendar date provided for date');
+        }
+      }
+
+      const clinicNum = (req as any).user?.clinicNum ? BigInt((req as any).user.clinicNum) : undefined;
+      const data = await productivityService.getPanelSummary(dateStr, typeof providerId === 'string' ? providerId : undefined, clinicNum);
+
+      res.json({
+        status: 'success',
+        data,
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 export const productivityController = new ProductivityController();

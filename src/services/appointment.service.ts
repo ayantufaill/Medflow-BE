@@ -292,12 +292,96 @@ export class AppointmentService {
     return defaultAppointmentType.AppointmentTypeNum.toString();
   }
 
+  private async getAppointmentsFinancialTotals(aptNums: bigint[]): Promise<{
+    totalsByApt: Map<string, number>;
+    paidByApt: Map<string, number>;
+  }> {
+    const totalsByApt = new Map<string, number>();
+    const paidByApt = new Map<string, number>();
+    const validAptNums = aptNums.filter((id): id is bigint => id != null);
+    if (!validAptNums.length) return { totalsByApt, paidByApt };
+
+    // 1. Fetch all non-deleted procedures for these appointments
+    const procedures = await prisma.procedurelog.findMany({
+      where: {
+        AptNum: { in: validAptNums },
+        ProcStatus: { not: 6 }, // 6 = deleted in Open Dental
+      },
+      select: {
+        ProcNum: true,
+        AptNum: true,
+        ProcFee: true,
+        UnitQty: true,
+        BaseUnits: true,
+      },
+    });
+
+    if (!procedures.length) return { totalsByApt, paidByApt };
+
+    const procToAptMap = new Map<string, string>();
+    for (const proc of procedures) {
+      if (!proc.AptNum) continue;
+      const aptKey = proc.AptNum.toString();
+      const qty = (proc.UnitQty && proc.UnitQty > 0) ? proc.UnitQty : (proc.BaseUnits && proc.BaseUnits > 0 ? proc.BaseUnits : 1);
+      const fee = Number(proc.ProcFee ?? 0) * qty;
+      const currentTotal = totalsByApt.get(aptKey) ?? 0;
+      totalsByApt.set(aptKey, Math.round((currentTotal + fee) * 100) / 100);
+      procToAptMap.set(proc.ProcNum.toString(), aptKey);
+    }
+
+    const procNums = procedures.map(p => p.ProcNum);
+
+    // 2. Fetch patient payments via paysplit
+    const paySplits = await prisma.paysplit.findMany({
+      where: {
+        ProcNum: { in: procNums },
+      },
+      select: {
+        ProcNum: true,
+        SplitAmt: true,
+      },
+    });
+
+    for (const ps of paySplits) {
+      if (!ps.ProcNum) continue;
+      const aptKey = procToAptMap.get(ps.ProcNum.toString());
+      if (aptKey) {
+        const currentPaid = paidByApt.get(aptKey) ?? 0;
+        paidByApt.set(aptKey, Math.round((currentPaid + Number(ps.SplitAmt ?? 0)) * 100) / 100);
+      }
+    }
+
+    // 3. Fetch insurance payments via claimproc
+    const claimProcs = await prisma.claimproc.findMany({
+      where: {
+        ProcNum: { in: procNums },
+        Status: { in: [1, 4, 5] }, // 1 = Received, 4 = Supplemental, 5 = CapClaim
+      },
+      select: {
+        ProcNum: true,
+        InsPayAmt: true,
+      },
+    });
+
+    for (const cp of claimProcs) {
+      if (!cp.ProcNum) continue;
+      const aptKey = procToAptMap.get(cp.ProcNum.toString());
+      if (aptKey) {
+        const currentPaid = paidByApt.get(aptKey) ?? 0;
+        paidByApt.set(aptKey, Math.round((currentPaid + Number(cp.InsPayAmt ?? 0)) * 100) / 100);
+      }
+    }
+
+    return { totalsByApt, paidByApt };
+  }
+
   async mapAppointmentsBulk(appointments: any[]) {
     if (!appointments.length) return [];
 
     const { getAppointmentsMeta, getProvidersMeta } = await import('../utils/opendental-auth.util');
-    const aptNums = appointments.map(a => a.AptNum);
+    const aptNums = appointments.map(a => a.AptNum).filter(Boolean);
     const aptMetaMap = await getAppointmentsMeta(aptNums);
+    const { totalsByApt, paidByApt } = await this.getAppointmentsFinancialTotals(aptNums);
 
     const provNums = Array.from(new Set(appointments.map(a => a.ProvNum).filter(id => id != null)));
     const provMetaMap = provNums.length ? await getProvidersMeta(provNums) : {};
@@ -322,6 +406,8 @@ export class AppointmentService {
         preloadedAptMeta: aptMetaMap[apt.AptNum.toString()] ?? {},
         preloadedProviderMeta: provMetaMap[apt.ProvNum?.toString()] ?? {},
         preloadedLinkedUser: apt.provider_appointment_ProvNumToprovider?.CustomID ? mappedUsersMap.get(apt.provider_appointment_ProvNumToprovider.CustomID) : null,
+        preloadedAptTotal: totalsByApt.get(apt.AptNum.toString()) ?? 0,
+        preloadedAptPaid: paidByApt.get(apt.AptNum.toString()) ?? 0,
       }))
     );
   }
@@ -336,8 +422,24 @@ export class AppointmentService {
       preloadedAptMeta?: any;
       preloadedProviderMeta?: any;
       preloadedLinkedUser?: any;
+      preloadedAptTotal?: number;
+      preloadedAptPaid?: number;
     }
   ) {
+    let totalAmount = options?.preloadedAptTotal;
+    let paidAmount = options?.preloadedAptPaid;
+    if (totalAmount === undefined || paidAmount === undefined) {
+      if (appointment.AptNum) {
+        const financials = await this.getAppointmentsFinancialTotals([appointment.AptNum]);
+        const aptKey = appointment.AptNum.toString();
+        totalAmount = totalAmount ?? (financials.totalsByApt.get(aptKey) ?? 0);
+        paidAmount = paidAmount ?? (financials.paidByApt.get(aptKey) ?? 0);
+      } else {
+        totalAmount = totalAmount ?? 0;
+        paidAmount = paidAmount ?? 0;
+      }
+    }
+
     const meta = options?.preloadedAptMeta ?? await getAppointmentMeta(appointment.AptNum);
     const dbStatus = mapAppointmentStatusFromDb(appointment.AptStatus);
     let resolvedStatus = meta?.status ?? dbStatus;
@@ -358,6 +460,8 @@ export class AppointmentService {
     }
     const mapped: any = mapAppointmentToApi(appointment, {
       ...options,
+      totalAmount,
+      paidAmount,
       requiresInterpreter: meta.requiresInterpreter ?? false,
       insuranceVerified: meta.insuranceVerified ?? Boolean(appointment.InsPlan1 || appointment.InsPlan2),
       copayCollected: meta.copayCollected ?? 0,

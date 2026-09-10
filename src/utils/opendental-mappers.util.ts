@@ -487,6 +487,8 @@ export const mapAppointmentToApi = (
     cancellationReason?: string | null;
     checkInAt?: Date | null;
     completedAt?: Date | null;
+    totalAmount?: number | null;
+    paidAmount?: number | null;
   }
 ) => {
   const startDateTime = row.AptDateTime ? new Date(row.AptDateTime) : null;
@@ -516,6 +518,8 @@ export const mapAppointmentToApi = (
     notes: row.Note ?? null,
     insuranceVerified: options?.insuranceVerified ?? Boolean(row.InsPlan1 || row.InsPlan2),
     copayCollected: options?.copayCollected ?? 0,
+    totalAmount: Number(options?.totalAmount ?? 0),
+    paidAmount: Number(options?.paidAmount ?? 0),
     requiresInterpreter: options?.requiresInterpreter ?? false,
     reminderSent: options?.reminderSent ?? false,
     customFields: options?.customFields ?? {},

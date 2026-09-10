@@ -1,7 +1,38 @@
 import { Router } from 'express';
 import { productivityController } from '../controllers/productivity.controller';
+import { authenticate } from '../middleware/auth.middleware';
 
 const router = Router();
+
+/**
+ * @swagger
+ * /api/productivity/panel-summary:
+ *   get:
+ *     summary: Get daily productivity panel summary for Total, Dentist, and Hygienist
+ *     tags: [Productivity]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: date
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Target date (YYYY-MM-DD)
+ *       - in: query
+ *         name: providerId
+ *         schema:
+ *           type: string
+ *         description: Optional provider ID ('all', 'Dentist', 'Hygienist', or numeric ID)
+ *     responses:
+ *       200:
+ *         description: Productivity panel summary data
+ *       400:
+ *         description: Invalid date format
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/panel-summary', authenticate, productivityController.getPanelSummary);
 
 /**
  * @swagger

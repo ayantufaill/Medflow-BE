@@ -392,6 +392,60 @@ export class PaymentService {
             }
           }
         }
+
+        // 5. Update or create claimproc record for insurance payment tracking
+        if (data.paymentSource === 'insurance_company' || (pay !== undefined && !isNaN(pay) && pay > 0)) {
+          const wo = procItem.wo !== undefined ? Number(procItem.wo) : (procItem.writeoff !== undefined ? Number(procItem.writeoff) : ((procItem as any).writeOff !== undefined ? Number((procItem as any).writeOff) : undefined));
+          const ded = procItem.ded !== undefined ? Number(procItem.ded) : ((procItem as any).deductible !== undefined ? Number((procItem as any).deductible) : undefined);
+          const claimId = procItem.claimId ? toBigInt(procItem.claimId) : undefined;
+
+          const claimProcWhere: any = { ProcNum: procNum };
+          if (claimId) {
+            claimProcWhere.ClaimNum = claimId;
+          }
+
+          const existingClaimProcs = await prisma.claimproc.findMany({ where: claimProcWhere });
+          if (existingClaimProcs.length > 0) {
+            for (const ecp of existingClaimProcs) {
+              await prisma.claimproc.update({
+                where: { ClaimProcNum: ecp.ClaimProcNum },
+                data: {
+                  Status: 1, // 1 = Received / Paid
+                  InsPayAmt: pay !== undefined && !isNaN(pay) ? pay : ecp.InsPayAmt,
+                  WriteOff: wo !== undefined && !isNaN(wo) ? wo : ecp.WriteOff,
+                  DedApplied: ded !== undefined && !isNaN(ded) ? ded : ecp.DedApplied,
+                  DateCP: resolvedPaidAt,
+                },
+              });
+            }
+          } else {
+            const patPlan = await prisma.patplan.findFirst({
+              where: { PatNum: BigInt(data.patientId), IsPending: 0 },
+              orderBy: { Ordinal: 'asc' },
+            });
+            const proc = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
+            const nextCpNum = await getNextId('claimproc', 'ClaimProcNum');
+            await prisma.claimproc.create({
+              data: {
+                ClaimProcNum: nextCpNum,
+                ProcNum: procNum,
+                ClaimNum: claimId ?? null,
+                PatNum: BigInt(data.patientId),
+                InsSubNum: patPlan?.InsSubNum ?? null,
+                ClinicNum: proc?.ClinicNum ?? null,
+                ProvNum: proc?.ProvNum ?? null,
+                DateCP: resolvedPaidAt,
+                ProcDate: proc?.ProcDate ?? resolvedPaidAt,
+                DateEntry: new Date(),
+                Status: 1,
+                FeeBilled: proc?.ProcFee ?? 0,
+                InsPayAmt: pay !== undefined && !isNaN(pay) ? pay : 0,
+                WriteOff: wo !== undefined && !isNaN(wo) ? wo : 0,
+                DedApplied: ded !== undefined && !isNaN(ded) ? ded : 0,
+              },
+            });
+          }
+        }
       }
     }
 

@@ -7,7 +7,7 @@ import {
   mapGenderToDb,
   mapPatientToApi,
 } from '../utils/opendental-mappers.util';
-import { getPatientMeta, getPatientsMeta, setPatientMeta } from '../utils/opendental-auth.util';
+import { getPatientMeta, getPatientsMeta, setPatientMeta, getPatientInsurancesMeta } from '../utils/opendental-auth.util';
 import {
   mapProcedureStatusToText,
   normalizeMedicalHistoryRows,
@@ -464,7 +464,6 @@ async getPatientBalance(patientId: string) {
   const totalAdjustments = adjustmentAgg._sum.AdjAmt ?? 0;
   const totalPaid = (paysplitAgg._sum.SplitAmt ?? 0) + (invoicePaymentAgg._sum.PayAmt ?? 0);
   const balance = totalCharged + totalAdjustments - totalPaid;
-
   const overdueProcFee = overdueAgg._sum.ProcFee ?? 0;
   const overdueRatio = totalCharged > 0 ? overdueProcFee / totalCharged : 0;
   const overdueAmount = Math.max(0, balance * overdueRatio);
@@ -475,6 +474,113 @@ async getPatientBalance(patientId: string) {
     overdueAmount: parseFloat(overdueAmount.toFixed(2)),
   };
 }
+
+  /**
+   * Get patient's insurance benefit usage (primary & secondary)
+   */
+  async getInsuranceUsage(patientId: string) {
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) },
+      select: { PatNum: true },
+    });
+    if (!patient) {
+      throw new NotFoundError('Patient not found');
+    }
+
+    const patNum = BigInt(patientId);
+    const currentYear = new Date().getFullYear();
+    const startOfYear = new Date(currentYear, 0, 1);
+
+    // Active patplan records ordered by Ordinal ASC
+    const patPlans = await prisma.patplan.findMany({
+      where: {
+        PatNum: patNum,
+        IsPending: 0,
+      },
+      include: {
+        inssub: {
+          include: {
+            insplan: {
+              include: {
+                carrier: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { Ordinal: 'asc' },
+    });
+
+    if (!patPlans.length) {
+      return {
+        primaryInsurance: null,
+        secondaryInsurance: null,
+      };
+    }
+
+    const patPlanNums = patPlans.map((p) => p.PatPlanNum);
+    const metaMap = await getPatientInsurancesMeta(patPlanNums);
+
+    const parseNumber = (val: unknown): number | null => {
+      if (val === null || val === undefined || val === '') return null;
+      if (typeof val === 'number') return isNaN(val) ? null : val;
+      const cleaned = String(val).replace(/[^0-9.-]+/g, '');
+      if (!cleaned) return null;
+      const num = parseFloat(cleaned);
+      return isNaN(num) ? null : num;
+    };
+
+    const buildPlanUsage = async (plan: (typeof patPlans)[0]) => {
+      const planMeta = metaMap[plan.PatPlanNum.toString()] || {};
+      const planName = plan.inssub?.insplan?.carrier?.CarrierName || 'Unknown Plan';
+
+      let usedAmount = 0;
+      if (plan.InsSubNum && plan.InsSubNum !== 0n) {
+        const claimProcAgg = await prisma.claimproc.aggregate({
+          where: {
+            PatNum: patNum,
+            InsSubNum: plan.InsSubNum,
+            Status: { in: [1, 4] },
+            DateCP: { gte: startOfYear },
+          },
+          _sum: {
+            InsPayAmt: true,
+          },
+        });
+        usedAmount = claimProcAgg._sum.InsPayAmt ?? 0;
+      }
+
+      const rawAnnualMax =
+        planMeta.annualMax ??
+        planMeta.coverageLimits?.individual?.annualMax ??
+        planMeta.coverageLimits?.annualMax ??
+        planMeta.individualAnnualMax;
+
+      const annualMax = parseNumber(rawAnnualMax) ?? 0;
+      const renewalMonth = planMeta.renewalMonth ? Number(planMeta.renewalMonth) : 1;
+      const remaining = annualMax > 0 ? Math.max(0, parseFloat((annualMax - usedAmount).toFixed(2))) : 0;
+
+      return {
+        planName,
+        usedAmount: parseFloat(usedAmount.toFixed(2)),
+        annualMax: parseFloat(annualMax.toFixed(2)),
+        remaining,
+        renewalMonth,
+      };
+    };
+
+    const primaryPlan = patPlans.find((p) => p.Ordinal === 1) || patPlans[0];
+    const secondaryPlan = patPlans.find((p) => p.Ordinal === 2) || (patPlans.length > 1 && patPlans[1].PatPlanNum !== primaryPlan?.PatPlanNum ? patPlans[1] : null);
+
+    const primaryInsurance = primaryPlan ? await buildPlanUsage(primaryPlan) : null;
+    const secondaryInsurance = secondaryPlan ? await buildPlanUsage(secondaryPlan) : null;
+
+    return {
+      primaryInsurance,
+      secondaryInsurance,
+    };
+  }
+
 /**
  * Get the most recent completed appointment for a patient
  */
