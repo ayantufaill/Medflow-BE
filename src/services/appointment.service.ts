@@ -74,6 +74,16 @@ const normalizeText = (value?: string | null) => {
   return normalized ? normalized : null;
 };
 
+const parseJson = <T>(value?: string | null): T => {
+  if (!value) return {} as T;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? (parsed as T) : ({} as T);
+  } catch {
+    return {} as T;
+  }
+};
+
 /**
  * Check for appointment conflicts
  * Includes buffer times from appointment types and room conflicts
@@ -301,6 +311,12 @@ export class AppointmentService {
     const validAptNums = aptNums.filter((id): id is bigint => id != null);
     if (!validAptNums.length) return { totalsByApt, paidByApt };
 
+    // Fetch appointment records
+    const appointments = await prisma.appointment.findMany({
+      where: { AptNum: { in: validAptNums } },
+      select: { AptNum: true, PatNum: true, AptDateTime: true },
+    });
+
     // 1. Fetch all non-deleted procedures for these appointments
     const procedures = await prisma.procedurelog.findMany({
       where: {
@@ -313,10 +329,11 @@ export class AppointmentService {
         ProcFee: true,
         UnitQty: true,
         BaseUnits: true,
+        StatementNum: true,
+        BillingNote: true,
+        CodeNum: true,
       },
     });
-
-    if (!procedures.length) return { totalsByApt, paidByApt };
 
     const procToAptMap = new Map<string, string>();
     for (const proc of procedures) {
@@ -329,33 +346,137 @@ export class AppointmentService {
       procToAptMap.set(proc.ProcNum.toString(), aptKey);
     }
 
-    const procNums = procedures.map(p => p.ProcNum);
+    // 2. Discover linked statements for each appointment:
+    //    (a) From procedures on the appointment that have StatementNum
+    //    (b) From statement.NoteBold containing appointmentId
+    //    (c) From patient's statements matching procedures or appointment date
+    const aptToStatements = new Map<string, Set<bigint>>();
+    for (const a of appointments) {
+      aptToStatements.set(a.AptNum.toString(), new Set<bigint>());
+    }
 
-    // 2. Fetch patient payments via paysplit
-    const paySplits = await prisma.paysplit.findMany({
-      where: {
-        ProcNum: { in: procNums },
-      },
-      select: {
-        ProcNum: true,
-        SplitAmt: true,
-      },
-    });
-
-    for (const ps of paySplits) {
-      if (!ps.ProcNum) continue;
-      const aptKey = procToAptMap.get(ps.ProcNum.toString());
-      if (aptKey) {
-        const currentPaid = paidByApt.get(aptKey) ?? 0;
-        paidByApt.set(aptKey, Math.round((currentPaid + Number(ps.SplitAmt ?? 0)) * 100) / 100);
+    for (const proc of procedures) {
+      if (proc.AptNum && proc.StatementNum) {
+        aptToStatements.get(proc.AptNum.toString())?.add(proc.StatementNum);
       }
     }
 
-    // 3. Fetch insurance payments via claimproc
+    for (const apt of appointments) {
+      const aptKey = apt.AptNum.toString();
+      const stmtsWithAptMeta = await prisma.statement.findMany({
+        where: {
+          OR: [
+            { NoteBold: { contains: `"appointmentId":"${aptKey}"` } },
+            { NoteBold: { contains: `"appointmentId":${aptKey}` } },
+          ],
+        },
+        select: { StatementNum: true },
+      });
+      for (const s of stmtsWithAptMeta) {
+        aptToStatements.get(aptKey)?.add(s.StatementNum);
+      }
+
+      // If no statements found yet, search for matching statements belonging to this patient
+      if ((aptToStatements.get(aptKey)?.size ?? 0) === 0 && apt.PatNum) {
+        const patStmts = await prisma.statement.findMany({
+          where: { PatNum: apt.PatNum },
+          select: { StatementNum: true, DateSent: true, NoteBold: true },
+          orderBy: { StatementNum: 'desc' },
+        });
+
+        const aptProcs = procedures.filter(p => p.AptNum === apt.AptNum);
+        const aptProcCodesOrFees = aptProcs.map(p => ({
+          fee: Number(p.ProcFee ?? 0),
+          note: (p.BillingNote || '').toLowerCase(),
+        }));
+
+        for (const s of patStmts) {
+          const sProcs = await prisma.procedurelog.findMany({
+            where: { StatementNum: s.StatementNum, ProcStatus: { not: 6 } },
+            select: { ProcNum: true, ProcFee: true, BillingNote: true },
+          });
+
+          let isMatch = false;
+          if (sProcs.length > 0 && aptProcs.length > 0) {
+            const matchedCount = sProcs.filter(sp => {
+              const spFee = Number(sp.ProcFee ?? 0);
+              const spNote = (sp.BillingNote || '').toLowerCase();
+              return aptProcCodesOrFees.some(ap => ap.fee === spFee || (ap.note && spNote.includes(ap.note)));
+            }).length;
+            if (matchedCount > 0) isMatch = true;
+          }
+
+          if (isMatch) {
+            aptToStatements.get(aptKey)?.add(s.StatementNum);
+          }
+        }
+      }
+    }
+
+    // Collect all procedures: direct appointment procedures + procedures on linked statements
+    const allProcNums = new Set<bigint>(procedures.map(p => p.ProcNum));
+    for (const [aptKey, stmtNums] of aptToStatements.entries()) {
+      for (const stmtNum of stmtNums) {
+        const sProcs = await prisma.procedurelog.findMany({
+          where: { StatementNum: stmtNum, ProcStatus: { not: 6 } },
+          select: { ProcNum: true, ProcFee: true, UnitQty: true, BaseUnits: true, BillingNote: true },
+        });
+
+        // If appointment had no direct procedures, populate total from statement procedures
+        if ((totalsByApt.get(aptKey) ?? 0) === 0 && sProcs.length > 0) {
+          let stmtTotal = 0;
+          for (const sp of sProcs) {
+            const qty = (sp.UnitQty && sp.UnitQty > 0) ? sp.UnitQty : (sp.BaseUnits && sp.BaseUnits > 0 ? sp.BaseUnits : 1);
+            stmtTotal += Number(sp.ProcFee ?? 0) * qty;
+          }
+          totalsByApt.set(aptKey, Math.round(stmtTotal * 100) / 100);
+        }
+
+        for (const sp of sProcs) {
+          allProcNums.add(sp.ProcNum);
+          if (!procToAptMap.has(sp.ProcNum.toString())) {
+            procToAptMap.set(sp.ProcNum.toString(), aptKey);
+          }
+        }
+      }
+    }
+
+    const procNumArray = Array.from(allProcNums);
+
+    // 3. Fetch patient payments via paysplit (excluding voided/reversed)
+    const paySplits = await prisma.paysplit.findMany({
+      where: {
+        ProcNum: { in: procNumArray },
+      },
+      include: {
+        payment: {
+          select: {
+            PayAmt: true,
+            PayNote: true,
+          },
+        },
+      },
+    });
+
+    const paidByProc = new Map<string, number>();
+
+    for (const ps of paySplits) {
+      if (!ps.ProcNum) continue;
+      const payMeta = parseJson<any>(ps.payment?.PayNote);
+      const st = String(payMeta?.status || '').toLowerCase();
+      if (st === 'void' || st === 'voided' || st === 'reversed') {
+        continue;
+      }
+      const splitAmt = Number(ps.SplitAmt ?? 0);
+      const procKey = ps.ProcNum.toString();
+      paidByProc.set(procKey, (paidByProc.get(procKey) ?? 0) + splitAmt);
+    }
+
+    // 4. Fetch insurance payments via claimproc (Status 1 = Received, 4 = Supplemental, 5 = CapClaim)
     const claimProcs = await prisma.claimproc.findMany({
       where: {
-        ProcNum: { in: procNums },
-        Status: { in: [1, 4, 5] }, // 1 = Received, 4 = Supplemental, 5 = CapClaim
+        ProcNum: { in: procNumArray },
+        Status: { in: [1, 4, 5] },
       },
       select: {
         ProcNum: true,
@@ -365,11 +486,98 @@ export class AppointmentService {
 
     for (const cp of claimProcs) {
       if (!cp.ProcNum) continue;
-      const aptKey = procToAptMap.get(cp.ProcNum.toString());
+      const procKey = cp.ProcNum.toString();
+      const insPay = Number(cp.InsPayAmt ?? 0);
+      paidByProc.set(procKey, (paidByProc.get(procKey) ?? 0) + insPay);
+    }
+
+    // 5. Fallback: check procedurelog.BillingNote.paidAmount if no paysplit/claimproc recorded
+    const allProcsDetails = await prisma.procedurelog.findMany({
+      where: { ProcNum: { in: procNumArray } },
+      select: { ProcNum: true, BillingNote: true },
+    });
+    for (const proc of allProcsDetails) {
+      const procKey = proc.ProcNum.toString();
+      const currentPaid = paidByProc.get(procKey) ?? 0;
+      if (currentPaid === 0 && proc.BillingNote) {
+        const bn = parseJson<any>(proc.BillingNote);
+        const bnPaid = Number(bn?.paidAmount || 0);
+        if (bnPaid > 0) {
+          paidByProc.set(procKey, bnPaid);
+        }
+      }
+    }
+
+    // 6. Check invoice-level payments for linked statements (if unallocated to procedure splits)
+    for (const [aptKey, stmtNums] of aptToStatements.entries()) {
+      for (const stmtNum of stmtNums) {
+        const statement = await prisma.statement.findUnique({
+          where: { StatementNum: stmtNum },
+          select: { NoteBold: true },
+        });
+        const stmtMeta = parseJson<any>(statement?.NoteBold);
+        if (String(stmtMeta?.status || '').toLowerCase() === 'void') {
+          continue;
+        }
+
+        const payments = await prisma.payment.findMany({
+          where: {
+            PayNote: { contains: `"invoiceId":"${stmtNum.toString()}"` },
+          },
+          select: {
+            PayAmt: true,
+            PayNote: true,
+          },
+        });
+
+        const validPayments = payments.filter(p => {
+          const meta = parseJson<any>(p.PayNote);
+          const st = String(meta?.status || '').toLowerCase();
+          return st !== 'void' && st !== 'voided' && st !== 'reversed';
+        });
+
+        const totalInvoicePayments = validPayments.reduce((sum, p) => sum + (Number(p.PayAmt) || 0), 0);
+        if (totalInvoicePayments > 0) {
+          const sProcs = await prisma.procedurelog.findMany({
+            where: { StatementNum: stmtNum, ProcStatus: { not: 6 } },
+            select: { ProcNum: true, ProcFee: true, UnitQty: true, BaseUnits: true },
+          });
+          const alreadyAttributed = sProcs.reduce(
+            (sum, p) => sum + (paidByProc.get(p.ProcNum.toString()) ?? 0),
+            0
+          );
+          let unallocated = Math.max(0, totalInvoicePayments - alreadyAttributed);
+          for (const p of sProcs) {
+            if (unallocated <= 0) break;
+            const procKey = p.ProcNum.toString();
+            const currentPaid = paidByProc.get(procKey) ?? 0;
+            const qty = (p.UnitQty && p.UnitQty > 0) ? p.UnitQty : (p.BaseUnits && p.BaseUnits > 0 ? p.BaseUnits : 1);
+            const fee = Number(p.ProcFee ?? 0) * qty;
+            const needed = Math.max(0, fee - currentPaid);
+            const toApply = Math.min(needed, unallocated);
+            if (toApply > 0) {
+              paidByProc.set(procKey, currentPaid + toApply);
+              unallocated -= toApply;
+            }
+          }
+        }
+      }
+    }
+
+    // 7. Aggregate paid amounts by appointment and cap at total
+    for (const [procKey, procPaid] of paidByProc.entries()) {
+      const aptKey = procToAptMap.get(procKey);
       if (aptKey) {
         const currentPaid = paidByApt.get(aptKey) ?? 0;
-        paidByApt.set(aptKey, Math.round((currentPaid + Number(cp.InsPayAmt ?? 0)) * 100) / 100);
+        paidByApt.set(aptKey, Math.round((currentPaid + procPaid) * 100) / 100);
       }
+    }
+
+    for (const apt of appointments) {
+      const aptKey = apt.AptNum.toString();
+      const total = totalsByApt.get(aptKey) ?? 0;
+      const paid = paidByApt.get(aptKey) ?? 0;
+      paidByApt.set(aptKey, Math.min(total, paid));
     }
 
     return { totalsByApt, paidByApt };
@@ -705,6 +913,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
       procedures: apt.procedures ?? [],
       visitType: apt.visitType ?? null,
       systemEvents: apt.systemEvents ?? [],
+      totalAmount: apt.totalAmount ?? 0,
+      paidAmount: apt.paidAmount ?? 0,
     })),
     total: mappedAppointments.length,
     limit,
@@ -1214,6 +1424,15 @@ async getPatientAppointments(patientId: string, limit = 10) {
 
     await this.notifyStaffAppointmentBooked(String(appointment.AptNum));
 
+    if (data.customFields?.procedures && Array.isArray(data.customFields.procedures) && data.customFields.procedures.length > 0) {
+      return this.mapAppointmentWithMeta(appointment, {
+        patient: appointment.patient,
+        provider: appointment.provider_appointment_ProvNumToprovider,
+        appointmentType: appointment.appointmenttype,
+        createdBy: appointment.userod,
+      });
+    }
+
     return mapped;
   }
 
@@ -1516,6 +1735,15 @@ async getPatientAppointments(patientId: string, limit = 10) {
       undefined,
       'medium'
     );
+
+    if (updates.customFields?.procedures && Array.isArray(updates.customFields.procedures) && updates.customFields.procedures.length > 0) {
+      return this.mapAppointmentWithMeta(updated, {
+        patient: updated.patient,
+        provider: updated.provider_appointment_ProvNumToprovider,
+        appointmentType: updated.appointmenttype,
+        createdBy: updated.userod,
+      });
+    }
 
     return mapped;
   }

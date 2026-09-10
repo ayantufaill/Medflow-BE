@@ -353,6 +353,9 @@ export class DepositService {
         include: {
           patient: true,
           definition: true,
+          paysplit: {
+            include: { provider: true }
+          }
         },
       }),
       prisma.claimpayment.findMany({
@@ -364,6 +367,9 @@ export class DepositService {
         },
         include: {
           definition_claimpayment_PayTypeTodefinition: true,
+          claimproc: {
+            include: { provider: true }
+          }
         },
       }),
     ]);
@@ -381,37 +387,68 @@ export class DepositService {
       return methodStr;
     };
 
-    const mappedPatientPayments = patientPayments.map((p) => {
-      const meta = parseJson<{ paymentMethod?: string }>(p.PayNote);
+    const mappedPatientPayments: any[] = [];
+    const mappedInsurancePaymentsFromPaymentTable: any[] = [];
+    const mappedDepositPayments: any[] = [];
+
+    patientPayments.forEach((p) => {
+      const meta = parseJson<{ paymentMethod?: string; paymentSource?: string; isDeposit?: boolean; depositType?: string }>(p.PayNote);
       const rawMethod = meta.paymentMethod ?? p.definition?.ItemName ?? 'Check';
-      return {
-        id: p.PayNum.toString(),
+      
+      const firstSplit = p.paysplit?.[0];
+      const prov = firstSplit?.provider;
+      const providerName = prov ? `${prov.FName ?? ''} ${prov.LName ?? ''}`.trim() || prov.Abbr : undefined;
+
+      const paymentData: any = {
+        id: `PAY_${p.PayNum.toString()}`,
         type: 'patient',
         date: p.PayDate ?? null,
         amount: p.PayAmt ?? 0,
         method: mapPaymentMethod(rawMethod, false),
         checkNum: p.CheckNum ?? '',
         patientName: p.patient ? `${p.patient.FName ?? ''} ${p.patient.LName ?? ''}`.trim() : 'Unknown Patient',
+        providerName,
       };
+
+      if (meta.isDeposit === true) {
+        // Prepayment deposits go into their own category
+        paymentData.type = 'deposit';
+        mappedDepositPayments.push(paymentData);
+      } else if (meta.paymentSource === 'insurance_company') {
+        paymentData.type = 'insurance';
+        paymentData.method = mapPaymentMethod(rawMethod, true);
+        paymentData.carrierName = 'Insurance Company'; // Or mapped from payload if available
+        delete paymentData.patientName;
+        mappedInsurancePaymentsFromPaymentTable.push(paymentData);
+      } else {
+        mappedPatientPayments.push(paymentData);
+      }
     });
 
     const mappedInsurancePayments = insurancePayments.map((cp) => {
       const meta = parseJson<{ paymentMethod?: string }>(cp.Note);
       const rawMethod = meta.paymentMethod ?? cp.definition_claimpayment_PayTypeTodefinition?.ItemName ?? 'Check';
+      
+      const firstClaimProc = cp.claimproc?.[0];
+      const prov = firstClaimProc?.provider;
+      const providerName = prov ? `${prov.FName ?? ''} ${prov.LName ?? ''}`.trim() || prov.Abbr : undefined;
+
       return {
-        id: cp.ClaimPaymentNum.toString(),
+        id: `CP_${cp.ClaimPaymentNum.toString()}`,
         type: 'insurance',
         date: cp.CheckDate ?? null,
         amount: cp.CheckAmt ?? 0,
         method: mapPaymentMethod(rawMethod, true),
         checkNum: cp.CheckNum ?? '',
         carrierName: cp.CarrierName ?? 'Unknown Carrier',
+        providerName,
       };
     });
 
     return {
       patientPayments: mappedPatientPayments,
-      insurancePayments: mappedInsurancePayments,
+      insurancePayments: [...mappedInsurancePaymentsFromPaymentTable, ...mappedInsurancePayments],
+      depositPayments: mappedDepositPayments,
     };
   }
 
@@ -429,17 +466,29 @@ export class DepositService {
     const memoText = data.memo || '';
     const bankInfo = data.bankAccountInfo || '';
 
-    const patientIds = (data.patientPaymentIds || []).map(BigInt);
-    const insuranceIds = (data.insurancePaymentIds || []).map(BigInt);
+    const paymentTableIds: bigint[] = [];
+    const claimpaymentTableIds: bigint[] = [];
+
+    const processId = (idStr: string, defaultTable: 'payment' | 'claimpayment') => {
+      if (idStr.startsWith('PAY_')) paymentTableIds.push(BigInt(idStr.replace('PAY_', '')));
+      else if (idStr.startsWith('CP_')) claimpaymentTableIds.push(BigInt(idStr.replace('CP_', '')));
+      else {
+        if (defaultTable === 'payment') paymentTableIds.push(BigInt(idStr));
+        else claimpaymentTableIds.push(BigInt(idStr));
+      }
+    };
+
+    (data.patientPaymentIds || []).forEach(id => processId(id, 'payment'));
+    (data.insurancePaymentIds || []).forEach(id => processId(id, 'claimpayment'));
 
     // Fetch payments to calculate amount
     const [pPayments, cpPayments] = await Promise.all([
-      prisma.payment.findMany({
-        where: { PayNum: { in: patientIds } },
-      }),
-      prisma.claimpayment.findMany({
-        where: { ClaimPaymentNum: { in: insuranceIds } },
-      }),
+      paymentTableIds.length > 0 ? prisma.payment.findMany({
+        where: { PayNum: { in: paymentTableIds } },
+      }) : Promise.resolve([]),
+      claimpaymentTableIds.length > 0 ? prisma.claimpayment.findMany({
+        where: { ClaimPaymentNum: { in: claimpaymentTableIds } },
+      }) : Promise.resolve([]),
     ]);
 
     const totalAmt =
@@ -460,18 +509,18 @@ export class DepositService {
         },
       });
 
-      // 2. Update patient payments
-      if (patientIds.length > 0) {
+      // 2. Update payment table
+      if (paymentTableIds.length > 0) {
         await tx.payment.updateMany({
-          where: { PayNum: { in: patientIds } },
+          where: { PayNum: { in: paymentTableIds } },
           data: { DepositNum: depositNum },
         });
       }
 
-      // 3. Update claimpayments
-      if (insuranceIds.length > 0) {
+      // 3. Update claimpayments table
+      if (claimpaymentTableIds.length > 0) {
         await tx.claimpayment.updateMany({
-          where: { ClaimPaymentNum: { in: insuranceIds } },
+          where: { ClaimPaymentNum: { in: claimpaymentTableIds } },
           data: { DepositNum: depositNum },
         });
       }
@@ -482,8 +531,8 @@ export class DepositService {
     await logActivity(userId, 'created', 'deposits', depositNum.toString(), undefined, {
       depositNum: depositNum.toString(),
       totalAmount: totalAmt,
-      patientPaymentCount: patientIds.length,
-      insurancePaymentCount: insuranceIds.length,
+      patientPaymentCount: (data.patientPaymentIds || []).length,
+      insurancePaymentCount: (data.insurancePaymentIds || []).length,
     });
 
     return {
@@ -492,8 +541,8 @@ export class DepositService {
       bankAccountInfo: result.BankAccountInfo ?? null,
       amount: result.Amount ?? 0,
       memo: result.Memo ?? null,
-      patientPaymentCount: patientIds.length,
-      insurancePaymentCount: insuranceIds.length,
+      patientPaymentCount: (data.patientPaymentIds || []).length,
+      insurancePaymentCount: (data.insurancePaymentIds || []).length,
     };
   }
 }
