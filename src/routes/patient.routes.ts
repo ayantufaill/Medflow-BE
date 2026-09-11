@@ -789,6 +789,56 @@ router.get('/:patientId/balance', requireRoles('Receptionist', 'Admin', 'Billing
 
 /**
  * @swagger
+ * /patients/{patientId}/insurance-usage:
+ *   get:
+ *     summary: Get patient insurance benefit usage
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *         example: 1
+ *     responses:
+ *       200:
+ *         description: Insurance usage summary
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     primaryInsurance:
+ *                       type: object
+ *                       nullable: true
+ *                       properties:
+ *                         planName: { type: string, example: "Delta Dental" }
+ *                         usedAmount: { type: number, example: 600.00 }
+ *                         annualMax: { type: number, example: 1500.00 }
+ *                         remaining: { type: number, example: 900.00 }
+ *                         renewalMonth: { type: integer, example: 1 }
+ *                     secondaryInsurance:
+ *                       type: object
+ *                       nullable: true
+ *                       properties:
+ *                         planName: { type: string, example: "MetLife" }
+ *                         usedAmount: { type: number, example: 200.00 }
+ *                         annualMax: { type: number, example: 1000.00 }
+ *                         remaining: { type: number, example: 800.00 }
+ *                         renewalMonth: { type: integer, example: 1 }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Patient not found }
+ */
+router.get('/:patientId/insurance-usage', requireRoles('Receptionist', 'Admin', 'Billing Staff'), validate(patientIdValidator), patientController.getInsuranceUsage.bind(patientController));
+
+/**
+ * @swagger
  * /patients/{patientId}/last-visit:
  *   get:
  *     summary: Get patient's last completed visit

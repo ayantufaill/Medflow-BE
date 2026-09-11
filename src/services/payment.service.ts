@@ -328,6 +328,9 @@ export class PaymentService {
       },
     });
 
+    const affectedAptNums = new Set<string>();
+    const allocatedProcNums: string[] = [];
+
     // Process procedure-level flags & payments
     if (data.procedures && Array.isArray(data.procedures) && data.procedures.length > 0) {
       for (const procItem of data.procedures) {
@@ -342,11 +345,15 @@ export class PaymentService {
         const updateInsFlatPortion = Boolean(procItem.updateInsFlatPortion);
         const moveToNewClaim = Boolean(procItem.moveToNewClaim);
 
+        const procItemRecord = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
+        if (procItemRecord?.AptNum) {
+          affectedAptNums.add(procItemRecord.AptNum.toString());
+        }
+
         // 1. Update allowed fee if checkbox checked
         if (updateAllowedFee && allowed !== undefined && !isNaN(allowed)) {
-          const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
-          if (item) {
-            const itemMeta = parseJson<Record<string, any>>(item.BillingNote);
+          if (procItemRecord) {
+            const itemMeta = parseJson<Record<string, any>>(procItemRecord.BillingNote);
             const updatedMeta = { ...itemMeta, feeAllowed: allowed };
             await prisma.procedurelog.update({
               where: { ProcNum: procNum },
@@ -361,9 +368,8 @@ export class PaymentService {
 
         // 2. Update Ins. Flat Portion if checkbox checked
         if (updateInsFlatPortion && pay !== undefined && !isNaN(pay)) {
-          const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
-          if (item) {
-            const itemMeta = parseJson<Record<string, any>>(item.BillingNote);
+          if (procItemRecord) {
+            const itemMeta = parseJson<Record<string, any>>(procItemRecord.BillingNote);
             const updatedMeta = { ...itemMeta, insPortion: pay };
             await prisma.procedurelog.update({
               where: { ProcNum: procNum },
@@ -379,10 +385,38 @@ export class PaymentService {
 
         // 4. Record procedure payment if pay > 0
         if (pay !== undefined && !isNaN(pay) && pay > 0) {
+          // Generate Open Dental paysplit record
+          const splitNum = await getNextId('paysplit', 'SplitNum');
+          await prisma.paysplit.create({
+            data: {
+              SplitNum: splitNum,
+              ProcNum: procNum,
+              PayNum: payment.PayNum,
+              PatNum: BigInt(data.patientId),
+              SplitAmt: pay,
+              DatePay: resolvedPaidAt,
+              DateEntry: new Date(),
+              SecUserNumEntry: BigInt(userId),
+            },
+          });
+          allocatedProcNums.push(procNum.toString());
+
+          // Update procedurelog.BillingNote.paidAmount
+          if (procItemRecord) {
+            const itemMeta = parseJson<Record<string, any>>(procItemRecord.BillingNote);
+            const updatedMeta = {
+              ...itemMeta,
+              paidAmount: Math.round(((Number(itemMeta.paidAmount) || 0) + pay) * 100) / 100,
+            };
+            await prisma.procedurelog.update({
+              where: { ProcNum: procNum },
+              data: { BillingNote: buildJson(updatedMeta) },
+            });
+          }
+
           let targetInvoiceId = data.invoiceId;
-          if (!targetInvoiceId) {
-            const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
-            targetInvoiceId = item?.StatementNum?.toString();
+          if (!targetInvoiceId && procItemRecord?.StatementNum) {
+            targetInvoiceId = procItemRecord.StatementNum.toString();
           }
           if (targetInvoiceId) {
             try {
@@ -392,7 +426,203 @@ export class PaymentService {
             }
           }
         }
+
+        // 5. Update or create claimproc record for insurance payment tracking
+        if (data.paymentSource === 'insurance_company' || (pay !== undefined && !isNaN(pay) && pay > 0)) {
+          const wo = procItem.wo !== undefined ? Number(procItem.wo) : (procItem.writeoff !== undefined ? Number(procItem.writeoff) : ((procItem as any).writeOff !== undefined ? Number((procItem as any).writeOff) : undefined));
+          const ded = procItem.ded !== undefined ? Number(procItem.ded) : ((procItem as any).deductible !== undefined ? Number((procItem as any).deductible) : undefined);
+          const claimId = procItem.claimId ? toBigInt(procItem.claimId) : undefined;
+
+          const claimProcWhere: any = { ProcNum: procNum };
+          if (claimId) {
+            claimProcWhere.ClaimNum = claimId;
+          }
+
+          const existingClaimProcs = await prisma.claimproc.findMany({ where: claimProcWhere });
+          if (existingClaimProcs.length > 0) {
+            for (const ecp of existingClaimProcs) {
+              await prisma.claimproc.update({
+                where: { ClaimProcNum: ecp.ClaimProcNum },
+                data: {
+                  Status: 1, // 1 = Received / Paid
+                  InsPayAmt: pay !== undefined && !isNaN(pay) ? pay : ecp.InsPayAmt,
+                  WriteOff: wo !== undefined && !isNaN(wo) ? wo : ecp.WriteOff,
+                  DedApplied: ded !== undefined && !isNaN(ded) ? ded : ecp.DedApplied,
+                  DateCP: resolvedPaidAt,
+                },
+              });
+            }
+          } else {
+            const patPlan = await prisma.patplan.findFirst({
+              where: { PatNum: BigInt(data.patientId), IsPending: 0 },
+              orderBy: { Ordinal: 'asc' },
+            });
+            const proc = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
+            const nextCpNum = await getNextId('claimproc', 'ClaimProcNum');
+            await prisma.claimproc.create({
+              data: {
+                ClaimProcNum: nextCpNum,
+                ProcNum: procNum,
+                ClaimNum: claimId ?? null,
+                PatNum: BigInt(data.patientId),
+                InsSubNum: patPlan?.InsSubNum ?? null,
+                ClinicNum: proc?.ClinicNum ?? null,
+                ProvNum: proc?.ProvNum ?? null,
+                DateCP: resolvedPaidAt,
+                ProcDate: proc?.ProcDate ?? resolvedPaidAt,
+                DateEntry: new Date(),
+                Status: 1,
+                FeeBilled: proc?.ProcFee ?? 0,
+                InsPayAmt: pay !== undefined && !isNaN(pay) ? pay : 0,
+                WriteOff: wo !== undefined && !isNaN(wo) ? wo : 0,
+                DedApplied: ded !== undefined && !isNaN(ded) ? ded : 0,
+              },
+            });
+          }
+        }
       }
+    } else if (data.invoiceId) {
+      // Case 2: Invoice-level payment without explicit procedure breakdown (e.g. from RecordPaymentPage)
+      const invoiceStmtNum = toBigInt(data.invoiceId);
+      if (invoiceStmtNum) {
+        const invoiceProcs = await prisma.procedurelog.findMany({
+          where: {
+            StatementNum: invoiceStmtNum,
+            ProcStatus: { not: 6 },
+          },
+          orderBy: { ProcNum: 'asc' },
+        });
+
+        if (invoiceProcs.length > 0) {
+          let remainingToAllocate = data.amount;
+
+          // Calculate remaining unpaid balance for each procedure on the invoice
+          const procBalances = await Promise.all(
+            invoiceProcs.map(async (proc) => {
+              const qty = (proc.UnitQty && proc.UnitQty > 0) ? proc.UnitQty : (proc.BaseUnits && proc.BaseUnits > 0 ? proc.BaseUnits : 1);
+              const totalFee = (Number(proc.ProcFee) || 0) * qty;
+
+              // Check existing paysplit for this procedure (excluding voided/reversed)
+              const existingSplits = await prisma.paysplit.findMany({
+                where: { ProcNum: proc.ProcNum },
+                include: { payment: true },
+              });
+              const validPaidFromSplits = existingSplits
+                .filter(ps => {
+                  const pNote = parseJson<PaymentMeta>(ps.payment?.PayNote);
+                  const st = String(pNote?.status || '').toLowerCase();
+                  return st !== 'void' && st !== 'voided' && st !== 'reversed';
+                })
+                .reduce((s, ps) => s + (Number(ps.SplitAmt) || 0), 0);
+
+              const bn = parseJson<any>(proc.BillingNote);
+              const bnPaid = Number(bn?.paidAmount || 0);
+              const currentPaid = Math.max(validPaidFromSplits, bnPaid);
+              const balance = Math.max(0, totalFee - currentPaid);
+
+              return { proc, totalFee, currentPaid, balance, bn };
+            })
+          );
+
+          // Allocate across procedures that have positive balance first
+          for (const item of procBalances) {
+            if (remainingToAllocate <= 0) break;
+            const alloc = Math.min(item.balance, remainingToAllocate);
+            if (alloc > 0) {
+              const splitNum = await getNextId('paysplit', 'SplitNum');
+              await prisma.paysplit.create({
+                data: {
+                  SplitNum: splitNum,
+                  ProcNum: item.proc.ProcNum,
+                  PayNum: payment.PayNum,
+                  PatNum: BigInt(data.patientId),
+                  SplitAmt: alloc,
+                  DatePay: resolvedPaidAt,
+                  DateEntry: new Date(),
+                  SecUserNumEntry: BigInt(userId),
+                },
+              });
+
+              const updatedBn = {
+                ...item.bn,
+                paidAmount: Math.round(((Number(item.bn?.paidAmount) || 0) + alloc) * 100) / 100,
+              };
+              await prisma.procedurelog.update({
+                where: { ProcNum: item.proc.ProcNum },
+                data: { BillingNote: buildJson(updatedBn) },
+              });
+
+              allocatedProcNums.push(item.proc.ProcNum.toString());
+              if (item.proc.AptNum) {
+                affectedAptNums.add(item.proc.AptNum.toString());
+              }
+
+              remainingToAllocate = Math.round((remainingToAllocate - alloc) * 100) / 100;
+            }
+          }
+
+          // If there is any leftover amount (overpayment) or all balances were 0, allocate to the last procedure
+          if (remainingToAllocate > 0) {
+            const lastItem = procBalances[procBalances.length - 1];
+            const splitNum = await getNextId('paysplit', 'SplitNum');
+            await prisma.paysplit.create({
+              data: {
+                SplitNum: splitNum,
+                ProcNum: lastItem.proc.ProcNum,
+                PayNum: payment.PayNum,
+                PatNum: BigInt(data.patientId),
+                SplitAmt: remainingToAllocate,
+                DatePay: resolvedPaidAt,
+                DateEntry: new Date(),
+                SecUserNumEntry: BigInt(userId),
+              },
+            });
+
+            const updatedBn = {
+              ...lastItem.bn,
+              paidAmount: Math.round(((Number(lastItem.bn?.paidAmount) || 0) + remainingToAllocate) * 100) / 100,
+            };
+            await prisma.procedurelog.update({
+              where: { ProcNum: lastItem.proc.ProcNum },
+              data: { BillingNote: buildJson(updatedBn) },
+            });
+
+            if (!allocatedProcNums.includes(lastItem.proc.ProcNum.toString())) {
+              allocatedProcNums.push(lastItem.proc.ProcNum.toString());
+            }
+            if (lastItem.proc.AptNum) {
+              affectedAptNums.add(lastItem.proc.AptNum.toString());
+            }
+          }
+        }
+      }
+    }
+
+    // Recalculate invoice if invoiceId was present
+    if (data.invoiceId) {
+      try {
+        await invoiceService.recalculateInvoice(data.invoiceId);
+      } catch (err) {
+        console.error(`[PaymentService] Error recalculating invoice ${data.invoiceId}:`, err);
+      }
+    }
+
+    console.log(
+      `[PaymentService] Payment ${payNum} allocated to Invoice ${data.invoiceId || 'N/A'}, Procedures [${allocatedProcNums.join(', ')}], Appointments [${Array.from(affectedAptNums).join(', ')}]`
+    );
+
+    // Emit Socket.IO event for real-time schedule / appointment updates
+    try {
+      const { getIO } = await import('../sockets/socket.js');
+      getIO()?.emit('payment:completed', {
+        paymentId: payment.PayNum.toString(),
+        invoiceId: data.invoiceId ?? null,
+        patientId: data.patientId,
+        amount: data.amount,
+        appointmentIds: Array.from(affectedAptNums),
+      });
+    } catch (err) {
+      console.error('[PaymentService] Error emitting payment:completed socket event:', err);
     }
 
     await logActivity(userId, 'created', 'payments', payment.PayNum.toString(), undefined, payment);
@@ -547,7 +777,25 @@ export class PaymentService {
       return depositService.voidDeposit(paymentId, { reason }, userId);
     }
 
-    return this.updatePayment(
+    // Deduct paysplit amounts from procedurelog BillingNote if present
+    if (payment.paysplit && payment.paysplit.length > 0) {
+      for (const ps of payment.paysplit) {
+        if (ps.ProcNum && Number(ps.SplitAmt) > 0) {
+          const proc = await prisma.procedurelog.findUnique({ where: { ProcNum: ps.ProcNum } });
+          if (proc?.BillingNote) {
+            const bn = parseJson<any>(proc.BillingNote);
+            const currentPaid = Number(bn?.paidAmount || 0);
+            const newPaid = Math.max(0, Math.round((currentPaid - Number(ps.SplitAmt)) * 100) / 100);
+            await prisma.procedurelog.update({
+              where: { ProcNum: ps.ProcNum },
+              data: { BillingNote: buildJson({ ...bn, paidAmount: newPaid }) },
+            });
+          }
+        }
+      }
+    }
+
+    const updatedPayment = await this.updatePayment(
       paymentId,
       {
         status: 'void',
@@ -555,6 +803,16 @@ export class PaymentService {
       },
       userId
     );
+
+    if (meta.invoiceId) {
+      try {
+        await invoiceService.recalculateInvoice(meta.invoiceId);
+      } catch (err) {
+        console.error(`[PaymentService] Error recalculating invoice ${meta.invoiceId} after void:`, err);
+      }
+    }
+
+    return updatedPayment;
   }
 }
 

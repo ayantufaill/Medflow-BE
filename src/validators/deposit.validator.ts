@@ -38,7 +38,14 @@ export const createDepositValidator: ValidationChain[] = [
     .withMessage('Payment method is required')
     .custom((val) => {
       const norm = String(val || '').toLowerCase().trim();
-      const allowed = ['cash', 'check', 'card', 'ach', 'insurance', 'patient', 'patient-deposit', 'insurance-deposit'];
+      const allowed = [
+        'cash', 'check', 'card', 'ach', 'insurance', 'patient', 'patient-deposit', 'insurance-deposit',
+        // Human-readable names from the deposit popup
+        'eft', 'debit card (debit)', 'visa card', 'master card', 'amex',
+        'patient check', 'insurance check', 'account credit', 'account correction',
+        'courtesy credit', 'inp special', 'insurance refund/back to office',
+        'hsa', 'testing credit', 'collection agency payment',
+      ];
       if (!allowed.includes(norm)) {
         throw new Error('Invalid payment method');
       }
@@ -76,14 +83,14 @@ export const createDepositSlipValidator: ValidationChain[] = [
     .isArray()
     .withMessage('Patient payment IDs must be an array'),
   body('patientPaymentIds.*')
-    .isInt({ min: 1 })
+    .isString()
     .withMessage('Invalid patient payment ID format'),
   body('insurancePaymentIds')
     .optional()
     .isArray()
     .withMessage('Insurance payment IDs must be an array'),
   body('insurancePaymentIds.*')
-    .isInt({ min: 1 })
+    .isString()
     .withMessage('Invalid insurance payment ID format'),
 ];
 

@@ -829,8 +829,10 @@ export class InvoiceService {
   }
 
   private mapStatementToInvoice(statement: any, meta: StatementMeta) {
+    const idStr = statement.StatementNum.toString();
     return {
-      _id: statement.StatementNum.toString(),
+      _id: idStr,
+      id: idStr,
       invoiceNumber: statement.ShortGUID ?? '',
       patientId: statement.PatNum?.toString() ?? null,
       appointmentId: meta.appointmentId ?? null,
@@ -1525,6 +1527,7 @@ export class InvoiceService {
   async createStandaloneInvoice(
     data: {
       patientId: string;
+      appointmentId?: string | number;
       items: Array<{
         id?: string;        // ProcNum of an existing unbilled record, if present
         code: string;
@@ -1549,6 +1552,20 @@ export class InvoiceService {
     const patient = await prisma.patient.findUnique({ where: { PatNum: patientId } });
     if (!patient) throw new NotFoundError('Patient not found');
 
+    let resolvedAptNum: bigint | null = data.appointmentId != null ? toBigInt(String(data.appointmentId)) : null;
+    if (!resolvedAptNum) {
+      const recentApt = await prisma.appointment.findFirst({
+        where: {
+          PatNum: patientId,
+          AptStatus: { notIn: [5, 6] },
+        },
+        orderBy: { AptDateTime: 'desc' },
+      });
+      if (recentApt) {
+        resolvedAptNum = recentApt.AptNum;
+      }
+    }
+
     const invoiceNumber = await getInvoiceNumber();
     const statementNum = await getNextId('statement', 'StatementNum');
     const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
@@ -1566,6 +1583,7 @@ export class InvoiceService {
     }
 
     const meta: StatementMeta = {
+      appointmentId: resolvedAptNum ? resolvedAptNum.toString() : undefined,
       copayAmount: 0,
       paidAmount: 0,
       taxAmount: 0,
@@ -1651,16 +1669,32 @@ export class InvoiceService {
       // If item carries an existing ProcNum (unbilled product), update it in-place
       // instead of creating a duplicate record.
       const existingProcNum = item.id && /^\d+$/.test(item.id) ? toBigInt(item.id) : null;
-      const existingRecord = existingProcNum
+      let existingRecord = existingProcNum
         ? await prisma.procedurelog.findUnique({ where: { ProcNum: existingProcNum } })
         : null;
+
+      if (!existingRecord && resolvedAptNum) {
+        existingRecord = await prisma.procedurelog.findFirst({
+          where: {
+            AptNum: resolvedAptNum,
+            StatementNum: null,
+            ProcStatus: { not: 6 },
+            OR: [
+              service?.CodeNum ? { CodeNum: service.CodeNum } : undefined,
+              { BillingNote: { contains: item.code } },
+              { BillingNote: { contains: item.description } },
+            ].filter(Boolean) as any,
+          },
+        });
+      }
 
       if (existingRecord) {
         // Link the existing record to the new invoice — marks it as "billed"
         await prisma.procedurelog.update({
-          where: { ProcNum: existingProcNum! },
+          where: { ProcNum: existingRecord.ProcNum },
           data: {
             StatementNum: statementNum,
+            AptNum: resolvedAptNum ?? existingRecord.AptNum,
             ProcStatus: item.completed ? 2 : 1,
             ProvNum: provNum ?? existingRecord.ProvNum,
             BillingNote: billingNote,
@@ -1673,6 +1707,7 @@ export class InvoiceService {
           data: {
             ProcNum: procNum,
             PatNum: patientId,
+            AptNum: resolvedAptNum,
             ProvNum: provNum,
             ClinicNum: data.branchId ? BigInt(data.branchId) : null,
             ProcDate: item.date ? new Date(item.date) : new Date(),
@@ -1688,6 +1723,20 @@ export class InvoiceService {
           },
         });
       }
+    }
+
+    // Link any remaining unbilled procedures on the appointment to this statement
+    if (resolvedAptNum) {
+      await prisma.procedurelog.updateMany({
+        where: {
+          AptNum: resolvedAptNum,
+          StatementNum: null,
+          ProcStatus: { not: 6 },
+        },
+        data: {
+          StatementNum: statementNum,
+        },
+      });
     }
 
     await this.recalculateInvoice(statementNum.toString());

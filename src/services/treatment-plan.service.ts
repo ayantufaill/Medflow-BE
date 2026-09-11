@@ -212,6 +212,56 @@ export class TreatmentPlanService {
       items: nextItems,
     };
 
+    // Chart newly completed procedures
+    const newlyCompletedItems = nextItems.filter((newItem: any) => {
+      const oldItem = meta.items?.find((i: any) => i.id === newItem.id);
+      return newItem.status === 'C' && oldItem?.status !== 'C';
+    });
+
+    if (newlyCompletedItems.length > 0 && plan.PatNum) {
+      for (const item of newlyCompletedItems) {
+        let codeNum = BigInt(0);
+        if (item.procedureCode) {
+          const pc = await prisma.procedurecode.findFirst({ where: { ProcCode: item.procedureCode } });
+          if (pc?.CodeNum) codeNum = pc.CodeNum;
+        }
+
+        let provNum = BigInt(0);
+        if (item.provider) {
+          const prov = await prisma.provider.findFirst({ where: { Abbr: item.provider } });
+          if (prov?.ProvNum) provNum = prov.ProvNum;
+        }
+
+        if (provNum === BigInt(0)) {
+          const patient = await prisma.patient.findUnique({ where: { PatNum: plan.PatNum } });
+          if (patient && patient.PriProv) {
+            provNum = patient.PriProv;
+          } else {
+            const fallbackProv = await prisma.provider.findFirst({ where: { IsHidden: 0 } });
+            if (fallbackProv?.ProvNum) provNum = fallbackProv.ProvNum;
+          }
+        }
+
+        const procNum = await getNextId('procedurelog', 'ProcNum');
+
+        await prisma.procedurelog.create({
+          data: {
+            ProcNum: procNum,
+            PatNum: plan.PatNum,
+            ProvNum: provNum,
+            CodeNum: codeNum,
+            ProcStatus: 2, // Complete
+            ProcDate: new Date(),
+            ProcFee: Number(item.charge ?? item.fee ?? 0),
+            Surf: item.site ?? '',
+            ToothNum: item.tooth ?? '',
+            OldCode: item.procedureCode ?? '',
+            DateTP: plan.DateTP,
+          }
+        });
+      }
+    }
+
     const updated = await prisma.treatplan.update({
       where: { TreatPlanNum: plan.TreatPlanNum },
       data: {

@@ -2211,7 +2211,10 @@ export class ReportGenerationService {
 
     const results = patients.map(p => {
       const meta = patientsMeta[p.PatNum.toString()] || {};
-      const pFlags: string[] = meta.patientFlags || [];
+      const rawFlags = meta.patientFlags || [];
+      const pFlags: string[] = Array.isArray(rawFlags)
+        ? rawFlags.map(f => (typeof f === 'string' ? f : (f?.name || f?.label || ''))).filter(Boolean)
+        : [];
 
       // Check inclusion
       if (includeFlags.length > 0) {

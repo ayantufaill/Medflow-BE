@@ -111,6 +111,28 @@ export class PatientController {
     }
   }
 
+  async getInsuranceUsage(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+
+      if (!patientId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Patient ID is required' },
+        });
+      }
+
+      const insuranceUsage = await patientService.getInsuranceUsage(patientId);
+
+      res.status(200).json({
+        success: true,
+        data: insuranceUsage,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getPatientLastVisit(req: Request, res: Response, next: NextFunction) {
   try {
     const { patientId } = req.params;

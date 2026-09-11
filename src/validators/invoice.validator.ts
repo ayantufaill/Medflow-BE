@@ -215,6 +215,8 @@ export const createStandaloneInvoiceValidator: ValidationChain[] = [
     .withMessage('Patient ID is required')
     .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
+  body('appointmentId')
+    .optional({ nullable: true }),
   body('items')
     .isArray({ min: 1 })
     .withMessage('Items must be a non-empty array'),
