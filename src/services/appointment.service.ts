@@ -477,10 +477,14 @@ export class AppointmentService {
       where: {
         ProcNum: { in: procNumArray },
         Status: { in: [1, 4, 5] },
+        // Patient payments are represented by paysplit. Only claim-linked
+        // records represent insurance payments and should be added separately.
+        ClaimNum: { not: null },
       },
       select: {
         ProcNum: true,
         InsPayAmt: true,
+        ClaimNum: true,
       },
     });
 
