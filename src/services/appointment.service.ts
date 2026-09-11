@@ -335,6 +335,9 @@ export class AppointmentService {
       },
     });
 
+    // Fetch appointment metadata for fallback
+    const aptMetas = await getAppointmentsMeta(validAptNums);
+
     const procToAptMap = new Map<string, string>();
     for (const proc of procedures) {
       if (!proc.AptNum) continue;
@@ -344,6 +347,26 @@ export class AppointmentService {
       const currentTotal = totalsByApt.get(aptKey) ?? 0;
       totalsByApt.set(aptKey, Math.round((currentTotal + fee) * 100) / 100);
       procToAptMap.set(proc.ProcNum.toString(), aptKey);
+    }
+
+    // Fallback: If an appointment has no direct procedures in procedurelog (or total is 0),
+    // check its customFields.procedures metadata so that scheduled appointments display their total fee.
+    for (const apt of appointments) {
+      const aptKey = apt.AptNum.toString();
+      if ((totalsByApt.get(aptKey) ?? 0) === 0) {
+        const meta = aptMetas[aptKey];
+        const cfProcs = meta?.customFields?.procedures;
+        if (Array.isArray(cfProcs) && cfProcs.length > 0) {
+          let cfTotal = 0;
+          for (const p of cfProcs) {
+            const fee = p.charge ? parseFloat(p.charge.toString().replace(/[^0-9.-]+/g, "")) : 0;
+            if (!isNaN(fee)) cfTotal += fee;
+          }
+          if (cfTotal > 0) {
+            totalsByApt.set(aptKey, Math.round(cfTotal * 100) / 100);
+          }
+        }
+      }
     }
 
     // 2. Discover linked statements for each appointment:
@@ -376,41 +399,6 @@ export class AppointmentService {
         aptToStatements.get(aptKey)?.add(s.StatementNum);
       }
 
-      // If no statements found yet, search for matching statements belonging to this patient
-      if ((aptToStatements.get(aptKey)?.size ?? 0) === 0 && apt.PatNum) {
-        const patStmts = await prisma.statement.findMany({
-          where: { PatNum: apt.PatNum },
-          select: { StatementNum: true, DateSent: true, NoteBold: true },
-          orderBy: { StatementNum: 'desc' },
-        });
-
-        const aptProcs = procedures.filter(p => p.AptNum === apt.AptNum);
-        const aptProcCodesOrFees = aptProcs.map(p => ({
-          fee: Number(p.ProcFee ?? 0),
-          note: (p.BillingNote || '').toLowerCase(),
-        }));
-
-        for (const s of patStmts) {
-          const sProcs = await prisma.procedurelog.findMany({
-            where: { StatementNum: s.StatementNum, ProcStatus: { not: 6 } },
-            select: { ProcNum: true, ProcFee: true, BillingNote: true },
-          });
-
-          let isMatch = false;
-          if (sProcs.length > 0 && aptProcs.length > 0) {
-            const matchedCount = sProcs.filter(sp => {
-              const spFee = Number(sp.ProcFee ?? 0);
-              const spNote = (sp.BillingNote || '').toLowerCase();
-              return aptProcCodesOrFees.some(ap => ap.fee === spFee || (ap.note && spNote.includes(ap.note)));
-            }).length;
-            if (matchedCount > 0) isMatch = true;
-          }
-
-          if (isMatch) {
-            aptToStatements.get(aptKey)?.add(s.StatementNum);
-          }
-        }
-      }
     }
 
     // Collect all procedures: direct appointment procedures + procedures on linked statements
@@ -422,8 +410,13 @@ export class AppointmentService {
           select: { ProcNum: true, ProcFee: true, UnitQty: true, BaseUnits: true, BillingNote: true },
         });
 
-        // If appointment had no direct procedures, populate total from statement procedures
-        if ((totalsByApt.get(aptKey) ?? 0) === 0 && sProcs.length > 0) {
+        // Use statement procedures only when the appointment has no direct
+        // procedures. Once direct procedures exist, statement lines may include
+        // unrelated invoice items and must not change the appointment total.
+        const hasDirectProcedures = procedures.some(
+          p => p.AptNum?.toString() === aptKey,
+        );
+        if (!hasDirectProcedures && sProcs.length > 0) {
           let stmtTotal = 0;
           for (const sp of sProcs) {
             const qty = (sp.UnitQty && sp.UnitQty > 0) ? sp.UnitQty : (sp.BaseUnits && sp.BaseUnits > 0 ? sp.BaseUnits : 1);
@@ -434,7 +427,7 @@ export class AppointmentService {
 
         for (const sp of sProcs) {
           allProcNums.add(sp.ProcNum);
-          if (!procToAptMap.has(sp.ProcNum.toString())) {
+          if (!hasDirectProcedures && !procToAptMap.has(sp.ProcNum.toString())) {
             procToAptMap.set(sp.ProcNum.toString(), aptKey);
           }
         }
@@ -443,7 +436,7 @@ export class AppointmentService {
 
     const procNumArray = Array.from(allProcNums);
 
-    // 3. Fetch patient payments via paysplit (excluding voided/reversed)
+    // 3. Fetch patient & insurance payments via paysplit (excluding voided/reversed)
     const paySplits = await prisma.paysplit.findMany({
       where: {
         ProcNum: { in: procNumArray },
@@ -458,7 +451,8 @@ export class AppointmentService {
       },
     });
 
-    const paidByProc = new Map<string, number>();
+    const patientPaidByProc = new Map<string, number>();
+    const insPaidByProcSplits = new Map<string, number>();
 
     for (const ps of paySplits) {
       if (!ps.ProcNum) continue;
@@ -469,7 +463,12 @@ export class AppointmentService {
       }
       const splitAmt = Number(ps.SplitAmt ?? 0);
       const procKey = ps.ProcNum.toString();
-      paidByProc.set(procKey, (paidByProc.get(procKey) ?? 0) + splitAmt);
+      const isIns = payMeta?.paymentSource === 'insurance_company' || payMeta?.paymentSource === 'insurance';
+      if (isIns) {
+        insPaidByProcSplits.set(procKey, (insPaidByProcSplits.get(procKey) ?? 0) + splitAmt);
+      } else {
+        patientPaidByProc.set(procKey, (patientPaidByProc.get(procKey) ?? 0) + splitAmt);
+      }
     }
 
     // 4. Fetch insurance payments via claimproc (Status 1 = Received, 4 = Supplemental, 5 = CapClaim)
@@ -477,8 +476,6 @@ export class AppointmentService {
       where: {
         ProcNum: { in: procNumArray },
         Status: { in: [1, 4, 5] },
-        // Patient payments are represented by paysplit. Only claim-linked
-        // records represent insurance payments and should be added separately.
         ClaimNum: { not: null },
       },
       select: {
@@ -488,11 +485,24 @@ export class AppointmentService {
       },
     });
 
+    const insPaidByProcClaim = new Map<string, number>();
     for (const cp of claimProcs) {
       if (!cp.ProcNum) continue;
       const procKey = cp.ProcNum.toString();
       const insPay = Number(cp.InsPayAmt ?? 0);
-      paidByProc.set(procKey, (paidByProc.get(procKey) ?? 0) + insPay);
+      insPaidByProcClaim.set(procKey, (insPaidByProcClaim.get(procKey) ?? 0) + insPay);
+    }
+
+    const paidByProc = new Map<string, number>();
+    for (const procNum of procNumArray) {
+      const procKey = procNum.toString();
+      const ptPaid = patientPaidByProc.get(procKey) ?? 0;
+      const insFromSplits = insPaidByProcSplits.get(procKey) ?? 0;
+      const insFromClaim = insPaidByProcClaim.get(procKey) ?? 0;
+      // Deduplicate insurance payments between paysplit and claimproc.
+      // Write-offs and adjustments are contractual discounts, NOT payments.
+      const insPaid = Math.max(insFromSplits, insFromClaim);
+      paidByProc.set(procKey, Math.round((ptPaid + insPaid) * 100) / 100);
     }
 
     // 5. Fallback: check procedurelog.BillingNote.paidAmount if no paysplit/claimproc recorded
@@ -512,7 +522,7 @@ export class AppointmentService {
       }
     }
 
-    // 6. Check invoice-level payments for linked statements (if unallocated to procedure splits)
+    // 6. Check invoice-level payments and adjustments for linked statements (if unallocated to procedure splits)
     for (const [aptKey, stmtNums] of aptToStatements.entries()) {
       for (const stmtNum of stmtNums) {
         const statement = await prisma.statement.findUnique({
@@ -541,7 +551,34 @@ export class AppointmentService {
         });
 
         const totalInvoicePayments = validPayments.reduce((sum, p) => sum + (Number(p.PayAmt) || 0), 0);
-        if (totalInvoicePayments > 0) {
+
+        // Fetch invoice-level adjustments (credit subtractions, write-offs, etc.)
+        const invoiceAdjustments = await prisma.adjustment.findMany({
+          where: {
+            OR: [
+              { StatementNum: stmtNum },
+              { AdjNote: { contains: `Invoice #${stmtNum.toString()}` } },
+            ],
+          },
+          select: {
+            AdjAmt: true,
+            AdjNote: true,
+          },
+        });
+
+        const totalInvoiceAdj = invoiceAdjustments.reduce((sum, adj) => {
+          if (adj.AdjNote && adj.AdjNote.toLowerCase().includes('income transfer')) {
+            return sum;
+          }
+          // Credit adjustments are stored as negative numbers (e.g. -35)
+          return sum + Math.abs(Number(adj.AdjAmt) || 0);
+        }, 0);
+
+        const stmtAdjAmount = Number(stmtMeta?.adjustmentAmount || 0);
+        const resolvedAdj = Math.max(totalInvoiceAdj, stmtAdjAmount);
+        const totalInvoiceSettled = totalInvoicePayments + resolvedAdj;
+
+        if (totalInvoiceSettled > 0) {
           const sProcs = await prisma.procedurelog.findMany({
             where: { StatementNum: stmtNum, ProcStatus: { not: 6 } },
             select: { ProcNum: true, ProcFee: true, UnitQty: true, BaseUnits: true },
@@ -550,7 +587,7 @@ export class AppointmentService {
             (sum, p) => sum + (paidByProc.get(p.ProcNum.toString()) ?? 0),
             0
           );
-          let unallocated = Math.max(0, totalInvoicePayments - alreadyAttributed);
+          let unallocated = Math.max(0, totalInvoiceSettled - alreadyAttributed);
           for (const p of sProcs) {
             if (unallocated <= 0) break;
             const procKey = p.ProcNum.toString();
@@ -2614,15 +2651,17 @@ async getPatientAppointments(patientId: string, limit = 10) {
         finalSurface = null;
       } else if (treatArea === 'TOOTH') {
         finalSurface = null;
-        if (!finalTooth) {
+        if (data.status === '2' && !finalTooth) {
           throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a tooth number.`);
         }
       } else if (treatArea === 'SURFACE') {
-        if (!finalTooth) {
-          throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a tooth number.`);
-        }
-        if (!finalSurface) {
-          throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a surface.`);
+        if (data.status === '2') {
+          if (!finalTooth) {
+            throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a tooth number.`);
+          }
+          if (!finalSurface) {
+            throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a surface.`);
+          }
         }
       }
     }

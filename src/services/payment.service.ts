@@ -401,8 +401,29 @@ export class PaymentService {
           });
           allocatedProcNums.push(procNum.toString());
 
-          // Update procedurelog.BillingNote.paidAmount
-          if (procItemRecord) {
+          let targetInvoiceId = data.invoiceId;
+          if (!targetInvoiceId && procItemRecord?.StatementNum) {
+            targetInvoiceId = procItemRecord.StatementNum.toString();
+          }
+
+          if (targetInvoiceId) {
+            try {
+              await invoiceService.markItemPaid(targetInvoiceId, procId, pay);
+            } catch (e) {
+              // If markItemPaid fails, fallback to direct update
+              if (procItemRecord) {
+                const itemMeta = parseJson<Record<string, any>>(procItemRecord.BillingNote);
+                const updatedMeta = {
+                  ...itemMeta,
+                  paidAmount: Math.round(((Number(itemMeta.paidAmount) || 0) + pay) * 100) / 100,
+                };
+                await prisma.procedurelog.update({
+                  where: { ProcNum: procNum },
+                  data: { BillingNote: buildJson(updatedMeta) },
+                });
+              }
+            }
+          } else if (procItemRecord) {
             const itemMeta = parseJson<Record<string, any>>(procItemRecord.BillingNote);
             const updatedMeta = {
               ...itemMeta,
@@ -412,18 +433,6 @@ export class PaymentService {
               where: { ProcNum: procNum },
               data: { BillingNote: buildJson(updatedMeta) },
             });
-          }
-
-          let targetInvoiceId = data.invoiceId;
-          if (!targetInvoiceId && procItemRecord?.StatementNum) {
-            targetInvoiceId = procItemRecord.StatementNum.toString();
-          }
-          if (targetInvoiceId) {
-            try {
-              await invoiceService.markItemPaid(targetInvoiceId, procId, pay);
-            } catch (e) {
-              // Ignore if already marked or invoice structure differs
-            }
           }
         }
 

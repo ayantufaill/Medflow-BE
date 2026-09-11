@@ -1552,19 +1552,7 @@ export class InvoiceService {
     const patient = await prisma.patient.findUnique({ where: { PatNum: patientId } });
     if (!patient) throw new NotFoundError('Patient not found');
 
-    let resolvedAptNum: bigint | null = data.appointmentId != null ? toBigInt(String(data.appointmentId)) : null;
-    if (!resolvedAptNum) {
-      const recentApt = await prisma.appointment.findFirst({
-        where: {
-          PatNum: patientId,
-          AptStatus: { notIn: [5, 6] },
-        },
-        orderBy: { AptDateTime: 'desc' },
-      });
-      if (recentApt) {
-        resolvedAptNum = recentApt.AptNum;
-      }
-    }
+    const resolvedAptNum: bigint | null = data.appointmentId != null ? toBigInt(String(data.appointmentId)) : null;
 
     const invoiceNumber = await getInvoiceNumber();
     const statementNum = await getNextId('statement', 'StatementNum');
@@ -1674,6 +1662,7 @@ export class InvoiceService {
         : null;
 
       if (!existingRecord && resolvedAptNum) {
+        // First look for unbilled procedure on this appointment
         existingRecord = await prisma.procedurelog.findFirst({
           where: {
             AptNum: resolvedAptNum,
@@ -1686,6 +1675,24 @@ export class InvoiceService {
             ].filter(Boolean) as any,
           },
         });
+
+        // If no unbilled procedure, check if a procedure already exists on this appointment
+        // with the same code/description (e.g. from an earlier draft invoice attempt)
+        // so we reuse it rather than duplicating procedures on the appointment
+        if (!existingRecord) {
+          existingRecord = await prisma.procedurelog.findFirst({
+            where: {
+              AptNum: resolvedAptNum,
+              ProcStatus: { not: 6 },
+              OR: [
+                service?.CodeNum ? { CodeNum: service.CodeNum } : undefined,
+                { BillingNote: { contains: item.code } },
+                { BillingNote: { contains: item.description } },
+              ].filter(Boolean) as any,
+            },
+            orderBy: { StatementNum: 'asc' },
+          });
+        }
       }
 
       if (existingRecord) {
