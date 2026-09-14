@@ -4,15 +4,9 @@ import { setRoleMeta } from '../utils/opendental-auth.util';
 
 const roles = [
   { name: 'Admin', description: 'Administrator', permissions: { '*': true }, isSystemRole: true },
-  { name: 'Provider', description: 'Provider', permissions: {}, isSystemRole: true },
-  { name: 'Staff', description: 'Staff', permissions: {}, isSystemRole: true },
-  { name: 'Patient', description: 'Patient', permissions: {}, isSystemRole: true },
-  { name: 'Receptionist', description: 'Front-desk staff — manages patient records, scheduling, and insurance intake.', permissions: {}, isSystemRole: true },
-  { name: 'Billing Staff', description: 'Handles patient billing, insurance plans, and account balances.', permissions: {}, isSystemRole: true },
-  { name: 'Clinical Staff', description: 'Clinical support staff — assists with patient check-in/out and treatment documentation.', permissions: {}, isSystemRole: true },
   {
     name: 'Super Admin',
-    description: 'Operates the platform across every practice group — onboards/offboards practices, manages role definitions. Not a per-practice role.',
+    description: 'Operates the platform across every practice group — onboards/offboards practices, manages role definitions.',
     permissions: {
       'platform:manage_practice_groups': true,
       'roles.create': true,
@@ -22,11 +16,33 @@ const roles = [
     isSystemRole: true,
   },
   {
+    name: 'Group Admin',
+    description: 'Manages multiple branch locations within a dental group organization.',
+    permissions: {
+      'group:view_analytics': true,
+      'group:manage_users': true,
+      'group:reassign_providers': true,
+    },
+    isSystemRole: true,
+  },
+  {
     name: 'Branch Admin',
-    description: 'Manages users within their own single branch — the narrower sibling of Group Admin.',
+    description: 'Manages users and operations within their own single branch.',
     permissions: { 'branch:manage_users': true },
     isSystemRole: true,
   },
+  { name: 'Provider', description: 'Dentist / Healthcare Provider', permissions: {}, isSystemRole: true },
+  { name: 'Hygienist', description: 'Dental Hygienist', permissions: {}, isSystemRole: true },
+  { name: 'Assistant', description: 'Dental Assistant', permissions: {}, isSystemRole: true },
+  { name: 'Front Desk', description: 'Front Desk / Receptionist', permissions: {}, isSystemRole: true },
+  { name: 'Biller', description: 'Billing and Insurance Specialist', permissions: {}, isSystemRole: true },
+  { name: 'Patient', description: 'Patient Portal Account', permissions: {}, isSystemRole: true },
+  { name: 'Lab', description: 'External Dental Laboratory', permissions: {}, isSystemRole: true },
+  // Legacy role names preserved for backward compatibility
+  { name: 'Receptionist', description: 'Front-desk staff — manages patient records, scheduling, and insurance intake.', permissions: {}, isSystemRole: true },
+  { name: 'Billing Staff', description: 'Handles patient billing, insurance plans, and account balances.', permissions: {}, isSystemRole: true },
+  { name: 'Clinical Staff', description: 'Clinical support staff — assists with patient check-in/out and treatment documentation.', permissions: {}, isSystemRole: true },
+  { name: 'Staff', description: 'General Practice Staff', permissions: {}, isSystemRole: true },
 ];
 
 const seedRoles = async () => {

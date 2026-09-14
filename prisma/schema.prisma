@@ -4687,7 +4687,7 @@ model patplan {
   PatPlanNum                 BigInt    @id(map: "PK__patplan__DE1E87E7E84C861D")
   PatNum                     BigInt?
   Ordinal                    Int?
-  IsPending                  Int?
+  IsPending                  Int?      @default(0)
   Relationship               Int?
   PatID                      String?   @db.VarChar(100)
   InsSubNum                  BigInt?

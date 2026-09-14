@@ -495,7 +495,7 @@ async getPatientBalance(patientId: string) {
     const patPlans = await prisma.patplan.findMany({
       where: {
         PatNum: patNum,
-        IsPending: 0,
+        OR: [{ IsPending: 0 }, { IsPending: null }],
       },
       include: {
         inssub: {

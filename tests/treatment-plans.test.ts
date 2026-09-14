@@ -45,6 +45,7 @@ describe('Treatment Plans', () => {
     expect(createdPlan).toBeDefined();
 
     // Clean up
+    await prisma.proctp.deleteMany({ where: { TreatPlanNum: BigInt(createdPlan._id) } });
     await prisma.treatplan.delete({
       where: { TreatPlanNum: BigInt(createdPlan._id) }
     });
@@ -86,6 +87,7 @@ describe('Treatment Plans', () => {
     expect(reorderRes.body?.data?.treatmentPlan?.items[0]?.procedureCode).toBe('B');
 
     // Clean up
+    await prisma.proctp.deleteMany({ where: { TreatPlanNum: BigInt(plan._id) } });
     await prisma.treatplan.delete({ where: { TreatPlanNum: BigInt(plan._id) } });
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
@@ -115,6 +117,7 @@ describe('Treatment Plans', () => {
     expect(printRes.body?.data?.items[0]?.procedureCode).toBe('D1110');
 
     // Clean up
+    await prisma.proctp.deleteMany({ where: { TreatPlanNum: BigInt(plan._id) } });
     await prisma.treatplan.delete({ where: { TreatPlanNum: BigInt(plan._id) } });
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
