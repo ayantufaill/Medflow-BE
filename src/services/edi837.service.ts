@@ -53,11 +53,19 @@ const cleanStr = (val?: string | null, maxLen = 35): string => {
   return val.replace(/[^A-Za-z0-9\s-]/g, '').trim().substring(0, maxLen);
 };
 
+export type EdiServiceLine = {
+  procCode: string;
+  fee: number;
+  tooth?: string;
+  surf?: string;
+  procDate?: Date;
+};
+
 export class Edi837Service {
   /**
    * Assembles full claim billing context and runs pre-validation gates.
    */
-  async assembleClaimData(claimId: string | bigint) {
+  async assembleClaimData(claimId: string | bigint): Promise<{ claim: any; serviceLines: EdiServiceLine[] }> {
     const claimNum = typeof claimId === 'string' ? BigInt(claimId) : claimId;
 
     const claim = await prisma.claim.findUnique({
@@ -121,38 +129,109 @@ export class Edi837Service {
       throw new UnprocessableEntityError('Claim fee total must be greater than $0');
     }
 
-    if (!claim.claimproc || claim.claimproc.length === 0) {
+    const isPreAuth = claim.ClaimType === 'PreAuth';
+    const serviceLines: EdiServiceLine[] = [];
+
+    if (isPreAuth) {
+      let meta: any = {};
+      try {
+        meta = JSON.parse(claim.Narrative || '{}');
+      } catch {}
+
+      const candidateIds = (meta.procedureIds || [])
+        .map((id: any) => (/^\d+$/.test(String(id)) ? BigInt(String(id)) : null))
+        .filter((id: any): id is bigint => id !== null);
+
+      let proctpRows: any[] = [];
+      if (candidateIds.length > 0 && claim.PatNum) {
+        proctpRows = await prisma.proctp.findMany({
+          where: {
+            ProcTPNum: { in: candidateIds },
+            PatNum: claim.PatNum,
+          },
+        });
+      }
+
+      if (proctpRows.length === 0 && claim.PatNum && meta.procedures && meta.procedures.length > 0) {
+        const procCodes = meta.procedures
+          .map((p: any) => p.code || p.procedureCode || p.ProcCode)
+          .filter(Boolean);
+        if (procCodes.length > 0) {
+          proctpRows = await prisma.proctp.findMany({
+            where: {
+              PatNum: claim.PatNum,
+              ProcCode: { in: procCodes },
+            },
+            orderBy: { ItemOrder: 'asc' },
+          });
+        }
+      }
+
+      if (proctpRows.length > 0) {
+        for (const ptp of proctpRows) {
+          serviceLines.push({
+            procCode: ptp.ProcCode || 'D0120',
+            fee: Number(ptp.FeeAmt || 0),
+            tooth: ptp.ToothNumTP || '',
+            surf: ptp.Surf || '',
+            procDate: ptp.DateTP || claim.DateService || new Date(),
+          });
+        }
+      } else if (meta.procedures && meta.procedures.length > 0) {
+        for (const p of meta.procedures) {
+          serviceLines.push({
+            procCode: p.code || p.procedureCode || p.ProcCode || 'D0120',
+            fee: Number(p.fee ?? p.charge ?? p.amount ?? 0),
+            tooth: p.tooth || p.toothNum || '',
+            surf: p.surface || p.surf || '',
+            procDate: claim.DateService || new Date(),
+          });
+        }
+      }
+    } else {
+      for (const cp of claim.claimproc || []) {
+        const procCode =
+          cp.CodeSent ||
+          cp.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ||
+          cp.procedurelog?.OldCode ||
+          '';
+
+        serviceLines.push({
+          procCode,
+          fee: Number(cp.FeeBilled || cp.procedurelog?.ProcFee || 0),
+          tooth: cp.procedurelog?.ToothNum || '',
+          surf: cp.procedurelog?.Surf || '',
+          procDate: cp.ProcDate || cp.procedurelog?.ProcDate || claim.DateService || new Date(),
+        });
+      }
+    }
+
+    if (serviceLines.length === 0) {
       throw new UnprocessableEntityError('Claim has no service procedure lines');
     }
 
-    for (const cp of claim.claimproc) {
-      const procCode =
-        cp.CodeSent ||
-        cp.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ||
-        cp.procedurelog?.OldCode;
-
-      if (!procCode || !/^D\d{4}$/i.test(procCode)) {
+    for (const line of serviceLines) {
+      if (!line.procCode || !/^D\d{4}$/i.test(line.procCode)) {
         throw new UnprocessableEntityError(
-          `Service line procedure code '${procCode || ''}' is not a valid ADA code (Dxxxx)`
+          `Service line procedure code '${line.procCode || ''}' is not a valid ADA code (Dxxxx)`
         );
       }
 
-      const fee = Number(cp.FeeBilled || cp.procedurelog?.ProcFee || 0);
-      if (fee <= 0) {
+      if (line.fee <= 0) {
         throw new UnprocessableEntityError(
-          `Service line procedure ${procCode} has an invalid billed fee: $${fee}`
+          `Service line procedure ${line.procCode} has an invalid billed fee: $${line.fee}`
         );
       }
     }
 
-    return claim;
+    return { claim, serviceLines };
   }
 
   /**
    * Generates, stores, and returns an ASC X12N 837D file for a claim.
    */
   async generate837D(claimId: string | bigint, clearinghouseNum?: bigint | null) {
-    const claim = await this.assembleClaimData(claimId);
+    const { claim, serviceLines } = await this.assembleClaimData(claimId);
 
     // Resolve or initialize clearinghouse
     let ch = clearinghouseNum
@@ -265,8 +344,10 @@ export class Edi837Service {
     pushSeg('ST', '837', controlNum4, '005010X224A2');
 
     // BHT: Beginning of Hierarchical Transaction
+    const isPreAuth = claim.ClaimType === 'PreAuth';
     const claimIdentifier = claim.ClaimIdentifier || claim.PreAuthString || `CLM${claim.ClaimNum}`;
-    pushSeg('BHT', '0019', '00', claimIdentifier, ccyymmdd, timeHHMM, 'CH');
+    const bhtTransType = isPreAuth ? 'TH' : 'CH';
+    pushSeg('BHT', '0019', '00', claimIdentifier, ccyymmdd, timeHHMM, bhtTransType);
 
     // ── 1000A Submitter & 1000B Receiver ───────────────────────────────────────
     const clinicName = cleanStr(clinic?.Description || 'DENTAL CLINIC', 35);
@@ -372,8 +453,10 @@ export class Edi837Service {
 
     // ── 2300 Claim Information ────────────────────────────────────────────────
     const totalClaimFeeStr = Number(claim.ClaimFee || 0).toFixed(2);
+    // CLM05-3: 1 = Original Claim, 5 = Predetermination of Benefits
+    const claimFreqCode = isPreAuth ? '5' : '1';
     // CLM: 01=ClaimID, 02=Fee, 05=PlaceOfService:FacilityCode:ClaimFreq
-    pushSeg('CLM', claimIdentifier, totalClaimFeeStr, '', '', `11${subSep}B${subSep}1`, 'Y', 'A', 'Y', 'Y');
+    pushSeg('CLM', claimIdentifier, totalClaimFeeStr, '', '', `11${subSep}B${subSep}${claimFreqCode}`, 'Y', 'A', 'Y', 'Y');
 
     const dosDate = formatDateCCYYMMDD(new Date(claim.DateService || now));
     pushSeg('DTP', '472', 'D8', dosDate);
@@ -396,24 +479,16 @@ export class Edi837Service {
 
     // ── 2400 Service Lines ────────────────────────────────────────────────────
     let lineIndex = 1;
-    for (const cp of claim.claimproc) {
-      const procCode =
-        cp.CodeSent ||
-        cp.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ||
-        cp.procedurelog?.OldCode ||
-        'D0120';
-
-      const lineFee = Number(cp.FeeBilled || cp.procedurelog?.ProcFee || 0).toFixed(2);
-      const tooth = cp.procedurelog?.ToothNum || '';
-      const surf = cp.procedurelog?.Surf || '';
-      const procDos = formatDateCCYYMMDD(new Date(cp.ProcDate || claim.DateService || now));
+    for (const line of serviceLines) {
+      const lineFeeStr = Number(line.fee || 0).toFixed(2);
+      const procDos = formatDateCCYYMMDD(new Date(line.procDate || claim.DateService || now));
 
       pushSeg('LX', String(lineIndex++));
       // SV3: Procedure composite (AD:ProcCode), Fee, Facility code, Tooth, Qty
-      pushSeg('SV3', `AD${subSep}${procCode}`, lineFee, '', tooth, '', '1');
+      pushSeg('SV3', `AD${subSep}${line.procCode}`, lineFeeStr, '', line.tooth || '', '', '1');
 
-      if (tooth) {
-        pushSeg('TOO', 'JP', tooth, surf);
+      if (line.tooth) {
+        pushSeg('TOO', 'JP', line.tooth, line.surf || '');
       }
 
       pushSeg('DTP', '472', 'D8', procDos);
@@ -438,29 +513,42 @@ export class Edi837Service {
       },
     });
 
+    const etransEtype = isPreAuth ? 2 : 1; // 1 = ClaimSent, 2 = Claim_PreAuth
     const etransNum = await getNextId('etrans', 'EtransNum');
     await prisma.etrans.create({
       data: {
         EtransNum: etransNum,
         DateTimeTrans: now,
         ClearingHouseNum: updatedCh.ClearinghouseNum,
-        Etype: 1, // ClaimSent
+        Etype: etransEtype,
         ClaimNum: claim.ClaimNum,
         CarrierNum: carrier.CarrierNum,
         PatNum: patient.PatNum,
+        PlanNum: claim.PlanNum,
+        InsSubNum: claim.InsSubNum,
         BatchNumber: batchNumber,
         EtransMessageTextNum: msgTextNum,
+        Note: isPreAuth ? '837D Dental Predetermination Generated' : '837D Dental EDI Claim Generated',
       },
     });
 
-    // Update claim status to submitted if draft
-    await prisma.claim.update({
-      where: { ClaimNum: claim.ClaimNum },
-      data: {
-        ClaimStatus: 'S', // Sent
-        DateSent: now,
-      },
-    });
+    // Update claim status to submitted if draft (only for real billing claims, not PreAuth)
+    if (!isPreAuth) {
+      await prisma.claim.update({
+        where: { ClaimNum: claim.ClaimNum },
+        data: {
+          ClaimStatus: 'S', // Sent
+          DateSent: now,
+        },
+      });
+    } else {
+      await prisma.claim.update({
+        where: { ClaimNum: claim.ClaimNum },
+        data: {
+          DateSent: now,
+        },
+      });
+    }
 
     return {
       etransNum: etransNum.toString(),
@@ -478,7 +566,7 @@ export class Edi837Service {
     const claimNum = typeof claimId === 'string' ? BigInt(claimId) : claimId;
 
     const etrans = await prisma.etrans.findFirst({
-      where: { ClaimNum: claimNum, Etype: 1 },
+      where: { ClaimNum: claimNum, Etype: { in: [1, 2] } },
       orderBy: { EtransNum: 'desc' },
       include: { etransmessagetext: true },
     });

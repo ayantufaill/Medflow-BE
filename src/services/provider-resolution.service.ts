@@ -110,9 +110,15 @@ export class ProviderResolutionService {
     }
 
     // Tier 2: clinic.InsBillingProv
-    if (!billingProvNum && clinicId) {
+    let effectiveClinicId = clinicId;
+    if (!effectiveClinicId && patientId) {
+      const pat = await prisma.patient.findUnique({ where: { PatNum: patientId } });
+      if (pat?.ClinicNum) effectiveClinicId = pat.ClinicNum;
+    }
+
+    if (!billingProvNum && effectiveClinicId) {
       const clinic = await prisma.clinic.findUnique({
-        where: { ClinicNum: clinicId },
+        where: { ClinicNum: effectiveClinicId },
       });
       if (clinic?.InsBillingProv) {
         const prov = await prisma.provider.findUnique({

@@ -248,9 +248,14 @@ export class TreatmentPlanService {
         const procTPNum = await getNextId('proctp', 'ProcTPNum');
 
         let provNum: bigint | null = null;
-        if (item.provider) {
-          const prov = await prisma.provider.findFirst({ where: { Abbr: item.provider } });
-          if (prov?.ProvNum) provNum = prov.ProvNum;
+        const provInput = item.providerId || item.provider;
+        if (provInput) {
+          if (/^\d+$/.test(String(provInput))) {
+            provNum = BigInt(String(provInput));
+          } else {
+            const prov = await prisma.provider.findFirst({ where: { Abbr: String(provInput) } });
+            if (prov?.ProvNum) provNum = prov.ProvNum;
+          }
         }
         if (!provNum && data.patientId) {
           const patient = await prisma.patient.findUnique({ where: { PatNum: BigInt(data.patientId) } });
@@ -399,9 +404,14 @@ export class TreatmentPlanService {
         const patAmt = typeof item.ptPortion === 'number' ? item.ptPortion : 0;
 
         let provNum: bigint | null = null;
-        if (item.provider) {
-          const prov = await prisma.provider.findFirst({ where: { Abbr: item.provider } });
-          if (prov?.ProvNum) provNum = prov.ProvNum;
+        const provInput = item.providerId || item.provider;
+        if (provInput) {
+          if (/^\d+$/.test(String(provInput))) {
+            provNum = BigInt(String(provInput));
+          } else {
+            const prov = await prisma.provider.findFirst({ where: { Abbr: String(provInput) } });
+            if (prov?.ProvNum) provNum = prov.ProvNum;
+          }
         }
 
         if (existingRow) {
@@ -618,44 +628,6 @@ export class TreatmentPlanService {
     };
   }
 
-  async generateClaimFromTreatmentPlan(planId: string, userId?: string) {
-    const plan = await this.getTreatmentPlanById(planId);
-
-    if (!plan.items || plan.items.length === 0) {
-      throw new UnprocessableEntityError('Treatment plan has no items');
-    }
-
-    const acceptedItems = plan.items.filter((item: any) => item.status === 'A' || item.status === 'accepted');
-
-    if (acceptedItems.length === 0) {
-      throw new UnprocessableEntityError('No accepted items in treatment plan');
-    }
-
-    if (!plan.patientId) {
-      throw new UnprocessableEntityError('Treatment plan is not associated with a patient');
-    }
-
-    const insurances = await patientInsuranceService.getPatientInsurances(plan.patientId, true);
-
-    if (insurances.length === 0) {
-      throw new NotFoundError('Patient insurance not found');
-    }
-
-    const primaryInsurance = insurances.find((ins) => ins.insuranceType === 'Primary') || insurances[0];
-
-    if (!primaryInsurance.insuranceCompanyId) {
-      throw new UnprocessableEntityError('Patient primary insurance is missing company details');
-    }
-
-    return claimService.createClaimFromTreatmentPlan(
-      planId,
-      plan.patientId,
-      acceptedItems,
-      primaryInsurance.insuranceCompanyId._id,
-      primaryInsurance.insuranceType || 'Primary',
-      userId
-    );
-  }
 }
 
 export const treatmentPlanService = new TreatmentPlanService();
