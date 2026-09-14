@@ -262,9 +262,10 @@ export class TreatmentPlanService {
           if (patient?.PriProv) provNum = patient.PriProv;
         }
 
-        const feeAmt = typeof item.charge === 'number' ? item.charge : (Number(item.fee) || 0);
-        const priInsAmt = typeof item.insPortion === 'number' ? item.insPortion : 0;
-        const patAmt = typeof item.ptPortion === 'number' ? item.ptPortion : 0;
+        const parseAmt = (val: any) => typeof val === 'number' ? val : Number(String(val || 0).replace(/[^0-9.-]+/g, '')) || 0;
+        const feeAmt = parseAmt(item.charge ?? item.fee);
+        const priInsAmt = parseAmt(item.insPortion ?? item.insuranceAmount);
+        const patAmt = parseAmt(item.ptPortion ?? item.patientAmount);
 
         const row = await prisma.proctp.create({
           data: {
@@ -399,9 +400,10 @@ export class TreatmentPlanService {
           procNumOrig = newProcNum;
         }
 
-        const feeAmt = typeof item.charge === 'number' ? item.charge : (Number(item.fee) || 0);
-        const priInsAmt = typeof item.insPortion === 'number' ? item.insPortion : 0;
-        const patAmt = typeof item.ptPortion === 'number' ? item.ptPortion : 0;
+        const parseAmt = (val: any) => typeof val === 'number' ? val : Number(String(val || 0).replace(/[^0-9.-]+/g, '')) || 0;
+        const feeAmt = parseAmt(item.charge ?? item.fee);
+        const priInsAmt = parseAmt(item.insPortion ?? item.insuranceAmount);
+        const patAmt = parseAmt(item.ptPortion ?? item.patientAmount);
 
         let provNum: bigint | null = null;
         const provInput = item.providerId || item.provider;
@@ -468,8 +470,9 @@ export class TreatmentPlanService {
       }
     }
 
+    const { items: _oldItems, ...cleanMeta } = meta as any;
     const nextMeta: PlanMeta = {
-      ...meta,
+      ...cleanMeta,
       status: updates.status ?? meta.status,
       totalAmount: updates.items ? calcTotal : (updates.totalAmount ?? meta.totalAmount),
       insurancePortion: insPortion,
@@ -628,6 +631,88 @@ export class TreatmentPlanService {
     };
   }
 
+  async generateClaimFromTreatmentPlan(planId: string, userId?: string) {
+    const plan = await this.getTreatmentPlanById(planId);
+
+    if (!plan.items || plan.items.length === 0) {
+      throw new UnprocessableEntityError('Treatment plan has no items');
+    }
+
+    const acceptedItems = plan.items.filter((item: any) => item.status === 'A' || item.status === 'accepted');
+
+    if (acceptedItems.length === 0) {
+      throw new UnprocessableEntityError('No accepted items in treatment plan');
+    }
+
+    if (!plan.patientId) {
+      throw new UnprocessableEntityError('Treatment plan is not associated with a patient');
+    }
+
+    const insurances = await patientInsuranceService.getPatientInsurances(plan.patientId, true);
+
+    if (insurances.length === 0) {
+      throw new NotFoundError('Patient insurance not found');
+    }
+
+    const primaryInsurance = insurances.find((ins) => ins.insuranceType === 'Primary') || insurances[0];
+
+    if (!primaryInsurance.insuranceCompanyId) {
+      throw new UnprocessableEntityError('Patient primary insurance is missing company details');
+    }
+
+    return claimService.createClaimFromTreatmentPlan(
+      planId,
+      plan.patientId,
+      acceptedItems,
+      (primaryInsurance.insuranceCompanyId as any)?._id || primaryInsurance.insuranceCompanyId,
+      primaryInsurance.insuranceType || 'Primary',
+      userId
+    );
+  }
+
+  async generatePreAuth(planId: string, payload: any, userId?: string) {
+    const plan = await this.getTreatmentPlanById(planId);
+
+    if (!plan.patientId) {
+      throw new UnprocessableEntityError('Treatment plan is not associated with a patient');
+    }
+
+    if (!payload.insurancePlanId && !payload.insuranceCompanyId && !payload.selectedInsuranceId) {
+      throw new UnprocessableEntityError('Insurance plan ID or company ID is required');
+    }
+
+    const insurances = await patientInsuranceService.getPatientInsurances(plan.patientId, true);
+    
+    // We try to match by carrier ID/plan ID, else fallback to primary
+    let selectedInsurance = insurances.find(
+      (ins) => String((ins.insuranceCompanyId as any)?._id || ins.insuranceCompanyId) === String(payload.insuranceCompanyId || payload.insurancePlanId || payload.selectedInsuranceId)
+    );
+
+    if (!selectedInsurance) {
+      selectedInsurance = insurances.find((ins) => ins.insuranceType === 'Primary') || insurances[0];
+    }
+
+    if (!selectedInsurance || !selectedInsurance.insuranceCompanyId) {
+      throw new UnprocessableEntityError('Patient insurance is missing company details');
+    }
+
+    // Usually PreAuth payload can have specific accepted items.
+    let itemsToProcess = payload.items && payload.items.length > 0 
+      ? payload.items 
+      : plan.items;
+
+    if (!itemsToProcess || itemsToProcess.length === 0) {
+      throw new UnprocessableEntityError('No items found to generate a PreAuth');
+    }
+
+    return claimService.createPreAuthFromTreatmentPlan(
+      planId,
+      plan.patientId,
+      itemsToProcess,
+      (selectedInsurance.insuranceCompanyId as any)?._id || selectedInsurance.insuranceCompanyId,
+      userId
+    );
+  }
 }
 
 export const treatmentPlanService = new TreatmentPlanService();

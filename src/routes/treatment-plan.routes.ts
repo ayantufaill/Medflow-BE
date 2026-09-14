@@ -436,4 +436,80 @@ router.get(
   treatmentPlanController.printTreatmentPlan
 );
 
+/**
+ * @swagger
+ * /treatment-plans/{id}/generate-claim:
+ *   post:
+ *     summary: Generate a claim from accepted treatment plan items
+ *     description: Creates a draft claim from the accepted items (status=A) in a treatment plan.
+ *     tags: [Treatment Plans, Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *         description: ID of the treatment plan (TreatPlanNum)
+ *         example: "1"
+ *     responses:
+ *       201:
+ *         description: Claim generated successfully
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Treatment plan or patient insurance not found
+ *       409:
+ *         description: Claim already exists for this treatment plan
+ *       422:
+ *         description: No accepted items in treatment plan
+ */
+router.post(
+  '/:id/generate-claim',
+  
+  requirePermission('billing.write'),
+  validate(treatmentPlanIdValidator),
+  treatmentPlanController.generateClaim
+);
+
+/**
+ * @swagger
+ * /treatment-plans/{id}/generate-preauth:
+ *   post:
+ *     summary: Generate a Pre-Authorization from a treatment plan
+ *     description: Creates a PreAuth claim (status=6) from selected treatment plan items.
+ *     tags: [Treatment Plans, Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *         description: ID of the treatment plan (TreatPlanNum)
+ *         example: "1"
+ *     responses:
+ *       201:
+ *         description: Pre-Authorization claim generated successfully
+ *       400:
+ *         description: Validation error
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Forbidden
+ *       404:
+ *         description: Treatment plan or patient insurance not found
+ *       422:
+ *         description: No valid items found
+ */
+router.post(
+  '/:id/generate-preauth',
+  requirePermission('billing.write'),
+  validate(treatmentPlanIdValidator),
+  treatmentPlanController.generatePreAuth
+);
 export default router;

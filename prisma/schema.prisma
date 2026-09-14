@@ -3033,24 +3033,24 @@ model fee {
 }
 
 model feesched {
-  FeeSchedNum                                 BigInt          @id(map: "PK__feesched__432734599DB09A94")
-  Description                                 String?         @db.VarChar(255)
+  FeeSchedNum                                 BigInt             @id(map: "PK__feesched__432734599DB09A94")
+  Description                                 String?            @db.VarChar(255)
   FeeSchedType                                Int?
   ItemOrder                                   Int?
   IsHidden                                    Int?
   IsGlobal                                    Int?
   SecUserNumEntry                             BigInt?
-  SecDateEntry                                DateTime?       @db.Date
+  SecDateEntry                                DateTime?          @db.Date
   SecDateTEdit                                DateTime?
   discountplan                                discountplan[]
   fee                                         fee[]
-  userod                                      userod?         @relation(fields: [SecUserNumEntry], references: [UserNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_feesched_1_SecUserNumEntry")
+  userod                                      userod?            @relation(fields: [SecUserNumEntry], references: [UserNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_feesched_1_SecUserNumEntry")
   feeschedgroup                               feeschedgroup[]
   feeschednote                                feeschednote[]
-  insplan_insplan_FeeSchedTofeesched          insplan[]       @relation("insplan_FeeSchedTofeesched")
-  insplan_insplan_ManualFeeSchedNumTofeesched insplan[]       @relation("insplan_ManualFeeSchedNumTofeesched")
-  insplan_insplan_CopayFeeSchedTofeesched     insplan[]       @relation("insplan_CopayFeeSchedTofeesched")
-  insplan_insplan_AllowedFeeSchedTofeesched   insplan[]       @relation("insplan_AllowedFeeSchedTofeesched")
+  insplan_insplan_FeeSchedTofeesched          insplan[]          @relation("insplan_FeeSchedTofeesched")
+  insplan_insplan_ManualFeeSchedNumTofeesched insplan[]          @relation("insplan_ManualFeeSchedNumTofeesched")
+  insplan_insplan_CopayFeeSchedTofeesched     insplan[]          @relation("insplan_CopayFeeSchedTofeesched")
+  insplan_insplan_AllowedFeeSchedTofeesched   insplan[]          @relation("insplan_AllowedFeeSchedTofeesched")
   patient                                     patient[]
   provider                                    provider[]
   feeguideauditlog                            feeguideauditlog[]
@@ -4554,7 +4554,7 @@ model patient {
   employer                                        employer?                @relation(fields: [EmployerNum], references: [EmployerNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_6_EmployerNum")
   county                                          county?                  @relation(fields: [County], references: [CountyName], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_7_County")
   clinic                                          clinic?                  @relation(fields: [ClinicNum], references: [ClinicNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_8_ClinicNum")
-  practicegroup                                    practicegroup?           @relation(fields: [GroupNum], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  practicegroup                                   practicegroup?           @relation(fields: [GroupNum], references: [id], onDelete: SetNull, onUpdate: NoAction)
   site                                            site?                    @relation(fields: [SiteNum], references: [SiteNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_patient_9_SiteNum")
   patientlink_patientlink_PatNumFromTopatient     patientlink[]            @relation("patientlink_PatNumFromTopatient")
   patientlink_patientlink_PatNumToTopatient       patientlink[]            @relation("patientlink_PatNumToTopatient")
@@ -7853,14 +7853,14 @@ model formtemplate {
 
 /// A Group is a parent organization that owns one or more Branches (clinic locations).
 model groups {
-  id          Int        @id @default(autoincrement())
-  name        String     @db.VarChar(255)
+  id              Int               @id @default(autoincrement())
+  name            String            @db.VarChar(255)
   /// JSONB blob for group-level config: branding overrides, feature flags, etc.
-  config      Json?
-  isActive    Boolean    @default(true)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  branches    branches[]
+  config          Json?
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  branches        branches[]
   patients_master patients_master[]
 }
 
@@ -7868,19 +7868,19 @@ model groups {
 /// schema_name is the physical Postgres schema created for this branch.
 /// subdomain is the URL tenant identifier used by the Tenant Resolver Middleware.
 model branches {
-  id          Int      @id @default(autoincrement())
-  groupId     Int
-  name        String   @db.VarChar(255)
+  id         Int      @id @default(autoincrement())
+  groupId    Int
+  name       String   @db.VarChar(255)
   /// The physical Postgres schema name for this branch (e.g. "branch_riverside_1")
-  schemaName  String   @unique @db.VarChar(100)
+  schemaName String   @unique @db.VarChar(100)
   /// Subdomain used to identify this tenant (e.g. "riverside")
-  subdomain   String   @unique @db.VarChar(100)
+  subdomain  String   @unique @db.VarChar(100)
   /// Per-branch config: NPI, tax ID, business hours, timezone, logo URL, etc.
-  config      Json?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  group       groups   @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  config     Json?
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  group      groups   @relation(fields: [groupId], references: [id], onDelete: Restrict)
 }
 
 /// Shared patient identity across all branches within a Group.
@@ -7901,13 +7901,13 @@ model patients_master {
 }
 
 model feeguideauditlog {
-  AuditLogNum BigInt   @id @default(autoincrement())
+  AuditLogNum BigInt    @id @default(autoincrement())
   FeeSchedNum BigInt
   UserNum     BigInt?
-  Action      String   @db.VarChar(50)
+  Action      String    @db.VarChar(50)
   Diffs       Json
-  Timestamp   DateTime @default(now())
-  userod      userod?  @relation(fields: [UserNum], references: [UserNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_feeguideauditlog_UserNum")
+  Timestamp   DateTime  @default(now())
+  userod      userod?   @relation(fields: [UserNum], references: [UserNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_feeguideauditlog_UserNum")
   feesched    feesched? @relation(fields: [FeeSchedNum], references: [FeeSchedNum], onDelete: Cascade, onUpdate: NoAction, map: "fk_feeguideauditlog_FeeSchedNum")
 
   @@index([FeeSchedNum, Timestamp(sort: Desc)])

@@ -127,6 +127,41 @@ export class TreatmentPlanController {
     }
   };
 
+  generateClaim = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const planId = req.params.id;
+      // Get the userId from the authenticated user if available
+      const userId = req.userId; 
+      
+      const claim = await treatmentPlanService.generateClaimFromTreatmentPlan(planId, userId);
+      
+      res.status(201).json({
+        success: true,
+        data: claim,
+        message: 'Claim generated successfully'
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  generatePreAuth = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const planId = req.params.id;
+      const userId = req.userId;
+      const payload = req.body;
+      
+      const claim = await treatmentPlanService.generatePreAuth(planId, payload, userId);
+      
+      res.status(201).json({
+        success: true,
+        data: claim,
+        message: 'Pre-Authorization claim generated successfully'
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 export const treatmentPlanController = new TreatmentPlanController();
