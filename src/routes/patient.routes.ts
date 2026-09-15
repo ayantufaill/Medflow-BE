@@ -779,8 +779,9 @@ router.put('/:patientId/account-notes/:noteId', requireRoles('Receptionist', 'Ad
  *                   type: object
  *                   properties:
  *                     balance: { type: number, example: 150.00 }
- *                     lastPaymentDate: { type: string, example: "2026-06-09T00:00:00.000Z", nullable: true }
  *                     overdueAmount: { type: number, example: 150.00 }
+ *                     lastPaymentDate: { type: string, example: "2026-06-09T00:00:00.000Z", nullable: true }
+ *                     lastInsPayDate: { type: string, example: "2026-06-15T00:00:00.000Z", nullable: true }
  *       401: { description: Unauthorized }
  *       403: { description: Forbidden }
  *       404: { description: Patient not found }
