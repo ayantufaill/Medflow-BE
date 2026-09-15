@@ -233,7 +233,7 @@ describe('Phase 4: 837D Dental Predetermination Generator & Golden Comparison', 
     expect(x12Text).toMatch(/CLM\*[^*]+\*950\.00\*\*\*11:B:5\*Y\*A\*Y\*Y~/);
 
     // 3. Verify SV3 line item generated from proctp (without any billing claimproc rows)
-    expect(x12Text).toContain('SV3*AD:D2750*950.00**14**1~');
+    expect(x12Text).toContain('SV3*AD:D2750*950.00*11***1~');
 
     // 4. Verify etrans record stored with Etype 2 (Claim_PreAuth)
     const etrans = await prisma.etrans.findUnique({

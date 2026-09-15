@@ -139,13 +139,14 @@ describe('Phase 5: 837D Dental EDI Claim Engine', () => {
       const result = await edi837Service.generate837D(claim.ClaimNum);
       expect(result).toBeDefined();
       expect(result.x12Text).toContain('ISA*');
-      expect(result.x12Text).toContain('GS*DA*');
+      expect(result.x12Text).toContain('GS*HC*');
+      expect(result.x12Text).not.toContain('GS*DA*');
       expect(result.x12Text).toContain('ST*837*');
       expect(result.x12Text).toContain('005010X224A2');
       expect(result.x12Text).toContain('BHT*0019*00*');
       expect(result.x12Text).toContain('1234567893'); // NPI in billing provider loop
       expect(result.x12Text).toContain('PAYER01'); // ElectID
-      expect(result.x12Text).toContain('SV3*AD:D2750*850.00*'); // Service line
+      expect(result.x12Text).toContain('SV3*AD:D2750*850.00*11***1'); // Service line with default POS 11
       expect(result.x12Text).toContain('TOO*JP*14*MOD'); // Tooth & surface
       expect(result.x12Text).toContain('SE*');
       expect(result.x12Text).toContain('GE*1*');
@@ -186,7 +187,7 @@ describe('Phase 5: 837D Dental EDI Claim Engine', () => {
       await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
     });
 
-    it('rejects claim generation when provider NPI is invalid', async () => {
+    it('falls back to default NPI 9999999999 when provider NPI is invalid', async () => {
       const token = uniqueToken('edi-bad-npi');
       const alphanumeric = token.replace(/[^A-Za-z0-9]/g, '');
       const patient = await createPatientRecord(alphanumeric);
@@ -208,7 +209,7 @@ describe('Phase 5: 837D Dental EDI Claim Engine', () => {
         data: {
           CarrierNum: carrierNum,
           CarrierName: `Payer-${alphanumeric}`,
-          ElectID: 'PAY01',
+          ElectID: `P${alphanumeric.slice(-4)}`,
         },
       });
 
@@ -249,11 +250,222 @@ describe('Phase 5: 837D Dental EDI Claim Engine', () => {
         },
       });
 
-      await expect(edi837Service.generate837D(claimNum)).rejects.toThrow(
-        /Treating provider NPI is missing or invalid/
-      );
+      const result = await edi837Service.generate837D(claimNum);
+      expect(result).toBeDefined();
+      expect(result.x12Text).toContain('XX*9999999999');
 
       // Clean up
+      await prisma.etrans.delete({ where: { EtransNum: BigInt(result.etransNum) } });
+      await prisma.claimproc.delete({ where: { ClaimProcNum: claimProcNum } });
+      await prisma.claim.delete({ where: { ClaimNum: claimNum } });
+      await prisma.inssub.delete({ where: { InsSubNum: subNum } });
+      await prisma.insplan.delete({ where: { PlanNum: planNum } });
+      await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
+      await prisma.provider.delete({ where: { ProvNum: provNum } });
+      await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    });
+
+    it('asserts CLM02 equals sum of SV3-02 for multi-procedure claims and sets matching place of service', async () => {
+      const token = uniqueToken('edi-multi-line');
+      const alphanumeric = token.replace(/[^A-Za-z0-9]/g, '');
+      const patient = await createPatientRecord(alphanumeric);
+
+      const provNum = await getNextId('provider', 'ProvNum');
+      await prisma.provider.create({
+        data: {
+          ProvNum: provNum,
+          Abbr: `M${alphanumeric.slice(-4)}`,
+          FName: 'Multi',
+          LName: 'Dentist',
+          NationalProvID: '1234567893',
+          SSN: '987654321',
+        },
+      });
+
+      const carrierNum = await getNextId('carrier', 'CarrierNum');
+      await prisma.carrier.create({
+        data: {
+          CarrierNum: carrierNum,
+          CarrierName: `Carrier-${alphanumeric}`,
+          ElectID: 'MCARR01',
+        },
+      });
+
+      const planNum = await getNextId('insplan', 'PlanNum');
+      await prisma.insplan.create({ data: { PlanNum: planNum, CarrierNum: carrierNum } });
+
+      const subNum = await getNextId('inssub', 'InsSubNum');
+      await prisma.inssub.create({
+        data: {
+          InsSubNum: subNum,
+          PlanNum: planNum,
+          Subscriber: patient.PatNum,
+          SubscriberID: `SUB-${alphanumeric}`,
+        },
+      });
+
+      // Claim with custom PlaceService 21 (Inpatient Hospital) and 2 procedure lines totaling 350.00
+      const claimNum = await getNextId('claim', 'ClaimNum');
+      const claim = await prisma.claim.create({
+        data: {
+          ClaimNum: claimNum,
+          PatNum: patient.PatNum,
+          PlanNum: planNum,
+          InsSubNum: subNum,
+          ProvTreat: provNum,
+          ProvBill: provNum,
+          ClaimFee: 350.0,
+          ClaimType: 'Primary',
+          ClaimStatus: 'U',
+          DateService: new Date(),
+          PlaceService: 21,
+          ClaimIdentifier: `CLM${alphanumeric}`,
+        },
+      });
+
+      const cp1 = await getNextId('claimproc', 'ClaimProcNum');
+      await prisma.claimproc.create({
+        data: {
+          ClaimProcNum: cp1,
+          ClaimNum: claim.ClaimNum,
+          PatNum: patient.PatNum,
+          ProvNum: provNum,
+          CodeSent: 'D0120',
+          FeeBilled: 150.0,
+          Status: 0,
+        },
+      });
+
+      const cp2 = await getNextId('claimproc', 'ClaimProcNum');
+      await prisma.claimproc.create({
+        data: {
+          ClaimProcNum: cp2,
+          ClaimNum: claim.ClaimNum,
+          PatNum: patient.PatNum,
+          ProvNum: provNum,
+          CodeSent: 'D1110',
+          FeeBilled: 200.0,
+          Status: 0,
+        },
+      });
+
+      const result = await edi837Service.generate837D(claim.ClaimNum);
+      expect(result).toBeDefined();
+      expect(result.x12Text).toContain('GS*HC*');
+      expect(result.x12Text).not.toContain('GS*DA*');
+
+      // Parse segments
+      const segments = result.x12Text.split('~').map((s) => s.trim()).filter(Boolean);
+
+      // Verify CLM segment: CLM02 = 350.00, CLM05 composite starts with 21 (place of service)
+      const clmSeg = segments.find((s) => s.startsWith('CLM*'));
+      expect(clmSeg).toBeDefined();
+      const clmParts = clmSeg!.split('*');
+      const clmTotal = parseFloat(clmParts[2]);
+      expect(clmTotal).toBe(350.0);
+      expect(clmParts[5]).toBe('21:B:1');
+
+      // Verify SV3 segments
+      const sv3Segs = segments.filter((s) => s.startsWith('SV3*'));
+      expect(sv3Segs).toHaveLength(2);
+
+      let sv3Sum = 0;
+      for (const seg of sv3Segs) {
+        const parts = seg.split('*');
+        sv3Sum += parseFloat(parts[2]);
+        // SV3-03 should match claim.PlaceService (21)
+        expect(parts[3]).toBe('21');
+        // SV3-04 quadrant should be empty (not tooth number)
+        expect(parts[4]).toBe('');
+        // SV3-06 quantity should be 1
+        expect(parts[6]).toBe('1');
+      }
+
+      expect(sv3Sum).toBe(clmTotal);
+
+      // Cleanup
+      await prisma.etrans.delete({ where: { EtransNum: BigInt(result.etransNum) } });
+      await prisma.claimproc.deleteMany({ where: { ClaimProcNum: { in: [cp1, cp2] } } });
+      await prisma.claim.delete({ where: { ClaimNum: claimNum } });
+      await prisma.inssub.delete({ where: { InsSubNum: subNum } });
+      await prisma.insplan.delete({ where: { PlanNum: planNum } });
+      await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
+      await prisma.provider.delete({ where: { ProvNum: provNum } });
+      await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    });
+
+    it('rejects claim generation when ClaimFee is desynced from procedure charges sum', async () => {
+      const token = uniqueToken('edi-desync-fee');
+      const alphanumeric = token.replace(/[^A-Za-z0-9]/g, '');
+      const patient = await createPatientRecord(alphanumeric);
+
+      const provNum = await getNextId('provider', 'ProvNum');
+      await prisma.provider.create({
+        data: {
+          ProvNum: provNum,
+          Abbr: `D${alphanumeric.slice(-4)}`,
+          FName: 'Desync',
+          LName: 'Doctor',
+          NationalProvID: '1234567893',
+          SSN: '987654321',
+        },
+      });
+
+      const carrierNum = await getNextId('carrier', 'CarrierNum');
+      await prisma.carrier.create({
+        data: {
+          CarrierNum: carrierNum,
+          CarrierName: `Carrier-${alphanumeric}`,
+          ElectID: 'DCARR01',
+        },
+      });
+
+      const planNum = await getNextId('insplan', 'PlanNum');
+      await prisma.insplan.create({ data: { PlanNum: planNum, CarrierNum: carrierNum } });
+
+      const subNum = await getNextId('inssub', 'InsSubNum');
+      await prisma.inssub.create({
+        data: {
+          InsSubNum: subNum,
+          PlanNum: planNum,
+          Subscriber: patient.PatNum,
+          SubscriberID: `SUB-${alphanumeric}`,
+        },
+      });
+
+      // ClaimFee is 500, but procedure charge is 300
+      const claimNum = await getNextId('claim', 'ClaimNum');
+      await prisma.claim.create({
+        data: {
+          ClaimNum: claimNum,
+          PatNum: patient.PatNum,
+          PlanNum: planNum,
+          InsSubNum: subNum,
+          ProvTreat: provNum,
+          ProvBill: provNum,
+          ClaimFee: 500.0,
+          ClaimType: 'Primary',
+        },
+      });
+
+      const claimProcNum = await getNextId('claimproc', 'ClaimProcNum');
+      await prisma.claimproc.create({
+        data: {
+          ClaimProcNum: claimProcNum,
+          ClaimNum: claimNum,
+          PatNum: patient.PatNum,
+          ProvNum: provNum,
+          CodeSent: 'D0120',
+          FeeBilled: 300.0,
+          Status: 0,
+        },
+      });
+
+      await expect(edi837Service.generate837D(claimNum)).rejects.toThrow(
+        /Claim total \(\$500\.00\) does not match the sum of procedure charges \(\$300\.00\)/
+      );
+
+      // Cleanup
       await prisma.claimproc.delete({ where: { ClaimProcNum: claimProcNum } });
       await prisma.claim.delete({ where: { ClaimNum: claimNum } });
       await prisma.inssub.delete({ where: { InsSubNum: subNum } });

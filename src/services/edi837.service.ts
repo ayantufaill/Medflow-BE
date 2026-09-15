@@ -245,6 +245,16 @@ export class Edi837Service {
       }
     }
 
+    const computedTotal = serviceLines.reduce((sum, line) => sum + Number(line.fee || 0), 0);
+    const claimFee = Number(claim.ClaimFee || 0);
+
+    if (Math.abs(computedTotal - claimFee) > 0.01) {
+      throw new UnprocessableEntityError(
+        `Claim total ($${claimFee.toFixed(2)}) does not match the sum of procedure charges ($${computedTotal.toFixed(2)}). ` +
+        `Recalculate the claim before exporting 837D.`
+      );
+    }
+
     return { claim, serviceLines };
   }
 
@@ -350,7 +360,7 @@ export class Edi837Service {
 
     pushSeg(
       'GS',
-      'DA',
+      'HC',
       cleanStr(senderTIN, 15),
       cleanStr(carrier.ElectID, 15),
       ccyymmdd,
@@ -476,8 +486,9 @@ export class Edi837Service {
     const totalClaimFeeStr = Number(claim.ClaimFee || 0).toFixed(2);
     // CLM05-3: 1 = Original Claim, 5 = Predetermination of Benefits
     const claimFreqCode = isPreAuth ? '5' : '1';
+    const placeOfService = claim.PlaceService ?? 11;
     // CLM: 01=ClaimID, 02=Fee, 05=PlaceOfService:FacilityCode:ClaimFreq
-    pushSeg('CLM', claimIdentifier, totalClaimFeeStr, '', '', `11${subSep}B${subSep}${claimFreqCode}`, 'Y', 'A', 'Y', 'Y');
+    pushSeg('CLM', claimIdentifier, totalClaimFeeStr, '', '', `${placeOfService}${subSep}B${subSep}${claimFreqCode}`, 'Y', 'A', 'Y', 'Y');
 
     const dosDate = formatDateCCYYMMDD(new Date(claim.DateService || now));
     pushSeg('DTP', '472', 'D8', dosDate);
@@ -505,8 +516,8 @@ export class Edi837Service {
       const procDos = formatDateCCYYMMDD(new Date(line.procDate || claim.DateService || now));
 
       pushSeg('LX', String(lineIndex++));
-      // SV3: Procedure composite (AD:ProcCode), Fee, Facility code, Tooth, Qty
-      pushSeg('SV3', `AD${subSep}${line.procCode}`, lineFeeStr, '', line.tooth || '', '', '1');
+      // SV3: Procedure composite (AD:ProcCode), Fee, Place of Service, Quadrant/Cavity, Blank, Quantity
+      pushSeg('SV3', `AD${subSep}${line.procCode}`, lineFeeStr, placeOfService, '', '', '1');
 
       if (line.tooth) {
         pushSeg('TOO', 'JP', line.tooth, line.surf || '');
