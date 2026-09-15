@@ -289,8 +289,9 @@ export class Edi837Service {
 
   /**
    * Generates, stores, and returns an ASC X12N 837D file for a claim.
+   * By default, markAsSent is false so exporting 837D does not shift the claim out of the Unsent tab.
    */
-  async generate837D(claimId: string | bigint, clearinghouseNum?: bigint | null) {
+  async generate837D(claimId: string | bigint, clearinghouseNum?: bigint | null, markAsSent: boolean = false) {
     const { claim, serviceLines } = await this.assembleClaimData(claimId);
 
     // Resolve or initialize clearinghouse
@@ -593,22 +594,24 @@ export class Edi837Service {
       },
     });
 
-    // Update claim status to submitted if draft (only for real billing claims, not PreAuth)
-    if (!isPreAuth) {
-      await prisma.claim.update({
-        where: { ClaimNum: claim.ClaimNum },
-        data: {
-          ClaimStatus: 'S', // Sent
-          DateSent: now,
-        },
-      });
-    } else {
-      await prisma.claim.update({
-        where: { ClaimNum: claim.ClaimNum },
-        data: {
-          DateSent: now,
-        },
-      });
+    // Update claim status to submitted only when explicitly requested (e.g. batch submission flow)
+    if (markAsSent) {
+      if (!isPreAuth) {
+        await prisma.claim.update({
+          where: { ClaimNum: claim.ClaimNum },
+          data: {
+            ClaimStatus: 'S', // Sent
+            DateSent: now,
+          },
+        });
+      } else {
+        await prisma.claim.update({
+          where: { ClaimNum: claim.ClaimNum },
+          data: {
+            DateSent: now,
+          },
+        });
+      }
     }
 
     return {
@@ -626,14 +629,16 @@ export class Edi837Service {
   async get837DText(claimId: string | bigint): Promise<string> {
     const claimNum = typeof claimId === 'string' ? BigInt(claimId) : claimId;
 
-    const etrans = await prisma.etrans.findFirst({
+    let etrans = await prisma.etrans.findFirst({
       where: { ClaimNum: claimNum, Etype: { in: [1, 2] } },
       orderBy: { EtransNum: 'desc' },
       include: { etransmessagetext: true },
     });
 
     if (!etrans?.etransmessagetext?.MessageText) {
-      throw new NotFoundError('No 837 EDI record found for this claim. Please generate it first.');
+      // Auto-generate without marking as sent if not already generated
+      const generated = await this.generate837D(claimNum, undefined, false);
+      return generated.x12Text;
     }
 
     return etrans.etransmessagetext.MessageText;

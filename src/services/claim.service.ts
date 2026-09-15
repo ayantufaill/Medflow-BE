@@ -3616,7 +3616,7 @@ export class ClaimService {
       if (patient.Birthdate) {
         const dob = new Date(patient.Birthdate);
         const dobStr = `${String(dob.getMonth() + 1).padStart(2, '0')}/${String(dob.getDate()).padStart(2, '0')}/${dob.getFullYear()}`;
-        drawText(dobStr, 360, 488, 9); // Box 21
+        drawText(dobStr, 360, 482, 9); // Box 21
       }
 
       if (patient.Gender !== null && patient.Gender !== undefined) {
@@ -3636,14 +3636,18 @@ export class ClaimService {
       });
       if (treatingProv) {
         const provName = `${treatingProv.LName || ''}, ${treatingProv.FName || ''}`.trim();
-        drawText(provName, 55, 140, 9);
-        drawText(treatingProv.NationalProvID || '', 200, 110, 9);
+        drawText(provName, 55, 100, 9); // Box 48
+        drawText(treatingProv.NationalProvID || '', 200, 75, 9); // Box 49 (NPI)
       }
     }
 
+    // Extract meta procedures for fallback
+    const claimMeta = claim.Narrative ? JSON.parse(claim.Narrative) : {};
+    const metaProcedures = claimMeta.selectedItems || claimMeta.procedures || [];
+
     // Draw procedures
     const procedures = claim.claimproc || [];
-    let yPos = 395;
+    let yPos = 435; // Starting Y position for the first procedure row
     let totalFee = 0;
 
     // Sort procedures by ProcDate
@@ -3660,27 +3664,34 @@ export class ClaimService {
         if (log.ProcDate) {
           const pDate = new Date(log.ProcDate);
           const pDateStr = `${String(pDate.getMonth() + 1).padStart(2, '0')}/${String(pDate.getDate()).padStart(2, '0')}/${pDate.getFullYear()}`;
-          drawText(pDateStr, 55, yPos, 8);
+          drawText(pDateStr, 50, yPos, 8); // Box 24 (Procedure Date)
         }
 
-        drawText(log.ToothNum || '', 130, yPos, 8);
-        drawText(log.Surf || '', 180, yPos, 8);
+        // Check meta procedures for tooth/surface fallback
+        const metaItem = metaProcedures.find((p: any) => p.itemId === log.ProcNum.toString() || p.id === log.ProcNum.toString());
+        
+        // If a procedure has multiple teeth, they are saved in ToothRange
+        const toothNum = log.ToothRange || log.ToothNum || metaItem?.tooth || metaItem?.ToothNum || '';
+        const surf = log.Surf || metaItem?.surface || metaItem?.Surf || '';
+
+        drawText(toothNum, 160, yPos, 8); // Box 27 (Tooth Number)
+        drawText(surf, 240, yPos, 8); // Box 28 (Tooth Surface)
 
         const codeObj = log.procedurecode_procedurelog_CodeNumToprocedurecode;
         const codeStr = codeObj?.ProcCode || log.OldCode || '';
-        drawText(codeStr, 215, yPos, 8);
-        drawText(codeObj?.Descript || '', 270, yPos, 8);
+        drawText(codeStr, 275, yPos, 8); // Box 29 (Procedure Code)
+        drawText(codeObj?.Descript || '', 380, yPos, 8); // Box 30 (Description)
 
         const fee = log.ProcFee ?? proc.FeeBilled ?? 0;
-        drawText(fee.toFixed(2), 490, yPos, 8);
+        drawText(fee.toFixed(2), 560, yPos, 8); // Box 31 (Fee)
         totalFee += fee;
       }
-      yPos -= 20;
+      yPos -= 14.4; // Row height for ADA 2019
     }
 
     // Total Fee
     const finalFee = claim.ClaimFee ?? totalFee;
-    drawText(finalFee.toFixed(2), 490, 178, 9);
+    drawText(finalFee.toFixed(2), 560, 290, 9); // Box 32 (Total Fee)
 
     const pdfBytes = await pdfDoc.save();
     return Buffer.from(pdfBytes);

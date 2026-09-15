@@ -173,9 +173,26 @@ describe('Phase 5: 837D Dental EDI Claim Engine', () => {
       const fetchedText = await edi837Service.get837DText(claim.ClaimNum);
       expect(fetchedText).toBe(result.x12Text);
 
+      // Verify claim status remains 'U' (not marked as 'S') by default so it stays in the Unsent tab
+      const claimAfterDefaultExport = await prisma.claim.findUnique({
+        where: { ClaimNum: claim.ClaimNum },
+      });
+      expect(claimAfterDefaultExport?.ClaimStatus).toBe('U');
+      expect(claimAfterDefaultExport?.DateSent).toBeNull();
+
+      // Verify generating with markAsSent = true updates claim status to 'S'
+      await edi837Service.generate837D(claim.ClaimNum, undefined, true);
+      const claimAfterSentExport = await prisma.claim.findUnique({
+        where: { ClaimNum: claim.ClaimNum },
+      });
+      expect(claimAfterSentExport?.ClaimStatus).toBe('S');
+      expect(claimAfterSentExport?.DateSent).not.toBeNull();
+
       // Clean up
-      await prisma.etrans.delete({ where: { EtransNum: BigInt(result.etransNum) } });
-      await prisma.etransmessagetext.delete({ where: { EtransMessageTextNum: etrans!.EtransMessageTextNum! } });
+      const etransList = await prisma.etrans.findMany({ where: { ClaimNum: claimNum } });
+      const msgTextNums = etransList.map((e) => e.EtransMessageTextNum).filter((id): id is bigint => id != null);
+      await prisma.etrans.deleteMany({ where: { ClaimNum: claimNum } });
+      await prisma.etransmessagetext.deleteMany({ where: { EtransMessageTextNum: { in: msgTextNums } } });
       await prisma.claimproc.delete({ where: { ClaimProcNum: claimProcNum } });
       await prisma.claim.delete({ where: { ClaimNum: claimNum } });
       await prisma.procedurelog.delete({ where: { ProcNum: procNum } });

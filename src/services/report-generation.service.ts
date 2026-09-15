@@ -7,7 +7,7 @@ export class ReportGenerationService {
    * Process and compile financial reports
    */
   async getFinancialReport(reportName: string, query: any) {
-    const { startDate, endDate } = this.getRangeDates(query.date, query.range || 'Daily');
+    const { startDate, endDate } = this.getRangeDates(query.date, query.range || 'Daily', query.startDate, query.endDate);
     const name = String(reportName).toLowerCase();
 
     switch (name) {
@@ -375,9 +375,25 @@ export class ReportGenerationService {
     const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
 
     // 11. query.sortReport (Sorting)
-    let orderByClause = 'ORDER BY f."BalTotal" DESC NULLS LAST';
+    let sortColumn = 'COALESCE(f."BalTotal", 0)';
+    let sortDirection = 'DESC'; // Default
+    
+    // Dynamically change what we sort by based on the balance/owing filter
+    if (query.balance === 'min_insurance' || query.owing === 'pt_insurance') {
+      sortColumn = 'COALESCE(f."InsEst", 0)';
+    } else if (query.balance === 'min_patient' || query.owing === 'pt_individual') {
+      sortColumn = '(COALESCE(f."BalTotal", 0) - COALESCE(f."InsEst", 0))';
+    }
+
+    // Automatically sort Low to High if a "Minimum" balance filter is applied
+    if (query.balance === 'min_total' || query.balance === 'min_patient' || query.balance === 'min_insurance') {
+      sortDirection = 'ASC';
+    }
+
+    let orderByClause = `ORDER BY ${sortColumn} ${sortDirection} NULLS LAST`;
+
     if (query.sortReport === 'low_to_high') {
-      orderByClause = 'ORDER BY f."BalTotal" ASC NULLS LAST';
+      orderByClause = `ORDER BY ${sortColumn} ASC NULLS LAST`;
     } else if (query.sortReport === 'a_to_z' || query.sortReport === 'pt_first_name') {
       orderByClause = 'ORDER BY p."FName" ASC NULLS LAST, p."LName" ASC NULLS LAST';
     } else if (query.sortReport === 'pt_last_name') {
@@ -468,7 +484,12 @@ export class ReportGenerationService {
       }
 
       const pNumStr = p.PatNum.toString();
-      const patientFlags = meta[pNumStr]?.patientFlags || [];
+      
+      let patientFlags = meta[pNumStr]?.patientFlags || [];
+      if (Array.isArray(patientFlags)) {
+        patientFlags = patientFlags.filter(f => f && (typeof f === 'string' ? f.trim() !== '' : true));
+      }
+      
       const lastBilledDate = p.LastStatementDate ? new Date(p.LastStatementDate).toLocaleDateString() : '';
 
       return {
@@ -546,7 +567,8 @@ export class ReportGenerationService {
     return procs.map(p => {
       const patNumStr = p.PatNum?.toString() || '';
       const meta = metaMap[patNumStr] || {};
-      const flags = Array.isArray(meta.patientFlags) ? meta.patientFlags.filter(Boolean) : [];
+      let flags = Array.isArray(meta.patientFlags) ? meta.patientFlags : [];
+      flags = flags.filter(f => f && (typeof f === 'string' ? f.trim() !== '' : true));
 
       let dobStr = '-';
       if (p.patient?.Birthdate) {
@@ -561,6 +583,7 @@ export class ReportGenerationService {
         dob: dobStr,
         code: p.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || p.OldCode || 'Unknown Code',
         procedure: p.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || 'Unknown Procedure',
+        providerId: p.ProvNum ? p.ProvNum.toString() : '',
         provider: p.provider_procedurelog_ProvNumToprovider?.Abbr || p.provider_procedurelog_ProvNumToprovider?.FName || 'Unknown Provider',
         fee: p.ProcFee || 0
       };
@@ -568,18 +591,172 @@ export class ReportGenerationService {
   }
 
   private async getProductionCollectionReport(start: Date, end: Date, summary = false) {
-    // Standard joins of production and collections
-    const payments = await prisma.payment.findMany({
-      where: { PayDate: { gte: start, lte: end } },
-      take: 30
+    const records: any[] = [];
+    const patNums = new Set<bigint>();
+
+    // 1. Fetch Production (procedurelog)
+    const procs = await prisma.procedurelog.findMany({
+      where: { ProcDate: { gte: start, lte: end }, ProcStatus: 2 },
+      include: {
+        patient: true,
+        provider_procedurelog_ProvNumToprovider: true,
+        procedurecode_procedurelog_CodeNumToprocedurecode: true
+      }
     });
 
-    return payments.map(p => ({
-      date: p.PayDate?.toLocaleDateString() || '',
-      production: (p.PayAmt ?? 0) * 1.1, // Mock production slightly higher
-      collection: p.PayAmt ?? 0,
-      paymentMethod: p.PayType ? 'Credit Card' : 'Check'
-    }));
+    for (const p of procs) {
+      if (p.PatNum) patNums.add(p.PatNum);
+      const providerStr = p.provider_procedurelog_ProvNumToprovider?.Abbr || p.provider_procedurelog_ProvNumToprovider?.FName || 'MF';
+      records.push({
+        type: 'production',
+        procedureId: p.ProcNum.toString(),
+        dateRaw: p.ProcDate,
+        date: p.ProcDate?.toISOString() || '',
+        patNumStr: p.PatNum?.toString() || '',
+        patient: p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Unknown Patient',
+        dobRaw: p.patient?.Birthdate,
+        code: p.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || p.OldCode || 'Unknown Code',
+        procedure: p.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || 'Unknown Procedure',
+        providerId: p.ProvNum ? p.ProvNum.toString() : '',
+        provider: providerStr,
+        render: providerStr,
+        bill: providerStr,
+        charge: p.ProcFee || 0,
+        paymentType: 'Production'
+      });
+    }
+
+    // 2. Fetch Adjustments (adjustment)
+    const adjs = await prisma.adjustment.findMany({
+      where: { AdjDate: { gte: start, lte: end } },
+      include: {
+        patient: true,
+        provider: true,
+        procedurelog: {
+          include: { procedurecode_procedurelog_CodeNumToprocedurecode: true }
+        }
+      }
+    });
+
+    for (const a of adjs) {
+      if (a.PatNum) patNums.add(a.PatNum);
+      const providerStr = a.provider?.Abbr || a.provider?.FName || 'MF';
+      const isWriteOff = a.AdjAmt && a.AdjAmt < 0; 
+      records.push({
+        type: 'adjustment',
+        procedureId: a.AdjNum.toString(),
+        dateRaw: a.AdjDate,
+        date: a.AdjDate?.toISOString() || '',
+        patNumStr: a.PatNum?.toString() || '',
+        patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Unknown Patient',
+        dobRaw: a.patient?.Birthdate,
+        code: 'Adj',
+        procedure: a.AdjNote || 'Adjustment',
+        providerId: a.ProvNum ? a.ProvNum.toString() : '',
+        provider: providerStr,
+        render: providerStr,
+        bill: providerStr,
+        adj: isWriteOff ? 0 : (a.AdjAmt || 0),
+        actual: isWriteOff ? Math.abs(a.AdjAmt || 0) : 0,
+        paymentType: 'Adjustment'
+      });
+    }
+
+    // 3. Fetch Patient Payments (paysplit)
+    const pays = await prisma.paysplit.findMany({
+      where: { DatePay: { gte: start, lte: end } },
+      include: {
+        patient: true,
+        provider: true
+      }
+    });
+
+    for (const p of pays) {
+      if (p.PatNum) patNums.add(p.PatNum);
+      const providerStr = p.provider?.Abbr || p.provider?.FName || 'MF';
+      const isRefund = p.SplitAmt && p.SplitAmt < 0;
+      records.push({
+        type: 'ptPay',
+        procedureId: p.SplitNum.toString(),
+        dateRaw: p.DatePay,
+        date: p.DatePay?.toISOString() || '',
+        patNumStr: p.PatNum?.toString() || '',
+        patient: p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Unknown Patient',
+        dobRaw: p.patient?.Birthdate,
+        code: 'PtPay',
+        procedure: isRefund ? 'Patient Refund' : 'Patient Payment',
+        providerId: p.ProvNum ? p.ProvNum.toString() : '',
+        provider: providerStr,
+        render: providerStr,
+        bill: providerStr,
+        pt: isRefund ? 0 : (p.SplitAmt || 0),
+        ptRef: isRefund ? Math.abs(p.SplitAmt || 0) : 0,
+        paymentType: 'Payment'
+      });
+    }
+
+    // 4. Fetch Insurance Payments (claimproc)
+    const claims = await prisma.claimproc.findMany({
+      where: { DateCP: { gte: start, lte: end }, Status: { in: [1, 4] } },
+      include: {
+        patient: true,
+        provider: true
+      }
+    });
+
+    for (const c of claims) {
+      if (c.PatNum) patNums.add(c.PatNum);
+      const providerStr = c.provider?.Abbr || c.provider?.FName || 'MF';
+      const isRefund = c.InsPayAmt && c.InsPayAmt < 0;
+      records.push({
+        type: 'insPay',
+        procedureId: c.ClaimProcNum.toString(),
+        dateRaw: c.DateCP,
+        date: c.DateCP?.toISOString() || '',
+        patNumStr: c.PatNum?.toString() || '',
+        patient: c.patient ? `${c.patient.FName} ${c.patient.LName}` : 'Unknown Patient',
+        dobRaw: c.patient?.Birthdate,
+        code: 'InsPay',
+        procedure: isRefund ? 'Insurance Refund' : 'Insurance Payment',
+        providerId: c.ProvNum ? c.ProvNum.toString() : '',
+        provider: providerStr,
+        render: providerStr,
+        bill: providerStr,
+        ins: isRefund ? 0 : (c.InsPayAmt || 0),
+        insRef: isRefund ? Math.abs(c.InsPayAmt || 0) : 0,
+        actual: c.WriteOff || 0,
+        paymentType: 'Insurance'
+      });
+    }
+
+    // Sort by date
+    records.sort((a, b) => {
+      const timeA = a.dateRaw ? new Date(a.dateRaw).getTime() : 0;
+      const timeB = b.dateRaw ? new Date(b.dateRaw).getTime() : 0;
+      return timeA - timeB;
+    });
+
+    const metaMap = await getPatientsMeta(Array.from(patNums));
+
+    return records.map(r => {
+      const meta = metaMap[r.patNumStr] || {};
+      let flags = Array.isArray(meta.patientFlags) ? meta.patientFlags : [];
+      flags = flags.filter((f: any) => f && (typeof f === 'string' ? f.trim() !== '' : true));
+      
+      let dobStr = '-';
+      if (r.dobRaw) {
+        dobStr = new Date(r.dobRaw).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' });
+      }
+
+      return {
+        ...r,
+        flags,
+        dob: dobStr,
+        dateRaw: undefined,
+        patNumStr: undefined,
+        dobRaw: undefined
+      };
+    });
   }
 
   private async getProviderCollectionPaymentType(start: Date, end: Date) {

@@ -767,7 +767,8 @@ export class ClaimController {
   async generate837D(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const claimId = req.params.claimId || req.params.id;
-      const result = await edi837Service.generate837D(claimId);
+      const markAsSent = req.query.markAsSent === 'true' || req.body?.markAsSent === true;
+      const result = await edi837Service.generate837D(claimId, undefined, markAsSent);
 
       res.status(200).json({
         success: true,

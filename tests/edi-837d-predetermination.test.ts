@@ -255,8 +255,8 @@ describe('Phase 4: 837D Dental Predetermination Generator & Golden Comparison', 
   });
 
   it('golden comparison: predetermination 837D differs correctly from standard billing 837D', async () => {
-    // Generate billing claim 837D
-    const billingResult = await edi837Service.generate837D(billingClaimNum);
+    // Generate billing claim 837D with markAsSent = true
+    const billingResult = await edi837Service.generate837D(billingClaimNum, undefined, true);
     expect(billingResult.etransNum).toBeDefined();
     createdEtransNums.push(BigInt(billingResult.etransNum));
 
