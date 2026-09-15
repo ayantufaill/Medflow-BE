@@ -781,8 +781,11 @@ export class ClaimService {
 
   async getAllClaims(page = 1, limit = 10, filters: ClaimFilters = {}) {
     const where: any = {};
-    if (filters.tab && filters.tab.toLowerCase() === 'predetermination') {
+    const lowerTab = (filters.tab || '').toLowerCase();
+    if (lowerTab === 'predetermination') {
       where.ClaimType = 'PreAuth';
+    } else if (lowerTab === 'rejected') {
+      // Rejected tab shows all rejected claims, including predeterminations
     } else {
       where.ClaimType = { not: 'PreAuth' };
     }
@@ -1290,6 +1293,19 @@ export class ClaimService {
       }
     }
 
+    if (!treatingProv) {
+      const defaultProv = await prisma.provider.findFirst({
+        where: { OR: [{ IsHidden: 0 }, { IsHidden: null }] },
+        orderBy: { ProvNum: 'asc' },
+      });
+      if (defaultProv) {
+        treatingProv = defaultProv.ProvNum;
+      }
+    }
+    if (!billingProv) {
+      billingProv = treatingProv;
+    }
+
     const created = await prisma.claim.create({
       data: {
         ClaimNum: claimNum,
@@ -1520,11 +1536,35 @@ export class ClaimService {
       orderBy: { Ordinal: 'asc' },
     });
 
-    const { treatingProvNum, billingProvNum } = await providerResolutionService.resolveClaimProviders({
-      patientId: patNumBigInt,
-      clinicId: matchedProctpItems[0]?.proctp.ClinicNum ?? null,
-      itemProvNum: matchedProctpItems[0]?.proctp.ProvNum ?? null,
-    });
+    let treatingProvNum: bigint | null = null;
+    let billingProvNum: bigint | null = null;
+    try {
+      const resolved = await providerResolutionService.resolveClaimProviders({
+        patientId: patNumBigInt,
+        clinicId: matchedProctpItems[0]?.proctp.ClinicNum ?? null,
+        itemProvNum: matchedProctpItems[0]?.proctp.ProvNum ?? null,
+      });
+      treatingProvNum = resolved.treatingProvNum;
+      billingProvNum = resolved.billingProvNum;
+    } catch {
+      const patientRow = await prisma.patient.findUnique({ where: { PatNum: patNumBigInt } });
+      treatingProvNum = matchedProctpItems[0]?.proctp.ProvNum || patientRow?.PriProv || null;
+      billingProvNum = treatingProvNum;
+    }
+
+    if (!treatingProvNum) {
+      const defaultProv = await prisma.provider.findFirst({
+        where: { OR: [{ IsHidden: 0 }, { IsHidden: null }] },
+        orderBy: { ProvNum: 'asc' },
+      });
+      if (defaultProv) {
+        treatingProvNum = defaultProv.ProvNum;
+        if (!billingProvNum) billingProvNum = defaultProv.ProvNum;
+      }
+    }
+    if (!billingProvNum) {
+      billingProvNum = treatingProvNum;
+    }
 
     const claimNumber = await this.generateClaimNumber();
     const status: ClaimStatus = 'draft';
@@ -1737,11 +1777,35 @@ export class ClaimService {
       orderBy: { Ordinal: 'asc' },
     });
 
-    const { treatingProvNum, billingProvNum } = await providerResolutionService.resolveClaimProviders({
-      patientId: patNumBigInt,
-      clinicId: matchedProctpItems[0]?.proctp.ClinicNum ?? null,
-      itemProvNum: matchedProctpItems[0]?.proctp.ProvNum ?? null,
-    });
+    let treatingProvNum: bigint | null = null;
+    let billingProvNum: bigint | null = null;
+    try {
+      const resolved = await providerResolutionService.resolveClaimProviders({
+        patientId: patNumBigInt,
+        clinicId: matchedProctpItems[0]?.proctp.ClinicNum ?? null,
+        itemProvNum: matchedProctpItems[0]?.proctp.ProvNum ?? null,
+      });
+      treatingProvNum = resolved.treatingProvNum;
+      billingProvNum = resolved.billingProvNum;
+    } catch {
+      const patientRow = await prisma.patient.findUnique({ where: { PatNum: patNumBigInt } });
+      treatingProvNum = matchedProctpItems[0]?.proctp.ProvNum || patientRow?.PriProv || null;
+      billingProvNum = treatingProvNum;
+    }
+
+    if (!treatingProvNum) {
+      const defaultProv = await prisma.provider.findFirst({
+        where: { OR: [{ IsHidden: 0 }, { IsHidden: null }] },
+        orderBy: { ProvNum: 'asc' },
+      });
+      if (defaultProv) {
+        treatingProvNum = defaultProv.ProvNum;
+        if (!billingProvNum) billingProvNum = defaultProv.ProvNum;
+      }
+    }
+    if (!billingProvNum) {
+      billingProvNum = treatingProvNum;
+    }
 
     const claimNumber = await this.generateClaimNumber();
     const status: ClaimStatus = 'draft';
@@ -3735,14 +3799,47 @@ export class ClaimService {
       notes: oldClaimNum ? `Procedure moved from claim #${oldClaimNum}` : 'Procedure moved to new claim',
     };
 
+    let treatingProv: bigint | null = procedure.ProvNum ?? null;
+    let billingProv: bigint | null = procedure.ProvNum ?? null;
+
+    if (!treatingProv && procedure.PatNum) {
+      try {
+        const resolved = await providerResolutionService.resolveClaimProviders({
+          patientId: procedure.PatNum,
+          clinicId: procedure.ClinicNum ?? null,
+          itemProvNum: procedure.ProvNum ?? null,
+        });
+        treatingProv = resolved.treatingProvNum;
+        billingProv = resolved.billingProvNum;
+      } catch {
+        const patientRow = await prisma.patient.findUnique({ where: { PatNum: procedure.PatNum } });
+        treatingProv = patientRow?.PriProv ?? null;
+        billingProv = treatingProv;
+      }
+    }
+
+    if (!treatingProv) {
+      const defaultProv = await prisma.provider.findFirst({
+        where: { OR: [{ IsHidden: 0 }, { IsHidden: null }] },
+        orderBy: { ProvNum: 'asc' },
+      });
+      if (defaultProv) {
+        treatingProv = defaultProv.ProvNum;
+        if (!billingProv) billingProv = defaultProv.ProvNum;
+      }
+    }
+    if (!billingProv) {
+      billingProv = treatingProv;
+    }
+
     const newClaim = await prisma.claim.create({
       data: {
         ClaimNum: claimNum,
         PatNum: procedure.PatNum ?? null,
         PlanNum: patPlan?.inssub?.PlanNum ?? null,
         InsSubNum: patPlan?.InsSubNum ?? null,
-        ProvTreat: procedure.ProvNum ?? null,
-        ProvBill: procedure.ProvNum ?? null,
+        ProvTreat: treatingProv,
+        ProvBill: billingProv,
         ClaimType: 'Primary',
         ClaimStatus: claimStatusToCode('draft'),
         DateService: procedure.ProcDate ?? new Date(),

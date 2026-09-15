@@ -99,7 +99,36 @@ export class Edi837Service {
     }
 
     // ── Pre-Validation Gates ──────────────────────────────────────────────────
-    const treatingProv = claim.provider_claim_ProvTreatToprovider;
+    let treatingProv = claim.provider_claim_ProvTreatToprovider;
+    if (!treatingProv) {
+      if (claim.PatNum) {
+        const patientRow = await prisma.patient.findUnique({
+          where: { PatNum: claim.PatNum },
+          include: { provider_patient_PriProvToprovider: true },
+        });
+        treatingProv = patientRow?.provider_patient_PriProvToprovider ?? null;
+      }
+      if (!treatingProv) {
+        treatingProv = await prisma.provider.findFirst({
+          where: { OR: [{ IsHidden: 0 }, { IsHidden: null }] },
+          orderBy: { ProvNum: 'asc' },
+        });
+      }
+      if (treatingProv) {
+        await prisma.claim.update({
+          where: { ClaimNum: claim.ClaimNum },
+          data: {
+            ProvTreat: treatingProv.ProvNum,
+            ProvBill: claim.ProvBill ?? treatingProv.ProvNum,
+          },
+        });
+        claim.provider_claim_ProvTreatToprovider = treatingProv;
+        if (!claim.provider_claim_ProvBillToprovider) {
+          claim.provider_claim_ProvBillToprovider = treatingProv;
+        }
+      }
+    }
+
     if (!treatingProv) {
       throw new UnprocessableEntityError('Treating provider is missing on this claim. Please assign a provider.');
     }
