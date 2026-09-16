@@ -135,7 +135,7 @@ export class ProviderController {
         });
       }
       
-      const updates = req.body;
+      const updates = req.body; console.log('UPDATES RECEIVED:', updates);
 
       const provider = await providerService.updateProvider(providerId, updates, req.userId);
 

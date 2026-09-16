@@ -327,43 +327,83 @@ export const mapProviderToApi = (
     isAcceptingNewPatients?: boolean | null;
     telehealthEnabled?: boolean | null;
     color?: string | null;
+    // Extended meta fields
+    meta?: Record<string, any> | null;
   }
-) => ({
-  _id: row.ProvNum.toString(),
-  providerCode: row.Abbr ?? null,
-  npiNumber: row.NationalProvID ?? null,
-  licenseNumber: row.StateLicense ?? null,
-  specialty: options?.specialtyName ? [options.specialtyName] : [],
-  title: row.Suffix ?? null,
-  color: options?.color ?? null,
-  userId: options?.user
-    ? {
-        _id: options.user._id,
-        firstName: options.user.firstName ?? '',
-        lastName: options.user.lastName ?? '',
-        email: options.user.email ?? null,
-      }
-    : options?.userId
+) => {
+  const meta = options?.meta ?? {};
+  return {
+    _id: row.ProvNum.toString(),
+    providerCode: row.Abbr ?? null,
+    npiNumber: row.NationalProvID ?? null,
+    licenseNumber: row.StateLicense ?? null,
+    specialty: options?.specialtyName ? [options.specialtyName] : [],
+    title: row.Suffix ?? null,
+    prefix: row.Suffix ?? null,
+    suffixTitle: meta.suffix ?? null,
+    color: options?.color ?? null,
+    firstName: row.FName ?? '',
+    lastName: row.LName ?? '',
+    middleName: row.MI ?? '',
+    userId: options?.user
       ? {
-          _id: options.userId,
+          _id: options.user._id,
+          firstName: options.user.firstName ?? '',
+          lastName: options.user.lastName ?? '',
+          email: options.user.email ?? null,
+        }
+      : options?.userId
+        ? {
+            _id: options.userId,
+            firstName: row.FName ?? '',
+            lastName: row.LName ?? '',
+            email: null,
+          }
+      : {
+          _id: row.ProvNum.toString(),
           firstName: row.FName ?? '',
           lastName: row.LName ?? '',
           email: null,
-        }
-    : {
-        _id: row.ProvNum.toString(),
-        firstName: row.FName ?? '',
-        lastName: row.LName ?? '',
-        email: null,
-      },
-  appointmentBufferMinutes: options?.appointmentBufferMinutes ?? 0,
-  workingHours: options?.workingHours ?? [],
-  maxDailyAppointments: options?.maxDailyAppointments ?? null,
-  consultationFee: options?.consultationFee ?? null,
-  isAcceptingNewPatients: options?.isAcceptingNewPatients ?? true,
-  telehealthEnabled: options?.telehealthEnabled ?? false,
-  isActive: !row.IsHidden,
-});
+        },
+    appointmentBufferMinutes: options?.appointmentBufferMinutes ?? 0,
+    workingHours: options?.workingHours ?? [],
+    maxDailyAppointments: options?.maxDailyAppointments ?? null,
+    consultationFee: options?.consultationFee ?? null,
+    isAcceptingNewPatients: options?.isAcceptingNewPatients ?? true,
+    telehealthEnabled: options?.telehealthEnabled ?? false,
+    isActive: !row.IsHidden,
+    // Extended meta fields
+    preferredName: meta.preferredName ?? '',
+    internalCodeName: row.Abbr ?? meta.internalCodeName ?? '',
+    email: meta.email ?? '',
+    phone: meta.phone ?? meta.mobilePhone ?? '',
+    mobilePhone: meta.mobilePhone ?? meta.phone ?? '',
+    homePhone: meta.homePhone ?? '',
+    organizationName: meta.organizationName ?? '',
+    federalTaxId: meta.federalTaxId ?? meta.federalTaxNumber ?? '',
+    federalTaxNumber: meta.federalTaxNumber ?? meta.federalTaxId ?? '',
+    additionalProviderId: meta.additionalProviderId ?? '',
+    dea: meta.dea ?? meta.deaNumber ?? '',
+    deaNumber: meta.deaNumber ?? meta.dea ?? '',
+    taxIdType: meta.taxIdType ?? '',
+    providerType: meta.providerType ?? 'Dentist',
+    signatureOnFile: meta.signatureOnFile ?? false,
+    isDefaultDentist: meta.isDefaultDentist ?? meta.defaultDentist ?? false,
+    defaultDentist: meta.defaultDentist ?? meta.isDefaultDentist ?? false,
+    isDefaultHygienist: meta.isDefaultHygienist ?? meta.defaultHygienist ?? false,
+    defaultHygienist: meta.defaultHygienist ?? meta.isDefaultHygienist ?? false,
+    address: meta.address ?? null,
+    country: meta.address?.country ?? '',
+    city: meta.address?.city ?? '',
+    state: meta.address?.state ?? '',
+    zipCode: meta.address?.zipCode ?? meta.address?.zip ?? '',
+    openEdgeToken: meta.openEdgeToken ?? '',
+    openDentalProviderId: meta.openDentalProviderId ?? '',
+    description: meta.description ?? '',
+    branchIds: meta.branchIds ?? [],
+    carriersOutOfNetwork: meta.carriersOutOfNetwork ?? [],
+  };
+};
 
 export const mapUserToApi = (row: userod) => ({
   _id: row.UserNum.toString(),

@@ -99,6 +99,71 @@ describe('Claims Procedures Fallback', () => {
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
 
+  it('guarantees ProvTreat is populated for claim created from invoice with no assigned item or patient provider', async () => {
+    const token = uniqueToken('provtreat-fix');
+    const patient = await createPatientRecord(token);
+    // Explicitly ensure patient has PriProv = null
+    await prisma.patient.update({
+      where: { PatNum: patient.PatNum },
+      data: { PriProv: null, ClinicNum: null },
+    });
+
+    // Create an invoice
+    const statement = await createInvoiceStatement({
+      patientId: patient.PatNum,
+      token,
+    });
+
+    // Create a procedure linked to the invoice, explicitly without ProvNum or ClinicNum
+    const procNum = BigInt(Date.now() + Math.floor(Math.random() * 1000));
+    await prisma.procedurelog.create({
+      data: {
+        ProcNum: procNum,
+        PatNum: patient.PatNum,
+        StatementNum: statement.StatementNum,
+        ProcFee: 150,
+        ProcStatus: 2,
+        ProcDate: new Date(),
+        ProvNum: null,
+        ClinicNum: null,
+        OldCode: 'D0120',
+      },
+    });
+
+    // Create a draft claim from the invoice
+    const claimRes = await request(app)
+      .post(`/api/claims/from-invoice/${statement.StatementNum}`)
+      .set(authHeader)
+      .send({
+        insuranceType: 'Primary',
+        claimAmount: 150,
+        submittedAmount: 150,
+      });
+
+    expect(claimRes.status).toBe(201);
+    const createdClaim = claimRes.body?.data?.claim;
+    expect(createdClaim).toBeDefined();
+
+    // Verify directly in DB: ProvTreat MUST NOT be null
+    const dbClaim = await prisma.claim.findUnique({
+      where: { ClaimNum: BigInt(createdClaim.id) },
+      include: { provider_claim_ProvTreatToprovider: true },
+    });
+    expect(dbClaim).toBeDefined();
+    expect(dbClaim?.ProvTreat).not.toBeNull();
+    expect(dbClaim?.provider_claim_ProvTreatToprovider).toBeDefined();
+    expect(dbClaim?.provider_claim_ProvTreatToprovider?.ProvNum).toBe(dbClaim?.ProvTreat);
+
+    // Clean up
+    await prisma.claimtracking.deleteMany({ where: { ClaimNum: BigInt(createdClaim.id) } });
+    await prisma.claimproc.deleteMany({ where: { ClaimNum: BigInt(createdClaim.id) } });
+    await prisma.procedurelog.delete({ where: { ProcNum: procNum } });
+    await prisma.claim.delete({ where: { ClaimNum: BigInt(createdClaim.id) } });
+    await prisma.statement.delete({ where: { StatementNum: statement.StatementNum } });
+    await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
+    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+  });
+
   it('automatically generates a draft claim for an unbilled invoice when new insurance is added', async () => {
     const token = uniqueToken('autoclaim');
     const alphanumericToken = token.replace(/[^A-Za-z0-9]/g, '');

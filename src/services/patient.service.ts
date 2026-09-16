@@ -422,6 +422,7 @@ async getPatientBalance(patientId: string) {
     invoicePaymentAgg,
     lastPayment,
     overdueAgg,
+    lastClaimProc,
   ] = await Promise.all([
     // Sum all completed procedure fees
     prisma.procedurelog.aggregate({
@@ -458,6 +459,15 @@ async getPatientBalance(patientId: string) {
       },
       _sum: { ProcFee: true },
     }),
+    // Most recent insurance payment from claimproc
+    prisma.claimproc.findFirst({
+      where: {
+        PatNum: patNum,
+        InsPayAmt: { gt: 0 },
+      },
+      orderBy: { DateCP: 'desc' },
+      select: { DateCP: true },
+    }),
   ]);
 
   const totalCharged = procedureAgg._sum.ProcFee ?? 0;
@@ -470,8 +480,9 @@ async getPatientBalance(patientId: string) {
 
   return {
     balance: parseFloat(balance.toFixed(2)),
-    lastPaymentDate: lastPayment?.PayDate ?? null,
     overdueAmount: parseFloat(overdueAmount.toFixed(2)),
+    lastPaymentDate: lastPayment?.PayDate ?? null,
+    lastInsPayDate: lastClaimProc?.DateCP ?? null,
   };
 }
 
@@ -495,7 +506,7 @@ async getPatientBalance(patientId: string) {
     const patPlans = await prisma.patplan.findMany({
       where: {
         PatNum: patNum,
-        IsPending: 0,
+        OR: [{ IsPending: 0 }, { IsPending: null }],
       },
       include: {
         inssub: {

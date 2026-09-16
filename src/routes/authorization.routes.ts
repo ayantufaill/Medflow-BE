@@ -252,4 +252,24 @@ router.delete(
   authorizationController.deleteAuthorization.bind(authorizationController)
 );
 
+router.post(
+  '/:authorizationId/generate-837',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('authorizations.write'),
+  validate(authorizationIdValidator),
+  authorizationController.generate837D.bind(authorizationController)
+);
+
+router.get(
+  '/:authorizationId/edi-837',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('authorizations.read'),
+  validate(authorizationIdValidator),
+  authorizationController.export837D.bind(authorizationController)
+);
+
 export default router;

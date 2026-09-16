@@ -1,5 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { claimService } from '../services/claim.service';
+import { edi837Service, isValidNPI } from '../services/edi837.service';
+import { prisma } from '../config/db';
 
 const extractId = (value: unknown): string | undefined => {
   if (value === undefined || value === null) {
@@ -756,6 +758,113 @@ export class ClaimController {
         success: true,
         data: { attachments: linked },
         message: 'Attachments linked successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async generate837D(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const claimId = req.params.claimId || req.params.id;
+      const markAsSent = req.query.markAsSent === 'true' || req.body?.markAsSent === true;
+      const result = await edi837Service.generate837D(claimId, undefined, markAsSent);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+        message: '837D dental claim generated and stored successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async export837D(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const claimId = req.params.claimId || req.params.id;
+      const x12Content = await edi837Service.get837DText(claimId);
+
+      res.setHeader('Content-Type', 'text/plain');
+      res.setHeader('Content-Disposition', `attachment; filename="claim_${claimId}.837"`);
+      res.send(x12Content);
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getBlockedClaimsReport(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const draftClaims = await prisma.claim.findMany({
+        where: {
+          ClaimType: { not: 'PreAuth' },
+          ClaimStatus: { in: ['U', 'W', 'draft'] },
+        },
+        include: {
+          patient: true,
+          provider_claim_ProvTreatToprovider: true,
+          provider_claim_ProvBillToprovider: true,
+          insplan_claim_PlanNumToinsplan: {
+            include: { carrier: true },
+          },
+          inssub_claim_InsSubNumToinssub: true,
+          claimproc: true,
+        },
+        orderBy: { ClaimNum: 'desc' },
+        take: 100,
+      });
+
+      const blockedList = [];
+
+      for (const claim of draftClaims) {
+        const issues: string[] = [];
+        const treatingProv = claim.provider_claim_ProvTreatToprovider;
+        const billingProv = claim.provider_claim_ProvBillToprovider || treatingProv;
+
+        if (!treatingProv?.NationalProvID || !isValidNPI(treatingProv.NationalProvID)) {
+          issues.push('Missing or invalid treating provider NPI');
+        }
+        if (!billingProv?.NationalProvID || !isValidNPI(billingProv.NationalProvID)) {
+          issues.push('Missing or invalid billing provider NPI');
+        }
+
+        const carrier = claim.insplan_claim_PlanNumToinsplan?.carrier;
+        if (!carrier?.ElectID) {
+          issues.push('Missing carrier electronic Payer ID (ElectID)');
+        }
+
+        const inssub = claim.inssub_claim_InsSubNumToinssub;
+        if (!inssub?.SubscriberID) {
+          issues.push('Missing subscriber ID');
+        }
+
+        if (Number(claim.ClaimFee || 0) <= 0) {
+          issues.push('Claim total fee is $0 or missing');
+        }
+
+        if (!claim.claimproc || claim.claimproc.length === 0) {
+          issues.push('Claim has no procedure lines');
+        }
+
+        if (issues.length > 0) {
+          blockedList.push({
+            claimId: claim.ClaimNum.toString(),
+            patientId: claim.PatNum?.toString() ?? null,
+            patientName: claim.patient ? `${claim.patient.FName} ${claim.patient.LName}` : 'Unknown',
+            claimFee: claim.ClaimFee ?? 0,
+            carrierName: carrier?.CarrierName ?? 'Unknown',
+            status: claim.ClaimStatus ?? 'draft',
+            blockingReasons: issues,
+          });
+        }
+      }
+
+      res.status(200).json({
+        success: true,
+        data: {
+          totalBlocked: blockedList.length,
+          blockedClaims: blockedList,
+        },
       });
     } catch (error) {
       next(error);

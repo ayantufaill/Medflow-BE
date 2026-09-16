@@ -401,10 +401,7 @@ export class PaymentService {
           });
           allocatedProcNums.push(procNum.toString());
 
-          let targetInvoiceId = data.invoiceId;
-          if (!targetInvoiceId && procItemRecord?.StatementNum) {
-            targetInvoiceId = procItemRecord.StatementNum.toString();
-          }
+          let targetInvoiceId = procItemRecord?.StatementNum ? procItemRecord.StatementNum.toString() : data.invoiceId;
 
           if (targetInvoiceId) {
             try {
@@ -463,7 +460,10 @@ export class PaymentService {
             }
           } else {
             const patPlan = await prisma.patplan.findFirst({
-              where: { PatNum: BigInt(data.patientId), IsPending: 0 },
+              where: {
+                PatNum: BigInt(data.patientId),
+                OR: [{ IsPending: 0 }, { IsPending: null }],
+              },
               orderBy: { Ordinal: 'asc' },
             });
             const proc = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
@@ -607,12 +607,20 @@ export class PaymentService {
       }
     }
 
-    // Recalculate invoice if invoiceId was present
-    if (data.invoiceId) {
+    // Recalculate affected invoices
+    const affectedInvoiceIds = new Set<string>();
+    if (data.invoiceId) affectedInvoiceIds.add(data.invoiceId);
+    for (const procNumStr of allocatedProcNums) {
+      const pRecord = await prisma.procedurelog.findUnique({ where: { ProcNum: BigInt(procNumStr) } });
+      if (pRecord?.StatementNum) {
+        affectedInvoiceIds.add(pRecord.StatementNum.toString());
+      }
+    }
+    for (const invId of affectedInvoiceIds) {
       try {
-        await invoiceService.recalculateInvoice(data.invoiceId);
+        await invoiceService.recalculateInvoice(invId);
       } catch (err) {
-        console.error(`[PaymentService] Error recalculating invoice ${data.invoiceId}:`, err);
+        console.error(`[PaymentService] Error recalculating invoice ${invId}:`, err);
       }
     }
 
