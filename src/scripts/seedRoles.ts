@@ -105,7 +105,10 @@ const roles = [
   {
     name: 'Super Admin',
     description: 'Root platform administrator with full universal system authority.',
-    permissions: ADMIN_GROUP_PERMISSIONS,
+    permissions: {
+      ...ADMIN_GROUP_PERMISSIONS,
+      'platform:manage_practice_groups': true,
+    },
     isSystemRole: true,
   },
   {

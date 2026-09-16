@@ -49,10 +49,20 @@ export class PracticeGroupService {
     return { id: group.id, name: group.name, isActive: group.isActive, branches: [] };
   }
 
-  async getAllGroups(): Promise<PracticeGroupSummary[]> {
+  async getAllGroups(filter?: { groupId?: number; clinicIds?: bigint[] }): Promise<PracticeGroupSummary[]> {
     const groups = await prisma.practicegroup.findMany({
-      where: { isActive: true },
-      include: { clinic: { select: { ClinicNum: true, Description: true, City: true, State: true } } },
+      where: {
+        isActive: true,
+        ...(filter?.groupId !== undefined ? { id: filter.groupId } : {}),
+      },
+      include: {
+        clinic: {
+          where: filter?.clinicIds && filter.clinicIds.length > 0
+            ? { ClinicNum: { in: filter.clinicIds } }
+            : undefined,
+          select: { ClinicNum: true, Description: true, City: true, State: true },
+        },
+      },
       orderBy: { name: 'asc' },
     });
     return groups.map((g) => ({

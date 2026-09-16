@@ -152,10 +152,16 @@ export class PermissionService {
       clinicIds.add(user.ClinicNum);
     }
 
+    const roles = await this.getUserRoles(userId);
+    const isBranchAdminOnly = roles.includes('Branch Admin') && !roles.includes('Group Admin') && !roles.includes('Super Admin');
     const permissions = await this.getUserPermissions(userId);
-    const isGroupAdmin =
+    const isGroupAdmin = !isBranchAdminOnly && (
+      roles.includes('Group Admin') ||
+      roles.includes('Super Admin') ||
+      roles.includes('Admin') ||
       permissions.has('*') ||
-      Object.values(GROUP_ADMIN_PERMISSIONS).some((perm) => permissions.has(perm));
+      Object.values(GROUP_ADMIN_PERMISSIONS).some((perm) => permissions.has(perm))
+    );
 
     let groupId: number | null = null;
     const [firstClinicId] = clinicIds;
