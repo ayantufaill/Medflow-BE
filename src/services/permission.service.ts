@@ -98,6 +98,17 @@ export class PermissionService {
     return roleNames.some((role) => roles.includes(role));
   }
 
+  static async getUserGroups(userId: string): Promise<string[]> {
+    const roles = await this.getUserRoles(userId);
+    const { getUserGroups } = await import('../types/user-group.types');
+    return getUserGroups(roles);
+  }
+
+  static async hasGroup(userId: string, group: string): Promise<boolean> {
+    const groups = await this.getUserGroups(userId);
+    return groups.includes(group);
+  }
+
   static async getRoleByName(roleName: string): Promise<AppRole | null> {
     const role = await prisma.usergroup.findFirst({
       where: { Description: roleName },
