@@ -213,8 +213,8 @@ export class TreatmentPlanService {
     };
 
     // Chart newly completed procedures
-    const newlyCompletedItems = nextItems.filter((newItem: any) => {
-      const oldItem = meta.items?.find((i: any) => i.id === newItem.id);
+    const newlyCompletedItems = nextItems.filter((newItem: any, index: number) => {
+      const oldItem = meta.items ? meta.items[index] : undefined;
       return newItem.status === 'C' && oldItem?.status !== 'C';
     });
 
@@ -228,7 +228,15 @@ export class TreatmentPlanService {
 
         let provNum = BigInt(0);
         if (item.provider) {
-          const prov = await prisma.provider.findFirst({ where: { Abbr: item.provider } });
+          const isNumeric = /^[0-9]+$/.test(item.provider);
+          const prov = await prisma.provider.findFirst({
+            where: {
+              OR: [
+                { Abbr: item.provider },
+                ...(isNumeric ? [{ ProvNum: BigInt(item.provider) }] : [])
+              ]
+            }
+          });
           if (prov?.ProvNum) provNum = prov.ProvNum;
         }
 
@@ -244,6 +252,13 @@ export class TreatmentPlanService {
 
         const procNum = await getNextId('procedurelog', 'ProcNum');
 
+        const rawTooth = item.tooth ?? '';
+        const toothNum = rawTooth.length > 2 ? '' : rawTooth;
+        const toothRange = rawTooth.length > 2 ? rawTooth.substring(0, 100) : '';
+        const rawSurf = item.site ?? '';
+        const surf = rawSurf.substring(0, 10);
+        const oldCode = (item.procedureCode ?? '').substring(0, 15);
+
         await prisma.procedurelog.create({
           data: {
             ProcNum: procNum,
@@ -253,9 +268,10 @@ export class TreatmentPlanService {
             ProcStatus: 2, // Complete
             ProcDate: new Date(),
             ProcFee: Number(item.charge ?? item.fee ?? 0),
-            Surf: item.site ?? '',
-            ToothNum: item.tooth ?? '',
-            OldCode: item.procedureCode ?? '',
+            Surf: surf,
+            ToothNum: toothNum,
+            ToothRange: toothRange,
+            OldCode: oldCode,
             DateTP: plan.DateTP,
           }
         });
