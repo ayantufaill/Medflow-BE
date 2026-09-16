@@ -2976,9 +2976,20 @@ export class ClaimService {
       throw new NotFoundError('Patient not found');
     }
 
-    // 2. Verify insurance exists
+    // 2. Resolve the selected patient plan to its underlying insurance plan.
+    // The frontend sends PatPlanNum from /patients/:id/insurance, while claims
+    // store PlanNum on the claim itself.
+    const requestedInsuranceId = BigInt(data.insuranceId);
+    const patientPlan = await prisma.patplan.findFirst({
+      where: {
+        PatPlanNum: requestedInsuranceId,
+        PatNum: BigInt(data.patientId),
+      },
+      include: { inssub: { select: { PlanNum: true } } },
+    });
+    const insurancePlanNum = patientPlan?.inssub?.PlanNum ?? requestedInsuranceId;
     const insurance = await prisma.insplan.findUnique({
-      where: { PlanNum: BigInt(data.insuranceId) },
+      where: { PlanNum: insurancePlanNum },
     });
     if (!insurance) {
       throw new NotFoundError('Insurance plan not found');
@@ -3024,7 +3035,7 @@ export class ClaimService {
       data: {
         ClaimNum: claimNum,
         PatNum: BigInt(data.patientId),
-        PlanNum: BigInt(data.insuranceId),
+        PlanNum: insurancePlanNum,
         ProvTreat: BigInt(data.treatingProviderId),
         ProvBill: BigInt(data.billingEntityId),
         ClaimFee: totalAmount,
