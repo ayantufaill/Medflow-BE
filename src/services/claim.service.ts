@@ -10,6 +10,7 @@ import { uploadToS3, deleteFromS3 } from '../utils/s3.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { agingService } from './aging.service';
 import { providerResolutionService } from './provider-resolution.service';
+import { getProviderMeta } from '../utils/opendental-auth.util';
 
 type ClaimStatus =
   | 'draft'
@@ -508,7 +509,7 @@ export class ClaimService {
           code: procLog.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? procLog.OldCode ?? null,
           name: procLog.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? procLog.BillingNote ?? 'Procedure',
           description: procLog.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? procLog.BillingNote ?? 'Procedure',
-          tooth: procLog.ToothRange || procLog.ToothNum || null,
+          tooth: procLog.ToothNum ?? null,
           surface: procLog.Surf ?? null,
           status: procLog.ProcStatus ?? null,
           quantity: procLog.UnitQty ?? 1,
@@ -572,7 +573,7 @@ export class ClaimService {
             code: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? proc.OldCode ?? null,
             name: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
             description: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
-            tooth: proc.ToothRange || proc.ToothNum || null,
+            tooth: proc.ToothNum ?? null,
             surface: proc.Surf ?? null,
             status: proc.ProcStatus ?? null,
             quantity: proc.UnitQty ?? 1,
@@ -1059,7 +1060,7 @@ export class ClaimService {
             code: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? proc.OldCode ?? null,
             name: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? (proc.BillingNote ? 'Procedure' : 'Procedure'),
             description: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? (proc.BillingNote ? 'Procedure' : 'Procedure'),
-            tooth: proc.ToothRange || proc.ToothNum || null,
+            tooth: proc.ToothNum ?? null,
             surface: proc.Surf ?? null,
             status: proc.ProcStatus ?? null,
             quantity: proc.UnitQty ?? 1,
@@ -1394,7 +1395,7 @@ export class ClaimService {
         code: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? proc.OldCode ?? null,
         name: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
         description: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
-        tooth: proc.ToothRange || proc.ToothNum || null,
+        tooth: proc.ToothNum ?? null,
         surface: proc.Surf ?? null,
         status: proc.ProcStatus ?? null,
         quantity: proc.UnitQty ?? 1,
@@ -1493,7 +1494,7 @@ export class ClaimService {
             ProvNum: entry.proctp.ProvNum,
             CodeNum: codeNum,
             ProcStatus: 1, // Treatment Planned (1)
-            ProcDate: new Date(), 
+            ProcDate: new Date(),
             ProcFee: entry.fee,
             Surf: (entry.proctp.Surf ?? '').substring(0, 10),
             ToothNum: (entry.proctp.ToothNumTP ?? '').substring(0, 2),
@@ -1605,7 +1606,7 @@ export class ClaimService {
         InsSubNum: patPlan?.InsSubNum ?? null,
         ProvTreat: treatingProvNum,
         ProvBill: billingProvNum,
-        ClaimType: 'PreAuth', 
+        ClaimType: 'PreAuth',
         ClaimStatus: claimStatusToCode(status),
         DateService: new Date(),
         ClaimFee: claimFee,
@@ -2326,7 +2327,7 @@ export class ClaimService {
           code: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? proc.OldCode ?? null,
           name: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
           description: proc.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript ?? proc.BillingNote ?? 'Procedure',
-          tooth: proc.ToothRange || proc.ToothNum || null,
+          tooth: proc.ToothNum ?? null,
           surface: proc.Surf ?? null,
           status: proc.ProcStatus ?? null,
           quantity: proc.UnitQty ?? 1,
@@ -3457,6 +3458,7 @@ export class ClaimService {
         ClaimNum: claimNum,
         PatNum: BigInt(data.patientId),
         PlanNum: insurancePlanNum,
+        InsSubNum: patientPlan?.InsSubNum ?? null,
         ProvTreat: BigInt(data.treatingProviderId),
         ProvBill: BigInt(data.billingEntityId),
         ClaimFee: totalAmount,
@@ -3526,6 +3528,9 @@ export class ClaimService {
         insplan_claim_PlanNumToinsplan: true,
         provider_claim_ProvTreatToprovider: true,
         provider_claim_ProvBillToprovider: true,
+        inssub_claim_InsSubNumToinssub: {
+          include: { patient: true },
+        },
       },
     });
 
@@ -3575,6 +3580,16 @@ export class ClaimService {
       });
     };
 
+    const fillCheckbox = (x: number, y: number) => {
+      firstPage.drawRectangle({
+        x,
+        y,
+        width: 7,
+        height: 7,
+        color: rgb(0, 0, 0),
+      });
+    };
+
     // Fill Carrier/Insurance Company Info (Box 3 - DENTAL BENEFIT PLAN INFORMATION)
     // Try direct claim -> insplan -> carrier first, then fallback through patient's patplan
     let carrier = claim.insplan_claim_PlanNumToinsplan?.carrier;
@@ -3605,12 +3620,211 @@ export class ClaimService {
       }
     }
 
+    // Box 18 Relationship to Policyholder
+    let rel: any = claim.PatRelat; // 1=Self, 2=Spouse, 3=Child, 4+=Other
+    console.log('[BOX18 DEBUG] claim.PatRelat =', claim.PatRelat, 'type =', typeof claim.PatRelat);
+    console.log('[BOX18 DEBUG] claim.PatNum =', claim.PatNum, 'type =', typeof claim.PatNum);
+    console.log('[BOX18 DEBUG] claim.InsSubNum =', claim.InsSubNum, 'type =', typeof claim.InsSubNum);
+
+    const patPlan = await prisma.patplan.findFirst({
+      where: { PatNum: claim.PatNum, inssub: { PlanNum: claim.PlanNum } },
+      include: { inssub: true }
+    });
+    console.log('[BOX18 DEBUG] patPlan found =', !!patPlan);
+    if (patPlan) {
+      console.log('[BOX18 DEBUG] patPlan.Relationship =', patPlan.Relationship);
+      console.log('[BOX18 DEBUG] patPlan.inssub?.Subscriber =', patPlan.inssub?.Subscriber);
+    }
+
+    if (rel === null || rel === undefined) {
+      // Fallback if PatRelat isn't set on claim
+      rel = 1;
+      if (patPlan && patPlan.Relationship !== null) {
+        // patPlan.Relationship: 0=Self, 1=Spouse, 2=Child
+        rel = patPlan.Relationship === 0 ? 1 : (patPlan.Relationship === 1 ? 2 : (patPlan.Relationship === 2 ? 3 : 4));
+      }
+    }
+    console.log('[BOX18 DEBUG] rel after fallback =', rel);
+
+    // OVERRIDE: If patient is the subscriber, ALWAYS force Relationship to Self (1)
+    if (claim.InsSubNum) {
+      const inssubCheck = await prisma.inssub.findUnique({
+        where: { InsSubNum: claim.InsSubNum }
+      });
+      console.log('[BOX18 DEBUG] inssubCheck =', inssubCheck ? { Subscriber: inssubCheck.Subscriber } : null);
+      if (inssubCheck) {
+        console.log('[BOX18 DEBUG] Number(Subscriber)=', Number(inssubCheck.Subscriber), 'Number(PatNum)=', Number(claim.PatNum), 'match=', Number(inssubCheck.Subscriber) === Number(claim.PatNum));
+        if (Number(inssubCheck.Subscriber) === Number(claim.PatNum)) {
+          rel = 1;
+          console.log('[BOX18 DEBUG] OVERRIDE to Self via InsSubNum check');
+        }
+      }
+    } else if (patPlan && patPlan.inssub && Number(patPlan.inssub.Subscriber) === Number(claim.PatNum)) {
+      rel = 1;
+      console.log('[BOX18 DEBUG] OVERRIDE to Self via patPlan check');
+    }
+
+    console.log('[BOX18 DEBUG] FINAL rel =', rel, '(1=Self, 2=Spouse, 3=Child, 4=Other)');
+
+    if (Number(rel) === 1) {
+      fillCheckbox(322, 565); // Self
+    } else if (Number(rel) === 2) {
+      fillCheckbox(370, 565); // Spouse
+    } else if (Number(rel) === 3) {
+      fillCheckbox(420, 565); // Child
+    } else {
+      fillCheckbox(490, 565); // Other
+    }
+
+    // Subscriber Info (Box 12 - 17) -> TOP RIGHT QUADRANT
+    let subscriber = null;
+    let subscriberId = '';
+    let groupNum = '';
+    let employerName = '';
+
+    if (claim.PlanNum) {
+      const insplan = await prisma.insplan.findUnique({
+        where: { PlanNum: claim.PlanNum },
+        include: { employer: true } // employer is relation in insplan
+      });
+      if (insplan) {
+        groupNum = insplan.GroupNum || '';
+        if (insplan.employer) {
+          employerName = insplan.employer.EmpName || '';
+        }
+      }
+    }
+
+    if (claim.InsSubNum) {
+      const inssub = await prisma.inssub.findUnique({
+        where: { InsSubNum: claim.InsSubNum }
+      });
+      if (inssub) {
+        subscriberId = inssub.SubscriberID || '';
+        if (inssub.Subscriber) {
+          subscriber = await prisma.patient.findUnique({
+            where: { PatNum: inssub.Subscriber }
+          });
+        }
+      }
+    }
+
+    // Fallback: if InsSubNum wasn't set on the claim (e.g. older manual claims),
+    // resolve the subscriber through the patient's patplan → inssub chain.
+    if (!subscriber && claim.PatNum && claim.PlanNum) {
+      const fallbackPatPlan = await prisma.patplan.findFirst({
+        where: {
+          PatNum: claim.PatNum,
+          inssub: { PlanNum: claim.PlanNum },
+        },
+        include: {
+          inssub: true,
+        },
+      });
+      if (fallbackPatPlan?.inssub) {
+        subscriberId = subscriberId || fallbackPatPlan.inssub.SubscriberID || '';
+        if (fallbackPatPlan.inssub.Subscriber) {
+          subscriber = await prisma.patient.findUnique({
+            where: { PatNum: fallbackPatPlan.inssub.Subscriber }
+          });
+        }
+      }
+    }
+
+
+    if (subscriber) {
+      const subName = `${subscriber.LName || ''}, ${subscriber.FName || ''} ${subscriber.MiddleI || ''}`.trim();
+      drawText(subName, 360, 685, 9); // Box 12 Name
+      drawText(subscriber.Address || '', 360, 672, 9); // Box 12 Address
+      drawText(`${subscriber.City || ''}, ${subscriber.State || ''} ${subscriber.Zip || ''}`, 360, 659, 9); // Box 12 City, State, Zip
+
+      if (subscriber.Birthdate) {
+        const subDob = new Date(subscriber.Birthdate);
+        const subDobStr = `${String(subDob.getMonth() + 1).padStart(2, '0')}/${String(subDob.getDate()).padStart(2, '0')}/${subDob.getFullYear()}`;
+        drawText(subDobStr, 360, 627, 9); // Box 13
+      }
+
+      if (subscriber.Gender !== null && subscriber.Gender !== undefined) {
+        const sGenderVal = subscriber.Gender;
+        if (sGenderVal === 0) {
+          fillCheckbox(399, 625); // Male Box 14
+        } else if (sGenderVal === 1) {
+          fillCheckbox(415, 625); // Female Box 14
+        } else {
+          fillCheckbox(435, 625); // Unknown Box 14
+        }
+      }
+    }
+
+    drawText(subscriberId, 475, 627, 9); // Box 15 Subscriber ID
+    drawText(groupNum, 360, 605, 9); // Box 16 Group Num
+    drawText(employerName, 475, 605, 9); // Box 17 Employer Name
+
+    // Billing dentist/provider info (Box 48 - 52a)
+    if (claim.ProvBill) {
+      const billingProv = await prisma.provider.findUnique({
+        where: { ProvNum: claim.ProvBill },
+      });
+      if (billingProv) {
+        const provMeta = await getProviderMeta(billingProv.ProvNum);
+        const provPhone = provMeta.phone || provMeta.mobilePhone || '';
+        const additionalProvId = provMeta.additionalProviderId || '';
+
+        const provName = `${billingProv.LName || ''}, ${billingProv.FName || ''}`.trim();
+        const provAddress = provMeta.address?.street || provMeta.address?.address1 || provMeta.address?.addressLine1 || '';
+        const provCity = provMeta.address?.city || '';
+        const provState = provMeta.address?.state || '';
+        const provZip = provMeta.address?.zipCode || provMeta.address?.zip || '';
+
+        drawText(provName, 55, 100, 9); // Box 48 Name
+        drawText(provAddress, 55, 87, 9); // Box 48 Address
+        drawText(`${provCity}${provCity && (provState || provZip) ? ',' : ''} ${provState} ${provZip}`.trim(), 55, 74, 9); // Box 48 City, State Zip
+
+        drawText(billingProv.NationalProvID || '', 45, 40, 9); // Box 49 (NPI)
+        drawText(billingProv.StateLicense || '', 120, 40, 9); // Box 50 (License Number)
+
+        // Box 52 (Phone Number) and 52a (Additional Provider ID)
+        drawText(provPhone, 100, 27, 9);
+        drawText(additionalProvId, 240, 27, 9);
+      }
+    }
+
+    // Treating dentist/provider info (Box 53 - 58)
+    if (claim.ProvTreat) {
+      const treatingProv = await prisma.provider.findUnique({
+        where: { ProvNum: claim.ProvTreat },
+      });
+      if (treatingProv) {
+        const provMeta = await getProviderMeta(treatingProv.ProvNum);
+        const provPhone = provMeta.phone || provMeta.mobilePhone || '';
+        const additionalProvId = provMeta.additionalProviderId || '';
+
+        const provAddress = provMeta.address?.street || provMeta.address?.address1 || provMeta.address?.addressLine1 || '';
+        const provCity = provMeta.address?.city || '';
+        const provState = provMeta.address?.state || '';
+        const provZip = provMeta.address?.zipCode || provMeta.address?.zip || '';
+
+        drawText(treatingProv.NationalProvID || '', 370, 75, 9); // Box 54 (NPI)
+        drawText(treatingProv.StateLicense || '', 520, 75, 9); // Box 55 (License Number)
+
+        drawText(provAddress, 330, 52, 8); // Box 56 Address
+        drawText(`${provCity}${provCity && (provState || provZip) ? ',' : ''} ${provState} ${provZip}`.trim(), 330, 40, 8); // Box 56 City, State, Zip
+
+        // Box 56a (Provider Specialty) could be derived from treatingProv.definition
+        // We leave it empty for now or populate if needed
+
+        // Box 57 (Phone Number) and 58 (Additional Provider ID)
+        drawText(provPhone, 370, 27, 8);
+        drawText(additionalProvId, 520, 27, 8);
+      }
+    }
+
     // Fill Patient Info (Right Column, Box 20-22)
     const patient = claim.patient;
     if (patient) {
       const patName = `${patient.LName || ''}, ${patient.FName || ''} ${patient.MiddleI || ''}`.trim();
       drawText(patName, 360, 545, 9);
-      drawText(patient.Address, 360, 532, 9);
+      drawText(patient.Address || '', 360, 532, 9);
       drawText(`${patient.City || ''}, ${patient.State || ''} ${patient.Zip || ''}`, 360, 519, 9);
 
       if (patient.Birthdate) {
@@ -3621,24 +3835,18 @@ export class ClaimService {
 
       if (patient.Gender !== null && patient.Gender !== undefined) {
         const genderVal = patient.Gender;
+        // Medflow Gender: 0=Male, 1=Female, 2=Unknown
         if (genderVal === 0) {
-          drawText('X', 435, 488, 10); // Male checkbox
+          fillCheckbox(386, 482); // Male checkbox
         } else if (genderVal === 1) {
-          drawText('X', 455, 488, 10); // Female checkbox
+          fillCheckbox(415, 482); // Female checkbox
+        } else {
+          fillCheckbox(435, 482); // Unknown checkbox
         }
       }
-    }
 
-    // Billing dentist/provider info
-    if (claim.ProvTreat) {
-      const treatingProv = await prisma.provider.findUnique({
-        where: { ProvNum: claim.ProvTreat },
-      });
-      if (treatingProv) {
-        const provName = `${treatingProv.LName || ''}, ${treatingProv.FName || ''}`.trim();
-        drawText(provName, 55, 100, 9); // Box 48
-        drawText(treatingProv.NationalProvID || '', 200, 75, 9); // Box 49 (NPI)
-      }
+      // Box 23 Patient ID
+      drawText(patient.PatNum.toString(), 480, 482, 9);
     }
 
     // Extract meta procedures for fallback
@@ -3669,7 +3877,7 @@ export class ClaimService {
 
         // Check meta procedures for tooth/surface fallback
         const metaItem = metaProcedures.find((p: any) => p.itemId === log.ProcNum.toString() || p.id === log.ProcNum.toString());
-        
+
         // If a procedure has multiple teeth, they are saved in ToothRange
         const toothNum = log.ToothRange || log.ToothNum || metaItem?.tooth || metaItem?.ToothNum || '';
         const surf = log.Surf || metaItem?.surface || metaItem?.Surf || '';
@@ -3686,7 +3894,7 @@ export class ClaimService {
         drawText(fee.toFixed(2), 560, yPos, 8); // Box 31 (Fee)
         totalFee += fee;
       }
-      yPos -= 14.4; // Row height for ADA 2019
+      yPos -= 13.75; // Exact ADA row height
     }
 
     // Total Fee
