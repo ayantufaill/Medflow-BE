@@ -2302,6 +2302,20 @@ export class ClaimService {
           },
         });
       }
+
+      // Recalculate linked invoice and update patient aging
+      const targetInvId = nextMeta.invoiceId || existing.ClaimNote?.match(/Invoice #(\d+)/)?.[1];
+      if (targetInvId) {
+        try {
+          const { invoiceService } = await import('./invoice.service');
+          await invoiceService.recalculateInvoice(targetInvId);
+        } catch (err) {
+          console.error(`[ClaimService] Error recalculating invoice ${targetInvId} after claim payment:`, err);
+        }
+      }
+      if (updated.PatNum) {
+        await agingService.updatePatientAging(updated.PatNum).catch(() => {});
+      }
     }
 
     const [invoiceById, insuranceById, proceduresByClaimId] = await Promise.all([

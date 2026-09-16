@@ -145,6 +145,17 @@ export class FinanceDashboardService {
     let insBucket90Plus = 0;
 
     for (const claim of claims) {
+      const claimStatusStr = String(claim.ClaimStatus || '').toUpperCase();
+      let narrativeStatus = '';
+      if (claim.Narrative) {
+        try {
+          const parsed = JSON.parse(claim.Narrative);
+          narrativeStatus = String(parsed?.status || '').toLowerCase();
+        } catch {}
+      }
+      const isPaidOrReceived = claimStatusStr === 'R' || narrativeStatus === 'paid' || narrativeStatus === 'approved';
+      if (isPaidOrReceived) continue;
+
       const claimKey = claim.ClaimNum.toString();
       const cpTotals = claimProcMap.get(claimKey);
 
@@ -163,6 +174,7 @@ export class FinanceDashboardService {
     }
 
     for (const cp of claimProcs) {
+      if (cp.Status === 1) continue;
       if (!cp.ClaimNum) {
         const remainingIns = Math.max(0, (Number(cp.InsPayEst) || 0) - (Number(cp.InsPayAmt) || 0));
         if (remainingIns > 0) {
@@ -192,7 +204,13 @@ export class FinanceDashboardService {
     });
 
     const payments = await prisma.payment.aggregate({
-      where: { PatNum: { in: patNums } },
+      where: {
+        PatNum: { in: patNums },
+        OR: [
+          { PayNote: null },
+          { PayNote: { not: { contains: '"paymentSource":"insurance_company"' } } },
+        ],
+      },
       _sum: { PayAmt: true }
     });
 
@@ -210,7 +228,21 @@ export class FinanceDashboardService {
       return dA - dB;
     });
 
-    let remainingPayment = totalPaid;
+    let totalStatementPayments = 0;
+    for (const inv of sortedStatements) {
+      if (inv.NoteBold) {
+        try {
+          const meta = JSON.parse(inv.NoteBold);
+          const origTotal = Number(meta.totalAmount || 0);
+          const bal = Number(inv.BalTotal || 0);
+          if (origTotal > bal) {
+            totalStatementPayments += (origTotal - bal);
+          }
+        } catch {}
+      }
+    }
+
+    let remainingPayment = Math.max(0, totalPaid - totalStatementPayments);
 
     let outBucket0_30 = 0;
     let outBucket31_60 = 0;

@@ -3,6 +3,12 @@ import { verifyAccessToken } from '../utils/jwt.util';
 import { AuthenticationError, AuthorizationError } from '../utils/error.util';
 import { prisma } from '../config/db';
 import { getUserMeta } from '../utils/opendental-auth.util';
+import {
+  type UserGroup,
+  USER_GROUPS,
+  getUserGroups,
+  isUserInAnyGroup,
+} from '../types/user-group.types';
 
 export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -46,6 +52,53 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
   }
 };
 
+const ROLE_ALIASES: Record<string, string[]> = {
+  'Admin': ['Super Admin', 'Group Admin', 'Branch Admin'],
+  'Super Admin': ['Admin'],
+  'Group Admin': ['Admin'],
+  'Branch Admin': ['Admin'],
+  'Receptionist': ['Front Desk'],
+  'Front Desk': ['Receptionist'],
+  'Billing Staff': ['Biller'],
+  'Biller': ['Billing Staff'],
+  'Clinical Staff': ['Assistant', 'Hygienist'],
+  'Assistant': ['Clinical Staff'],
+  'Hygienist': ['Clinical Staff'],
+  'Doctor': ['Provider'],
+  'Provider': ['Doctor'],
+};
+
+/**
+ * Pure 4-Group Middleware: requires user to belong to at least one of the specified groups.
+ * ADMIN_GROUP has universal bypass across all endpoints.
+ */
+export const requireGroups = (...allowedGroups: UserGroup[]) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user) {
+      return next(new AuthenticationError('Authentication required'));
+    }
+
+    const userRoles = req.user.roles || [];
+    const userGroups = getUserGroups(userRoles);
+
+    // Administrative Group (Super Admin, Group Admin, Branch Admin) has universal platform authority
+    if (userGroups.includes('ADMIN_GROUP') || userRoles.includes('Super Admin')) {
+      return next();
+    }
+
+    const hasAllowedGroup = allowedGroups.some((group) => userGroups.includes(group));
+    if (!hasAllowedGroup) {
+      return next(new AuthorizationError(`Required group(s): ${allowedGroups.join(', ')}`));
+    }
+
+    next();
+  };
+};
+
+/**
+ * Role-based guard with seamless group and alias support.
+ * ADMIN_GROUP has universal platform authority.
+ */
 export const requireRoles = (...allowedRoles: string[]) => {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) {
@@ -53,7 +106,27 @@ export const requireRoles = (...allowedRoles: string[]) => {
     }
 
     const userRoles = req.user.roles || [];
-    const hasRole = allowedRoles.some((role) => userRoles.includes(role));
+    const userGroups = getUserGroups(userRoles);
+
+    // Administrative Group has universal platform authority
+    if (userGroups.includes('ADMIN_GROUP') || userRoles.includes('Super Admin')) {
+      return next();
+    }
+
+    // Check direct group match if group names were passed into requireRoles
+    const groupMatches = allowedRoles.filter((r) => r in USER_GROUPS) as UserGroup[];
+    if (groupMatches.length > 0 && groupMatches.some((g) => userGroups.includes(g))) {
+      return next();
+    }
+
+    // Expand allowed roles with group members and aliases
+    const expandedAllowed = allowedRoles.flatMap((role) => {
+      const fromGroup = USER_GROUPS[role as UserGroup] || [];
+      const fromAlias = ROLE_ALIASES[role] || [];
+      return [role, ...fromGroup, ...fromAlias];
+    });
+
+    const hasRole = expandedAllowed.some((role) => userRoles.includes(role));
 
     if (!hasRole) {
       return next(new AuthorizationError(`Required roles: ${allowedRoles.join(', ')}`));
@@ -74,6 +147,13 @@ export const requireAllRoles = (...requiredRoles: string[]) => {
     }
 
     const userRoles = req.user.roles || [];
+    const userGroups = getUserGroups(userRoles);
+
+    // Administrative Group has universal platform authority
+    if (userGroups.includes('ADMIN_GROUP') || userRoles.includes('Super Admin')) {
+      return next();
+    }
+
     const hasAllRoles = requiredRoles.every((role) => userRoles.includes(role));
 
     if (!hasAllRoles) {

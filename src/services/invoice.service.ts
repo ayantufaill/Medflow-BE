@@ -1355,6 +1355,30 @@ export class InvoiceService {
     const discountAmount = Math.min(Number(meta.discountAmount) || 0, totalAmount);
     const subtotal = totalAmount - discountAmount + taxAmount;
 
+    const procNums = items.map((item) => item.ProcNum).filter((id): id is bigint => id !== null && id !== undefined);
+    const invoiceIdStr = invoice.StatementNum.toString();
+
+    // Check existing claimprocs for these procedures to see if any have been adjudicated/received
+    const procClaimProcs = procNums.length > 0
+      ? await prisma.claimproc.findMany({ where: { ProcNum: { in: procNums } } })
+      : [];
+    const claimProcByProcNum = new Map<string, typeof procClaimProcs>();
+    procClaimProcs.forEach((cp) => {
+      if (cp.ProcNum) {
+        const key = cp.ProcNum.toString();
+        const list = claimProcByProcNum.get(key) || [];
+        list.push(cp);
+        claimProcByProcNum.set(key, list);
+      }
+    });
+
+    let pendingInsEst = 0;
+    for (const cp of procClaimProcs) {
+      if (cp.Status === 0) {
+        pendingInsEst += Number(cp.InsPayEst) || 0;
+      }
+    }
+
     let insurancePortion = 0;
     if (insuranceCoveragePercent !== undefined) {
       insurancePortion = roundCurrency((subtotal * insuranceCoveragePercent) / 100);
@@ -1373,7 +1397,31 @@ export class InvoiceService {
         const originalItem = items[i];
         const enrichedItem = enrichedSimulatedItems[i];
         const originalMeta = parseJson<any>(originalItem.BillingNote);
-        
+        const itemCps = claimProcByProcNum.get(originalItem.ProcNum.toString()) || [];
+        const receivedCp = itemCps.find((cp) => cp.Status === 1);
+
+        if (receivedCp) {
+          // Insurance has adjudicated this item.
+          // Insurance portion is what insurance actually paid. Any writeoff is recorded.
+          // Patient portion absorbs any underpayment.
+          const insPaid = Number(receivedCp.InsPayAmt || 0);
+          const wo = Number(receivedCp.WriteOff || 0);
+          const fee = Number(originalItem.ProcFee || 0);
+          const newPt = Math.max(0, roundCurrency(fee - wo - insPaid));
+
+          insurancePortion += insPaid;
+          originalMeta.insPortion = insPaid;
+          originalMeta.writeoff = wo;
+          originalMeta.ptPortion = newPt;
+          originalMeta.isManuallyAdjusted = true;
+          originalItem.BillingNote = buildJson(originalMeta);
+          await prisma.procedurelog.update({
+            where: { ProcNum: originalItem.ProcNum },
+            data: { BillingNote: originalItem.BillingNote },
+          });
+          continue;
+        }
+
         if (originalMeta.isManuallyAdjusted) {
           insurancePortion += Number(originalMeta.insPortion || 0);
           continue;
@@ -1425,9 +1473,6 @@ export class InvoiceService {
       return sum + (Number(itemMeta.paidAmount) || 0);
     }, 0);
 
-    const procNums = items.map((item) => item.ProcNum).filter((id): id is bigint => id !== null && id !== undefined);
-    const invoiceIdStr = invoice.StatementNum.toString();
-
     // Fetch all formally posted adjustments associated with this invoice
     const adjustments = await prisma.adjustment.findMany({
       where: {
@@ -1460,9 +1505,12 @@ export class InvoiceService {
       paidAmount: totalPaid,
     };
 
+    const hasAnyClaimProc = procClaimProcs.length > 0;
+    const remainingInsEst = hasAnyClaimProc ? pendingInsEst : insurancePortion;
+
     const updated = await prisma.statement.update({
       where: { StatementNum: invoice.StatementNum },
-      data: { BalTotal: roundCurrency(balanceDue), InsEst: roundCurrency(insurancePortion), NoteBold: buildJson(nextMeta) },
+      data: { BalTotal: roundCurrency(balanceDue), InsEst: roundCurrency(remainingInsEst), NoteBold: buildJson(nextMeta) },
     });
 
     if (invoice.PatNum) {

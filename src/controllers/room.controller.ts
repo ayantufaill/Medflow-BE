@@ -14,7 +14,8 @@ export class RoomController {
         page,
         limit,
         search || undefined,
-        isActive
+        isActive,
+        req.branchAccess?.clinicIds
       );
 
       res.status(200).json({
@@ -63,9 +64,13 @@ export class RoomController {
 
       const { name } = req.body;
 
+      // Tag the new operatory to the caller's first clinic (home clinic)
+      const clinicNum = req.branchAccess?.clinicIds?.[0];
+
       const room = await roomService.createRoom(
         {
           name,
+          clinicNum,
         },
         req.userId
       );

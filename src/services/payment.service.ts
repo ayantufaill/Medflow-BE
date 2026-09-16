@@ -25,6 +25,8 @@ const parseJson = <T>(value?: string | null): T => {
 
 const buildJson = (value: Record<string, unknown>) => JSON.stringify(value);
 
+const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+
 type PaymentMeta = {
   invoiceId?: string;
   method?: string;
@@ -433,11 +435,34 @@ export class PaymentService {
           }
         }
 
-        // 5. Update or create claimproc record for insurance payment tracking
+        // 5. Update or create claimproc record for insurance payment tracking & update procedure BillingNote
         if (data.paymentSource === 'insurance_company') {
           const wo = procItem.wo !== undefined ? Number(procItem.wo) : (procItem.writeoff !== undefined ? Number(procItem.writeoff) : ((procItem as any).writeOff !== undefined ? Number((procItem as any).writeOff) : undefined));
           const ded = procItem.ded !== undefined ? Number(procItem.ded) : ((procItem as any).deductible !== undefined ? Number((procItem as any).deductible) : undefined);
           const claimId = procItem.claimId ? toBigInt(procItem.claimId) : undefined;
+          const insPay = pay !== undefined && !isNaN(pay) ? pay : 0;
+          const validWo = wo !== undefined && !isNaN(wo) ? Math.max(0, wo) : 0;
+
+          // Update procedurelog BillingNote:
+          // Insurance portion becomes what insurance actually paid. Any writeoff is recorded.
+          // Remaining procedure charge is assigned to ptPortion (absorbing any underpayment).
+          const currentProc = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
+          if (currentProc) {
+            const itemMeta = parseJson<Record<string, any>>(currentProc.BillingNote);
+            const fee = Number(currentProc.ProcFee || itemMeta.charge || 0);
+            const newPtPortion = Math.max(0, roundCurrency(fee - validWo - insPay));
+            const updatedMeta = {
+              ...itemMeta,
+              insPortion: insPay,
+              writeoff: validWo,
+              ptPortion: newPtPortion,
+              isManuallyAdjusted: true,
+            };
+            await prisma.procedurelog.update({
+              where: { ProcNum: procNum },
+              data: { BillingNote: buildJson(updatedMeta) },
+            });
+          }
 
           const claimProcWhere: any = { ProcNum: procNum };
           if (claimId) {
