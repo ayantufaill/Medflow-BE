@@ -344,6 +344,11 @@ export class ClaimService {
       };
     }
 
+    const rawInsEst = Number(meta.submittedAmount ?? row.InsPayEst ?? (Number(row.ClaimFee || 0) - Number(meta.patientResponsibility ?? row.DedApplied ?? 0))) || 0;
+    const rawPaid = Number(meta.paidAmount ?? row.InsPayAmt) || 0;
+    const rawWo = Number(row.WriteOff) || 0;
+    const remainingInsBal = Math.max(0, Math.round((rawInsEst - rawPaid - rawWo) * 100) / 100);
+
     return {
       _id: row.ClaimNum.toString(),
       id: row.ClaimNum.toString(),
@@ -377,13 +382,13 @@ export class ClaimService {
         Number(meta.submittedAmount ?? row.InsPayEst ?? meta.claimAmount ?? meta.totalAmount ?? row.ClaimFee) || 0,
       claimAmount: Number(meta.claimAmount ?? meta.totalAmount ?? row.ClaimFee ?? row.InsPayEst) || 0,
       totalAmount: Number(meta.totalAmount ?? meta.claimAmount ?? row.ClaimFee ?? row.InsPayEst) || 0,
-      paidAmount: Number(meta.paidAmount ?? row.InsPayAmt) || 0,
+      paidAmount: rawPaid,
       patientResponsibility: Number(meta.patientResponsibility ?? row.DedApplied) || 0,
-      insbalance: Number(meta.submittedAmount ?? row.InsPayEst ?? (Number(row.ClaimFee || 0) - Number(meta.patientResponsibility ?? row.DedApplied ?? 0))) || 0,
+      insbalance: remainingInsBal,
       patbalance: Number(meta.patientResponsibility ?? row.DedApplied) || 0,
-      insuranceBalance: Number(meta.submittedAmount ?? row.InsPayEst ?? (Number(row.ClaimFee || 0) - Number(meta.patientResponsibility ?? row.DedApplied ?? 0))) || 0,
+      insuranceBalance: remainingInsBal,
       patientBalance: Number(meta.patientResponsibility ?? row.DedApplied) || 0,
-      insurancePortion: Number(meta.submittedAmount ?? row.InsPayEst) || 0,
+      insurancePortion: rawInsEst,
       patientPortion: Number(meta.patientResponsibility ?? row.DedApplied) || 0,
       denialReason: meta.denialReason ?? row.ReasonUnderPaid ?? null,
       deniedDate: meta.deniedDate ? new Date(meta.deniedDate) : null,
@@ -515,8 +520,15 @@ export class ClaimService {
           quantity: procLog.UnitQty ?? 1,
           fee: cp.FeeBilled ?? procLog.ProcFee ?? 0,
           insPayEst: Number(cp.InsPayEst) || 0,
+          insPayAmt: Number(cp.InsPayAmt) || 0,
+          insPaid: Number(cp.InsPayAmt) || 0,
           writeOffEst: Number(cp.WriteOffEst) || Number(cp.WriteOff) || 0,
+          writeOff: Number(cp.WriteOff) || 0,
+          writeoff: Number(cp.WriteOff) || 0,
+          dedApplied: Number(cp.DedApplied) || 0,
+          deductible: Number(cp.DedApplied) || 0,
           allowedOverride: Number(cp.AllowedOverride) || 0,
+          claimProcStatus: cp.Status ?? null,
           providerId: procLog.ProvNum?.toString() ?? null,
           providerName: procLog.provider_procedurelog_ProvNumToprovider ? `${procLog.provider_procedurelog_ProvNumToprovider.FName} ${procLog.provider_procedurelog_ProvNumToprovider.LName}`.trim() : null,
           dateOfService: procLog.ProcDate ?? null,
@@ -563,6 +575,7 @@ export class ClaimService {
           if (!procsByInvoiceId.has(invId)) {
             procsByInvoiceId.set(invId, []);
           }
+          const procMeta = parseJson<Record<string, any>>(proc.BillingNote);
           procsByInvoiceId.get(invId)!.push({
             id: proc.ProcNum.toString(),
             _id: proc.ProcNum.toString(),
@@ -578,6 +591,13 @@ export class ClaimService {
             status: proc.ProcStatus ?? null,
             quantity: proc.UnitQty ?? 1,
             fee: proc.ProcFee ?? 0,
+            insPayEst: Number(procMeta?.insPortion) || 0,
+            insPayAmt: Number(procMeta?.paidAmount) || 0,
+            insPaid: Number(procMeta?.paidAmount) || 0,
+            writeOffEst: Number(procMeta?.writeoff) || 0,
+            writeOff: Number(procMeta?.writeoff) || 0,
+            writeoff: Number(procMeta?.writeoff) || 0,
+            allowedOverride: Number(procMeta?.feeAllowed) || 0,
             providerId: proc.ProvNum?.toString() ?? null,
             providerName: proc.provider_procedurelog_ProvNumToprovider ? `${proc.provider_procedurelog_ProvNumToprovider.FName} ${proc.provider_procedurelog_ProvNumToprovider.LName}`.trim() : null,
             dateOfService: proc.ProcDate ?? null,

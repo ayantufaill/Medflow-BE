@@ -841,7 +841,7 @@ export class InvoiceService {
       invoiceDate: statement.DateSent ?? null,
       dueDate: meta.dueDate ? new Date(meta.dueDate) : statement.DateRangeTo ?? null,
       totalAmount: Number(meta.totalAmount) || Number(statement.BalTotal) || 0,
-      insurancePortion: Number(statement.InsEst) || Number(meta.insurancePortion) || 0,
+      insurancePortion: (meta.insurancePortion !== undefined && meta.insurancePortion !== null) ? Number(meta.insurancePortion) : (Number(statement.InsEst) || 0),
       patientPortion: Number(meta.patientPortion) || 0,
       copayAmount: Number(meta.copayAmount) || 0,
       paidAmount: Number(meta.paidAmount) || 0,
@@ -1402,15 +1402,67 @@ export class InvoiceService {
 
         if (receivedCp) {
           // Insurance has adjudicated this item.
-          // Insurance portion is what insurance actually paid. Any writeoff is recorded.
-          // Patient portion absorbs any underpayment.
           const insPaid = Number(receivedCp.InsPayAmt || 0);
           const wo = Number(receivedCp.WriteOff || 0);
           const fee = Number(originalItem.ProcFee || 0);
-          const newPt = Math.max(0, roundCurrency(fee - wo - insPaid));
 
-          insurancePortion += insPaid;
-          originalMeta.insPortion = insPaid;
+          // Check if patient has already paid in full for this procedure
+          const existingSplits = await prisma.paysplit.findMany({
+            where: { ProcNum: originalItem.ProcNum },
+            include: { payment: true },
+          });
+          const ptPaidOnProc = existingSplits
+            .filter(ps => {
+              const pNote = parseJson<any>(ps.payment?.PayNote);
+              const isIns = ps.payment?.PayNote?.includes('"insurance_company"') ||
+                String(pNote?.paymentSource || '').toLowerCase() === 'insurance_company' ||
+                String(pNote?.method || '').toLowerCase() === 'insurance';
+              const st = String(pNote?.status || '').toLowerCase();
+              return !isIns && st !== 'void' && st !== 'voided' && st !== 'reversed';
+            })
+            .reduce((s, ps) => s + (Number(ps.SplitAmt) || 0), 0);
+
+          // Check if this procedure has a partial insurance payment or is linked to an active partial claim
+          const hasPartialInsPayment = existingSplits.some(ps => {
+            const pNote = parseJson<any>(ps.payment?.PayNote);
+            const isIns = ps.payment?.PayNote?.includes('"insurance_company"') ||
+              String(pNote?.paymentSource || '').toLowerCase() === 'insurance_company' ||
+              String(pNote?.method || '').toLowerCase() === 'insurance';
+            return isIns && pNote?.isPartialPayment === true;
+          });
+
+          let isClaimPartial = false;
+          if (receivedCp.ClaimNum) {
+            const linkedClaim = await prisma.claim.findUnique({ where: { ClaimNum: receivedCp.ClaimNum } });
+            if (linkedClaim) {
+              const cMeta = parseJson<any>(linkedClaim.Narrative);
+              const cStatus = String(cMeta?.status || linkedClaim.ClaimStatus || '').toLowerCase();
+              if (cStatus === 'partial' || cMeta?.isPartialPayment === true) {
+                isClaimPartial = true;
+              }
+            }
+          }
+
+          const isPartial = hasPartialInsPayment || isClaimPartial;
+          const initialPtPortion = Number(originalMeta.ptPortion || 0);
+
+          let newPt = 0;
+          let newIns = 0;
+
+          if (isPartial) {
+            // Partial payment:
+            // Underpayment remains with insurance. Patient portion is preserved.
+            newPt = initialPtPortion;
+            newIns = Math.max(0, roundCurrency(fee - wo - initialPtPortion));
+          } else {
+            // Final payment:
+            // Underpayment shifts to patient responsibility. Insurance portion is finalized at insPaid.
+            newPt = Math.max(0, roundCurrency(fee - wo - insPaid));
+            newIns = insPaid;
+          }
+
+          insurancePortion += newIns;
+          originalMeta.insPortion = newIns;
           originalMeta.writeoff = wo;
           originalMeta.ptPortion = newPt;
           originalMeta.isManuallyAdjusted = true;
@@ -1468,10 +1520,41 @@ export class InvoiceService {
       return sum + (Number(itemMeta.ptPortion) || 0);
     }, 0));
 
-    const totalPaid = items.reduce((sum, item) => {
+    // Query actual paysplits for these procedures to ensure paidAmount is completely accurate
+    const procPaysplits = procNums.length > 0
+      ? await prisma.paysplit.findMany({
+          where: { ProcNum: { in: procNums } },
+          include: { payment: true },
+        })
+      : [];
+    const paysplitByProcNum = new Map<string, number>();
+    procPaysplits.forEach((ps) => {
+      if (ps.ProcNum) {
+        const key = ps.ProcNum.toString();
+        const pNote = parseJson<any>(ps.payment?.PayNote);
+        const st = String(pNote?.status || '').toLowerCase();
+        if (st !== 'void' && st !== 'voided' && st !== 'reversed') {
+          paysplitByProcNum.set(key, (paysplitByProcNum.get(key) || 0) + (Number(ps.SplitAmt) || 0));
+        }
+      }
+    });
+
+    let totalPaid = 0;
+    for (const item of items) {
       const itemMeta = parseJson<any>(item.BillingNote);
-      return sum + (Number(itemMeta.paidAmount) || 0);
-    }, 0);
+      const splitTotal = paysplitByProcNum.get(item.ProcNum.toString());
+      const itemPaid = splitTotal !== undefined ? roundCurrency(splitTotal) : (Number(itemMeta.paidAmount) || 0);
+      totalPaid += itemPaid;
+      if (itemMeta.paidAmount !== itemPaid) {
+        itemMeta.paidAmount = itemPaid;
+        item.BillingNote = buildJson(itemMeta);
+        await prisma.procedurelog.update({
+          where: { ProcNum: item.ProcNum },
+          data: { BillingNote: item.BillingNote },
+        });
+      }
+    }
+    totalPaid = roundCurrency(totalPaid);
 
     // Fetch all formally posted adjustments associated with this invoice
     const adjustments = await prisma.adjustment.findMany({
@@ -1505,8 +1588,13 @@ export class InvoiceService {
       paidAmount: totalPaid,
     };
 
+    const totalInsPaid = procClaimProcs
+      .filter((cp) => cp.Status === 1)
+      .reduce((sum, cp) => sum + (Number(cp.InsPayAmt) || 0), 0);
+
     const hasAnyClaimProc = procClaimProcs.length > 0;
-    const remainingInsEst = hasAnyClaimProc ? pendingInsEst : insurancePortion;
+    const uncollectedIns = Math.max(0, roundCurrency(insurancePortion - totalInsPaid));
+    const remainingInsEst = hasAnyClaimProc ? roundCurrency(pendingInsEst + uncollectedIns) : insurancePortion;
 
     const updated = await prisma.statement.update({
       where: { StatementNum: invoice.StatementNum },

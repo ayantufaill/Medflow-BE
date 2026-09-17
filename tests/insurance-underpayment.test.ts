@@ -181,7 +181,7 @@ describe('Insurance Underpayment Balance Transfer', () => {
     expect(agingData.familyOutstanding.total).toBe(89);
   });
 
-  it('Situation 2: Patient pays initial portion first ($120 on $305 total), then insurance pays $150 instead of $185 -> underpaid $35 shifts to Pt Balance', async () => {
+  it('Situation 2: Patient pays initial portion first ($120 on $305 total), then insurance pays $150 instead of $185 -> underpaid $35 remains in Ins Balance', async () => {
     const token = uniqueToken('underpay2');
     const patient = await createPatientRecord(token);
     cleanupPatientIds.push(patient.PatNum);
@@ -277,7 +277,7 @@ describe('Insurance Underpayment Balance Transfer', () => {
       },
     });
 
-    // Step 3: Insurance underpays, paying $150 instead of $185
+    // Step 3: Insurance underpays with Partial Payment checked, paying $150 instead of $185
     const insPayRes = await request(app)
       .post('/api/payments')
       .set(authHeader)
@@ -288,6 +288,7 @@ describe('Insurance Underpayment Balance Transfer', () => {
         paymentDate: new Date().toISOString(),
         paymentMethod: 'ach',
         paymentSource: 'insurance_company',
+        isPartialPayment: true,
         procedures: [
           {
             id: procNum.toString(),
@@ -302,12 +303,12 @@ describe('Insurance Underpayment Balance Transfer', () => {
 
     expect(insPayRes.status).toBe(201);
 
-    // Mark claim as paid
+    // Mark claim as partial
     const claimRes = await request(app)
       .patch(`/api/claims/${claimNum}`)
       .set(authHeader)
       .send({
-        status: 'paid',
+        status: 'partial',
         paidAmount: 150,
       });
 
@@ -316,23 +317,22 @@ describe('Insurance Underpayment Balance Transfer', () => {
     // 1. Verify Procedure BillingNote
     const updatedProc = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
     const procMeta = JSON.parse(updatedProc?.BillingNote || '{}');
-    expect(procMeta.insPortion).toBe(150);
-    expect(procMeta.ptPortion).toBe(155); // Patient originally had 120 + 35 underpaid = 155
+    expect(procMeta.insPortion).toBe(185); // Preserves insurance portion
+    expect(procMeta.ptPortion).toBe(120); // Patient originally had 120 and paid in full -> remains 120 (does NOT shift to pt)
     expect(procMeta.paidAmount).toBe(270); // 120 pt + 150 ins
 
-    // 2. Verify Statement: InsEst is 0, BalTotal is 35 (the underpaid amount)
+    // 2. Verify Statement: InsEst is 35 (uncollected insurance), BalTotal is 35 (remaining balance due from insurance)
     const updatedStmt = await prisma.statement.findUnique({ where: { StatementNum: statement.StatementNum } });
-    expect(Number(updatedStmt?.InsEst)).toBe(0);
+    expect(Number(updatedStmt?.InsEst)).toBe(35);
     expect(Number(updatedStmt?.BalTotal)).toBe(35);
 
-    // 3. Verify Aging Summary: insuranceBalance is 0, patient balance is 35
+    // 3. Verify Aging Summary: patient balance is 0 because patient paid their portion in full
     const agingRes = await request(app)
       .get(`/api/finance-dashboard/aging/${patient.PatNum}`)
       .set(authHeader);
 
     expect(agingRes.status).toBe(200);
     const agingData = agingRes.body?.data;
-    expect(agingData.insuranceBalance.total).toBe(0);
-    expect(agingData.familyOutstanding.total).toBe(35);
+    expect(agingData.familyOutstanding.total).toBe(0);
   });
 });
