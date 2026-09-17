@@ -1148,13 +1148,17 @@ export class ReportGenerationService {
 
     const records: any[] = [];
 
-    // Helper to extract real flags
+    // Helper to extract real flags - send full objects with color info
     const getFlags = (patNum: any) => {
       if (!patNum) return [];
       const meta = metaMap[patNum.toString()] || {};
       let flags = Array.isArray(meta.patientFlags) ? meta.patientFlags : [];
-      flags = flags.map((f: any) => (f && typeof f === 'object' && f.id) ? f.id : f);
-      return flags.filter((f: any) => f && (typeof f === 'string' ? f.trim() !== '' : true));
+      return flags.filter((f: any) => {
+        if (!f) return false;
+        if (typeof f === 'string') return f.trim() !== '';
+        if (typeof f === 'object' && f.id) return true;
+        return false;
+      });
     };
 
 
