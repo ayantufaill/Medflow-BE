@@ -5694,6 +5694,7 @@ model recalltype {
   TimePattern     String?         @db.VarChar(255)
   Procedures      String?         @db.VarChar(255)
   AppendToSpecial Int?
+  OffsetDays      Int             @default(0)
   recall          recall[]
   recalltrigger   recalltrigger[]
 }

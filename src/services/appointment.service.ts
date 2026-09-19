@@ -1253,6 +1253,143 @@ async getPatientAppointments(patientId: string, limit = 10) {
     return { availableSlots };
   }
 
+  private getAppointmentFields(mapped: any): any {
+    return {
+      status: mapped.status,
+      appointmentDate: mapped.appointmentDate,
+      startTime: mapped.startTime,
+      endTime: mapped.endTime,
+      durationMinutes: mapped.durationMinutes,
+      appointmentTypeId: mapped.appointmentTypeId,
+      providerId: mapped.providerId,
+      chiefComplaint: mapped.chiefComplaint,
+      notes: mapped.notes,
+      roomId: mapped.roomId,
+      requiresInterpreter: mapped.requiresInterpreter,
+      insuranceVerified: mapped.insuranceVerified,
+      copayCollected: mapped.copayCollected,
+      reminderSent: mapped.reminderSent,
+      cancellationReason: mapped.cancellationReason,
+      procedures: Array.isArray(mapped.procedures)
+        ? mapped.procedures.map((p: any) => {
+            const { ProcNum, ...rest } = p;
+            return rest;
+          })
+        : (mapped.procedures || []),
+    };
+  }
+
+  private calculateChanges(oldData: any, newData: any): Record<string, any> | null {
+    const changes: Record<string, any> = {};
+
+    const keysToCheck = [
+      'status',
+      'appointmentDate',
+      'startTime',
+      'endTime',
+      'durationMinutes',
+      'appointmentTypeId',
+      'providerId',
+      'chiefComplaint',
+      'notes',
+      'roomId',
+      'requiresInterpreter',
+      'insuranceVerified',
+      'copayCollected',
+      'reminderSent',
+      'cancellationReason',
+      'procedures',
+    ];
+
+    const normalizeValue = (val: any) => {
+      if (!val) return null;
+      if (typeof val === 'bigint') return val.toString();
+      if (val instanceof Date) return val.toISOString();
+      if (typeof val === 'string' && isNaN(Number(val)) && !isNaN(Date.parse(val))) {
+        return new Date(val).toISOString();
+      }
+      if (Array.isArray(val)) {
+        return val.map((item) => {
+          if (typeof item === 'bigint') return item.toString();
+          if (typeof item === 'object' && item !== null) {
+            const cleanObj: any = {};
+            for (const k in item) {
+              cleanObj[k] = typeof item[k] === 'bigint' ? item[k].toString() : item[k];
+            }
+            return cleanObj;
+          }
+          return item;
+        });
+      }
+      return val;
+    };
+
+    keysToCheck.forEach((key) => {
+      const oldValue = normalizeValue(oldData?.[key]);
+      const newValue = normalizeValue(newData?.[key]);
+
+      let oldCompare = oldValue;
+      let newCompare = newValue;
+
+      if (typeof oldValue === 'object' && oldValue !== null && (oldValue.id || oldValue._id)) {
+        oldCompare = String(oldValue.id || oldValue._id);
+      } else if (typeof oldValue === 'string' || typeof oldValue === 'number') {
+        oldCompare = String(oldValue);
+      }
+
+      if (typeof newValue === 'object' && newValue !== null && (newValue.id || newValue._id)) {
+        newCompare = String(newValue.id || newValue._id);
+      } else if (typeof newValue === 'string' || typeof newValue === 'number') {
+        newCompare = String(newValue);
+      }
+
+      if (JSON.stringify(oldCompare) !== JSON.stringify(newCompare)) {
+        changes[key] = { from: oldValue, to: newValue };
+      }
+    });
+    return Object.keys(changes).length > 0 ? changes : null;
+  }
+
+  private async fetchAppointmentRelatedData(appointmentNum: bigint) {
+    const [procedures, provider, appointmentType, duration] = await Promise.all([
+      prisma.procedurelog.findMany({
+        where: { AptNum: appointmentNum },
+        select: {
+          ProcNum: true,
+          OldCode: true,
+          ProcFee: true,
+          ProcStatus: true,
+          ToothNum: true,
+        },
+      }),
+      prisma.appointment.findUnique({
+        where: { AptNum: appointmentNum },
+        select: { ProvNum: true },
+      }).then(apt => apt?.ProvNum ? prisma.provider.findUnique({
+        where: { ProvNum: apt.ProvNum },
+        select: { ProvNum: true, FName: true, LName: true, Specialty: true },
+      }) : null),
+      prisma.appointment.findUnique({
+        where: { AptNum: appointmentNum },
+        select: { AppointmentTypeNum: true },
+      }).then(apt => apt?.AppointmentTypeNum ? prisma.appointmenttype.findUnique({
+        where: { AppointmentTypeNum: apt.AppointmentTypeNum },
+        select: { AppointmentTypeNum: true, AppointmentTypeName: true },
+      }) : null),
+      prisma.appointment.findUnique({
+        where: { AptNum: appointmentNum },
+        select: { Pattern: true },
+      }).then(apt => apt?.Pattern),
+    ]);
+
+    return {
+      procedures,
+      provider,
+      appointmentType,
+      durationMinutes: duration,
+    };
+  }
+
   /**
    * Create new appointment
    */
@@ -1450,6 +1587,19 @@ async getPatientAppointments(patientId: string, limit = 10) {
       }
     }
 
+    await patientWorkspaceService.recordAuditEvent(
+      appointment.PatNum?.toString() ?? String(appointment.AptNum),
+      {
+        action: 'appointment_created',
+        source: 'office',
+        actorUserId: createdBy,
+        section: 'appointment',
+        appointmentId: String(appointment.AptNum),
+        oldValue: undefined,
+        newValue: mapped,
+      }
+    );
+
     // Log activity
     await logActivity(
       createdBy,
@@ -1508,6 +1658,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
     if (!appointment) {
       throw new NotFoundError('Appointment not found');
     }
+
+    const oldRelatedData = await this.fetchAppointmentRelatedData(appointment.AptNum);
 
     const existingMeta = await getAppointmentMeta(appointment.AptNum);
     const dbStatus = mapAppointmentStatusFromDb(appointment.AptStatus);
@@ -1764,6 +1916,39 @@ async getPatientAppointments(patientId: string, limit = 10) {
       }
     }
 
+    // Record audit event for appointment audit history
+    const newRelatedData = await this.fetchAppointmentRelatedData(updated.AptNum);
+    const oldDataWithRelated = {
+      ...oldData,
+      procedures: oldRelatedData.procedures,
+      providerName: oldRelatedData.provider ? `${oldRelatedData.provider.FName} ${oldRelatedData.provider.LName}` : null,
+      appointmentTypeName: oldRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: oldRelatedData.durationMinutes,
+    };
+    const mappedWithRelated = {
+      ...mapped,
+      procedures: newRelatedData.procedures,
+      providerName: newRelatedData.provider ? `${newRelatedData.provider.FName} ${newRelatedData.provider.LName}` : null,
+      appointmentTypeName: newRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: newRelatedData.durationMinutes,
+    };
+    const changes = this.calculateChanges(
+      this.getAppointmentFields(oldDataWithRelated),
+      this.getAppointmentFields(mappedWithRelated)
+    );
+    await patientWorkspaceService.recordAuditEvent(
+      appointment.PatNum?.toString() ?? String(appointmentId),
+      {
+        action: 'appointment_updated',
+        source: 'office',
+        actorUserId: updatedBy,
+        section: 'appointment',
+        appointmentId: appointmentId.toString(),
+        oldValue: changes,
+        newValue: undefined,
+      }
+    );
+
     // Log activity
     await logActivity(
       updatedBy,
@@ -1844,6 +2029,39 @@ async getPatientAppointments(patientId: string, limit = 10) {
       appointmentType: updated.appointmenttype,
       createdBy: updated.userod,
     });
+
+    const oldRelatedData = await this.fetchAppointmentRelatedData(appointment.AptNum);
+    const newRelatedData = await this.fetchAppointmentRelatedData(updated.AptNum);
+    const oldDataWithRelated = {
+      ...oldData,
+      procedures: oldRelatedData.procedures,
+      providerName: oldRelatedData.provider ? `${oldRelatedData.provider.FName} ${oldRelatedData.provider.LName}` : null,
+      appointmentTypeName: oldRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: oldRelatedData.durationMinutes,
+    };
+    const mappedWithRelated = {
+      ...mapped,
+      procedures: newRelatedData.procedures,
+      providerName: newRelatedData.provider ? `${newRelatedData.provider.FName} ${newRelatedData.provider.LName}` : null,
+      appointmentTypeName: newRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: newRelatedData.durationMinutes,
+    };
+    const cancelChanges = this.calculateChanges(
+      this.getAppointmentFields(oldDataWithRelated),
+      this.getAppointmentFields(mappedWithRelated)
+    );
+    await patientWorkspaceService.recordAuditEvent(
+      updated.PatNum?.toString() ?? appointmentId,
+      {
+        action: 'appointment_cancelled',
+        source: 'office',
+        actorUserId: cancelledBy,
+        section: 'appointment',
+        appointmentId: appointmentId.toString(),
+        oldValue: cancelChanges,
+        newValue: undefined,
+      }
+    );
 
     // Log activity
     await logActivity(
@@ -1976,6 +2194,39 @@ async getPatientAppointments(patientId: string, limit = 10) {
       appointmentType: updated.appointmenttype,
       createdBy: updated.userod,
     });
+
+    const oldRelatedData = await this.fetchAppointmentRelatedData(appointment.AptNum);
+    const newRelatedData = await this.fetchAppointmentRelatedData(updated.AptNum);
+    const oldDataWithRelated = {
+      ...oldData,
+      procedures: oldRelatedData.procedures,
+      providerName: oldRelatedData.provider ? `${oldRelatedData.provider.FName} ${oldRelatedData.provider.LName}` : null,
+      appointmentTypeName: oldRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: oldRelatedData.durationMinutes,
+    };
+    const mappedWithRelated = {
+      ...mapped,
+      procedures: newRelatedData.procedures,
+      providerName: newRelatedData.provider ? `${newRelatedData.provider.FName} ${newRelatedData.provider.LName}` : null,
+      appointmentTypeName: newRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: newRelatedData.durationMinutes,
+    };
+    const rescheduleChanges = this.calculateChanges(
+      this.getAppointmentFields(oldDataWithRelated),
+      this.getAppointmentFields(mappedWithRelated)
+    );
+    await patientWorkspaceService.recordAuditEvent(
+      updated.PatNum?.toString() ?? appointmentId,
+      {
+        action: 'appointment_rescheduled',
+        source: 'office',
+        actorUserId: rescheduledBy,
+        section: 'appointment',
+        appointmentId: appointmentId.toString(),
+        oldValue: rescheduleChanges,
+        newValue: undefined,
+      }
+    );
 
     // Log activity
     await logActivity(
@@ -2420,6 +2671,39 @@ async getPatientAppointments(patientId: string, limit = 10) {
       createdBy: updated.userod,
     });
 
+    const oldRelatedData = await this.fetchAppointmentRelatedData(appointment.AptNum);
+    const newRelatedData = await this.fetchAppointmentRelatedData(updated.AptNum);
+    const oldDataWithRelated = {
+      ...oldData,
+      procedures: oldRelatedData.procedures,
+      providerName: oldRelatedData.provider ? `${oldRelatedData.provider.FName} ${oldRelatedData.provider.LName}` : null,
+      appointmentTypeName: oldRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: oldRelatedData.durationMinutes,
+    };
+    const mappedWithRelated = {
+      ...mapped,
+      procedures: newRelatedData.procedures,
+      providerName: newRelatedData.provider ? `${newRelatedData.provider.FName} ${newRelatedData.provider.LName}` : null,
+      appointmentTypeName: newRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: newRelatedData.durationMinutes,
+    };
+    const checkInChanges = this.calculateChanges(
+      this.getAppointmentFields(oldDataWithRelated),
+      this.getAppointmentFields(mappedWithRelated)
+    );
+    await patientWorkspaceService.recordAuditEvent(
+      updated.PatNum?.toString() ?? appointmentId,
+      {
+        action: 'appointment_checked_in',
+        source: 'office',
+        actorUserId: checkedInBy,
+        section: 'appointment',
+        appointmentId: appointmentId.toString(),
+        oldValue: checkInChanges,
+        newValue: undefined,
+      }
+    );
+
     // Log activity
     await logActivity(
       checkedInBy,
@@ -2837,6 +3121,40 @@ async getPatientAppointments(patientId: string, limit = 10) {
       cancellationReason: null,
       systemEvents: [...(existingMeta.systemEvents ?? []), newEvent],
     });
+
+    const mapped = await this.mapAppointmentWithMeta(updated);
+    const oldRelatedData = await this.fetchAppointmentRelatedData(appointment.AptNum);
+    const newRelatedData = await this.fetchAppointmentRelatedData(updated.AptNum);
+    const oldDataWithRelated = {
+      ...oldData,
+      procedures: oldRelatedData.procedures,
+      providerName: oldRelatedData.provider ? `${oldRelatedData.provider.FName} ${oldRelatedData.provider.LName}` : null,
+      appointmentTypeName: oldRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: oldRelatedData.durationMinutes,
+    };
+    const mappedWithRelated = {
+      ...mapped,
+      procedures: newRelatedData.procedures,
+      providerName: newRelatedData.provider ? `${newRelatedData.provider.FName} ${newRelatedData.provider.LName}` : null,
+      appointmentTypeName: newRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: newRelatedData.durationMinutes,
+    };
+    const checkOutChanges = this.calculateChanges(
+      this.getAppointmentFields(oldDataWithRelated),
+      this.getAppointmentFields(mappedWithRelated)
+    );
+    await patientWorkspaceService.recordAuditEvent(
+      updated.PatNum?.toString() ?? appointmentId,
+      {
+        action: 'appointment_checked_out',
+        source: 'office',
+        actorUserId: checkedOutBy,
+        section: 'appointment',
+        appointmentId: appointmentId.toString(),
+        oldValue: checkOutChanges,
+        newValue: undefined,
+      }
+    );
 
     await logActivity(
       checkedOutBy,

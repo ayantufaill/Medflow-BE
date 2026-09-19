@@ -335,4 +335,235 @@ describe('Insurance Underpayment Balance Transfer', () => {
     const agingData = agingRes.body?.data;
     expect(agingData.familyOutstanding.total).toBe(0);
   });
+
+  it('Situation 3: Secondary Insurance flow -> ptPortion transfers to secondaryInsPortion (ptPortion=0), secondary claim takes secondaryInsPortion, and underpayment on either claim transfers to ptPortion', async () => {
+    const token = uniqueToken('secundpay');
+    const alphanumericToken = token.replace(/[^A-Za-z0-9]/g, '');
+    const patient = await createPatientRecord(alphanumericToken);
+    cleanupPatientIds.push(patient.PatNum);
+
+    // Create Carrier 1 (Primary) and Carrier 2 (Secondary)
+    const carrierNum1 = await getNextId('carrier', 'CarrierNum');
+    await prisma.carrier.create({
+      data: {
+        CarrierNum: carrierNum1,
+        CarrierName: `Carrier-Primary-${alphanumericToken}`,
+        ElectID: `P1${alphanumericToken.substring(0, 3)}`,
+      },
+    });
+
+    const carrierNum2 = await getNextId('carrier', 'CarrierNum');
+    await prisma.carrier.create({
+      data: {
+        CarrierNum: carrierNum2,
+        CarrierName: `Carrier-Secondary-${alphanumericToken}`,
+        ElectID: `S2${alphanumericToken.substring(0, 3)}`,
+      },
+    });
+
+    // Add Primary Insurance (Ordinal 1)
+    const res1 = await request(app)
+      .post(`/api/patients/${patient.PatNum}/insurance`)
+      .set(authHeader)
+      .send({
+        insuranceType: 'primary',
+        insuranceCompanyId: carrierNum1.toString(),
+        relationshipToPatient: 'self',
+        effectiveDate: new Date().toISOString(),
+        policyNumber: `POL1${alphanumericToken.substring(0, 8)}`,
+        subscriberName: 'Primary Subscriber',
+        subscriberDateOfBirth: new Date(1990, 0, 1).toISOString(),
+      });
+    expect(res1.status).toBe(201);
+
+    // Add Secondary Insurance (Ordinal 2)
+    const res2 = await request(app)
+      .post(`/api/patients/${patient.PatNum}/insurance`)
+      .set(authHeader)
+      .send({
+        insuranceType: 'secondary',
+        insuranceCompanyId: carrierNum2.toString(),
+        relationshipToPatient: 'self',
+        effectiveDate: new Date().toISOString(),
+        policyNumber: `POL2${alphanumericToken.substring(0, 8)}`,
+        subscriberName: 'Secondary Subscriber',
+        subscriberDateOfBirth: new Date(1990, 0, 1).toISOString(),
+      });
+    expect(res2.status).toBe(201);
+
+    // Step 1: Create a Standalone Invoice with a procedure where primary covers $80, patient portion would be $20
+    const invRes = await request(app)
+      .post('/api/invoices')
+      .set(authHeader)
+      .send({
+        patientId: patient.PatNum.toString(),
+        items: [
+          {
+            code: 'D1110',
+            description: 'Adult Prophy',
+            charge: 100,
+            writeoff: 0,
+            insPortion: 80,
+            ptPortion: 20, // Client passes preliminary ptPortion 20
+          },
+        ],
+      });
+
+    expect(invRes.status).toBe(201);
+    const invoiceId = invRes.body.data.id || invRes.body.data._id;
+    cleanupStatementNums.push(BigInt(invoiceId));
+
+    // Verify: Because patient has secondary insurance:
+    // - ptPortion is transferred into secondaryInsPortion = 20
+    // - ptPortion is 0
+    // - Statement InsEst is 100 (80 primary + 20 secondary)
+    // - Patient portion is 0
+    const invData = invRes.body.data;
+    expect(invData.patientPortion).toBe(0);
+    expect(invData.secondaryInsPortion).toBe(20);
+    expect(invData.insurancePortion).toBe(80);
+
+    const procs = await prisma.procedurelog.findMany({ where: { StatementNum: BigInt(invoiceId) } });
+    expect(procs.length).toBe(1);
+    const procNum = procs[0].ProcNum;
+    const procMeta = JSON.parse(procs[0].BillingNote || '{}');
+    expect(procMeta.insPortion).toBe(80);
+    expect(procMeta.secondaryInsPortion).toBe(20);
+    expect(procMeta.ptPortion).toBe(0);
+
+    // Aging should show total insurance = 100, patient balance = 0
+    const agingInitial = await request(app)
+      .get(`/api/finance-dashboard/aging/${patient.PatNum}`)
+      .set(authHeader);
+    expect(agingInitial.status).toBe(200);
+    expect(agingInitial.body.data.familyOutstanding.total).toBe(0);
+    expect(agingInitial.body.data.insuranceBalance.total).toBe(100);
+
+    // Step 2: Create Primary Claim for this invoice
+    const primClaimRes = await request(app)
+      .post(`/api/claims/invoice/${invoiceId}`)
+      .set(authHeader)
+      .send({
+        insuranceCompanyId: carrierNum1.toString(),
+        insuranceType: 'primary',
+      });
+    expect(primClaimRes.status).toBe(201);
+    const primClaim = primClaimRes.body.data;
+    expect(primClaim.claimAmount).toBe(80);
+    expect(primClaim.patientResponsibility).toBe(0);
+
+    // Step 3: Primary Insurance pays $70 (underpays by $10)
+    const primPayRes = await request(app)
+      .post('/api/payments')
+      .set(authHeader)
+      .send({
+        patientId: patient.PatNum.toString(),
+        invoiceId,
+        amount: 70,
+        paymentDate: new Date().toISOString(),
+        paymentMethod: 'ach',
+        paymentSource: 'insurance_company',
+        procedures: [
+          {
+            id: procNum.toString(),
+            allowed: 70,
+            wo: 0,
+            pay: 70,
+            claimId: primClaim.id.toString(),
+          },
+        ],
+      });
+    expect(primPayRes.status).toBe(201);
+    expect(primPayRes.body.data.suggestSecondaryClaim).toBe(true);
+
+    // Mark primary claim as paid
+    await request(app)
+      .patch(`/api/claims/${primClaim.id}`)
+      .set(authHeader)
+      .send({ status: 'paid', paidAmount: 70 });
+
+    // Verify:
+    // - Procedure BillingNote: insPortion = 70, secondaryInsPortion = 20, ptPortion = 10 (underpayment shifted to patient)
+    const procAfterPrim = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
+    const procMetaAfterPrim = JSON.parse(procAfterPrim?.BillingNote || '{}');
+    expect(procMetaAfterPrim.insPortion).toBe(70);
+    expect(procMetaAfterPrim.secondaryInsPortion).toBe(20);
+    expect(procMetaAfterPrim.ptPortion).toBe(10);
+
+    // Statement:
+    const stmtAfterPrim = await prisma.statement.findUnique({ where: { StatementNum: BigInt(invoiceId) } });
+    expect(Number(stmtAfterPrim?.BalTotal)).toBe(30); // 100 - 70 = 30
+    expect(Number(stmtAfterPrim?.InsEst)).toBe(20); // 20 secondary remaining
+
+    // Aging: patient owes $10 (primary underpayment), insurance owes $20 (secondary pending)
+    const agingAfterPrim = await request(app)
+      .get(`/api/finance-dashboard/aging/${patient.PatNum}`)
+      .set(authHeader);
+    expect(agingAfterPrim.body.data.familyOutstanding.total).toBe(10);
+    expect(agingAfterPrim.body.data.insuranceBalance.total).toBe(20);
+
+    // Step 4: Generate Secondary Claim from Primary Claim
+    const secClaimRes = await request(app)
+      .post(`/api/claims/${primClaim.id}/secondary`)
+      .set(authHeader);
+    expect(secClaimRes.status).toBe(201);
+    const secClaim = secClaimRes.body.data;
+    // Transferred variable value: secondary claim amount must be $20!
+    expect(secClaim.claimAmount).toBe(20);
+    expect(secClaim.submittedAmount).toBe(20);
+    expect(secClaim.patientResponsibility).toBe(0);
+
+    // Step 5: Secondary Insurance pays $15 (underpays by $5)
+    const secPayRes = await request(app)
+      .post('/api/payments')
+      .set(authHeader)
+      .send({
+        patientId: patient.PatNum.toString(),
+        invoiceId,
+        amount: 15,
+        paymentDate: new Date().toISOString(),
+        paymentMethod: 'ach',
+        paymentSource: 'insurance_company',
+        procedures: [
+          {
+            id: procNum.toString(),
+            allowed: 15,
+            wo: 0,
+            pay: 15,
+            claimId: secClaim.id.toString(),
+          },
+        ],
+      });
+    expect(secPayRes.status).toBe(201);
+
+    // Mark secondary claim as paid
+    await request(app)
+      .patch(`/api/claims/${secClaim.id}`)
+      .set(authHeader)
+      .send({ status: 'paid', paidAmount: 15 });
+
+    // Verify Final State:
+    // - Procedure BillingNote: insPortion = 70, secondaryInsPortion = 15, ptPortion = 15 ($10 primary underpayment + $5 secondary underpayment)
+    const procFinal = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
+    const procMetaFinal = JSON.parse(procFinal?.BillingNote || '{}');
+    expect(procMetaFinal.insPortion).toBe(70);
+    expect(procMetaFinal.secondaryInsPortion).toBe(15);
+    expect(procMetaFinal.ptPortion).toBe(15);
+
+    // Statement:
+    const stmtFinal = await prisma.statement.findUnique({ where: { StatementNum: BigInt(invoiceId) } });
+    expect(Number(stmtFinal?.InsEst)).toBe(0); // No insurance balance remains
+    expect(Number(stmtFinal?.BalTotal)).toBe(15); // Remaining $15 due from patient
+
+    // Aging: patient owes $15, insurance owes $0
+    const agingFinal = await request(app)
+      .get(`/api/finance-dashboard/aging/${patient.PatNum}`)
+      .set(authHeader);
+    expect(agingFinal.body.data.insuranceBalance.total).toBe(0);
+    expect(agingFinal.body.data.familyOutstanding.total).toBe(15);
+
+    // Cleanup carriers
+    await prisma.insplan.deleteMany({ where: { CarrierNum: { in: [carrierNum1, carrierNum2] } } });
+    await prisma.carrier.deleteMany({ where: { CarrierNum: { in: [carrierNum1, carrierNum2] } } });
+  });
 });

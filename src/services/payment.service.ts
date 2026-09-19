@@ -141,7 +141,17 @@ export class PaymentService {
     if (filters.patientId) where.PatNum = BigInt(filters.patientId);
 
     if (filters.invoiceId) {
-      where.PayNote = { contains: `"invoiceId":"${filters.invoiceId}"` };
+      const invoiceStmtNum = BigInt(filters.invoiceId);
+      const procs = await prisma.procedurelog.findMany({
+        where: { StatementNum: invoiceStmtNum },
+        select: { ProcNum: true }
+      });
+      const procNums = procs.map(p => p.ProcNum);
+      
+      where.OR = [
+        { PayNote: { contains: `"invoiceId":"${filters.invoiceId}"` } },
+        { paysplit: { some: { ProcNum: { in: procNums } } } }
+      ];
     }
 
     if (filters.startDate || filters.endDate) {
@@ -487,27 +497,83 @@ export class PaymentService {
               .reduce((s, ps) => s + (Number(ps.SplitAmt) || 0), 0);
 
             const initialPtPortion = Number(itemMeta.ptPortion || 0);
+            const initialInsPortion = Number(itemMeta.insPortion || 0);
+            const initialPrimPortion = Number(itemMeta.primaryInsPortion || 0);
+            const initialSecPortion = Number(itemMeta.secondaryInsPortion || 0);
             const isPartial = Boolean((data as any).isPartialPayment);
 
-            let newPtPortion = 0;
-            let newInsPortion = 0;
-
-            if (isPartial) {
-              // Partial Payment checked:
-              // Claim remains open/ongoing. Underpayment remains with insurance.
-              // Patient portion is preserved and NOT burdened by underpayment.
-              newPtPortion = initialPtPortion;
-              newInsPortion = Math.max(0, roundCurrency(fee - validWo - initialPtPortion));
-            } else {
-              // Final Payment (Partial Payment unchecked):
-              // Final claim adjudication. Remaining underpaid insurance amount shifts to patient responsibility.
-              newPtPortion = Math.max(0, roundCurrency(fee - validWo - insPay));
-              newInsPortion = insPay;
+            // Determine if the claim being paid is a secondary claim
+            let isSecondaryClaim = false;
+            if (claimId) {
+              const payingClaim = await prisma.claim.findUnique({ where: { ClaimNum: claimId } });
+              if (payingClaim) {
+                const cMeta = parseJson<any>(payingClaim.Narrative);
+                const cType = String(payingClaim.ClaimType || cMeta?.claimType || '').toLowerCase();
+                const insType = String(cMeta?.insuranceType || '').toLowerCase();
+                isSecondaryClaim = cType === 'secondary' || cType === 's' || insType === 'secondary';
+              }
             }
 
+            // Also check if patient has active secondary insurance
+            const secondaryPlan = await prisma.patplan.findFirst({
+              where: { PatNum: BigInt(data.patientId), Ordinal: 2, OR: [{ IsPending: 0 }, { IsPending: null }] }
+            });
+            const hasSecondary = Boolean(secondaryPlan);
+
+            let newPtPortion = initialPtPortion;
+            let newPrimaryInsPortion = initialPrimPortion;
+            let newSecondaryInsPortion = initialSecPortion;
+
+            if (isSecondaryClaim) {
+              // ── Payment on SECONDARY Claim ──
+              const expectedSec = initialSecPortion > 0
+                ? initialSecPortion
+                : Math.max(0, roundCurrency(fee - validWo - (initialPrimPortion > 0 ? initialPrimPortion : initialInsPortion)));
+
+              if (isPartial) {
+                newSecondaryInsPortion = expectedSec;
+                newPtPortion = initialPtPortion;
+              } else {
+                // Secondary claim finalized: transfer any secondary underpayment to patient balance
+                const secUnderpayment = Math.max(0, roundCurrency(expectedSec - insPay));
+                newSecondaryInsPortion = insPay;
+                newPtPortion = roundCurrency(initialPtPortion + secUnderpayment);
+              }
+              const effPrimary = initialPrimPortion > 0 ? initialPrimPortion : Math.max(0, roundCurrency(initialInsPortion - expectedSec));
+              newPrimaryInsPortion = effPrimary;
+            } else {
+              // ── Payment on PRIMARY Claim ──
+              let expectedPrim = initialPrimPortion > 0 ? initialPrimPortion : initialInsPortion;
+              if (expectedPrim === 0 && (initialPtPortion > 0 || initialSecPortion > 0)) {
+                expectedPrim = Math.max(0, roundCurrency(fee - validWo - initialPtPortion - initialSecPortion));
+              }
+              if (expectedPrim === 0 && insPay > 0) {
+                expectedPrim = insPay;
+              }
+
+              // If patient has secondary insurance but secondaryInsPortion was not yet set, set it from the remainder
+              if (hasSecondary && newSecondaryInsPortion === 0) {
+                newSecondaryInsPortion = Math.max(0, roundCurrency(fee - validWo - expectedPrim));
+              }
+
+              if (isPartial) {
+                newPrimaryInsPortion = expectedPrim;
+                newPtPortion = initialPtPortion;
+              } else {
+                // Primary claim finalized: transfer any primary underpayment to patient balance
+                const primUnderpayment = Math.max(0, roundCurrency(expectedPrim - insPay));
+                newPrimaryInsPortion = insPay;
+                newPtPortion = roundCurrency(initialPtPortion + primUnderpayment);
+              }
+            }
+
+            const newTotalInsPortion = roundCurrency(newPrimaryInsPortion + newSecondaryInsPortion);
             const updatedMeta = {
               ...itemMeta,
-              insPortion: newInsPortion,
+              primaryInsPortion: newPrimaryInsPortion,
+              secondaryInsPortion: newSecondaryInsPortion,
+              totalInsPortion: newTotalInsPortion,
+              insPortion: newTotalInsPortion,
               writeoff: validWo,
               ptPortion: newPtPortion,
               isManuallyAdjusted: true,
@@ -773,7 +839,18 @@ export class PaymentService {
 
     await this.notifyStaffPaymentReceived(payment.PayNum, data.patientId, data.amount);
 
-    return this.enrichPayment(this.mapPaymentToApi(payment));
+    // Check if patient has secondary insurance to suggest a secondary claim
+    let suggestSecondaryClaim = false;
+    if (data.paymentSource === 'insurance_company') {
+      const secondaryPlan = await prisma.patplan.findFirst({
+        where: { PatNum: BigInt(data.patientId), Ordinal: 2, OR: [{ IsPending: 0 }, { IsPending: null }] }
+      });
+      if (secondaryPlan) {
+        suggestSecondaryClaim = true;
+      }
+    }
+
+    return { ...await this.enrichPayment(this.mapPaymentToApi(payment)), suggestSecondaryClaim };
   }
 
   /**

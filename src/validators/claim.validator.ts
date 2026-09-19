@@ -191,9 +191,13 @@ export const createManualClaimValidator: ValidationChain[] = [
 
   body('claimType')
     .optional()
-    .isIn(['Manual', 'Electronic'])
+    .isIn(['Manual', 'Electronic', 'Secondary', 'Primary', 'manual', 'electronic', 'secondary', 'primary'])
     .withMessage('claimType must be either Manual or Electronic')
     .default('Manual'),
+
+  body('insuranceType')
+    .optional()
+    .isString(),
 
   body('description')
     .optional()

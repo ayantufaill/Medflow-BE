@@ -345,6 +345,36 @@ export class InvoiceController {
       next(error);
     }
   }
+  async transferRejectedClaim(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const invoiceId = (req.params.invoiceId || req.body.invoiceId) as string;
+      const { claimId } = req.body;
+
+      if (!claimId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'claimId is required' },
+        });
+      }
+
+      const result = await invoiceService.transferRejectedClaim(invoiceId, claimId);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getPatientCompositeLedger(req: Request, res: Response, next: NextFunction) {
     try {
       const patientId = req.params.patientId as string;

@@ -56,9 +56,28 @@ export const createPaymentValidator: ValidationChain[] = [
     .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   body('insuranceCompanyId')
-    .optional()
-    .isInt({ min: 1 })
-    .withMessage('Invalid insurance company ID format'),
+    .optional({ checkFalsy: true, nullable: true })
+    .customSanitizer((val) => {
+      if (val && typeof val === 'object') {
+        const id = val._id || val.id;
+        return id ? String(id) : null;
+      }
+      if (typeof val === 'string') {
+        const trimmed = val.trim();
+        if (trimmed === '[object Object]' || trimmed === 'undefined' || trimmed === 'null' || !trimmed) {
+          return null;
+        }
+        return trimmed;
+      }
+      return val;
+    })
+    .custom((val) => {
+      if (val === null || val === undefined || val === '') return true;
+      if (!/^\d+$/.test(String(val))) {
+        throw new Error('Invalid insurance company ID format');
+      }
+      return true;
+    }),
   body('amount')
     .exists({ checkNull: true })
     .withMessage('Amount is required')

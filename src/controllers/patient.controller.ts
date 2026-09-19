@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { patientService } from '../services/patient.service';
 import { patientWorkspaceService } from '../services/patient-workspace.service';
+import { recareService } from '../services/recare.service';
 import { logActivityFromRequest } from '../utils/activity-logger.util';
 
 export class PatientController {
@@ -151,6 +152,33 @@ export class PatientController {
     next(error);
   }
 }
+
+  async getPatientRecareDueDates(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      if (!patientId) {
+        return res.status(400).json({
+          success: false,
+          status: 'error',
+          error: { message: 'Patient ID is required' },
+        });
+      }
+
+      const proceduresQuery = req.query.procedures as string | undefined;
+      const filterProcedures = proceduresQuery
+        ? proceduresQuery.split(',').map((p) => p.trim()).filter(Boolean)
+        : undefined;
+
+      const result = await recareService.calculateRecareDueDates(patientId, filterProcedures);
+      res.status(200).json({
+        success: true,
+        status: 'success',
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
   async searchPatients(req: Request, res: Response, next: NextFunction) {
     try {
       const page = parseInt(req.query.page as string) || 1;

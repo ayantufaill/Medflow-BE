@@ -972,6 +972,44 @@ router.post('/:appointmentId/procedures', requireRoles('Receptionist', 'Admin'),
 
 /**
  * @swagger
+ * /appointments/{appointmentId}/audit-history:
+ *   get:
+ *     summary: Get appointment audit history
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: appointmentId
+ *         required: true
+ *         schema: { type: integer }
+ *         description: Appointment ID
+ *     responses:
+ *       200:
+ *         description: Audit history retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     auditEvents:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Appointment not found
+ */
+router.get('/:appointmentId/audit-history', requireRoles('Admin'), appointmentController.getAppointmentAuditHistory.bind(appointmentController));
+
+/**
+ * @swagger
  * /appointments/{appointmentId}/tags:
  *   get:
  *     summary: Get appointment tags

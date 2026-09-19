@@ -16,11 +16,13 @@ type StatementMeta = {
   appointmentId?: string;
   providerId?: string;
   insuranceCompanyId?: string;
+  secondaryInsuranceCompanyId?: string;
   copayAmount?: number;
   paidAmount?: number;
   taxAmount?: number;
   discountAmount?: number;
   insurancePortion?: number;
+  secondaryInsurancePortion?: number;
   patientPortion?: number;
   totalAmount?: number;
   writeoffAmount?: number;
@@ -51,6 +53,7 @@ const buildBillingNote = (data: any) => {
   if (data.allowedFee && Number(data.allowedFee) > 0) payload.allowedFee = Number(data.allowedFee);
   if (data.ptPortion && Number(data.ptPortion) > 0) payload.ptPortion = Number(data.ptPortion);
   if (data.insPortion && Number(data.insPortion) > 0) payload.insPortion = Number(data.insPortion);
+  if (data.secondaryInsPortion && Number(data.secondaryInsPortion) > 0) payload.secondaryInsPortion = Number(data.secondaryInsPortion);
   if (data.dbi !== undefined && data.dbi !== null) payload.dbi = Boolean(data.dbi);
   if (data.paidAmount && Number(data.paidAmount) > 0) payload.paidAmount = Number(data.paidAmount);
   if (data.description) payload.description = data.description.substring(0, 100);
@@ -92,12 +95,59 @@ const getInvoiceNumber = async (): Promise<string> => {
   return `INV${next.toString().padStart(6, '0')}`;
 };
 
+export const isPatientPenaltyOrNonIns = (item: any): boolean => {
+  if (!item) return false;
+  if (
+    item.isPatientPenalty ||
+    item.isAccountPenalty ||
+    item.patientOnly ||
+    item.noBillIns ||
+    item.accountPenalty
+  ) {
+    return true;
+  }
+  const code = String(
+    item.cptCode || item.code || item.procedureCode || item.procCode || ''
+  ).toUpperCase().trim();
+  const desc = String(
+    item.description || item.Description || item.Descript || ''
+  ).toLowerCase().trim();
+
+  if (
+    code.startsWith('ACC-') ||
+    code.startsWith('PENALTY') ||
+    code.startsWith('FEE-') ||
+    code.startsWith('LATE-') ||
+    code === 'D9986' ||
+    code === 'D9987'
+  ) {
+    return true;
+  }
+  if (
+    desc.includes('cancellation') ||
+    desc.includes('broken appt') ||
+    desc.includes('broken appointment') ||
+    desc.includes('missed appt') ||
+    desc.includes('missed appointment') ||
+    desc.includes('no show') ||
+    desc.includes('no-show') ||
+    desc.includes('late payment') ||
+    desc.includes('late fee') ||
+    desc.includes('penalty')
+  ) {
+    return true;
+  }
+  return false;
+};
+
 export class InvoiceService {
   private mapProcedureLogToInvoiceItem(item: any, invoiceId?: string, code?: any) {
     const meta = parseJson<ItemMeta>(item.BillingNote);
     const quantity = Number(meta.quantity ?? item.UnitQty ?? 1) || 1;
     const unitPrice = Number(meta.unitPrice ?? (item.ProcFee ?? 0) / quantity) || 0;
     const totalPrice = Number(item.ProcFee) || roundCurrency(unitPrice * quantity);
+    const isPenalty = isPatientPenaltyOrNonIns(meta) || isPatientPenaltyOrNonIns(item) || item.NoBillIns === 1;
+
     return {
       _id: item.ProcNum.toString(),
       invoiceId: invoiceId ?? item.StatementNum?.toString() ?? null,
@@ -108,16 +158,23 @@ export class InvoiceService {
       quantity,
       unitPrice,
       totalPrice,
-      ptPortion: Number((meta as any).ptPortion || 0),
-      insPortion: Number((meta as any).insPortion || 0),
-      writeoff: Number((meta as any).writeoff || (meta as any).estimatedWriteOff || 0),
-      estimatedWriteOff: Number((meta as any).estimatedWriteOff || (meta as any).writeoff || 0),
-      allowedFee: (meta as any).allowedFee ? Number((meta as any).allowedFee) : null,
+      ptPortion: isPenalty ? totalPrice : Number((meta as any).ptPortion || 0),
+      insPortion: isPenalty ? 0 : Number((meta as any).totalInsPortion || (Number((meta as any).insPortion || 0) + Number((meta as any).secondaryInsPortion || 0))),
+      primaryInsPortion: isPenalty ? 0 : Number((meta as any).primaryInsPortion || (meta as any).insPortion || 0),
+      secondaryInsPortion: isPenalty ? 0 : Number((meta as any).secondaryInsPortion || 0),
+      totalInsPortion: isPenalty ? 0 : Number((meta as any).totalInsPortion || (Number((meta as any).insPortion || 0) + Number((meta as any).secondaryInsPortion || 0))),
+      writeoff: isPenalty ? 0 : Number((meta as any).writeoff || (meta as any).estimatedWriteOff || 0),
+      estimatedWriteOff: isPenalty ? 0 : Number((meta as any).estimatedWriteOff || (meta as any).writeoff || 0),
+      allowedFee: isPenalty ? null : ((meta as any).allowedFee ? Number((meta as any).allowedFee) : null),
       paidAmount: Number((meta as any).paidAmount || 0),
       dbi: (meta as any).dbi !== undefined ? Boolean((meta as any).dbi) : null,
       site: (meta as any).site || null,
       provider: (meta as any).provider || null,
-      completed: (meta as any).completed !== undefined ? Boolean((meta as any).completed) : null
+      completed: (meta as any).completed !== undefined ? Boolean((meta as any).completed) : null,
+      isPatientPenalty: isPenalty,
+      patientOnly: isPenalty,
+      isAccountPenalty: isPenalty,
+      noBillIns: isPenalty || item.NoBillIns === 1 ? 1 : null,
     };
   }
 
@@ -151,10 +208,14 @@ export class InvoiceService {
           const insPortion = item.insPortion !== undefined && item.insPortion !== null
             ? roundCurrency(Number(item.insPortion))
             : 0;
+          const secondaryInsPortion = item.secondaryInsPortion !== undefined && item.secondaryInsPortion !== null
+            ? roundCurrency(Number(item.secondaryInsPortion))
+            : 0;
           return {
             ...item,
             ptPortion,
             insPortion,
+            secondaryInsPortion,
             writeoff: existingWriteoff,
             estimatedWriteOff: existingWriteoff,
             coveragePct: item.coveragePct ?? 0,
@@ -337,6 +398,19 @@ export class InvoiceService {
           continue;
         }
 
+        if (isPatientPenaltyOrNonIns(item)) {
+          item.insPortion = 0;
+          item.primaryInsPortion = 0;
+          item.secondaryInsPortion = 0;
+          item.totalInsPortion = 0;
+          item.ptPortion = charge;
+          item.writeoff = 0;
+          item.estimatedWriteOff = 0;
+          item.coveragePct = 0;
+          item.balance = charge;
+          continue;
+        }
+
         let procCodeString = item.cptCode || item.code || item.procedureCode || item.procCode || '';
         if (!procCodeString && item.serviceId) {
           procCodeString = serviceIdToProcCodeMap.get(item.serviceId.toString()) || '';
@@ -345,6 +419,7 @@ export class InvoiceService {
         if (!procCodeString) continue;
 
         const cleanCode = String(procCodeString).toUpperCase().trim();
+        const isCdtCode = /^D\d{4}/i.test(cleanCode) || /^\d{4}$/.test(cleanCode);
         let percent: number | undefined;
 
         // 1. Specific Procedure Code Override (e.g. "D2140" or "2140")
@@ -355,7 +430,7 @@ export class InvoiceService {
         }
 
         // 2. CDT Code Range Category Mapping (12 standard categories)
-        if (percent === undefined) {
+        if (percent === undefined && isCdtCode) {
           const numMatch = cleanCode.match(/\d+/);
           const num = numMatch ? parseInt(numMatch[0], 10) : null;
           const numStr = numMatch ? numMatch[0] : '';
@@ -418,15 +493,20 @@ export class InvoiceService {
 
         // 5. Standard CDT Category Default Fallback (matches cdtCategoryHelper)
         if (percent === undefined) {
-          const numMatch = cleanCode.match(/\d+/);
-          const num = numMatch ? parseInt(numMatch[0], 10) : null;
-          if (num !== null) {
-            if (num < 2000) percent = 100; // Diagnostic & Preventative
-            else if (num < 5000) percent = 80; // Restorative, Endo, Perio
-            else if (num < 9000) percent = 50; // Prosthodontics, Implants, Surgery, Ortho
-            else percent = 80; // Adjunct General
+          if (isCdtCode) {
+            const numMatch = cleanCode.match(/\d+/);
+            const num = numMatch ? parseInt(numMatch[0], 10) : null;
+            if (num !== null) {
+              if (num < 2000) percent = 100; // Diagnostic & Preventative
+              else if (num < 5000) percent = 80; // Restorative, Endo, Perio
+              else if (num < 9000) percent = 50; // Prosthodontics, Implants, Surgery, Ortho
+              else percent = 80; // Adjunct General
+            } else {
+              percent = 100;
+            }
           } else {
-            percent = 100;
+            // Non-dental custom codes default to 0% insurance coverage
+            percent = 0;
           }
         }
 
@@ -477,8 +557,47 @@ export class InvoiceService {
           item.insPortion = 0;
           item.ptPortion = basisFee;
         }
+        item.secondaryInsPortion = 0;
         item.balance = charge;
       }
+
+      // Check for secondary insurance
+      const secondaryPlan = await prisma.patplan.findFirst({
+        where: { PatNum: patientId, Ordinal: 2, OR: [{ IsPending: 0 }, { IsPending: null }] }
+      });
+      if (secondaryPlan) {
+        for (const item of items) {
+          if (isPatientPenaltyOrNonIns(item) || item.dbi) {
+            item.primaryInsPortion = 0;
+            item.secondaryInsPortion = 0;
+            item.totalInsPortion = 0;
+            item.insPortion = 0;
+            item.ptPortion = Number(item.totalPrice ?? item.charge ?? item.ProcFee ?? item.unitPrice ?? 0);
+            continue;
+          }
+          item.primaryInsPortion = item.insPortion;
+          if (item.ptPortion > 0) {
+            item.secondaryInsPortion = item.ptPortion;
+            item.ptPortion = 0;
+          }
+          item.totalInsPortion = roundCurrency(Number(item.primaryInsPortion || 0) + Number(item.secondaryInsPortion || 0));
+          item.insPortion = item.totalInsPortion;
+        }
+      } else {
+        for (const item of items) {
+          if (isPatientPenaltyOrNonIns(item) || item.dbi) {
+            item.primaryInsPortion = 0;
+            item.secondaryInsPortion = 0;
+            item.totalInsPortion = 0;
+            item.insPortion = 0;
+            item.ptPortion = Number(item.totalPrice ?? item.charge ?? item.ProcFee ?? item.unitPrice ?? 0);
+            continue;
+          }
+          item.primaryInsPortion = item.insPortion;
+          item.totalInsPortion = item.insPortion;
+        }
+      }
+
     } catch (err) {
       console.warn('[InvoiceService] Failed to calculate insurance estimates:', err);
     }
@@ -512,6 +631,22 @@ export class InvoiceService {
         if (!invoice) return;
 
         const meta = parseJson<StatementMeta>(invoice.NoteBold || '{}');
+
+        // Check if invoice has any insurable procedures (skip claim generation if only penalty items or 0 insPortion)
+        const allInvoiceProcs = await prisma.procedurelog.findMany({ where: { StatementNum: statementNum } });
+        const hasInsurableProcs = allInvoiceProcs.some(proc => {
+          if (proc.NoBillIns === 1) return false;
+          const bn = parseJson<any>(proc.BillingNote);
+          if (isPatientPenaltyOrNonIns(bn) || isPatientPenaltyOrNonIns(proc)) return false;
+          const ins = Number(bn.insPortion || 0) + Number(bn.secondaryInsPortion || 0);
+          return ins > 0;
+        });
+
+        if (!hasInsurableProcs) {
+          console.log(`[InvoiceService] Invoice ${invoiceId} has no insurable procedures (only patient penalties/fees), skipping claim generation`);
+          return;
+        }
+
         if (meta.claimId) {
           // A claim already exists for this invoice — recalculate its totals from the
           // invoice's current procedures instead of skipping, so procedures added after
@@ -842,6 +977,7 @@ export class InvoiceService {
       dueDate: meta.dueDate ? new Date(meta.dueDate) : statement.DateRangeTo ?? null,
       totalAmount: Number(meta.totalAmount) || Number(statement.BalTotal) || 0,
       insurancePortion: (meta.insurancePortion !== undefined && meta.insurancePortion !== null) ? Number(meta.insurancePortion) : (Number(statement.InsEst) || 0),
+      secondaryInsPortion: Number(meta.secondaryInsurancePortion) || 0,
       patientPortion: Number(meta.patientPortion) || 0,
       copayAmount: Number(meta.copayAmount) || 0,
       paidAmount: Number(meta.paidAmount) || 0,
@@ -984,6 +1120,7 @@ export class InvoiceService {
     data: {
       dueDate?: Date;
       insuranceCompanyId?: string;
+      secondaryInsuranceCompanyId?: string;
       providerId?: string;
       notes?: string;
       copayAmount?: number;
@@ -1015,6 +1152,7 @@ export class InvoiceService {
       appointmentId,
       providerId: data.providerId ?? appointment.ProvNum?.toString(),
       insuranceCompanyId: data.insuranceCompanyId,
+      secondaryInsuranceCompanyId: data.secondaryInsuranceCompanyId,
       copayAmount: data.copayAmount ?? 0,
       paidAmount: 0,
       taxAmount: 0,
@@ -1172,6 +1310,7 @@ export class InvoiceService {
       description: string;
       cptCode: string;
       insPortion: number;
+      secondaryInsPortion: number;
       ptPortion: number;
       writeoff: number;
       date?: string;
@@ -1231,6 +1370,7 @@ export class InvoiceService {
           cptCode: updates.cptCode ?? currentMeta.cptCode ?? service?.ProcCode ?? null,
           serviceId: service?.CodeNum?.toString() ?? currentMeta.serviceId ?? null,
           ...(updates.insPortion !== undefined && { insPortion: updates.insPortion }),
+          ...(updates.secondaryInsPortion !== undefined && { secondaryInsPortion: updates.secondaryInsPortion }),
           ...(updates.ptPortion !== undefined && { ptPortion: updates.ptPortion }),
           ...(updates.writeoff !== undefined && { writeoff: updates.writeoff }),
           ...(updates.provider !== undefined && { provider: updates.provider }),
@@ -1380,6 +1520,7 @@ export class InvoiceService {
     }
 
     let insurancePortion = 0;
+    let secondaryInsurancePortion = 0;
     if (insuranceCoveragePercent !== undefined) {
       insurancePortion = roundCurrency((subtotal * insuranceCoveragePercent) / 100);
     } else if (invoice.PatNum) {
@@ -1388,7 +1529,8 @@ export class InvoiceService {
         return {
           ...itemMeta,
           ProcFee: item.ProcFee,
-          serviceId: item.CodeNum?.toString()
+          serviceId: item.CodeNum?.toString(),
+          noBillIns: item.NoBillIns === 1 || isPatientPenaltyOrNonIns(itemMeta) || isPatientPenaltyOrNonIns(item),
         };
       });
       const enrichedSimulatedItems = await this.calculateInsuranceEstimates(invoice.PatNum, simulatedItems);
@@ -1398,12 +1540,39 @@ export class InvoiceService {
         const enrichedItem = enrichedSimulatedItems[i];
         const originalMeta = parseJson<any>(originalItem.BillingNote);
         const itemCps = claimProcByProcNum.get(originalItem.ProcNum.toString()) || [];
-        const receivedCp = itemCps.find((cp) => cp.Status === 1);
+        const receivedCps = itemCps.filter((cp) => cp.Status === 1);
 
-        if (receivedCp) {
-          // Insurance has adjudicated this item.
-          const insPaid = Number(receivedCp.InsPayAmt || 0);
-          const wo = Number(receivedCp.WriteOff || 0);
+        const isPenalty = isPatientPenaltyOrNonIns(originalMeta) || isPatientPenaltyOrNonIns(originalItem) || originalItem.NoBillIns === 1;
+        if (isPenalty) {
+          const fee = Number(originalItem.ProcFee || 0);
+          originalMeta.insPortion = 0;
+          originalMeta.primaryInsPortion = 0;
+          originalMeta.secondaryInsPortion = 0;
+          originalMeta.totalInsPortion = 0;
+          originalMeta.ptPortion = fee;
+          originalMeta.writeoff = 0;
+          originalMeta.estimatedWriteOff = 0;
+          originalMeta.isPatientPenalty = true;
+          originalMeta.patientOnly = true;
+          originalMeta.isAccountPenalty = true;
+          originalItem.BillingNote = buildJson(originalMeta);
+          await prisma.procedurelog.update({
+            where: { ProcNum: originalItem.ProcNum },
+            data: { BillingNote: originalItem.BillingNote, NoBillIns: 1 }
+          });
+          continue;
+        }
+
+        if (originalMeta.isManuallyAdjusted) {
+          insurancePortion += Number(originalMeta.insPortion || 0);
+          secondaryInsurancePortion += Number(originalMeta.secondaryInsPortion || 0);
+          continue;
+        }
+
+        if (receivedCps.length > 0) {
+          // Insurance has adjudicated this item (potentially multiple claims).
+          const insPaid = receivedCps.reduce((sum, cp) => sum + Number(cp.InsPayAmt || 0), 0);
+          const wo = receivedCps.reduce((sum, cp) => sum + Number(cp.WriteOff || 0), 0);
           const fee = Number(originalItem.ProcFee || 0);
 
           // Check if patient has already paid in full for this procedure
@@ -1432,19 +1601,22 @@ export class InvoiceService {
           });
 
           let isClaimPartial = false;
-          if (receivedCp.ClaimNum) {
-            const linkedClaim = await prisma.claim.findUnique({ where: { ClaimNum: receivedCp.ClaimNum } });
-            if (linkedClaim) {
-              const cMeta = parseJson<any>(linkedClaim.Narrative);
-              const cStatus = String(cMeta?.status || linkedClaim.ClaimStatus || '').toLowerCase();
-              if (cStatus === 'partial' || cMeta?.isPartialPayment === true) {
-                isClaimPartial = true;
+          for (const rCp of receivedCps) {
+            if (rCp.ClaimNum) {
+              const linkedClaim = await prisma.claim.findUnique({ where: { ClaimNum: rCp.ClaimNum } });
+              if (linkedClaim) {
+                const cMeta = parseJson<any>(linkedClaim.Narrative);
+                const cStatus = String(cMeta?.status || linkedClaim.ClaimStatus || '').toLowerCase();
+                if (cStatus === 'partial' || cMeta?.isPartialPayment === true) {
+                  isClaimPartial = true;
+                }
               }
             }
           }
 
           const isPartial = hasPartialInsPayment || isClaimPartial;
           const initialPtPortion = Number(originalMeta.ptPortion || 0);
+          const secPortion = Number(originalMeta.secondaryInsPortion || 0);
 
           let newPt = 0;
           let newIns = 0;
@@ -1453,16 +1625,18 @@ export class InvoiceService {
             // Partial payment:
             // Underpayment remains with insurance. Patient portion is preserved.
             newPt = initialPtPortion;
-            newIns = Math.max(0, roundCurrency(fee - wo - initialPtPortion));
+            newIns = Math.max(0, roundCurrency(fee - wo - initialPtPortion - secPortion));
           } else {
             // Final payment:
             // Underpayment shifts to patient responsibility. Insurance portion is finalized at insPaid.
-            newPt = Math.max(0, roundCurrency(fee - wo - insPaid));
+            newPt = Math.max(0, roundCurrency(fee - wo - insPaid - secPortion));
             newIns = insPaid;
           }
 
           insurancePortion += newIns;
+          secondaryInsurancePortion += secPortion;
           originalMeta.insPortion = newIns;
+          originalMeta.secondaryInsPortion = secPortion;
           originalMeta.writeoff = wo;
           originalMeta.ptPortion = newPt;
           originalMeta.isManuallyAdjusted = true;
@@ -1476,10 +1650,19 @@ export class InvoiceService {
 
         if (originalMeta.isManuallyAdjusted) {
           insurancePortion += Number(originalMeta.insPortion || 0);
+          secondaryInsurancePortion += Number(originalMeta.secondaryInsPortion || 0);
           continue;
         }
 
-        insurancePortion += Number(enrichedItem.insPortion || 0);
+        const enrichedPrim = Number(
+          enrichedItem.primaryInsPortion ??
+          (enrichedItem.secondaryInsPortion > 0 && enrichedItem.insPortion > enrichedItem.secondaryInsPortion
+            ? enrichedItem.insPortion - enrichedItem.secondaryInsPortion
+            : enrichedItem.insPortion) ??
+          0
+        );
+        insurancePortion += enrichedPrim;
+        secondaryInsurancePortion += Number(enrichedItem.secondaryInsPortion || 0);
         
         const writeoffChanged =
           originalMeta.writeoff !== enrichedItem.writeoff ||
@@ -1487,11 +1670,16 @@ export class InvoiceService {
           originalMeta.allowedFee !== enrichedItem.allowedFee;
 
         if (
-          originalMeta.insPortion !== enrichedItem.insPortion ||
+          originalMeta.primaryInsPortion !== enrichedPrim ||
+          originalMeta.insPortion !== enrichedPrim ||
+          originalMeta.secondaryInsPortion !== enrichedItem.secondaryInsPortion ||
           originalMeta.ptPortion !== enrichedItem.ptPortion ||
           writeoffChanged
         ) {
-          originalMeta.insPortion = enrichedItem.insPortion;
+          originalMeta.insPortion = enrichedPrim;
+          originalMeta.primaryInsPortion = enrichedPrim;
+          originalMeta.secondaryInsPortion = enrichedItem.secondaryInsPortion;
+          originalMeta.totalInsPortion = enrichedPrim + Number(enrichedItem.secondaryInsPortion || 0);
           originalMeta.ptPortion = enrichedItem.ptPortion;
           // Persist write-off fields — fall back to existing value for non-PPO items
           // (where calculateInsuranceEstimates leaves the field undefined) so we never
@@ -1508,6 +1696,7 @@ export class InvoiceService {
       }
     } else {
       insurancePortion = Number(meta.insurancePortion) || 0;
+      secondaryInsurancePortion = Number(meta.secondaryInsurancePortion) || 0;
     }
 
     const totalWriteOff = items.reduce((sum, item) => {
@@ -1584,6 +1773,7 @@ export class InvoiceService {
       taxAmount: roundCurrency(taxAmount),
       discountAmount: roundCurrency(discountAmount),
       insurancePortion,
+      secondaryInsurancePortion,
       patientPortion,
       paidAmount: totalPaid,
     };
@@ -1592,9 +1782,10 @@ export class InvoiceService {
       .filter((cp) => cp.Status === 1)
       .reduce((sum, cp) => sum + (Number(cp.InsPayAmt) || 0), 0);
 
+    const totalExpectedIns = roundCurrency(insurancePortion + secondaryInsurancePortion);
     const hasAnyClaimProc = procClaimProcs.length > 0;
-    const uncollectedIns = Math.max(0, roundCurrency(insurancePortion - totalInsPaid));
-    const remainingInsEst = hasAnyClaimProc ? roundCurrency(pendingInsEst + uncollectedIns) : insurancePortion;
+    const unclaimedIns = Math.max(0, roundCurrency(totalExpectedIns - totalInsPaid - pendingInsEst));
+    const remainingInsEst = hasAnyClaimProc ? roundCurrency(pendingInsEst + unclaimedIns) : totalExpectedIns;
 
     const updated = await prisma.statement.update({
       where: { StatementNum: invoice.StatementNum },
@@ -1674,6 +1865,9 @@ export class InvoiceService {
         writeoff?: number;
         ptPortion?: number;
         insPortion?: number;
+        primaryInsPortion?: number;
+        secondaryInsPortion?: number;
+        totalInsPortion?: number;
         charge?: number;
         balance?: number;
         dbi?: boolean;
@@ -1694,15 +1888,53 @@ export class InvoiceService {
     const statementNum = await getNextId('statement', 'StatementNum');
     const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
+    const secondaryPlan = await prisma.patplan.findFirst({
+      where: { PatNum: patientId, Ordinal: 2, OR: [{ IsPending: 0 }, { IsPending: null }] }
+    });
+    const hasSecondary = Boolean(secondaryPlan);
+
     let totalAmount = 0;
     let totalInsPortion = 0;
+    let totalSecondaryInsPortion = 0;
     let totalPtPortion = 0;
     let totalWriteoff = 0;
 
     for (const item of data.items) {
+      const isPenalty = isPatientPenaltyOrNonIns(item);
+      let ptPortion = Number(item.ptPortion ?? 0);
+      let secPortion = Number(item.secondaryInsPortion ?? 0);
+      let totalIns = Number(item.totalInsPortion ?? item.insPortion ?? 0);
+      let primPortion = Number(
+        item.primaryInsPortion ??
+        (totalIns > secPortion && secPortion > 0 ? totalIns - secPortion : totalIns) ??
+        0
+      );
+
+      if (isPenalty) {
+        ptPortion = Number(item.charge ?? 0);
+        secPortion = 0;
+        primPortion = 0;
+        totalIns = 0;
+      } else if (hasSecondary) {
+        // If patient has secondary insurance: transfer patient portion into secondaryInsPortion and make ptPortion = 0
+        if (secPortion === 0 && ptPortion > 0) {
+          secPortion = ptPortion;
+          ptPortion = 0;
+        } else if (secPortion > 0) {
+          ptPortion = 0;
+        }
+      }
+
+      item.ptPortion = ptPortion;
+      item.insPortion = primPortion;
+      item.primaryInsPortion = primPortion;
+      item.secondaryInsPortion = secPortion;
+      item.totalInsPortion = primPortion + secPortion;
+
       totalAmount += Number(item.charge ?? 0);
-      totalInsPortion += Number(item.insPortion ?? 0);
-      totalPtPortion += Number(item.ptPortion ?? 0);
+      totalInsPortion += primPortion;
+      totalSecondaryInsPortion += secPortion;
+      totalPtPortion += ptPortion;
       totalWriteoff += Number(item.writeoff ?? 0);
     }
 
@@ -1712,8 +1944,9 @@ export class InvoiceService {
       paidAmount: 0,
       taxAmount: 0,
       discountAmount: 0,
-      insurancePortion: totalInsPortion,
-      patientPortion: totalPtPortion,
+      insurancePortion: roundCurrency(totalInsPortion),
+      secondaryInsurancePortion: roundCurrency(totalSecondaryInsPortion),
+      patientPortion: roundCurrency(totalPtPortion),
       totalAmount: roundCurrency(totalAmount),
       writeoffAmount: roundCurrency(totalWriteoff),
       status: 'draft',
@@ -1733,7 +1966,7 @@ export class InvoiceService {
         IsInvoice: 1,
         StatementType: 'draft',
         ShortGUID: invoiceNumber,
-        InsEst: totalInsPortion,
+        InsEst: roundCurrency(totalInsPortion + totalSecondaryInsPortion),
         BalTotal: totalAmount,
       },
     });
@@ -1773,6 +2006,7 @@ export class InvoiceService {
       const toothRange = parsedTooth.length > 2 ? parsedTooth : null;
       const surf = parsedSurf.length > 0 ? parsedSurf : null;
 
+      const isPenalty = isPatientPenaltyOrNonIns(item);
       const billingNote = buildJson({
         description: item.description,
         unitPrice: Number(item.charge ?? 0),
@@ -1781,13 +2015,19 @@ export class InvoiceService {
         serviceId: service?.CodeNum?.toString() ?? null,
         site: item.site ?? 'None',
         provider: item.provider ?? 'Default',
-        writeoff: Number(item.writeoff ?? 0),
-        ptPortion: Number(item.ptPortion ?? 0),
-        insPortion: Number(item.insPortion ?? 0),
+        writeoff: isPenalty ? 0 : Number(item.writeoff ?? 0),
+        ptPortion: isPenalty ? Number(item.charge ?? 0) : Number(item.ptPortion ?? 0),
+        insPortion: isPenalty ? 0 : Number(item.insPortion ?? 0),
+        primaryInsPortion: isPenalty ? 0 : Number(item.primaryInsPortion ?? item.insPortion ?? 0),
+        secondaryInsPortion: isPenalty ? 0 : Number(item.secondaryInsPortion ?? 0),
+        totalInsPortion: isPenalty ? 0 : Number(item.totalInsPortion ?? (Number(item.insPortion ?? 0) + Number(item.secondaryInsPortion ?? 0))),
         charge: Number(item.charge ?? 0),
         balance: Number(item.balance ?? 0),
         dbi: Boolean(item.dbi),
         completed: Boolean(item.completed),
+        isPatientPenalty: isPenalty,
+        patientOnly: isPenalty || Boolean((item as any).patientOnly),
+        isAccountPenalty: isPenalty || Boolean((item as any).isAccountPenalty),
       });
 
       // If item carries an existing ProcNum (unbilled product), update it in-place
@@ -1841,6 +2081,7 @@ export class InvoiceService {
             ProcStatus: item.completed ? 2 : 1,
             ProvNum: provNum ?? existingRecord.ProvNum,
             BillingNote: billingNote,
+            NoBillIns: isPenalty ? 1 : existingRecord.NoBillIns,
           },
         });
       } else {
@@ -1863,6 +2104,7 @@ export class InvoiceService {
             ToothRange: toothRange,
             Surf: surf,
             BillingNote: billingNote,
+            NoBillIns: isPenalty ? 1 : null,
           },
         });
       }
@@ -1889,8 +2131,8 @@ export class InvoiceService {
 
     await logActivity(createdBy, 'created', 'invoices', statementNum.toString(), undefined, this.mapStatementToInvoice(finalStatement, finalMeta), undefined, undefined, 'medium');
 
-    // GENERATE CLAIM ONLY IF EXPLICITLY REQUESTED
-    if (data.addClaim) {
+    // GENERATE CLAIM ONLY IF EXPLICITLY REQUESTED AND THERE IS INSURANCE TO BILL
+    if (data.addClaim && totalInsPortion > 0) {
       this.triggerClaimGeneration(statementNum, patientId, createdBy);
     }
 
@@ -2051,6 +2293,144 @@ export class InvoiceService {
       message: `$${outstandingInsurance.toFixed(2)} transferred from insurance to patient balance`,
       transferredAmount: outstandingInsurance,
       invoice: this.mapStatementToInvoice(updatedInvoice, updatedMeta),
+    };
+  }
+  async transferRejectedClaim(invoiceId: string | undefined, claimId: string) {
+    const claimNum = toBigInt(claimId);
+    if (!claimNum) throw new BadRequestError('Invalid claim ID');
+
+    const claim = await prisma.claim.findUnique({
+      where: { ClaimNum: claimNum },
+      include: {
+        claimproc: true,
+      },
+    });
+    if (!claim) throw new NotFoundError('Claim not found');
+
+    const claimMeta = parseJson<Record<string, any>>(claim.Narrative) || {};
+    const claimType = String(claim.ClaimType || claimMeta.claimType || claimMeta.insuranceType || '').toLowerCase();
+    const isSecondaryClaim = claimType.includes('secondary') || claimType === 's';
+
+    // 1. Find all claimprocs attached to this claim
+    const claimProcs = claim.claimproc || await prisma.claimproc.findMany({
+      where: { ClaimNum: claimNum }
+    });
+
+    if (claimProcs.length === 0) {
+      throw new BadRequestError('No procedures found for this claim');
+    }
+
+    const procNums = claimProcs.map(cp => cp.ProcNum).filter((id): id is bigint => id !== null);
+
+    // 2. Fetch the corresponding procedure logs
+    let items = await prisma.procedurelog.findMany({
+      where: { ProcNum: { in: procNums } }
+    });
+
+    // Resolve invoice either from passed invoiceId or from the procedures
+    let invoice: any = null;
+    if (invoiceId && invoiceId !== 'undefined') {
+      try {
+        invoice = await this.getStatementById(invoiceId);
+      } catch {
+        invoice = null;
+      }
+    }
+    if (!invoice && items.length > 0 && items[0].StatementNum) {
+      try {
+        invoice = await this.getStatementById(items[0].StatementNum.toString());
+      } catch {
+        invoice = null;
+      }
+    }
+
+    let totalTransferred = 0;
+
+    // 3. For each procedure, transfer this claim's expected insurance portion to patient portion
+    for (const item of items) {
+      const meta = parseJson<any>(item.BillingNote) || {};
+      const cp = claimProcs.find(c => c.ProcNum === item.ProcNum);
+
+      const initialPtPortion = Number(meta.ptPortion || 0);
+      const initialInsPortion = Number(meta.insPortion || 0);
+      const initialPrimPortion = Number(meta.primaryInsPortion || 0);
+      const initialSecPortion = Number(meta.secondaryInsPortion || 0);
+
+      let claimPortionToTransfer = 0;
+      let newPrimPortion = initialPrimPortion;
+      let newSecPortion = initialSecPortion;
+
+      if (isSecondaryClaim) {
+        // Secondary claim rejected: transfer secondary expected portion to patient balance
+        claimPortionToTransfer = initialSecPortion > 0
+          ? initialSecPortion
+          : (cp?.InsPayEst ? Number(cp.InsPayEst) : 0);
+        newSecPortion = 0;
+        newPrimPortion = initialPrimPortion > 0 ? initialPrimPortion : Math.max(0, roundCurrency(initialInsPortion - claimPortionToTransfer));
+      } else {
+        // Primary claim rejected: transfer primary expected portion to patient balance
+        claimPortionToTransfer = initialPrimPortion > 0
+          ? initialPrimPortion
+          : (initialInsPortion > 0 ? initialInsPortion : (cp?.InsPayEst ? Number(cp.InsPayEst) : 0));
+        newPrimPortion = 0;
+      }
+
+      if (claimPortionToTransfer > 0) {
+        const newPtPortion = roundCurrency(initialPtPortion + claimPortionToTransfer);
+        const newTotalInsPortion = roundCurrency(newPrimPortion + newSecPortion);
+
+        meta.primaryInsPortion = newPrimPortion;
+        meta.secondaryInsPortion = newSecPortion;
+        meta.totalInsPortion = newTotalInsPortion;
+        meta.insPortion = newTotalInsPortion;
+        meta.ptPortion = newPtPortion;
+        meta.isManuallyAdjusted = true;
+
+        await prisma.procedurelog.update({
+          where: { ProcNum: item.ProcNum },
+          data: { BillingNote: buildJson(meta) }
+        });
+
+        totalTransferred = roundCurrency(totalTransferred + claimPortionToTransfer);
+      }
+    }
+
+    // 4. Update claim status to 'rejected' ('X' in OpenDental)
+    const updatedClaimMeta: Record<string, any> = {
+      ...claimMeta,
+      status: 'rejected',
+      denialReason: 'Claim rejected by user',
+      deniedDate: new Date().toISOString(),
+    };
+
+    await prisma.claim.update({
+      where: { ClaimNum: claimNum },
+      data: {
+        ClaimStatus: 'X', // 'X' = Rejected
+        ReasonUnderPaid: 'Claim rejected',
+        Narrative: buildJson(updatedClaimMeta),
+      }
+    });
+
+    // Update claimprocs
+    await prisma.claimproc.updateMany({
+      where: { ClaimNum: claimNum },
+      data: {
+        Remarks: 'Claim rejected',
+      }
+    });
+
+    // 5. Recalculate invoice to update high-level balances (Pt Balance, Ins Balance)
+    if (invoice?.StatementNum) {
+      await this.recalculateInvoice(invoice.StatementNum.toString());
+    }
+
+    return {
+      success: true,
+      message: `Claim rejected. Transferred $${totalTransferred.toFixed(2)} to patient balance`,
+      transferredAmount: totalTransferred,
+      claimId: claimId,
+      status: 'rejected'
     };
   }
 
