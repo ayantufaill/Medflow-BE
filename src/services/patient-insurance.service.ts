@@ -677,6 +677,22 @@ export class PatientInsuranceService {
       }
     });
 
+    // Recalculate open invoices asynchronously to reflect any new secondary portions
+    Promise.resolve().then(async () => {
+      try {
+        const { invoiceService } = await import('./invoice.service');
+        const openInvoices = await prisma.statement.findMany({
+          where: { PatNum: BigInt(patientId), IsInvoice: 1, BalTotal: { gt: 0 } },
+          select: { StatementNum: true }
+        });
+        for (const inv of openInvoices) {
+          await invoiceService.recalculateInvoice(inv.StatementNum.toString()).catch(() => {});
+        }
+      } catch (err) {
+        console.error('Failed to recalculate invoices after insurance creation:', err);
+      }
+    });
+
     return this.getPatientInsuranceById(patPlanNum.toString());
   }
 

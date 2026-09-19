@@ -14,6 +14,24 @@ const parseNote = (value?: string | null): Record<string, any> => {
   }
 };
 
+export interface RecareDueDateResult {
+  code: string;
+  procedureName?: string;
+  recallTypeNum?: string | null;
+  recallTypeName?: string | null;
+  intervalMonths: number;
+  offsetDays: number;
+  lastCompletedDate: string | null;
+  dueDate: string | null;
+  isOverdue: boolean;
+  isNeverCompleted: boolean;
+}
+
+export interface PatientRecareDueDatesResult {
+  patientId: string;
+  recareDueDates: Record<string, RecareDueDateResult>;
+}
+
 export interface RecareSweepResult {
   autoReminderEnabled: boolean;
   intervalMonths: number;
@@ -24,24 +42,209 @@ export interface RecareSweepResult {
 }
 
 /**
- * Recare (recall) reminders: patients whose last completed visit plus the
- * configured interval (clinicalrecareconfig) has passed. Named "reminder",
- * not "auto-book" — RecareConfiguration.jsx's toggle is literally called
- * autoReminder, so a human still schedules the actual appointment; this
- * sweep just tells the patient (and, going forward, bootstraps real rows
- * into OpenDental's native `recall` table) that they're due, rather than
- * autonomously picking a provider/time slot on their behalf.
+ * Calculates due date given a base date (last completed date),
+ * an interval in months, and optional offset days (e.g. Oryx +1 day rule).
+ */
+export function calculateDueDate(
+  baseDate: Date | string,
+  intervalMonths: number,
+  offsetDays: number = 0
+): string {
+  const d = new Date(baseDate);
+  const year = d.getUTCFullYear();
+  const month = d.getUTCMonth();
+  const day = d.getUTCDate();
+
+  const targetMonthIndex = month + intervalMonths;
+  const targetYear = year + Math.floor(targetMonthIndex / 12);
+  const normalizedMonth = ((targetMonthIndex % 12) + 12) % 12;
+
+  const daysInTargetMonth = new Date(Date.UTC(targetYear, normalizedMonth + 1, 0)).getUTCDate();
+  const clampedDay = Math.min(day, daysInTargetMonth);
+
+  const targetDate = new Date(Date.UTC(targetYear, normalizedMonth, clampedDay));
+  if (offsetDays) {
+    targetDate.setUTCDate(targetDate.getUTCDate() + offsetDays);
+  }
+
+  return targetDate.toISOString().slice(0, 10);
+}
+
+/**
+ * Recare (recall) service implementing Oryx-style per-CDT due date calculation.
+ * Due dates are calculated from the patient's last completed procedure matching the CDT code
+ * (or its linked recall trigger group) + configured recall interval (months) + offset days.
  */
 export class RecareService {
+  /**
+   * Get calculated recare due date for a specific patient and CDT code.
+   */
+  async getRecareDueDate(
+    patientId: bigint | string | number,
+    code: string
+  ): Promise<RecareDueDateResult> {
+    const cleanCode = code.trim().toUpperCase();
+    const patNum = BigInt(patientId);
+
+    // 1. Look up procedure code details
+    const procCode = await prisma.procedurecode.findFirst({
+      where: { ProcCode: cleanCode },
+    });
+
+    // 2. Find recall type and trigger mappings
+    let recallType: any = null;
+    let triggerCodeNums: bigint[] = [];
+
+    if (procCode) {
+      const trigger = await prisma.recalltrigger.findFirst({
+        where: { CodeNum: procCode.CodeNum },
+        include: { recalltype: true },
+      });
+      if (trigger?.recalltype) {
+        recallType = trigger.recalltype;
+      }
+    }
+
+    if (!recallType) {
+      recallType = await prisma.recalltype.findFirst({
+        where: {
+          OR: [
+            { Procedures: { contains: cleanCode } },
+            { Description: { contains: cleanCode, mode: 'insensitive' } },
+          ],
+        },
+      });
+    }
+
+    if (recallType) {
+      const triggersForType = await prisma.recalltrigger.findMany({
+        where: { RecallTypeNum: recallType.RecallTypeNum },
+        select: { CodeNum: true },
+      });
+      triggerCodeNums = triggersForType
+        .map((t) => t.CodeNum)
+        .filter((c): c is bigint => c !== null);
+    }
+
+    if (procCode?.CodeNum && !triggerCodeNums.includes(procCode.CodeNum)) {
+      triggerCodeNums.push(procCode.CodeNum);
+    }
+
+    const intervalMonths = recallType?.DefaultInterval ?? 6;
+    const offsetDays = recallType?.OffsetDays ?? 0;
+    const recallTypeNum = recallType ? recallType.RecallTypeNum.toString() : null;
+    const recallTypeName = recallType?.Description ?? null;
+
+    // 3. Find the patient's latest completed procedure
+    const orConditions: any[] = [];
+    if (triggerCodeNums.length > 0) {
+      orConditions.push({ CodeNum: { in: triggerCodeNums } });
+    }
+    orConditions.push({ OldCode: cleanCode });
+
+    const lastCompletedProc = await prisma.procedurelog.findFirst({
+      where: {
+        PatNum: patNum,
+        ProcStatus: 2, // 2 = Completed in OpenDental/Medflow
+        OR: orConditions,
+      },
+      orderBy: [{ ProcDate: 'desc' }, { DateComplete: 'desc' }],
+      select: {
+        ProcDate: true,
+        DateComplete: true,
+        CodeNum: true,
+        OldCode: true,
+      },
+    });
+
+    const rawDate = lastCompletedProc?.ProcDate ?? lastCompletedProc?.DateComplete ?? null;
+
+    if (!rawDate) {
+      return {
+        code: cleanCode,
+        procedureName: procCode?.Descript ?? procCode?.AbbrDesc ?? cleanCode,
+        recallTypeNum,
+        recallTypeName,
+        intervalMonths,
+        offsetDays,
+        lastCompletedDate: null,
+        dueDate: null,
+        isOverdue: false,
+        isNeverCompleted: true,
+      };
+    }
+
+    const lastCompletedDate = (
+      rawDate instanceof Date ? rawDate.toISOString() : String(rawDate)
+    ).slice(0, 10);
+    const dueDate = calculateDueDate(lastCompletedDate, intervalMonths, offsetDays);
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const isOverdue = dueDate < todayStr;
+
+    return {
+      code: cleanCode,
+      procedureName: procCode?.Descript ?? procCode?.AbbrDesc ?? cleanCode,
+      recallTypeNum,
+      recallTypeName,
+      intervalMonths,
+      offsetDays,
+      lastCompletedDate,
+      dueDate,
+      isOverdue,
+      isNeverCompleted: false,
+    };
+  }
+
+  /**
+   * Calculate recare due dates for multiple CDT procedures for a patient.
+   * If filterProcedures is omitted, evaluates all seeded/configured recare CDT codes.
+   */
+  async calculateRecareDueDates(
+    patientId: bigint | string | number,
+    filterProcedures?: string[]
+  ): Promise<PatientRecareDueDatesResult> {
+    let codesToCheck: string[] = [];
+
+    if (filterProcedures && filterProcedures.length > 0) {
+      codesToCheck = Array.from(
+        new Set(filterProcedures.map((c) => c.trim().toUpperCase()).filter(Boolean))
+      );
+    } else {
+      const triggers = await prisma.recalltrigger.findMany({
+        include: { procedurecode: true },
+      });
+      const triggerCodes = triggers
+        .map((t) => t.procedurecode?.ProcCode)
+        .filter((c): c is string => Boolean(c));
+
+      const defaultCodes = ['D1110', 'D1120', 'D0120', 'D0150', 'D0274', 'D1206', 'D4910'];
+      codesToCheck = Array.from(new Set([...defaultCodes, ...triggerCodes]));
+    }
+
+    const recareDueDates: Record<string, RecareDueDateResult> = {};
+    for (const code of codesToCheck) {
+      recareDueDates[code] = await this.getRecareDueDate(patientId, code);
+    }
+
+    return {
+      patientId: patientId.toString(),
+      recareDueDates,
+    };
+  }
+
+  /**
+   * Recare reminders sweep: checks active patients against their CDT recall intervals,
+   * updates native OpenDental `recall` table rows, and sends email reminders if due and cooldown elapsed.
+   */
   async runDueRecareSweep(): Promise<RecareSweepResult> {
     const config = await prisma.clinicalrecareconfig.findFirst();
-    const intervalMonths = config?.IntervalMonths ?? 6;
+    const defaultIntervalMonths = config?.IntervalMonths ?? 6;
     const autoReminderEnabled = config?.AutoReminder ?? true;
 
     if (!autoReminderEnabled) {
       return {
         autoReminderEnabled: false,
-        intervalMonths,
+        intervalMonths: defaultIntervalMonths,
         patientsChecked: 0,
         duePatients: 0,
         remindersSent: 0,
@@ -49,99 +252,223 @@ export class RecareService {
       };
     }
 
-    const cutoff = new Date();
-    cutoff.setMonth(cutoff.getMonth() - intervalMonths);
+    // Fetch all active recall types with their triggers
+    const recallTypes = await prisma.recalltype.findMany({
+      include: {
+        recalltrigger: {
+          include: { procedurecode: true },
+        },
+      },
+    });
 
-    // Active patients with an email on file — a reminder needs somewhere to go.
+    // Active patients with an email on file
     const patients = await prisma.patient.findMany({
       where: { PatStatus: { not: 2 }, Email: { not: null } },
       select: { PatNum: true, Email: true, FName: true, DateFirstVisit: true },
     });
 
-    const lastCompletedByPatient = await prisma.appointment.groupBy({
-      by: ['PatNum'],
-      where: { AptStatus: 2, PatNum: { in: patients.map((p) => p.PatNum) } },
-      _max: { AptDateTime: true },
-    });
-    const lastVisitMap = new Map(
-      lastCompletedByPatient.map((r) => [r.PatNum?.toString(), r._max.AptDateTime])
-    );
-
     const cooldownCutoff = new Date();
     cooldownCutoff.setDate(cooldownCutoff.getDate() - REMINDER_COOLDOWN_DAYS);
+    const todayStr = new Date().toISOString().slice(0, 10);
 
     let duePatients = 0;
     let remindersSent = 0;
     let skipped = 0;
 
     for (const patient of patients) {
-      const patNumStr = patient.PatNum.toString();
-      const lastVisit = lastVisitMap.get(patNumStr) ?? patient.DateFirstVisit ?? null;
-      if (!lastVisit || new Date(lastVisit) > cutoff) {
-        continue; // no visit history to base an interval on, or not due yet
+      const patNum = patient.PatNum;
+      const patNumStr = patNum.toString();
+      let patientIsDue = false;
+      const dueRecallDescriptions: string[] = [];
+
+      // 1. Check per-CDT recall types
+      for (const rt of recallTypes) {
+        const intervalMonths = rt.DefaultInterval ?? defaultIntervalMonths;
+        const offsetDays = rt.OffsetDays ?? 0;
+        const triggerCodeNums = rt.recalltrigger
+          .map((t) => t.CodeNum)
+          .filter((c): c is bigint => c !== null);
+
+        if (triggerCodeNums.length === 0) continue;
+
+        const lastProc = await prisma.procedurelog.findFirst({
+          where: {
+            PatNum: patNum,
+            ProcStatus: 2,
+            CodeNum: { in: triggerCodeNums },
+          },
+          orderBy: [{ ProcDate: 'desc' }, { DateComplete: 'desc' }],
+          select: { ProcDate: true, DateComplete: true },
+        });
+
+        const rawDate = lastProc?.ProcDate ?? lastProc?.DateComplete ?? null;
+        if (!rawDate) continue;
+
+        const lastCompletedDate = (
+          rawDate instanceof Date ? rawDate.toISOString() : String(rawDate)
+        ).slice(0, 10);
+        const dueDate = calculateDueDate(lastCompletedDate, intervalMonths, offsetDays);
+
+        if (dueDate <= todayStr) {
+          patientIsDue = true;
+          dueRecallDescriptions.push(rt.Description || 'Recare');
+
+          // Upsert row into OpenDental's native `recall` table
+          const existingRecall = await prisma.recall.findFirst({
+            where: { PatNum: patNum, RecallTypeNum: rt.RecallTypeNum, IsDisabled: 0 },
+          });
+
+          const noteMeta = parseNote(existingRecall?.Note);
+          const nextNote = JSON.stringify({
+            ...noteMeta,
+            recallTypeName: rt.Description,
+            calculatedDueDate: dueDate,
+          });
+
+          const dueDateObj = new Date(dueDate);
+          const lastCompletedObj = new Date(lastCompletedDate);
+
+          if (existingRecall) {
+            await prisma.recall.update({
+              where: { RecallNum: existingRecall.RecallNum },
+              data: {
+                DateDue: dueDateObj,
+                DateDueCalc: dueDateObj,
+                DatePrevious: lastCompletedObj,
+                RecallInterval: intervalMonths * 30,
+                Note: nextNote,
+                DateTStamp: new Date(),
+              },
+            });
+          } else {
+            const nextId = await getNextId('recall', 'RecallNum');
+            await prisma.recall.create({
+              data: {
+                RecallNum: nextId,
+                PatNum: patNum,
+                RecallTypeNum: rt.RecallTypeNum,
+                DateDue: dueDateObj,
+                DateDueCalc: dueDateObj,
+                DatePrevious: lastCompletedObj,
+                RecallInterval: intervalMonths * 30,
+                IsDisabled: 0,
+                Note: nextNote,
+                DateTStamp: new Date(),
+              },
+            });
+          }
+        }
       }
+
+      // 2. Fallback: If no per-CDT procedures triggered due, check last completed appointment / DateFirstVisit
+      if (!patientIsDue) {
+        const lastAppt = await prisma.appointment.findFirst({
+          where: { PatNum: patNum, AptStatus: 2 },
+          orderBy: { AptDateTime: 'desc' },
+          select: { AptDateTime: true },
+        });
+
+        const fallbackVisit = lastAppt?.AptDateTime ?? patient.DateFirstVisit ?? null;
+        if (fallbackVisit) {
+          const fallbackDateStr = (
+            fallbackVisit instanceof Date ? fallbackVisit.toISOString() : String(fallbackVisit)
+          ).slice(0, 10);
+          const fallbackDueDate = calculateDueDate(fallbackDateStr, defaultIntervalMonths, 0);
+
+          if (fallbackDueDate <= todayStr) {
+            patientIsDue = true;
+            dueRecallDescriptions.push('Routine Check-up');
+
+            const existingRecall = await prisma.recall.findFirst({
+              where: { PatNum: patNum, RecallTypeNum: null, IsDisabled: 0 },
+            });
+            const noteMeta = parseNote(existingRecall?.Note);
+            const nextNote = JSON.stringify({ ...noteMeta, calculatedDueDate: fallbackDueDate });
+            const dueDateObj = new Date(fallbackDueDate);
+            const visitObj = new Date(fallbackDateStr);
+
+            if (existingRecall) {
+              await prisma.recall.update({
+                where: { RecallNum: existingRecall.RecallNum },
+                data: {
+                  DateDue: dueDateObj,
+                  DateDueCalc: dueDateObj,
+                  DatePrevious: visitObj,
+                  RecallInterval: defaultIntervalMonths * 30,
+                  Note: nextNote,
+                  DateTStamp: new Date(),
+                },
+              });
+            } else {
+              const nextId = await getNextId('recall', 'RecallNum');
+              await prisma.recall.create({
+                data: {
+                  RecallNum: nextId,
+                  PatNum: patNum,
+                  DateDue: dueDateObj,
+                  DateDueCalc: dueDateObj,
+                  DatePrevious: visitObj,
+                  RecallInterval: defaultIntervalMonths * 30,
+                  IsDisabled: 0,
+                  Note: nextNote,
+                  DateTStamp: new Date(),
+                },
+              });
+            }
+          }
+        }
+      }
+
+      if (!patientIsDue) continue;
 
       duePatients++;
 
-      const existingRecall = await prisma.recall.findFirst({
-        where: { PatNum: patient.PatNum, IsDisabled: 0 },
-        orderBy: { DateDue: 'desc' },
+      // Check cooldown on patient's most recent recall reminder
+      const latestRecallForCooldown = await prisma.recall.findFirst({
+        where: { PatNum: patNum, IsDisabled: 0 },
+        orderBy: { DateTStamp: 'desc' },
       });
 
-      const noteMeta = parseNote(existingRecall?.Note);
-      const lastReminderSentAt = noteMeta.lastReminderSentAt ? new Date(noteMeta.lastReminderSentAt) : null;
+      const noteMeta = parseNote(latestRecallForCooldown?.Note);
+      const lastReminderSentAt = noteMeta.lastReminderSentAt
+        ? new Date(noteMeta.lastReminderSentAt)
+        : null;
+
       if (lastReminderSentAt && lastReminderSentAt > cooldownCutoff) {
         skipped++;
         continue;
       }
 
+      // Send email reminder
       try {
+        const recallListStr = dueRecallDescriptions.slice(0, 2).join(' & ');
         await emailService.sendBulkEmail(
           patient.Email!,
           "You're due for your dental check-up",
-          `Hi ${patient.FName ?? ''}, our records show it's been a while since your last visit. ` +
-            `Please call our office or use the patient portal to schedule your next check-up.`
+          `Hi ${patient.FName ?? ''}, our records show you are due for your ${recallListStr || 'routine check-up'}. ` +
+            `Please call our office or use the patient portal to schedule your next appointment.`
         );
         remindersSent++;
+
+        if (latestRecallForCooldown) {
+          const updatedNote = JSON.stringify({
+            ...noteMeta,
+            lastReminderSentAt: new Date().toISOString(),
+          });
+          await prisma.recall.update({
+            where: { RecallNum: latestRecallForCooldown.RecallNum },
+            data: { Note: updatedNote, DateTStamp: new Date() },
+          });
+        }
       } catch (error) {
         console.error(`Recare reminder failed for patient ${patNumStr}:`, error);
         skipped++;
-        continue;
-      }
-
-      // Bootstraps/refreshes a real `recall` row so dashboard-metrics' existing
-      // hygiene-potential reporting (which already reads prisma.recall) has
-      // real due-date data instead of the empty table it sees today.
-      const dueDate = new Date(lastVisit);
-      dueDate.setMonth(dueDate.getMonth() + intervalMonths);
-      const nextNote = JSON.stringify({ ...noteMeta, lastReminderSentAt: new Date().toISOString() });
-
-      if (existingRecall) {
-        await prisma.recall.update({
-          where: { RecallNum: existingRecall.RecallNum },
-          data: { DateDue: dueDate, DateDueCalc: dueDate, DatePrevious: lastVisit, Note: nextNote, DateTStamp: new Date() },
-        });
-      } else {
-        const nextId = await getNextId('recall', 'RecallNum');
-        await prisma.recall.create({
-          data: {
-            RecallNum: nextId,
-            PatNum: patient.PatNum,
-            DateDue: dueDate,
-            DateDueCalc: dueDate,
-            DatePrevious: lastVisit,
-            RecallInterval: intervalMonths * 30,
-            IsDisabled: 0,
-            Note: nextNote,
-            DateTStamp: new Date(),
-          },
-        });
       }
     }
 
     return {
       autoReminderEnabled,
-      intervalMonths,
+      intervalMonths: defaultIntervalMonths,
       patientsChecked: patients.length,
       duePatients,
       remindersSent,

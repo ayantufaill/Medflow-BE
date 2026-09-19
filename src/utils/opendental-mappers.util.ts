@@ -407,9 +407,9 @@ export const mapProviderToApi = (
 
 export const mapUserToApi = (row: userod) => ({
   _id: row.UserNum.toString(),
-  firstName: row.UserName ?? '',
+  firstName: '',
   lastName: '',
-  email: null,
+  email: row.UserName ?? null,
 });
 
 export const mapAppointmentStatusFromDb = (status?: number | null): string => {

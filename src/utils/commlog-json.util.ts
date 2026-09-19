@@ -20,6 +20,7 @@ export const buildCommlogJson = (value: Record<string, unknown>) => JSON.stringi
 export const createCommlogJson = async (data: {
   patientId?: string | null;
   userId?: string | null;
+  appointmentId?: string | null;
   payload: CommlogJsonPayload;
   note?: string | null;
   when?: Date;
@@ -35,6 +36,7 @@ export const createCommlogJson = async (data: {
       Note: buildCommlogJson({
         ...data.payload,
         type: data.payload.type,
+        appointmentId: data.appointmentId ?? null,
         createdAt:
           typeof data.payload.createdAt === 'string'
             ? data.payload.createdAt
@@ -50,16 +52,12 @@ export const getCommlogJsonEntries = async <T extends { type?: string }>(filters
   contains?: string;
   order?: 'asc' | 'desc';
 }) => {
+  const where: Record<string, unknown> = {};
+  if (filters.patientId) where.PatNum = BigInt(filters.patientId);
+  if (filters.userId) where.UserNum = BigInt(filters.userId);
+  if (filters.contains) where.Note = { contains: filters.contains };
   const rows = await prisma.commlog.findMany({
-    where: {
-      PatNum: filters.patientId ? BigInt(filters.patientId) : undefined,
-      UserNum: filters.userId ? BigInt(filters.userId) : undefined,
-      Note: filters.contains
-        ? {
-            contains: filters.contains,
-          }
-        : undefined,
-    },
+    where,
     orderBy: {
       CommDateTime: filters.order ?? 'desc',
     },

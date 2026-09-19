@@ -344,6 +344,11 @@ export class ClaimService {
       };
     }
 
+    const rawInsEst = Number(meta.submittedAmount ?? row.InsPayEst ?? (Number(row.ClaimFee || 0) - Number(meta.patientResponsibility ?? row.DedApplied ?? 0))) || 0;
+    const rawPaid = Number(meta.paidAmount ?? row.InsPayAmt) || 0;
+    const rawWo = Number(row.WriteOff) || 0;
+    const remainingInsBal = Math.max(0, Math.round((rawInsEst - rawPaid - rawWo) * 100) / 100);
+
     return {
       _id: row.ClaimNum.toString(),
       id: row.ClaimNum.toString(),
@@ -377,13 +382,13 @@ export class ClaimService {
         Number(meta.submittedAmount ?? row.InsPayEst ?? meta.claimAmount ?? meta.totalAmount ?? row.ClaimFee) || 0,
       claimAmount: Number(meta.claimAmount ?? meta.totalAmount ?? row.ClaimFee ?? row.InsPayEst) || 0,
       totalAmount: Number(meta.totalAmount ?? meta.claimAmount ?? row.ClaimFee ?? row.InsPayEst) || 0,
-      paidAmount: Number(meta.paidAmount ?? row.InsPayAmt) || 0,
+      paidAmount: rawPaid,
       patientResponsibility: Number(meta.patientResponsibility ?? row.DedApplied) || 0,
-      insbalance: Number(meta.submittedAmount ?? row.InsPayEst ?? (Number(row.ClaimFee || 0) - Number(meta.patientResponsibility ?? row.DedApplied ?? 0))) || 0,
+      insbalance: remainingInsBal,
       patbalance: Number(meta.patientResponsibility ?? row.DedApplied) || 0,
-      insuranceBalance: Number(meta.submittedAmount ?? row.InsPayEst ?? (Number(row.ClaimFee || 0) - Number(meta.patientResponsibility ?? row.DedApplied ?? 0))) || 0,
+      insuranceBalance: remainingInsBal,
       patientBalance: Number(meta.patientResponsibility ?? row.DedApplied) || 0,
-      insurancePortion: Number(meta.submittedAmount ?? row.InsPayEst) || 0,
+      insurancePortion: rawInsEst,
       patientPortion: Number(meta.patientResponsibility ?? row.DedApplied) || 0,
       denialReason: meta.denialReason ?? row.ReasonUnderPaid ?? null,
       deniedDate: meta.deniedDate ? new Date(meta.deniedDate) : null,
@@ -515,8 +520,15 @@ export class ClaimService {
           quantity: procLog.UnitQty ?? 1,
           fee: cp.FeeBilled ?? procLog.ProcFee ?? 0,
           insPayEst: Number(cp.InsPayEst) || 0,
+          insPayAmt: Number(cp.InsPayAmt) || 0,
+          insPaid: Number(cp.InsPayAmt) || 0,
           writeOffEst: Number(cp.WriteOffEst) || Number(cp.WriteOff) || 0,
+          writeOff: Number(cp.WriteOff) || 0,
+          writeoff: Number(cp.WriteOff) || 0,
+          dedApplied: Number(cp.DedApplied) || 0,
+          deductible: Number(cp.DedApplied) || 0,
           allowedOverride: Number(cp.AllowedOverride) || 0,
+          claimProcStatus: cp.Status ?? null,
           providerId: procLog.ProvNum?.toString() ?? null,
           providerName: procLog.provider_procedurelog_ProvNumToprovider ? `${procLog.provider_procedurelog_ProvNumToprovider.FName} ${procLog.provider_procedurelog_ProvNumToprovider.LName}`.trim() : null,
           dateOfService: procLog.ProcDate ?? null,
@@ -563,6 +575,7 @@ export class ClaimService {
           if (!procsByInvoiceId.has(invId)) {
             procsByInvoiceId.set(invId, []);
           }
+          const procMeta = parseJson<Record<string, any>>(proc.BillingNote);
           procsByInvoiceId.get(invId)!.push({
             id: proc.ProcNum.toString(),
             _id: proc.ProcNum.toString(),
@@ -578,6 +591,13 @@ export class ClaimService {
             status: proc.ProcStatus ?? null,
             quantity: proc.UnitQty ?? 1,
             fee: proc.ProcFee ?? 0,
+            insPayEst: Number(procMeta?.insPortion) || 0,
+            insPayAmt: Number(procMeta?.paidAmount) || 0,
+            insPaid: Number(procMeta?.paidAmount) || 0,
+            writeOffEst: Number(procMeta?.writeoff) || 0,
+            writeOff: Number(procMeta?.writeoff) || 0,
+            writeoff: Number(procMeta?.writeoff) || 0,
+            allowedOverride: Number(procMeta?.feeAllowed) || 0,
             providerId: proc.ProvNum?.toString() ?? null,
             providerName: proc.provider_procedurelog_ProvNumToprovider ? `${proc.provider_procedurelog_ProvNumToprovider.FName} ${proc.provider_procedurelog_ProvNumToprovider.LName}`.trim() : null,
             dateOfService: proc.ProcDate ?? null,
@@ -1190,25 +1210,40 @@ export class ClaimService {
       throw new NotFoundError('Invoice not found');
     }
 
+    const invoiceMeta = parseJson<Record<string, any>>(invoice.NoteBold);
+    const status: ClaimStatus = 'draft';
+    const isSecondary = String(data.insuranceType || '').toLowerCase() === 'secondary';
+
     const existing = await prisma.claim.findFirst({
       where: {
-        ClaimType: { not: 'PreAuth' },
+        ClaimType: isSecondary
+          ? { in: ['Secondary', 'secondary', 'S'] }
+          : { notIn: ['PreAuth', 'Secondary', 'secondary', 'S'] },
         Narrative: { contains: `\"invoiceId\":\"${invoiceId}\"` },
       },
     });
 
     if (existing) {
-      throw new ConflictError('Claim already exists for this invoice');
+      throw new ConflictError(isSecondary ? 'Secondary claim already exists for this invoice' : 'Claim already exists for this invoice');
     }
 
-    const invoiceMeta = parseJson<Record<string, any>>(invoice.NoteBold);
-    const status: ClaimStatus = 'draft';
-    const claimAmount = Number(data.claimAmount ?? data.submittedAmount ?? invoice.BalTotal) || 0;
     const claimNumber = await this.generateClaimNumber();
 
     const invoiceProcs = invoice.PatNum ? await prisma.procedurelog.findMany({
       where: { StatementNum: invoice.StatementNum },
     }) : [];
+
+    const { isPatientPenaltyOrNonIns } = await import('./invoice.service');
+    const insProcs = invoiceProcs.filter((p) => {
+      if (p.NoBillIns === 1) return false;
+      const bn = parseJson<any>(p.BillingNote);
+      if (isPatientPenaltyOrNonIns(bn) || isPatientPenaltyOrNonIns(p)) return false;
+      return true;
+    });
+
+    if (insProcs.length === 0 && invoiceProcs.length > 0) {
+      throw new BadRequestError('Cannot create an insurance claim for an invoice containing only patient penalties or non-insurable items');
+    }
 
     let insPayEst = Number(invoice.InsEst || invoiceMeta.insurancePortion || 0);
     let patientResponsibility = Number(invoiceMeta.patientPortion || 0);
@@ -1220,8 +1255,8 @@ export class ClaimService {
       if (proc.BillingNote) {
         try {
           const bn = JSON.parse(proc.BillingNote);
-          if (bn.insPortion !== undefined || bn.ptPortion !== undefined) {
-            sumIns += Number(bn.insPortion || 0);
+          if (bn.insPortion !== undefined || bn.ptPortion !== undefined || bn.secondaryInsPortion !== undefined) {
+            sumIns += isSecondary ? Number(bn.secondaryInsPortion || 0) : Number(bn.insPortion || 0);
             sumPt += Number(bn.ptPortion || 0);
             hasPortions = true;
           }
@@ -1243,24 +1278,28 @@ export class ClaimService {
         };
       });
       const enriched = await invoiceService.calculateInsuranceEstimates(invoice.PatNum, simulated);
-      insPayEst = enriched.reduce((sum: number, item: any) => sum + (Number(item.insPortion) || 0), 0);
+      insPayEst = enriched.reduce((sum: number, item: any) => sum + (isSecondary ? Number(item.secondaryInsPortion || 0) : Number(item.insPortion || 0)), 0);
       patientResponsibility = enriched.reduce((sum: number, item: any) => sum + (Number(item.ptPortion) || 0), 0);
     }
 
-    if (!patientResponsibility && claimAmount > insPayEst && insPayEst > 0) {
+    const claimAmount = isSecondary
+      ? (insPayEst > 0 ? insPayEst : Number(data.claimAmount ?? data.submittedAmount ?? 0))
+      : (insPayEst > 0 ? insPayEst : (Number(data.claimAmount ?? data.submittedAmount ?? invoice.BalTotal) || 0));
+
+    if (!isSecondary && !patientResponsibility && claimAmount > insPayEst && insPayEst > 0) {
       patientResponsibility = Math.max(0, claimAmount - insPayEst);
     }
 
     const claimMeta: ClaimMeta = {
       invoiceId,
-      insuranceCompanyId: data.insuranceCompanyId ?? invoiceMeta.insuranceCompanyId ?? undefined,
-      insuranceType: data.insuranceType ?? 'primary',
+      insuranceCompanyId: data.insuranceCompanyId ?? (isSecondary ? invoiceMeta.secondaryInsuranceCompanyId : invoiceMeta.insuranceCompanyId) ?? undefined,
+      insuranceType: isSecondary ? 'secondary' : (data.insuranceType ?? 'primary'),
       status,
       claimAmount,
       submittedAmount: insPayEst > 0 ? insPayEst : Number(data.submittedAmount ?? claimAmount) || claimAmount,
-      totalAmount: claimAmount,
+      totalAmount: isSecondary ? (Number(data.claimAmount ?? data.submittedAmount ?? invoice.BalTotal) || claimAmount) : claimAmount,
       paidAmount: 0,
-      patientResponsibility,
+      patientResponsibility: isSecondary ? 0 : patientResponsibility,
       policyNumber: data.policyNumber,
       notes: data.notes,
     };
@@ -1270,7 +1309,7 @@ export class ClaimService {
     const patPlan = invoice.PatNum ? await prisma.patplan.findFirst({
       where: {
         PatNum: invoice.PatNum,
-        Ordinal: 1,
+        Ordinal: isSecondary ? 2 : 1,
         OR: [{ IsPending: 0 }, { IsPending: null }],
       },
       include: { inssub: true }
@@ -1315,13 +1354,13 @@ export class ClaimService {
         InsSubNum: patPlan?.InsSubNum ?? null,
         ProvTreat: treatingProv ?? null,
         ProvBill: billingProv ?? null,
-        ClaimType: data.insuranceType ?? 'Primary',
+        ClaimType: isSecondary ? 'Secondary' : (data.insuranceType ?? 'Primary'),
         ClaimStatus: claimStatusToCode(status),
         DateService: new Date(),
         ClaimFee: claimAmount,
         InsPayEst: insPayEst > 0 ? insPayEst : claimAmount,
         InsPayAmt: 0,
-        DedApplied: patientResponsibility,
+        DedApplied: isSecondary ? 0 : patientResponsibility,
         PreAuthString: claimNumber,
         PriorAuthorizationNumber: claimNumber,
         ClaimIdentifier: claimNumber,
@@ -1350,16 +1389,23 @@ export class ClaimService {
       });
 
       if (invoiceProcs.length > 0) {
+        const billableProcs = invoiceProcs.filter(proc => {
+          if (proc.NoBillIns === 1) return false;
+          const bn = parseJson<any>(proc.BillingNote);
+          if (isPatientPenaltyOrNonIns(bn) || isPatientPenaltyOrNonIns(proc)) return false;
+          return true;
+        });
+
         await Promise.all(
-          invoiceProcs.map(async (proc) => {
+          billableProcs.map(async (proc) => {
             const claimProcNum = await getNextId('claimproc', 'ClaimProcNum');
             let insPortion = 0;
             let ptPortion = 0;
             if (proc.BillingNote) {
               try {
                 const bn = JSON.parse(proc.BillingNote);
-                insPortion = Number(bn.insPortion || 0);
-                ptPortion = Number(bn.ptPortion || 0);
+                insPortion = isSecondary ? Number(bn.secondaryInsPortion || 0) : Number(bn.insPortion || 0);
+                ptPortion = isSecondary ? 0 : Number(bn.ptPortion || 0);
               } catch (e) { }
             }
             await prisma.claimproc.create({
@@ -1983,10 +2029,25 @@ export class ClaimService {
       }
     }
 
+    const invoiceId = primaryMeta.invoiceId;
+    let computedSecondaryAmount = 0;
+
+    if (invoiceId) {
+      const invoiceProcs = await prisma.procedurelog.findMany({
+        where: { StatementNum: BigInt(invoiceId) }
+      });
+      for (const proc of invoiceProcs) {
+        if (proc.BillingNote) {
+          const meta = parseJson<any>(proc.BillingNote);
+          computedSecondaryAmount += Number(meta.secondaryInsPortion || 0);
+        }
+      }
+    }
+
     const primaryFee = Number(primaryClaim.ClaimFee) || Number(primaryMeta.claimAmount) || 0;
     const primaryPaid = Number(primaryClaim.InsPayAmt) || Number(primaryMeta.paidAmount) || 0;
     const remainingBalance = Math.max(0, primaryFee - primaryPaid);
-    const secondaryAmount = remainingBalance > 0 ? remainingBalance : primaryFee;
+    const secondaryAmount = computedSecondaryAmount > 0 ? computedSecondaryAmount : (remainingBalance > 0 ? remainingBalance : primaryFee);
 
     const secondaryClaimNum = await getNextId('claim', 'ClaimNum');
     const claimIdentifier = await this.generateClaimNumber();
@@ -2002,7 +2063,7 @@ export class ClaimService {
       submittedAmount: secondaryAmount,
       totalAmount: primaryFee,
       paidAmount: 0,
-      patientResponsibility: remainingBalance,
+      patientResponsibility: 0,
       policyNumber: secondaryPolicyNumber ?? primaryMeta.policyNumber,
       notes: `Secondary claim generated from Primary Claim #${primaryClaim.ClaimNum}. Primary Paid: $${primaryPaid.toFixed(2)}`,
     };
@@ -2022,7 +2083,7 @@ export class ClaimService {
         ClaimFee: secondaryAmount,
         InsPayEst: secondaryAmount,
         InsPayAmt: 0,
-        DedApplied: remainingBalance,
+        DedApplied: 0,
         PreAuthString: claimIdentifier,
         PriorAuthorizationNumber: claimIdentifier,
         ClaimIdentifier: claimIdentifier,
@@ -2039,11 +2100,17 @@ export class ClaimService {
     // Copy primary claim procedures to secondary claimproc records
     const primaryClaimProcs = await prisma.claimproc.findMany({
       where: { ClaimNum: primaryClaim.ClaimNum },
+      include: { procedurelog: true },
     });
 
     if (primaryClaimProcs.length > 0) {
       for (const cp of primaryClaimProcs) {
         const nextCpNum = await getNextId('claimproc', 'ClaimProcNum');
+        const bn = cp.procedurelog?.BillingNote ? parseJson<any>(cp.procedurelog.BillingNote) : null;
+        const procSecAmount = bn?.secondaryInsPortion !== undefined && bn?.secondaryInsPortion !== null
+          ? Number(bn.secondaryInsPortion)
+          : (computedSecondaryAmount > 0 ? (computedSecondaryAmount / primaryClaimProcs.length) : secondaryAmount);
+
         await prisma.claimproc.create({
           data: {
             ClaimProcNum: nextCpNum,
@@ -2059,12 +2126,19 @@ export class ClaimService {
             DateEntry: new Date(),
             Status: 0,
             FeeBilled: cp.FeeBilled,
-            InsPayEst: secondaryAmount,
-            DedApplied: remainingBalance,
+            InsPayEst: procSecAmount,
+            DedApplied: 0,
             InsPayAmt: 0,
           },
         });
       }
+    }
+
+    if (invoiceId) {
+      try {
+        const { invoiceService } = await import('./invoice.service');
+        await invoiceService.recalculateInvoice(invoiceId);
+      } catch (e) {}
     }
 
     await this.createStatusHistoryEntry(
@@ -3416,13 +3490,22 @@ export class ClaimService {
     // The frontend sends PatPlanNum from /patients/:id/insurance, while claims
     // store PlanNum on the claim itself.
     const requestedInsuranceId = BigInt(data.insuranceId);
-    const patientPlan = await prisma.patplan.findFirst({
+    let patientPlan = await prisma.patplan.findFirst({
       where: {
         PatPlanNum: requestedInsuranceId,
         PatNum: BigInt(data.patientId),
       },
       include: { inssub: { select: { PlanNum: true } } },
     });
+    if (!patientPlan) {
+      patientPlan = await prisma.patplan.findFirst({
+        where: {
+          inssub: { PlanNum: requestedInsuranceId },
+          PatNum: BigInt(data.patientId),
+        },
+        include: { inssub: { select: { PlanNum: true } } },
+      });
+    }
     const insurancePlanNum = patientPlan?.inssub?.PlanNum ?? requestedInsuranceId;
     const insurance = await prisma.insplan.findUnique({
       where: { PlanNum: insurancePlanNum },
@@ -3430,6 +3513,12 @@ export class ClaimService {
     if (!insurance) {
       throw new NotFoundError('Insurance plan not found');
     }
+
+    const isSecondary =
+      String(data.claimType || '').toLowerCase() === 'secondary' ||
+      String((data as any).insuranceType || '').toLowerCase() === 'secondary' ||
+      patientPlan?.Ordinal === 2;
+    const insuranceType = isSecondary ? 'secondary' : 'primary';
 
     // 3. Verify treating provider exists
     const treatingProvider = await prisma.provider.findUnique({
@@ -3447,8 +3536,48 @@ export class ClaimService {
       throw new NotFoundError('Billing entity not found');
     }
 
+    // Pre-load procedure records to correctly resolve secondary or primary portions
+    const resolvedItems = await Promise.all(
+      (data.selectedItems || []).map(async (item: any) => {
+        let amt = Number(item.amount || item.insAmount || 0);
+        let ptAmt = Number(item.ptAmount || 0);
+        const procNum = toBigInt(item.itemId);
+        let procRecord = null;
+        if (procNum) {
+          procRecord = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
+        }
+        if (procRecord?.BillingNote) {
+          const bn = parseJson<any>(procRecord.BillingNote);
+          if (isSecondary) {
+            if (bn.secondaryInsPortion !== undefined && bn.secondaryInsPortion !== null) {
+              amt = Number(bn.secondaryInsPortion);
+            } else if (bn.insPortion !== undefined && procRecord.ProcFee) {
+              amt = Math.max(0, Number(procRecord.ProcFee) - Number(bn.writeoff || 0) - Number(bn.insPortion));
+            }
+            ptAmt = Number(bn.ptPortion || 0);
+          } else {
+            if (bn.primaryInsPortion !== undefined && bn.primaryInsPortion !== null) {
+              amt = Number(bn.primaryInsPortion);
+            } else if (bn.secondaryInsPortion && Number(bn.secondaryInsPortion) > 0 && Number(bn.insPortion) > Number(bn.secondaryInsPortion)) {
+              amt = Number(bn.insPortion) - Number(bn.secondaryInsPortion);
+            } else if (bn.insPortion !== undefined && bn.insPortion !== null) {
+              amt = Number(bn.insPortion);
+            }
+            ptAmt = Number(bn.ptPortion || 0);
+          }
+        }
+        return {
+          ...item,
+          amount: amt,
+          insAmount: amt,
+          ptAmount: ptAmt,
+          _procRecord: procRecord,
+        };
+      })
+    );
+
     // 5. Calculate total claim amount
-    const totalAmount = data.selectedItems.reduce(
+    const totalAmount = resolvedItems.reduce(
       (sum, item) => sum + item.amount,
       0
     );
@@ -3457,11 +3586,18 @@ export class ClaimService {
     const claimNum = await getNextId('claim', 'ClaimNum');
 
     // 7. Build claim meta with selected items and note
+    const cleanSelectedItems = resolvedItems.map(({ _procRecord, ...rest }) => rest);
     const claimMeta = {
-      selectedItems: data.selectedItems,
+      selectedItems: cleanSelectedItems,
+      insuranceType,
+      claimType: isSecondary ? 'Secondary' : (data.claimType || 'Manual'),
+      insuranceCompanyId: insurance.CarrierNum ? insurance.CarrierNum.toString() : undefined,
+      claimAmount: totalAmount,
+      submittedAmount: totalAmount,
+      totalAmount: resolvedItems.reduce((sum, item) => sum + (Number(item.fee) || item.amount), 0),
+      patientResponsibility: isSecondary ? 0 : resolvedItems.reduce((sum, item) => sum + (Number(item.ptAmount) || 0), 0),
       note: data.note || null,
       description: data.description || null,
-      claimType: data.claimType || 'Manual',
       createdBy: userId,
       createdAt: new Date().toISOString(),
     };
@@ -3476,7 +3612,8 @@ export class ClaimService {
         ProvTreat: BigInt(data.treatingProviderId),
         ProvBill: BigInt(data.billingEntityId),
         ClaimFee: totalAmount,
-        ClaimType: data.claimType || 'Manual',
+        InsPayEst: totalAmount,
+        ClaimType: isSecondary ? 'Secondary' : (data.claimType || 'Manual'),
         ClaimStatus: 'W',
         DateService: new Date(),
         DateSent: new Date(),
@@ -3488,12 +3625,10 @@ export class ClaimService {
     });
 
     // 8b. Create claimproc records for each selected item to link procedures to this claim
-    if (data.selectedItems && data.selectedItems.length > 0) {
+    if (resolvedItems.length > 0) {
       await Promise.all(
-        data.selectedItems.map(async (item) => {
-          const procNum = toBigInt(item.itemId);
-          if (!procNum) return;
-          const proc = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
+        resolvedItems.map(async (item) => {
+          const proc = item._procRecord || (item.itemId ? await prisma.procedurelog.findUnique({ where: { ProcNum: toBigInt(item.itemId)! } }) : null);
           if (!proc) return;
 
           const claimProcNum = await getNextId('claimproc', 'ClaimProcNum');
@@ -3519,6 +3654,17 @@ export class ClaimService {
           });
         })
       );
+    }
+
+    // Recalculate affected invoices
+    const affectedInvoiceIds = Array.from(new Set((data.selectedItems || []).map((i) => i.invoiceId).filter(Boolean)));
+    if (affectedInvoiceIds.length > 0) {
+      try {
+        const { invoiceService } = await import('./invoice.service');
+        for (const invId of affectedInvoiceIds) {
+          await invoiceService.recalculateInvoice(invId);
+        }
+      } catch (e) {}
     }
 
     // 9. Log activity

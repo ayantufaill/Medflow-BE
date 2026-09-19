@@ -31,20 +31,21 @@ type UpdateRequestMeta = {
   submittedAt?: string | null;
 };
 
-type PatientAuditMeta = {
-  type: 'patient_audit_event';
-  eventId: string;
-  patientId: string;
-  action: string;
-  source: 'office' | 'portal' | 'reconciliation' | 'system';
-  actorUserId?: string | null;
-  section: string;
-  oldValue?: unknown;
-  newValue?: unknown;
-  changedAt: string;
-};
+ type PatientAuditMeta = {
+   type: 'patient_audit_event';
+   eventId: string;
+   patientId: string;
+   appointmentId?: string | null;
+   action: string;
+   source: 'office' | 'portal' | 'reconciliation' | 'system';
+   actorUserId?: string | null;
+   section: string;
+   oldValue?: unknown;
+   newValue?: unknown;
+   changedAt: string;
+ };
 
-type CommunicationMeta = {
+ type CommunicationMeta = {
   type: 'patient_communication';
   communicationId: string;
   patientId: string;
@@ -641,16 +642,19 @@ export class PatientWorkspaceService {
       section: string;
       oldValue?: unknown;
       newValue?: unknown;
+      appointmentId?: string | null;
     }
   ) {
     const eventId = `pae-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     await createCommlogJson({
       patientId,
       userId: data.actorUserId ?? null,
+      appointmentId: data.appointmentId ?? null,
       payload: {
         type: 'patient_audit_event',
         eventId,
         patientId,
+        appointmentId: data.appointmentId ?? null,
         action: data.action,
         source: data.source,
         actorUserId: data.actorUserId ?? null,
@@ -679,6 +683,38 @@ export class PatientWorkspaceService {
       auditEvents: entries.map(({ meta }) => ({
         _id: meta.eventId,
         patientId,
+        action: meta.action,
+        source: meta.source,
+        section: meta.section,
+        oldValue: meta.oldValue ?? null,
+        newValue: meta.newValue ?? null,
+        changedAt: meta.changedAt,
+        actor: meta.actorUserId ? actorMap.get(meta.actorUserId) ?? { _id: meta.actorUserId } : null,
+      })),
+    };
+  }
+
+  async getAppointmentAuditHistory(appointmentId: string) {
+    const entries = await getCommlogJsonEntries<PatientAuditMeta>({
+      contains: '"type":"patient_audit_event"',
+    });
+    const filteredEntries = entries.filter((e) => {
+      const meta = e.meta as PatientAuditMeta;
+      if (!appointmentId) return true;
+      return meta.appointmentId === appointmentId;
+    });
+    const actorIds = uniq(
+      filteredEntries
+        .map(({ meta }) => meta.actorUserId)
+        .filter((value): value is string => Boolean(value))
+    );
+    const actorMap = await this.resolveActors(actorIds);
+
+    return {
+      auditEvents: filteredEntries.map(({ meta }) => ({
+        _id: meta.eventId,
+        patientId: meta.patientId,
+        appointmentId: meta.appointmentId ?? null,
         action: meta.action,
         source: meta.source,
         section: meta.section,

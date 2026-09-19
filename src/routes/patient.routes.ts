@@ -926,6 +926,62 @@ router.get('/:patientId/last-visit', requireRoles(...STAFF_READ_ROLES), validate
 
 /**
  * @swagger
+ * /patients/{patientId}/recare-due-dates:
+ *   get:
+ *     summary: Get calculated recare (recall) due dates per CDT code for a patient
+ *     description: Computes due dates based on patient's last completed CDT procedure, configured recall intervals, and offset days (e.g. 6mo + 1d for prophylaxis).
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *         example: 1
+ *       - in: query
+ *         name: procedures
+ *         required: false
+ *         schema: { type: string }
+ *         description: Comma-separated list of CDT procedure codes (e.g., D1110,D0120). Defaults to all active recare codes if omitted.
+ *         example: "D1110,D0120"
+ *     responses:
+ *       200:
+ *         description: Recare due dates calculated per CDT code
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 status: { type: string, example: "success" }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     patientId: { type: string, example: "1" }
+ *                     recareDueDates:
+ *                       type: object
+ *                       additionalProperties:
+ *                         type: object
+ *                         properties:
+ *                           code: { type: string, example: "D1110" }
+ *                           procedureName: { type: string, example: "Adult cleaning" }
+ *                           recallTypeNum: { type: string, example: "1" }
+ *                           recallTypeName: { type: string, example: "Adult Prophy" }
+ *                           intervalMonths: { type: integer, example: 6 }
+ *                           offsetDays: { type: integer, example: 1 }
+ *                           lastCompletedDate: { type: string, example: "2022-07-14", nullable: true }
+ *                           dueDate: { type: string, example: "2023-01-15", nullable: true }
+ *                           isOverdue: { type: boolean, example: true }
+ *                           isNeverCompleted: { type: boolean, example: false }
+ *       400: { description: Invalid patient ID }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
+router.get('/:patientId/recare-due-dates', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getPatientRecareDueDates.bind(patientController));
+
+/**
+ * @swagger
  * /patients/{patientId}/workspace:
  *   get:
  *     summary: Get patient workspace

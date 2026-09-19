@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { appointmentService } from '../services/appointment.service';
+import { patientWorkspaceService } from '../services/patient-workspace.service';
 import { logActivityFromRequest } from '../utils/activity-logger.util';
 
 export class AppointmentController {
@@ -715,6 +716,25 @@ export class AppointmentController {
     next(error);
   }
 }
+
+  public async getAppointmentAuditHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { appointmentId } = req.params;
+      if (!appointmentId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Appointment ID is required' },
+        });
+      }
+      const result = await patientWorkspaceService.getAppointmentAuditHistory(appointmentId);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 
   public async getDayTasks(req: Request, res: Response, next: NextFunction) {
     try {
