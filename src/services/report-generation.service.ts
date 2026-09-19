@@ -3,6 +3,12 @@ import { getPatientsMeta, PATIENT_META_FKEYTYPE } from '../utils/opendental-auth
 import { BadRequestError } from '../utils/error.util';
 
 export class ReportGenerationService {
+  private getProviderName(prov: any) {
+    if (!prov) return 'Unassigned';
+    const name = [prov.FName, prov.LName].filter(Boolean).join(' ');
+    return name || prov.Abbr || 'Unassigned';
+  }
+
   /**
    * Process and compile financial reports
    */
@@ -557,12 +563,131 @@ export class ReportGenerationService {
       include: { 
         patient: true,
         provider_procedurelog_ProvNumToprovider: true,
-        procedurecode_procedurelog_CodeNumToprocedurecode: true 
+        procedurecode_procedurelog_CodeNumToprocedurecode: true,
       }
     });
 
     const patNums = Array.from(new Set(procs.map(p => p.PatNum).filter(Boolean))) as bigint[];
     const metaMap = await getPatientsMeta(patNums);
+
+    // Build a set of StatementNums from the procedures in range
+    const statementNumSet = new Set<string>();
+    for (const p of procs) {
+      if (p.StatementNum) statementNumSet.add(p.StatementNum.toString());
+    }
+
+    // Build a map: StatementNum -> total fee across ALL procedures in that statement
+    // (needed for prorating invoice-level payments across procedures)
+    const statementNums = Array.from(new Set(procs.map(p => p.StatementNum).filter(Boolean))) as bigint[];
+    const allProcsInStatements = statementNums.length > 0 ? await prisma.procedurelog.findMany({
+      where: { StatementNum: { in: statementNums } }
+    }) : [];
+
+    const statementTotals = new Map<string, number>();
+    for (const sp of allProcsInStatements) {
+      if (sp.StatementNum) {
+        const stmtStr = sp.StatementNum.toString();
+        statementTotals.set(stmtStr, (statementTotals.get(stmtStr) || 0) + (sp.ProcFee || 0));
+      }
+    }
+
+    // Fetch all payments, adjustments, and claimprocs for these patients
+    const [patientPayments, patientAdjustments, patientClaimProcs] = await Promise.all([
+      prisma.payment.findMany({
+        where: { PatNum: { in: patNums } },
+        include: { paysplit: true }
+      }),
+      prisma.adjustment.findMany({
+        where: { PatNum: { in: patNums } }
+      }),
+      prisma.claimproc.findMany({
+        where: { PatNum: { in: patNums } }
+      })
+    ]);
+
+    // ── ClaimProcs: group by ProcNum ──
+    const claimsByProc = new Map<string, any[]>();
+    for (const cp of patientClaimProcs) {
+      if (cp.ProcNum) {
+        const key = cp.ProcNum.toString();
+        if (!claimsByProc.has(key)) claimsByProc.set(key, []);
+        claimsByProc.get(key)!.push(cp);
+      }
+    }
+
+    // ── Adjustments: group by ProcNum (direct), StatementNum, or AdjNote invoice ref ──
+    const adjsByProc = new Map<string, any[]>();
+    const adjsByStatement = new Map<string, any[]>();
+    for (const adj of patientAdjustments) {
+      if (adj.ProcNum) {
+        const key = adj.ProcNum.toString();
+        if (!adjsByProc.has(key)) adjsByProc.set(key, []);
+        adjsByProc.get(key)!.push(adj);
+      } else if (adj.StatementNum) {
+        const key = adj.StatementNum.toString();
+        if (!adjsByStatement.has(key)) adjsByStatement.set(key, []);
+        adjsByStatement.get(key)!.push(adj);
+      } else if (adj.AdjNote) {
+        // Billing page matches adjustments by checking notes for "Invoice #<id>"
+        const noteMatch = String(adj.AdjNote).match(/Invoice\s*#(\d+)/i);
+        if (noteMatch) {
+          const invId = noteMatch[1];
+          if (!adjsByStatement.has(invId)) adjsByStatement.set(invId, []);
+          adjsByStatement.get(invId)!.push(adj);
+        }
+      }
+    }
+
+    // ── Payments: parse PayNote JSON to get invoiceId, then map to StatementNum ──
+    // Group payments into:
+    //   (a) directPaysplits: paysplit.ProcNum is set → directly linked to a procedure
+    //   (b) invoicePaymentsByStmt: payment.PayNote.invoiceId → maps to StatementNum
+    //   (c) For payments with NO paysplits at all, use PayAmt and invoiceId
+    const directPaysplits = new Map<string, any[]>();
+
+    type InvoicePaymentEntry = { amount: number; isInsurance: boolean };
+    const invoicePaymentsByStmt = new Map<string, InvoicePaymentEntry[]>();
+
+    for (const pay of patientPayments) {
+      // Parse PayNote to extract invoiceId and paymentSource
+      let invoiceId: string | null = null;
+      let isInsurance = false;
+      try {
+        const note = JSON.parse(pay.PayNote || '{}');
+        if (note.invoiceId) invoiceId = String(note.invoiceId);
+        if (note.paymentSource === 'insurance_company' || note.method === 'insurance') {
+          isInsurance = true;
+        }
+        // Check for voided status from PayNote
+        if (note.status === 'void' || note.status === 'voided') continue;
+      } catch(e) {}
+
+      const hasPaysplits = pay.paysplit && pay.paysplit.length > 0;
+
+      if (hasPaysplits) {
+        // Process each paysplit
+        let unallocatedAmount = 0;
+        for (const ps of pay.paysplit) {
+          if (ps.ProcNum) {
+            // Directly linked to a procedure
+            const key = ps.ProcNum.toString();
+            if (!directPaysplits.has(key)) directPaysplits.set(key, []);
+            directPaysplits.get(key)!.push({ ...ps, _isInsurance: isInsurance });
+          } else {
+            unallocatedAmount += (ps.SplitAmt || 0);
+          }
+        }
+        // If there are unallocated paysplits and we have an invoiceId, map to statement
+        if (invoiceId && unallocatedAmount !== 0) {
+          if (!invoicePaymentsByStmt.has(invoiceId)) invoicePaymentsByStmt.set(invoiceId, []);
+          invoicePaymentsByStmt.get(invoiceId)!.push({ amount: unallocatedAmount, isInsurance });
+        }
+      } else if (invoiceId && pay.PayAmt) {
+        // Payment has NO paysplits at all — use PayAmt directly and map via invoiceId
+        if (!invoicePaymentsByStmt.has(invoiceId)) invoicePaymentsByStmt.set(invoiceId, []);
+        invoicePaymentsByStmt.get(invoiceId)!.push({ amount: Number(pay.PayAmt), isInsurance });
+      }
+    }
 
     return procs.map(p => {
       const patNumStr = p.PatNum?.toString() || '';
@@ -575,6 +700,92 @@ export class ReportGenerationService {
         dobStr = new Date(p.patient.Birthdate).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' });
       }
 
+      let adj = 0;
+      let actualWriteOff = 0;
+      let ptPay = 0;
+      let insPay = 0;
+      let ptRefund = 0;
+      let insRefund = 0;
+
+      const procStr = p.ProcNum.toString();
+      const procFee = p.ProcFee || 0;
+
+      // ── 1. Insurance Claims (direct by ProcNum) ──
+      const myClaims = claimsByProc.get(procStr) || [];
+      for (const cp of myClaims) {
+        const payAmt = Number(cp.InsPayAmt || 0);
+        const woAmt = Number(cp.WriteOff || 0);
+        if (payAmt < 0) insRefund += Math.abs(payAmt);
+        else if (payAmt > 0) insPay += payAmt;
+        if (woAmt > 0) actualWriteOff += woAmt;
+      }
+
+      // ── 2. Adjustments (direct by ProcNum) ──
+      const myDirectAdjs = adjsByProc.get(procStr) || [];
+      for (const a of myDirectAdjs) {
+        const amt = Number(a.AdjAmt || 0);
+        if (amt < 0) actualWriteOff += Math.abs(amt);
+        else if (amt > 0) adj += amt;
+      }
+
+      // ── 3. Patient Payments (direct paysplits by ProcNum) ──
+      const myDirectPays = directPaysplits.get(procStr) || [];
+      for (const ps of myDirectPays) {
+        const amt = Number(ps.SplitAmt || 0);
+        if (ps._isInsurance) {
+          if (amt < 0) insRefund += Math.abs(amt);
+          else if (amt > 0) insPay += amt;
+        } else {
+          if (amt < 0) ptRefund += Math.abs(amt);
+          else if (amt > 0) ptPay += amt;
+        }
+      }
+
+      // ── 4. Invoice-level payments & adjustments (prorated via StatementNum) ──
+      if (p.StatementNum) {
+        const stmtStr = p.StatementNum.toString();
+        const invoiceTotal = statementTotals.get(stmtStr) || 0;
+        const ratio = invoiceTotal > 0 ? (procFee / invoiceTotal) : 0;
+
+        // Prorated adjustments
+        const myInvoiceAdjs = adjsByStatement.get(stmtStr) || [];
+        for (const a of myInvoiceAdjs) {
+          const allocated = Number(a.AdjAmt || 0) * ratio;
+          if (allocated < 0) actualWriteOff += Math.abs(allocated);
+          else if (allocated > 0) adj += allocated;
+        }
+
+        // Prorated payments (with insurance/patient differentiation)
+        const myInvoicePays = invoicePaymentsByStmt.get(stmtStr) || [];
+        for (const entry of myInvoicePays) {
+          const allocated = entry.amount * ratio;
+          if (entry.isInsurance) {
+            if (allocated < 0) insRefund += Math.abs(allocated);
+            else if (allocated > 0) insPay += allocated;
+          } else {
+            if (allocated < 0) ptRefund += Math.abs(allocated);
+            else if (allocated > 0) ptPay += allocated;
+          }
+        }
+      }
+
+      let parsedEstWriteOff = 0;
+      let parsedInsPortion = 0;
+      let parsedPtPortion = 0;
+      try {
+        if (p.BillingNote) {
+          const bn = JSON.parse(p.BillingNote);
+          parsedEstWriteOff = Number(bn.writeoff || 0);
+          parsedInsPortion = Number(bn.insPortion || 0);
+          parsedPtPortion = Number(bn.ptPortion || 0);
+        }
+      } catch (e) {}
+
+      // Add the estimated portions from the invoice popup to the payment columns
+      // as requested by the user, so they show up on the production report.
+      insPay += parsedInsPortion;
+      ptPay += parsedPtPortion;
+
       return {
         procedureId: p.ProcNum.toString(),
         date: p.ProcDate?.toISOString() || '',
@@ -584,8 +795,20 @@ export class ReportGenerationService {
         code: p.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || p.OldCode || 'Unknown Code',
         procedure: p.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || 'Unknown Procedure',
         providerId: p.ProvNum ? p.ProvNum.toString() : '',
-        provider: p.provider_procedurelog_ProvNumToprovider?.Abbr || p.provider_procedurelog_ProvNumToprovider?.FName || 'Unknown Provider',
-        fee: p.ProcFee || 0
+        provider: this.getProviderName(p.provider_procedurelog_ProvNumToprovider),
+        fee: procFee,
+        adj: Math.round(adj * 100) / 100,
+        actualWriteOff: Math.round(actualWriteOff * 100) / 100,
+        ptPay: Math.round(ptPay * 100) / 100,
+        insPay: Math.round(insPay * 100) / 100,
+        ptRefund: Math.round(ptRefund * 100) / 100,
+        insRefund: Math.round(insRefund * 100) / 100,
+        estWriteOff: Math.round(parsedEstWriteOff * 100) / 100,
+        collectionAdj: 0,
+        payFromCredit: 0,
+        refundToCredit: 0,
+        credit: 0,
+        overpaymentToCredit: 0
       };
     });
   }
@@ -606,12 +829,27 @@ export class ReportGenerationService {
 
     for (const p of procs) {
       if (p.PatNum) patNums.add(p.PatNum);
-      const providerStr = p.provider_procedurelog_ProvNumToprovider?.Abbr || p.provider_procedurelog_ProvNumToprovider?.FName || 'MF';
+      const providerStr = this.getProviderName(p.provider_procedurelog_ProvNumToprovider);
+      
+      let parsedEstWriteOff = 0;
+      let parsedInsPortion = 0;
+      let parsedPtPortion = 0;
+      try {
+        if (p.BillingNote) {
+          const bn = JSON.parse(p.BillingNote);
+          parsedEstWriteOff = Number(bn.writeoff || 0);
+          parsedInsPortion = Number(bn.insPortion || 0);
+          parsedPtPortion = Number(bn.ptPortion || 0);
+        }
+      } catch (e) {}
+
       records.push({
         type: 'production',
         procedureId: p.ProcNum.toString(),
         dateRaw: p.ProcDate,
         date: p.ProcDate?.toISOString() || '',
+        dosRaw: p.ProcDate,
+        dos: p.ProcDate?.toISOString() || null,
         patNumStr: p.PatNum?.toString() || '',
         patient: p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Unknown Patient',
         dobRaw: p.patient?.Birthdate,
@@ -622,6 +860,9 @@ export class ReportGenerationService {
         render: providerStr,
         bill: providerStr,
         charge: p.ProcFee || 0,
+        estWriteOff: parsedEstWriteOff,
+        ins: parsedInsPortion,
+        pt: parsedPtPortion,
         paymentType: 'Production'
       });
     }
@@ -640,13 +881,15 @@ export class ReportGenerationService {
 
     for (const a of adjs) {
       if (a.PatNum) patNums.add(a.PatNum);
-      const providerStr = a.provider?.Abbr || a.provider?.FName || 'MF';
+      const providerStr = this.getProviderName(a.provider);
       const isWriteOff = a.AdjAmt && a.AdjAmt < 0; 
       records.push({
         type: 'adjustment',
         procedureId: a.AdjNum.toString(),
         dateRaw: a.AdjDate,
         date: a.AdjDate?.toISOString() || '',
+        dosRaw: a.ProcDate,
+        dos: a.ProcDate?.toISOString() || null,
         patNumStr: a.PatNum?.toString() || '',
         patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Unknown Patient',
         dobRaw: a.patient?.Birthdate,
@@ -662,7 +905,7 @@ export class ReportGenerationService {
       });
     }
 
-    // 3. Fetch Patient Payments (paysplit)
+    // 3. Fetch Patient Payments — both via paysplit and via payment (for payments with no paysplits)
     const pays = await prisma.paysplit.findMany({
       where: { DatePay: { gte: start, lte: end } },
       include: {
@@ -673,13 +916,15 @@ export class ReportGenerationService {
 
     for (const p of pays) {
       if (p.PatNum) patNums.add(p.PatNum);
-      const providerStr = p.provider?.Abbr || p.provider?.FName || 'MF';
+      const providerStr = this.getProviderName(p.provider);
       const isRefund = p.SplitAmt && p.SplitAmt < 0;
       records.push({
         type: 'ptPay',
         procedureId: p.SplitNum.toString(),
         dateRaw: p.DatePay,
         date: p.DatePay?.toISOString() || '',
+        dosRaw: p.ProcDate,
+        dos: p.ProcDate?.toISOString() || null,
         patNumStr: p.PatNum?.toString() || '',
         patient: p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Unknown Patient',
         dobRaw: p.patient?.Birthdate,
@@ -695,6 +940,75 @@ export class ReportGenerationService {
       });
     }
 
+    // 3b. Also fetch payments that have NO paysplits but do have a PayNote with invoiceId
+    const paymentsWithoutSplits = await prisma.payment.findMany({
+      where: { PayDate: { gte: start, lte: end } },
+      include: { patient: true, paysplit: true }
+    });
+
+    for (const pay of paymentsWithoutSplits) {
+      if (pay.paysplit && pay.paysplit.length > 0) continue; // already handled above
+      if (!pay.PayAmt || pay.PayAmt === 0) continue;
+
+      let isInsurance = false;
+      try {
+        const note = JSON.parse(pay.PayNote || '{}');
+        if (note.paymentSource === 'insurance_company' || note.method === 'insurance') {
+          isInsurance = true;
+        }
+        if (note.status === 'void' || note.status === 'voided') continue;
+      } catch(e) {}
+
+      if (pay.PatNum) patNums.add(pay.PatNum);
+      const payAmt = Number(pay.PayAmt);
+      const isRefund = payAmt < 0;
+
+      if (isInsurance) {
+        records.push({
+          type: 'insPay',
+          procedureId: pay.PayNum.toString(),
+          dateRaw: pay.PayDate,
+          date: pay.PayDate?.toISOString() || '',
+          dosRaw: null,
+          dos: null,
+          patNumStr: pay.PatNum?.toString() || '',
+          patient: pay.patient ? `${pay.patient.FName} ${pay.patient.LName}` : 'Unknown Patient',
+          dobRaw: pay.patient?.Birthdate,
+          code: 'InsPay',
+          procedure: isRefund ? 'Insurance Refund' : 'Insurance Payment',
+          providerId: '',
+          provider: 'Unassigned',
+          render: 'Unassigned',
+          bill: 'Unassigned',
+          ins: isRefund ? 0 : payAmt,
+          insRef: isRefund ? Math.abs(payAmt) : 0,
+          actual: 0,
+          paymentType: 'Insurance'
+        });
+      } else {
+        records.push({
+          type: 'ptPay',
+          procedureId: pay.PayNum.toString(),
+          dateRaw: pay.PayDate,
+          date: pay.PayDate?.toISOString() || '',
+          dosRaw: null,
+          dos: null,
+          patNumStr: pay.PatNum?.toString() || '',
+          patient: pay.patient ? `${pay.patient.FName} ${pay.patient.LName}` : 'Unknown Patient',
+          dobRaw: pay.patient?.Birthdate,
+          code: 'PtPay',
+          procedure: isRefund ? 'Patient Refund' : 'Patient Payment',
+          providerId: '',
+          provider: 'Unassigned',
+          render: 'Unassigned',
+          bill: 'Unassigned',
+          pt: isRefund ? 0 : payAmt,
+          ptRef: isRefund ? Math.abs(payAmt) : 0,
+          paymentType: 'Payment'
+        });
+      }
+    }
+
     // 4. Fetch Insurance Payments (claimproc)
     const claims = await prisma.claimproc.findMany({
       where: { DateCP: { gte: start, lte: end }, Status: { in: [1, 4] } },
@@ -706,13 +1020,15 @@ export class ReportGenerationService {
 
     for (const c of claims) {
       if (c.PatNum) patNums.add(c.PatNum);
-      const providerStr = c.provider?.Abbr || c.provider?.FName || 'MF';
+      const providerStr = this.getProviderName(c.provider);
       const isRefund = c.InsPayAmt && c.InsPayAmt < 0;
       records.push({
         type: 'insPay',
         procedureId: c.ClaimProcNum.toString(),
         dateRaw: c.DateCP,
         date: c.DateCP?.toISOString() || '',
+        dosRaw: c.ProcDate,
+        dos: c.ProcDate?.toISOString() || null,
         patNumStr: c.PatNum?.toString() || '',
         patient: c.patient ? `${c.patient.FName} ${c.patient.LName}` : 'Unknown Patient',
         dobRaw: c.patient?.Birthdate,
@@ -741,6 +1057,7 @@ export class ReportGenerationService {
     return records.map(r => {
       const meta = metaMap[r.patNumStr] || {};
       let flags = Array.isArray(meta.patientFlags) ? meta.patientFlags : [];
+      flags = flags.map((f: any) => (f && typeof f === 'object' && f.id) ? f.id : f);
       flags = flags.filter((f: any) => f && (typeof f === 'string' ? f.trim() !== '' : true));
       
       let dobStr = '-';
@@ -752,6 +1069,7 @@ export class ReportGenerationService {
         ...r,
         flags,
         dob: dobStr,
+        dosRaw: undefined,
         dateRaw: undefined,
         patNumStr: undefined,
         dobRaw: undefined
@@ -768,7 +1086,12 @@ export class ReportGenerationService {
       include: {
         patient: true,
         provider: true,
-        procedurelog: true,
+        procedurelog: {
+          include: {
+            procedurecode_procedurelog_CodeNumToprocedurecode: true,
+            provider_procedurelog_ProvNumToprovider: true
+          }
+        },
         payment: {
           include: {
             definition: true
@@ -787,7 +1110,12 @@ export class ReportGenerationService {
       include: {
         patient: true,
         provider: true,
-        procedurelog: true,
+        procedurelog: {
+          include: {
+            procedurecode_procedurelog_CodeNumToprocedurecode: true,
+            provider_procedurelog_ProvNumToprovider: true
+          }
+        },
         claimpayment: true
       },
       take: 50
@@ -801,24 +1129,39 @@ export class ReportGenerationService {
       include: {
         patient: true,
         provider: true,
-        procedurelog: true
+        procedurelog: {
+          include: {
+            procedurecode_procedurelog_CodeNumToprocedurecode: true,
+            provider_procedurelog_ProvNumToprovider: true
+          }
+        }
       },
       take: 50
     });
 
+    const patNums = new Set<bigint>();
+    for (const ps of paySplits) if (ps.PatNum) patNums.add(ps.PatNum);
+    for (const cp of claimProcs) if (cp.PatNum) patNums.add(cp.PatNum);
+    for (const adj of adjustments) if (adj.PatNum) patNums.add(adj.PatNum);
+
+    const metaMap = await getPatientsMeta(Array.from(patNums));
+
     const records: any[] = [];
 
-    // Helper to format provider name/initials
-    const getInitials = (prov: any) => {
-      if (!prov) return 'MF';
-      if (prov.Abbr) return prov.Abbr.trim();
-      const f = prov.FName ? prov.FName.trim() : '';
-      const l = prov.LName ? prov.LName.trim() : '';
-      if (f && l) {
-        return (f[0] + l.substring(0, 2)).toUpperCase();
-      }
-      return (f ? f.substring(0, 3) : 'MF').toUpperCase();
+    // Helper to extract real flags - send full objects with color info
+    const getFlags = (patNum: any) => {
+      if (!patNum) return [];
+      const meta = metaMap[patNum.toString()] || {};
+      let flags = Array.isArray(meta.patientFlags) ? meta.patientFlags : [];
+      return flags.filter((f: any) => {
+        if (!f) return false;
+        if (typeof f === 'string') return f.trim() !== '';
+        if (typeof f === 'object' && f.id) return true;
+        return false;
+      });
     };
+
+
 
     // Helper to map definition/PayType to paymentType string
     const getPaymentType = (ps: any) => {
@@ -830,16 +1173,30 @@ export class ReportGenerationService {
 
     // Process patient payments
     for (const ps of paySplits) {
+      let isInsurance = false;
+      try {
+        if (ps.payment?.PayNote) {
+          const note = JSON.parse(ps.payment.PayNote);
+          if (note.paymentSource === 'insurance_company' || note.method === 'insurance') {
+            isInsurance = true;
+          }
+        }
+      } catch (e) {}
+
+      // If it's an insurance payment, skip it because the claimproc loop handles it
+      if (isInsurance) continue;
+
       const splitAmt = ps.SplitAmt ?? 0;
       const isRefund = splitAmt < 0;
       records.push({
         date: ps.DatePay?.toLocaleDateString() || ps.DateEntry?.toLocaleDateString() || '',
-        flags: splitAmt > 1000 ? ['#e11d48'] : splitAmt > 200 ? ['#4a90e2'] : ['#f5a623'],
+        flags: getFlags(ps.PatNum),
         patient: ps.patient ? `${ps.patient.FName} ${ps.patient.LName}` : 'Patient',
-        code: ps.procedurelog?.OldCode || 'D0120',
-        procedure: ps.procedurelog?.Surf || 'hygiene',
-        render: getInitials(ps.provider),
-        bill: getInitials(ps.provider),
+        code: ps.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || ps.procedurelog?.OldCode || 'D0120',
+        procedure: ps.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || ps.procedurelog?.Surf || 'hygiene',
+        providerId: (ps.provider || ps.procedurelog?.provider_procedurelog_ProvNumToprovider) ? (ps.provider?.ProvNum || ps.procedurelog?.provider_procedurelog_ProvNumToprovider?.ProvNum || '').toString() : '',
+        render: this.getProviderName(ps.provider || ps.procedurelog?.provider_procedurelog_ProvNumToprovider),
+        bill: this.getProviderName(ps.provider || ps.procedurelog?.provider_procedurelog_ProvNumToprovider),
         ins: 0,
         pt: isRefund ? 0 : splitAmt,
         actual: 0,
@@ -861,12 +1218,13 @@ export class ReportGenerationService {
       const isRefund = insPay < 0;
       records.push({
         date: cp.DateCP?.toLocaleDateString() || cp.DateCP?.toLocaleDateString() || '',
-        flags: insPay > 1000 ? ['#e11d48'] : insPay > 200 ? ['#4a90e2'] : ['#f5a623'],
+        flags: getFlags(cp.PatNum),
         patient: cp.patient ? `${cp.patient.FName} ${cp.patient.LName}` : 'Patient',
-        code: cp.procedurelog?.OldCode || 'D0120',
-        procedure: cp.procedurelog?.Surf || 'hygiene',
-        render: getInitials(cp.provider),
-        bill: getInitials(cp.provider),
+        code: cp.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || cp.procedurelog?.OldCode || 'D0120',
+        procedure: cp.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || cp.procedurelog?.Surf || 'hygiene',
+        providerId: cp.provider ? cp.provider.ProvNum.toString() : '',
+        render: this.getProviderName(cp.provider),
+        bill: this.getProviderName(cp.provider),
         ins: isRefund ? 0 : insPay,
         pt: 0,
         actual: writeOff,
@@ -885,12 +1243,13 @@ export class ReportGenerationService {
       if (amount === 0) continue;
       records.push({
         date: adj.AdjDate?.toLocaleDateString() || adj.DateEntry?.toLocaleDateString() || '',
-        flags: ['#4a90e2'],
+        flags: getFlags(adj.PatNum),
         patient: adj.patient ? `${adj.patient.FName} ${adj.patient.LName}` : 'Patient',
-        code: adj.procedurelog?.OldCode || 'D0120',
-        procedure: adj.procedurelog?.Surf || 'Adjustment',
-        render: getInitials(adj.provider),
-        bill: getInitials(adj.provider),
+        code: adj.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || adj.procedurelog?.OldCode || 'D0120',
+        procedure: adj.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || adj.procedurelog?.Surf || 'Adjustment',
+        providerId: adj.provider ? adj.provider.ProvNum.toString() : '',
+        render: this.getProviderName(adj.provider),
+        bill: this.getProviderName(adj.provider),
         ins: 0,
         pt: 0,
         actual: 0,
@@ -903,84 +1262,7 @@ export class ReportGenerationService {
       });
     }
 
-    // If no real records found, return realistic default data for visualization
-    if (records.length === 0) {
-      const dateStr = start.toLocaleDateString();
-      return [
-        {
-          date: dateStr,
-          flags: ['#f5a623'],
-          patient: 'Francis Fuller',
-          code: 'D0274',
-          procedure: 'BW4',
-          render: 'SAB',
-          bill: 'SAB',
-          ins: 0,
-          pt: 150.00,
-          actual: 0,
-          adj: 0,
-          ptRef: 0,
-          insRef: 0,
-          payFrom: 0,
-          newCredit: 0,
-          paymentType: 'Credit Card'
-        },
-        {
-          date: dateStr,
-          flags: ['#f5a623'],
-          patient: 'Garry Gilmore',
-          code: 'D1110',
-          procedure: 'hygiene',
-          render: 'SAB',
-          bill: 'SAB',
-          ins: 0,
-          pt: 120.00,
-          actual: 0,
-          adj: 0,
-          ptRef: 0,
-          insRef: 0,
-          payFrom: 0,
-          newCredit: 0,
-          paymentType: 'Check'
-        },
-        {
-          date: dateStr,
-          flags: ['#f5a623', '#4a90e2', '#e11d48'],
-          patient: 'Francis Fuller',
-          code: 'D2740',
-          procedure: '19 porc Cr',
-          render: 'SAB',
-          bill: 'SAB',
-          ins: 470.00,
-          pt: 0,
-          actual: 100.00,
-          adj: 0,
-          ptRef: 0,
-          insRef: 0,
-          payFrom: 0,
-          newCredit: 0,
-          paymentType: 'Insurance'
-        },
-        {
-          date: dateStr,
-          flags: ['#4a90e2'],
-          patient: 'Zoe Niblock',
-          code: 'D0120',
-          procedure: 'Periodic Exam',
-          render: 'NIB',
-          bill: 'NIB',
-          ins: 0,
-          pt: 80.00,
-          actual: 0,
-          adj: -10.00,
-          ptRef: 0,
-          insRef: 0,
-          payFrom: 0,
-          newCredit: 0,
-          paymentType: 'Credit Card'
-        }
-      ];
-    }
+
 
     return records;
   }
