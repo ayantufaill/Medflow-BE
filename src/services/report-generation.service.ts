@@ -35,7 +35,7 @@ export class ReportGenerationService {
         return this.getProviderCollectionPaymentType(startDate, endDate);
 
       case 'production-per-code':
-        return this.getProductionPerCode(startDate, endDate);
+        return this.getProductionPerCode(startDate, endDate, query);
 
       case 'collection-code-carrier':
         return this.getCollectionCodeCarrier(startDate, endDate);
@@ -1267,36 +1267,214 @@ export class ReportGenerationService {
     return records;
   }
 
-  private async getProductionPerCode(start: Date, end: Date) {
-    const procs = await prisma.procedurelog.findMany({
-      where: { ProcDate: { gte: start, lte: end }, ProcStatus: 2 },
-      take: 50
-    });
+  private async getProductionPerCode(start: Date, end: Date, query: any = {}) {
+    const where: any = { ProcDate: { gte: start, lte: end }, ProcStatus: 2 };
 
-    const groups: Record<string, { code: string; count: number; totalFee: number }> = {};
-    for (const p of procs) {
-      const code = p.OldCode || 'D0120';
-      if (!groups[code]) {
-        groups[code] = { code, count: 0, totalFee: 0 };
+    // Provider filter
+    if (query.provider && query.provider !== 'all') {
+      const provNum = Number(query.provider);
+      if (!isNaN(provNum)) {
+        where.ProvNum = provNum;
       }
-      groups[code].count++;
-      groups[code].totalFee += p.ProcFee ?? 0;
     }
 
-    return Object.values(groups);
+    // Referral provider filter
+    if (query.referralProvider && query.referralProvider !== 'all') {
+      const refNum = Number(query.referralProvider);
+      if (!isNaN(refNum)) {
+        where.OrderingReferralNum = refNum;
+      }
+    }
+
+    const showCollection = query.showCollection === 'true' || query.showCollection === true;
+
+    const procs = await prisma.procedurelog.findMany({
+      where,
+      include: {
+        procedurecode_procedurelog_CodeNumToprocedurecode: true,
+        provider_procedurelog_ProvNumToprovider: true,
+        ...(showCollection && {
+          claimproc: true,
+          paysplit: true
+        })
+      }
+    });
+
+    const groupByProvider = query.groupBy === 'provider';
+
+    // Build groups keyed by code (and optionally by provider)
+    const groups: Record<string, {
+      code: string;
+      procedure: string;
+      quantity: number;
+      totalProduction: number;
+      totalCollection?: number;
+      providerName?: string;
+      providerId?: string;
+    }> = {};
+
+    for (const p of procs) {
+      const procCode = p.procedurecode_procedurelog_CodeNumToprocedurecode;
+      const code = procCode?.ProcCode || p.OldCode || 'Unknown';
+      const procedure = procCode?.Descript || code;
+      const providerObj = p.provider_procedurelog_ProvNumToprovider;
+      const providerName = this.getProviderName(providerObj);
+      const providerId = p.ProvNum ? p.ProvNum.toString() : '';
+
+      const groupKey = groupByProvider ? `${providerId}::${code}` : code;
+
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          code,
+          procedure,
+          quantity: 0,
+          totalProduction: 0,
+          ...(showCollection ? { totalCollection: 0 } : {}),
+          ...(groupByProvider ? { providerName, providerId } : {})
+        };
+      }
+      
+      let procCollection = 0;
+      if (showCollection) {
+        if (p.claimproc && Array.isArray(p.claimproc)) {
+          procCollection += p.claimproc.reduce((sum, cp) => sum + (cp.InsPayAmt || 0), 0);
+        }
+        if (p.paysplit && Array.isArray(p.paysplit)) {
+          procCollection += p.paysplit.reduce((sum, ps) => sum + (ps.SplitAmt || 0), 0);
+        }
+        groups[groupKey].totalCollection = (groups[groupKey].totalCollection || 0) + procCollection;
+      }
+
+      groups[groupKey].quantity++;
+      groups[groupKey].totalProduction += p.ProcFee ?? 0;
+    }
+
+    const allRows = Object.values(groups);
+
+    // Calculate grand total for percent calculation
+    const grandTotal = allRows.reduce((sum, r) => sum + r.totalProduction, 0);
+
+    const enrichedRows = allRows.map(r => ({
+      ...r,
+      totalProduction: Math.round(r.totalProduction * 100) / 100,
+      ...(showCollection ? { totalCollection: Math.round((r.totalCollection || 0) * 100) / 100 } : {}),
+      avgProduction: r.quantity > 0 ? Math.round((r.totalProduction / r.quantity) * 100) / 100 : 0,
+      percentProduction: grandTotal > 0 ? Math.round((r.totalProduction / grandTotal) * 10000) / 100 : 0
+    }));
+
+    // Sort by totalProduction descending
+    enrichedRows.sort((a, b) => b.totalProduction - a.totalProduction);
+
+    if (groupByProvider) {
+      // Group rows by provider
+      const providerGroups: Record<string, { providerName: string; providerId: string; rows: any[] }> = {};
+      for (const row of enrichedRows) {
+        const pid = row.providerId || 'unassigned';
+        if (!providerGroups[pid]) {
+          providerGroups[pid] = {
+            providerName: row.providerName || 'Unassigned',
+            providerId: pid,
+            rows: []
+          };
+        }
+        providerGroups[pid].rows.push(row);
+      }
+      const finalResult: any = { grouped: true, groups: Object.values(providerGroups) };
+      if (showCollection) finalResult.showCollection = true;
+      return finalResult;
+    }
+
+    if (showCollection) {
+      return { showCollection: true, rows: enrichedRows };
+    }
+    
+    return enrichedRows;
   }
 
   private async getCollectionCodeCarrier(start: Date, end: Date) {
-    return [
-      { code: 'D1110', carrier: 'Delta Dental', collection: 120.00 },
-      { code: 'D0210', carrier: 'Blue Cross', collection: 250.00 }
-    ];
+    const claimProcs = await prisma.claimproc.findMany({
+      where: {
+        DateCP: { gte: start, lte: end },
+        Status: { in: [1, 4] },
+        InsPayAmt: { not: 0 }
+      },
+      include: {
+        procedurelog: {
+          include: {
+            procedurecode_procedurelog_CodeNumToprocedurecode: true
+          }
+        },
+        insplan: {
+          include: {
+            carrier: true
+          }
+        }
+      }
+    });
+
+    // Group by Code + Carrier
+    const groups: Record<string, {
+      code: string;
+      procedure: string;
+      carrier: string;
+      quantity: number;
+      totalProduction: number;
+      totalCollection: number;
+      avgPerCode: number;
+    }> = {};
+
+    for (const cp of claimProcs) {
+      if (!cp.procedurelog) continue;
+
+      const procCode = cp.procedurelog.procedurecode_procedurelog_CodeNumToprocedurecode;
+      const code = procCode?.ProcCode || cp.procedurelog.OldCode || 'Unknown';
+      const procedure = procCode?.Descript || code;
+      const carrierName = cp.insplan?.carrier?.CarrierName || 'Unknown Carrier';
+
+      const groupKey = `${code}::${carrierName}`;
+
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          code,
+          procedure,
+          carrier: carrierName,
+          quantity: 0,
+          totalProduction: 0,
+          totalCollection: 0,
+          avgPerCode: 0
+        };
+      }
+
+      groups[groupKey].quantity += 1;
+      groups[groupKey].totalProduction += (cp.FeeBilled || 0);
+      groups[groupKey].totalCollection += (cp.InsPayAmt || 0);
+    }
+
+    const rows = Object.values(groups);
+    rows.sort((a, b) => b.totalCollection - a.totalCollection);
+
+    return rows.map(r => {
+      const totalCol = Math.round(r.totalCollection * 100) / 100;
+      return {
+        ...r,
+        totalProduction: Math.round(r.totalProduction * 100) / 100,
+        totalCollection: totalCol,
+        avgPerCode: r.quantity > 0 ? Math.round((totalCol / r.quantity) * 100) / 100 : 0
+      };
+    });
   }
 
   private async getAdjustmentReport(start: Date, end: Date, query: any = {}) {
     const where: any = {};
 
-    if (query.filterByProductionDate || query.dateType === 'DateEntry') {
+    const isFilterByProductionDate = query.filterByProductionDate === 'true' || query.filterByProductionDate === true;
+    const isFilterByDOS = query.filterByDOS === 'true' || query.filterByDOS === true;
+
+    if (isFilterByDOS) {
+      where.procedurelog = {
+        ProcDate: { gte: start, lte: end }
+      };
+    } else if (isFilterByProductionDate || query.dateType === 'DateEntry') {
       where.DateEntry = { gte: start, lte: end };
     } else {
       where.AdjDate = { gte: start, lte: end };
@@ -1350,15 +1528,16 @@ export class ReportGenerationService {
         id: a.AdjNum.toString(),
         date: a.AdjDate?.toLocaleDateString() || a.DateEntry?.toLocaleDateString() || '',
         amount: a.AdjAmt ?? 0,
-        patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Patient',
+        patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : '',
         patientId: patNumStr,
         dob: dobStr,
         flags: flags,
-        provider: a.provider ? (a.provider.Abbr || `${a.provider.FName} ${a.provider.LName}`) : 'Provider',
+        provider: a.provider ? `${a.provider.FName || ''} ${a.provider.LName || ''}`.trim() || a.provider.Abbr || '' : '',
         providerId: a.provider?.ProvNum?.toString() || '',
         typeId: a.AdjType?.toString() || '',
         code: procCode,
-        procedure: a.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || procCode || 'Adjustment',
+        procedure: a.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || procCode || '',
+        site: a.procedurelog?.ToothNum ? `#${a.procedurelog.ToothNum}` : (a.procedurelog?.Surf || ''),
         notes: a.AdjNote ?? ''
       };
     });
@@ -3646,6 +3825,7 @@ export class ReportGenerationService {
       select: {
         PatNum: true,
         ProcFee: true,
+        ProcDate: true,
       },
     });
 
@@ -3668,6 +3848,10 @@ export class ReportGenerationService {
       if (!pat) continue;
 
       const production = patientProductionMap.get(patKey) || 0;
+      
+      // Only include patients that actually generated production in this period
+      if (production === 0) continue;
+
       const source = ref.referralSource || 'Unknown';
 
       // Update Summary
@@ -3697,9 +3881,55 @@ export class ReportGenerationService {
       detailData[source] = list;
     }
 
+    // 5. Generate Trend Data
+    const patSourceMap = new Map(patientReferrals.map(r => [r.patNum!.toString(), r.referralSource]));
+    const trendPoints = 12;
+    const intervalMs = (end.getTime() - start.getTime()) / trendPoints;
+    const trendData = Array.from({ length: trendPoints }, (_, i) => {
+      const segmentStart = new Date(start.getTime() + i * intervalMs);
+      let label = '';
+      const rangeDays = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
+      if (rangeDays > 60) {
+        label = segmentStart.toLocaleString('default', { month: 'short' });
+      } else if (rangeDays > 7) {
+        label = `${segmentStart.getMonth()+1}/${segmentStart.getDate()}`;
+      } else if (rangeDays <= 1 || intervalMs < 1000 * 60 * 60 * 24) {
+        // If range is 1 day or interval is less than a day, show the time
+        label = segmentStart.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      } else {
+        label = segmentStart.toLocaleDateString('en-US', { weekday: 'short' });
+      }
+      const pt: any = { label, _start: segmentStart.getTime(), _end: start.getTime() + (i + 1) * intervalMs };
+      for (const source of Array.from(sourceSummary.keys())) {
+         pt[source] = 0;
+      }
+      return pt;
+    });
+
+    for (const proc of procedures) {
+      if (!proc.PatNum || !proc.ProcDate) continue;
+      const pDate = new Date(proc.ProcDate).getTime();
+      const source = patSourceMap.get(proc.PatNum.toString());
+      if (!source || !sourceSummary.has(source)) continue;
+      
+      const segment = trendData.find(t => pDate >= t._start && pDate < t._end);
+      if (segment) {
+        segment[source] += (proc.ProcFee || 0);
+      }
+    }
+    
+    const finalTrendData = trendData.map(t => {
+       const finalPt: any = { name: t.label };
+       for (const source of Array.from(sourceSummary.keys())) {
+          finalPt[source] = parseFloat(t[source].toFixed(2));
+       }
+       return finalPt;
+    });
+
     return {
       summary: summaryData,
       detail: detailData,
+      trend: finalTrendData,
     };
   }
 
