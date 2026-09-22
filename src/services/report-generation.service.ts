@@ -1563,89 +1563,206 @@ export class ReportGenerationService {
   }
 
   private async getCourtesyCreditModifications(start: Date, end: Date, query: any = {}) {
+    // Determine date range
+    let sDate = start;
+    let eDate = end;
+    if (query.startDate && query.endDate) {
+      sDate = new Date(query.startDate);
+      eDate = new Date(query.endDate);
+      eDate.setHours(23, 59, 59, 999);
+    }
+
+    // Query all courtesy credit adjustments directly — this is the authoritative source
     const courtesyDefs = await prisma.definition.findMany({
-      where: {
-        Category: 1, // All adjustment types
-      }
+      where: { Category: 1 }
     });
     const courtesyDefNums = courtesyDefs.map(d => d.DefNum);
-
     if (courtesyDefNums.length === 0) return [];
 
-    const adjWhere: any = { 
-      AdjType: { in: courtesyDefNums },
-      AdjNote: { startsWith: 'Courtesy Credit' }
-    };
-    if (query.startDate && query.endDate) {
-      const sDate = new Date(query.startDate);
-      const eDate = new Date(query.endDate);
-      adjWhere.AdjDate = { gte: sDate, lte: eDate };
-    } else {
-      adjWhere.AdjDate = { gte: start, lte: end };
-    }
-
     const adjustments = await prisma.adjustment.findMany({
-      where: adjWhere
-    });
-    const adjNums = adjustments.map(a => a.AdjNum);
-
-    const logWhere: any = {
-      PermType: { in: [105, 106, 107] }
-    };
-
-    if (adjNums.length > 0) {
-      logWhere.FKey = { in: adjNums };
-    }
-
-    if (query.startDate && query.endDate) {
-      logWhere.LogDateTime = { gte: new Date(query.startDate), lte: new Date(query.endDate) };
-    } else {
-      logWhere.LogDateTime = { gte: start, lte: end };
-    }
-
-    if (query.users && query.users !== 'all') {
-      const userNum = Number(query.users);
-      if (!isNaN(userNum)) {
-        logWhere.UserNum = userNum;
-      }
-    }
-
-    const logs = await prisma.securitylog.findMany({
-      where: logWhere,
-      include: {
-        userod: true,
-        patient: true
+      where: {
+        AdjType: { in: courtesyDefNums },
+        AdjNote: { startsWith: 'Courtesy Credit' },
+        AdjDate: { gte: sDate, lte: eDate }
       },
-      orderBy: { LogDateTime: 'desc' },
+      include: {
+        patient: true,
+        provider: true
+      },
+      orderBy: { DateEntry: 'desc' },
       take: 300
     });
 
-    let results = logs.map(log => ({
-      id: log.SecurityLogNum.toString(),
-      dateModified: log.LogDateTime?.toLocaleDateString() || '',
-      timestamp: log.LogDateTime?.toISOString() || '',
-      user: log.userod ? (log.userod.UserName || 'System') : 'System',
-      action: log.LogText || 'Modified Courtesy Credit',
-      type: 'Adjustment',
-      patient: log.patient ? `${log.patient.FName} ${log.patient.LName}` : 'Unknown',
-      amount: 0
-    }));
+    if (adjustments.length === 0) return [];
+
+    // Build a map of AdjNum -> securitylog entries for enrichment (user who performed action)
+    const adjNums = adjustments.map(a => a.AdjNum);
+    const securityLogs = await prisma.securitylog.findMany({
+      where: {
+        OR: [
+          { FKey: { in: adjNums }, PermType: { in: [105, 106, 107] } },
+          { LogText: { contains: 'Courtesy Credit' }, LogDateTime: { gte: sDate, lte: eDate } }
+        ]
+      },
+      include: { userod: true },
+      orderBy: { LogDateTime: 'desc' }
+    });
+
+    // Map: AdjNum -> best log entry
+    const logByAdjNum = new Map<string, any>();
+    const logByRecordId = new Map<string, any>();
+    for (const log of securityLogs) {
+      // Direct FKey match
+      if (log.FKey && log.FKey > 0n) {
+        const key = log.FKey.toString();
+        if (!logByAdjNum.has(key)) logByAdjNum.set(key, log);
+      }
+      // Parse JSON LogText to extract recordId
+      if (log.LogText && log.LogText.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(log.LogText);
+          if (parsed.recordId && parsed.tableName === 'adjustments') {
+            if (!logByRecordId.has(parsed.recordId)) {
+              logByRecordId.set(parsed.recordId, { log, parsed });
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    const defMap = new Map<string, string>();
+    courtesyDefs.forEach(d => {
+      defMap.set(d.DefNum.toString(), d.ItemName || 'Adjustment');
+    });
+
+    const patNums = Array.from(new Set(adjustments.map(a => a.PatNum).filter(Boolean))) as bigint[];
+    const metaMap = await getPatientsMeta(patNums);
+
+    let results = adjustments.map(adj => {
+      const adjKey = adj.AdjNum.toString();
+      const patientName = adj.patient ? `${adj.patient.FName} ${adj.patient.LName}` : 'Unknown';
+      const patNumStr = adj.patient?.PatNum?.toString() || '0';
+      const meta = metaMap[patNumStr] || {};
+      const flags = Array.isArray(meta.patientFlags) ? meta.patientFlags.filter(Boolean) : [];
+      const amount = Math.abs(adj.AdjAmt ?? 0);
+
+      // Try to find the user who performed the action
+      let userName = 'System';
+      let actionType = 'Created';
+
+      // Check direct FKey match first
+      const directLog = logByAdjNum.get(adjKey);
+      if (directLog) {
+        userName = directLog.userod?.UserName || 'System';
+        if (directLog.PermType === 106) actionType = 'Updated';
+        else if (directLog.PermType === 107) actionType = 'Deleted';
+      }
+
+      // Check JSON recordId match
+      const jsonMatch = logByRecordId.get(adjKey);
+      if (jsonMatch) {
+        if (!directLog) {
+          userName = jsonMatch.log.userod?.UserName || 'System';
+        }
+        const act = jsonMatch.parsed?.action;
+        if (act === 'updated') actionType = 'Updated';
+        else if (act === 'deleted') actionType = 'Deleted';
+      }
+
+      // Fallback: use SecUserNumEntry from the adjustment itself
+      if (userName === 'System' && adj.SecUserNumEntry) {
+        // We'll resolve this below
+      }
+
+      // Check if voided
+      const isVoided = (adj.AdjNote || '').includes('[VOIDED]');
+      if (isVoided) actionType = 'Deleted';
+
+      const noteText = (adj.AdjNote || '').replace('[VOIDED] ', '');
+
+      return {
+        id: adjKey,
+        date: adj.AdjDate?.toLocaleDateString() || adj.DateEntry?.toLocaleDateString() || '',
+        dateModified: adj.DateEntry?.toLocaleDateString() || adj.AdjDate?.toLocaleDateString() || '',
+        timestamp: adj.DateEntry?.toISOString() || adj.AdjDate?.toISOString() || '',
+        user: userName,
+        action: `${actionType} Courtesy Credit${noteText ? ' (' + noteText + ')' : ''}`,
+        actionType,
+        type: adj.AdjType ? (defMap.get(adj.AdjType.toString()) || 'Adjustment') : 'Adjustment',
+        patient: patientName,
+        flags: flags,
+        amount,
+        creditAmount: amount,
+        _secUserNum: adj.SecUserNumEntry
+      };
+    });
+
+    // Resolve usernames for any entries that still show 'System' but have SecUserNumEntry
+    const unresolvedUserNums = new Set<bigint>();
+    results.forEach(r => {
+      if (r.user === 'System' && r._secUserNum && r._secUserNum > 0n) {
+        unresolvedUserNums.add(r._secUserNum);
+      }
+    });
+
+    if (unresolvedUserNums.size > 0) {
+      const users = await prisma.userod.findMany({
+        where: { UserNum: { in: Array.from(unresolvedUserNums) } },
+        select: { UserNum: true, UserName: true }
+      });
+      const userMap = new Map(users.map(u => [u.UserNum.toString(), u.UserName || 'System']));
+      results.forEach(r => {
+        if (r.user === 'System' && r._secUserNum) {
+          r.user = userMap.get(r._secUserNum.toString()) || 'System';
+        }
+      });
+    }
+
+    // Clean up internal fields
+    const cleanResults: any[] = results.map(r => {
+      const { _secUserNum, ...rest } = r;
+      return rest;
+    });
+
+    // Apply filters
+    let filtered = cleanResults;
 
     if (query.action && query.action !== 'all') {
       const actTerm = query.action.toLowerCase();
-      results = results.filter(r => r.action.toLowerCase().includes(actTerm));
+      filtered = filtered.filter(r => (r.actionType || '').toLowerCase() === actTerm);
+    }
+
+    if (query.users && query.users !== 'all') {
+      const userTerm = query.users.toLowerCase();
+      filtered = filtered.filter(r => (r.user || '').toLowerCase().includes(userTerm));
+    }
+
+    if (query.flags && query.flags !== 'all' && query.flags !== 'pts') {
+      if (query.flags === 'with_flags') {
+        filtered = filtered.filter(r => r.flags && r.flags.length > 0);
+      } else if (query.flags === 'without_flags') {
+        filtered = filtered.filter(r => !r.flags || r.flags.length === 0);
+      } else {
+        const flagTerm = query.flags.toLowerCase();
+        filtered = filtered.filter(r => 
+          (r.flags || []).some((f: any) => 
+            f?.text?.toLowerCase().includes(flagTerm) || 
+            f?.id?.toLowerCase().includes(flagTerm)
+          )
+        );
+      }
     }
 
     if (query.searchText) {
       const sTerm = query.searchText.toLowerCase();
-      results = results.filter(r =>
+      filtered = filtered.filter(r =>
         r.patient.toLowerCase().includes(sTerm) ||
         r.user.toLowerCase().includes(sTerm) ||
         r.action.toLowerCase().includes(sTerm)
       );
     }
 
-    return results;
+    return filtered;
   }
 
   private async getCourtesyCreditReport(start: Date, end: Date, modifications = false, query: any = {}) {
