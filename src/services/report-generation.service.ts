@@ -1494,6 +1494,13 @@ export class ReportGenerationService {
       }
     }
 
+    // Exclude Courtesy Credits from the generic Adjustment Report
+    where.NOT = {
+      AdjNote: {
+        startsWith: 'Courtesy Credit'
+      }
+    };
+
     const adjustments = await prisma.adjustment.findMany({
       where,
       include: {
@@ -1558,15 +1565,17 @@ export class ReportGenerationService {
   private async getCourtesyCreditModifications(start: Date, end: Date, query: any = {}) {
     const courtesyDefs = await prisma.definition.findMany({
       where: {
-        Category: 1, // AdjTypes
-        ItemName: { contains: 'Courtesy', mode: 'insensitive' }
+        Category: 1, // All adjustment types
       }
     });
     const courtesyDefNums = courtesyDefs.map(d => d.DefNum);
 
     if (courtesyDefNums.length === 0) return [];
 
-    const adjWhere: any = { AdjType: { in: courtesyDefNums } };
+    const adjWhere: any = { 
+      AdjType: { in: courtesyDefNums },
+      AdjNote: { startsWith: 'Courtesy Credit' }
+    };
     if (query.startDate && query.endDate) {
       const sDate = new Date(query.startDate);
       const eDate = new Date(query.endDate);
@@ -1646,8 +1655,7 @@ export class ReportGenerationService {
 
     const courtesyDefs = await prisma.definition.findMany({
       where: {
-        Category: 1, // AdjTypes
-        ItemName: { contains: 'Courtesy', mode: 'insensitive' }
+        Category: 1, // All adjustment types
       }
     });
     
@@ -1658,7 +1666,8 @@ export class ReportGenerationService {
     const adjustments = await prisma.adjustment.findMany({
       where: { 
         AdjDate: { gte: start, lte: end },
-        AdjType: { in: courtesyDefNums } 
+        AdjType: { in: courtesyDefNums },
+        AdjNote: { startsWith: 'Courtesy Credit' }
       },
       include: {
         patient: true
@@ -1682,9 +1691,35 @@ export class ReportGenerationService {
         amount: Math.abs(a.AdjAmt ?? 0),
         creditAmount: Math.abs(a.AdjAmt ?? 0),
         date: a.AdjDate?.toLocaleDateString() || '',
-        notes: a.AdjNote || ''
+        notes: a.AdjNote || '',
+        patientStatus: a.patient?.PatStatus ?? 0,
+        balTotal: a.patient?.BalTotal ?? 0
       };
     });
+
+    if (query.patientFilter && query.patientFilter !== 'all') {
+      if (query.patientFilter === 'active') {
+        results = results.filter(r => r.patientStatus === 0);
+      } else if (query.patientFilter === 'inactive') {
+        results = results.filter(r => r.patientStatus !== 0);
+      }
+    }
+
+    if (query.outstandingFilter && query.outstandingFilter !== 'all') {
+      if (query.outstandingFilter === 'with_bal') {
+        results = results.filter(r => r.balTotal > 0);
+      } else if (query.outstandingFilter === 'without_bal') {
+        results = results.filter(r => r.balTotal <= 0);
+      }
+    }
+
+    if (query.flagFilter && query.flagFilter !== 'pts') {
+      if (query.flagFilter === 'with_flags') {
+        results = results.filter(r => r.flags.length > 0);
+      } else if (query.flagFilter === 'without_flags') {
+        results = results.filter(r => r.flags.length === 0);
+      }
+    }
 
     if (query.searchText) {
       const term = query.searchText.toLowerCase();
