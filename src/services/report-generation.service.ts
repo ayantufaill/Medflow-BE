@@ -1901,9 +1901,7 @@ export class ReportGenerationService {
   private async getCreditAccountsReport(query: any = {}) {
     const where: any = { BalTotal: { lt: 0 } };
 
-    if (query.includeInactive === false || query.includeInactive === 'false') {
-      where.PatStatus = 0;
-    } else if (query.filter === 'Active patients') {
+    if (query.filter === 'Active patients') {
       where.PatStatus = 0;
     } else if (query.filter === 'Inactive patients') {
       where.PatStatus = { not: 0 };
