@@ -1946,49 +1946,153 @@ export class ReportGenerationService {
   }
 
   private async getModificationsReport(start: Date, end: Date, query: any = {}) {
-    const where: any = {
-      LogDateTime: { gte: start, lte: end }
-    };
+    const results: any[] = [];
 
-    if (query.category === 'appointments') {
-      where.PermType = { in: [25, 26, 27, 49] };
-    } else if (query.category === 'fees') {
-      where.PermType = { in: [63, 84] };
-    } else if (query.category === 'claims') {
-      where.PermType = { in: [47, 48] };
-    } else if (query.category === 'patient') {
-      where.PermType = { in: [1, 2] };
-    }
+    const providers = await prisma.provider.findMany({ select: { ProvNum: true, Abbr: true, FName: true, LName: true } });
+    const provMap = new Map();
+    providers.forEach(p => {
+      const fullName = `${p.FName || ''} ${p.LName || ''}`.trim();
+      provMap.set(p.ProvNum.toString(), fullName || p.Abbr);
+    });
 
-    const logs = await prisma.securitylog.findMany({
-      where,
-      include: {
-        userod: true,
-        patient: true
+    const getProvName = (num: any) => num ? provMap.get(num.toString()) || num.toString() : 'Unassigned';
+
+    const users = await prisma.userod.findMany({ select: { UserNum: true, UserName: true } });
+    const userMap = new Map();
+    users.forEach(u => userMap.set(u.UserNum.toString(), u.UserName));
+
+    const getUserName = (num: any) => num ? userMap.get(num.toString()) || num.toString() : 'Sys';
+
+    // 1. Procedures
+    const procs = await prisma.procedurelog.findMany({
+      where: {
+        OR: [
+          { SecDateEntry: { gte: start, lte: end } },
+          { ProcDate: { gte: start, lte: end } },
+          { DateEntryC: { gte: start, lte: end } }
+        ]
       },
-      orderBy: { LogDateTime: 'desc' },
+      include: { patient: { select: { PriProv: true } } },
       take: 300
     });
 
-    if (logs.length === 0) {
-      return [];
-    }
-
-    return logs.map(log => {
-      const modifiedBy = log.userod ? (log.userod.UserName || 'System') : 'System';
-      const patientName = log.patient ? `${log.patient.FName} ${log.patient.LName}` : 'N/A';
-      
-      return {
-        id: log.SecurityLogNum.toString(),
-        timestamp: log.LogDateTime?.toISOString() || new Date().toISOString(),
-        modifiedBy,
-        field: log.PermType ? `Permission Event #${log.PermType}` : 'General Edit',
-        originalValue: '-',
-        newValue: log.LogText || 'System Audit Record',
-        patient: patientName,
-        action: log.LogText || 'Modified system entity'
-      };
+    procs.forEach((p: any) => {
+      const isAdd = p.SecDateEntry && p.SecDateEntry >= start && p.SecDateEntry <= end;
+      results.push({
+        action: isAdd ? 'Add' : 'Modify',
+        trans: p.ProcNum.toString(),
+        proc: p.OldCode || 'Proc',
+        rendering: getProvName(p.ProvNum),
+        billing: getProvName(p.patient?.PriProv) === 'Unassigned' ? getProvName(p.ProvNum) : getProvName(p.patient?.PriProv),
+        fees: p.ProcFee || 0,
+        creditAdj: 0,
+        debitAdj: 0,
+        collection: 0,
+        accountCredit: 0
+      });
     });
+
+    // 2. Adjustments
+    const adjs = await prisma.adjustment.findMany({
+      where: {
+        OR: [
+          { DateEntry: { gte: start, lte: end } },
+          { SecDateTEdit: { gte: start, lte: end } },
+          { AdjDate: { gte: start, lte: end } }
+        ]
+      },
+      include: { patient: { select: { PriProv: true } } },
+      take: 300
+    });
+
+    adjs.forEach((a: any) => {
+      const isAdd = a.DateEntry && a.DateEntry >= start && a.DateEntry <= end;
+      const amt = a.AdjAmt || 0;
+      results.push({
+        action: isAdd ? 'Add' : 'Modify',
+        trans: a.AdjNum.toString(),
+        proc: 'Adjustment',
+        rendering: getProvName(a.ProvNum),
+        billing: getProvName(a.patient?.PriProv) === 'Unassigned' ? getProvName(a.ProvNum) : getProvName(a.patient?.PriProv),
+        fees: 0,
+        creditAdj: amt < 0 ? Math.abs(amt) : 0,
+        debitAdj: amt > 0 ? amt : 0,
+        collection: 0,
+        accountCredit: 0
+      });
+    });
+
+    // 3. Paysplits
+    const splits = await prisma.paysplit.findMany({
+      where: {
+        OR: [
+          { DateEntry: { gte: start, lte: end } },
+          { SecDateTEdit: { gte: start, lte: end } },
+          { DatePay: { gte: start, lte: end } }
+        ]
+      },
+      include: { patient: { select: { PriProv: true } } },
+      take: 300
+    });
+
+    splits.forEach((s: any) => {
+      const isAdd = s.DateEntry && s.DateEntry >= start && s.DateEntry <= end;
+      results.push({
+        action: isAdd ? 'Add' : 'Modify',
+        trans: s.SplitNum.toString(),
+        proc: 'Payment',
+        rendering: getProvName(s.ProvNum),
+        billing: getProvName(s.patient?.PriProv) === 'Unassigned' ? getProvName(s.ProvNum) : getProvName(s.patient?.PriProv),
+        fees: 0,
+        creditAdj: 0,
+        debitAdj: 0,
+        collection: s.SplitAmt || 0,
+        accountCredit: 0
+      });
+    });
+
+    // 4. Deletions from SecurityLog
+    const deletedLogs = await prisma.securitylog.findMany({
+      where: {
+        LogDateTime: { gte: start, lte: end },
+        LogText: { contains: 'elet', mode: 'insensitive' } // matches Delete, Deleted
+      },
+      take: 300
+    });
+
+    deletedLogs.forEach((log: any) => {
+      let amount = 0;
+      const match = log.LogText?.match(/\$?(\d+(\.\d{2})?)/);
+      if (match) {
+        amount = parseFloat(match[1]);
+      }
+
+      let procStr = 'Deleted Item';
+      const text = (log.LogText || '').toLowerCase();
+      if (text.includes('procedure')) procStr = 'Deleted Procedure';
+      if (text.includes('payment') || text.includes('paysplit')) procStr = 'Deleted Payment';
+      if (text.includes('adjustment')) procStr = 'Deleted Adjustment';
+
+      if (procStr !== 'Deleted Item') {
+        results.push({
+          action: 'Void',
+          trans: log.SecurityLogNum.toString(),
+          proc: procStr,
+          rendering: getUserName(log.UserNum),
+          billing: '-',
+          fees: procStr.includes('Procedure') ? amount : 0,
+          creditAdj: procStr.includes('Adjustment') ? amount : 0,
+          debitAdj: 0,
+          collection: procStr.includes('Payment') ? amount : 0,
+          accountCredit: 0
+        });
+      }
+    });
+
+    // Sort by trans or action just to have a predictable order
+    results.sort((a, b) => a.action.localeCompare(b.action));
+
+    return results;
   }
 
   private async getDepositSummary(start: Date, end: Date) {
