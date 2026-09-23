@@ -2422,45 +2422,9 @@ export class ReportGenerationService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Fallback dummy data when DB has no plans
+    // No payment plans found
     if (plans.length === 0) {
-      return [
-        {
-          patient: 'Francis Fuller',
-          createdOn: '09/18/2025',
-          amount: '$357.87',
-          totalPayments: 6,
-          remainingPayments: 3,
-          remainingBalance: '$1,073.61',
-          nextDue: '12/18/2025',
-          missed: 3,
-          lastBilled: '11/18/2025',
-          lastPayment: '11/18/2025',
-          type: 'Regular Invoice',
-          status: 'Failed',
-          history: [
-            { amount: '$357.87', status: 'Paid', created: '09/18/2025', due: '09/18/2025', downPayment: 'No', charged: '09/18/2025', failed: '', error: '' },
-            { amount: '$357.87', status: 'Paid', created: '09/18/2025', due: '10/18/2025', downPayment: 'No', charged: '10/18/2025', failed: '', error: '' },
-            { amount: '$357.87', status: 'Paid', created: '09/18/2025', due: '11/18/2025', downPayment: 'No', charged: '11/18/2025', failed: '', error: '' },
-            { amount: '$357.87', status: 'Failed', created: '09/18/2025', due: '12/18/2025', downPayment: 'No', charged: '', failed: '12/24/2025', error: 'Transaction declined: Insufficient Funds' },
-          ]
-        },
-        {
-          patient: 'Garry Gilmore',
-          createdOn: '12/15/2025',
-          amount: '$42.00',
-          totalPayments: 10,
-          remainingPayments: 5,
-          remainingBalance: '$210.00',
-          nextDue: '05/24/2026',
-          missed: 0,
-          lastBilled: '04/24/2026',
-          lastPayment: '04/24/2026',
-          type: 'Regular Invoice',
-          status: 'Scheduled',
-          history: []
-        }
-      ];
+      return [];
     }
 
     const results = plans.map(plan => {
