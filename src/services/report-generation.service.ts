@@ -57,7 +57,7 @@ export class ReportGenerationService {
         return this.getDepositSummary(startDate, endDate);
 
       case 'collection-carrier':
-        return this.getCollectionCarrier(startDate, endDate);
+          return this.getCollectionCarrier(startDate, endDate, query.provider, query.payer, query.plan, query.network);
 
       case 'total-collection-individuals':
       case 'total-collection-family':
@@ -2107,12 +2107,64 @@ export class ReportGenerationService {
     }));
   }
 
-  private async getCollectionCarrier(start: Date, end: Date) {
+  private async getCollectionCarrier(start: Date, end: Date, provider?: string, payer?: string, plan?: string, network?: string) {
+    const whereClause: any = {
+      DateCP: { gte: start, lte: end },
+      Status: { in: [1, 4] } // 1 = Received/Finalized, 4 = Supplemental
+    };
+    if (provider && provider !== 'All') {
+      const pNum = parseInt(provider, 10);
+      if (!isNaN(pNum)) {
+        whereClause.ProvNum = pNum;
+      }
+    }
+
+    if (payer && payer.trim() !== '') {
+      whereClause.insplan = {
+        ...(whereClause.insplan || {}),
+        carrier: {
+          CarrierName: { contains: payer.trim() }
+        }
+      };
+    }
+
+    if (plan && plan.trim() !== '') {
+      whereClause.insplan = {
+        ...(whereClause.insplan || {}),
+        GroupName: { contains: plan.trim() }
+      };
+    }
+
+    if (network === 'In') {
+      whereClause.insplan = {
+        ...(whereClause.insplan || {}),
+        carrier: {
+          ...(whereClause.insplan?.carrier || {}),
+          OR: [
+            { CarrierName: { contains: 'cigna' } },
+            { CarrierName: { contains: 'delta dental' } },
+            { CarrierName: { contains: 'blue cross' } }
+          ]
+        }
+      };
+    } else if (network === 'Out') {
+      whereClause.insplan = {
+        ...(whereClause.insplan || {}),
+        carrier: {
+          ...(whereClause.insplan?.carrier || {}),
+          NOT: {
+            OR: [
+              { CarrierName: { contains: 'cigna' } },
+              { CarrierName: { contains: 'delta dental' } },
+              { CarrierName: { contains: 'blue cross' } }
+            ]
+          }
+        }
+      };
+    }
+
     const claimProcs = await prisma.claimproc.findMany({
-      where: {
-        DateCP: { gte: start, lte: end },
-        Status: { in: [1, 4] } // 1 = Received/Finalized, 4 = Supplemental
-      },
+      where: whereClause,
       include: {
         patient: true,
         insplan: {
@@ -2162,41 +2214,8 @@ export class ReportGenerationService {
     const fmt = (n: number) =>
       `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-    // Fallback dummy data when no real records exist for the period
     if (carrierMap.size === 0) {
-      return [
-        {
-          name: 'Delta Dental',
-          collection: '$4,520.00',
-          production: '$5,200.00',
-          writeoff: '$680.00',
-          patients: [
-            { name: 'Francis Fuller', collection: '$2,200.00', production: '$2,550.00', writeoff: '$350.00' },
-            { name: 'John Doe', collection: '$1,500.00', production: '$1,700.00', writeoff: '$200.00' },
-            { name: 'Jane Smith', collection: '$820.00', production: '$950.00', writeoff: '$130.00' }
-          ]
-        },
-        {
-          name: 'Aetna',
-          collection: '$2,850.00',
-          production: '$3,300.00',
-          writeoff: '$450.00',
-          patients: [
-            { name: 'Robert Brown', collection: '$1,500.00', production: '$1,750.00', writeoff: '$250.00' },
-            { name: 'Emily Davis', collection: '$1,350.00', production: '$1,550.00', writeoff: '$200.00' }
-          ]
-        },
-        {
-          name: 'Cigna',
-          collection: '$1,950.00',
-          production: '$2,300.00',
-          writeoff: '$350.00',
-          patients: [
-            { name: 'Michael Wilson', collection: '$1,000.00', production: '$1,200.00', writeoff: '$200.00' },
-            { name: 'Sarah Johnson', collection: '$950.00', production: '$1,100.00', writeoff: '$150.00' }
-          ]
-        }
-      ];
+      return [];
     }
 
     return Array.from(carrierMap.entries()).map(([name, data]) => ({
