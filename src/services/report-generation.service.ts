@@ -2743,9 +2743,54 @@ export class ReportGenerationService {
   }
 
   private async getFamilyMigratedBalances() {
-    return [
-      { patient: 'Jane Smith', patientOwing: 2500.00, insuranceOwing: 1224.00, totalOwing: 3724.00, migrationDate: '04/10/2026' }
-    ];
+    const rawResult: any[] = await prisma.$queryRaw`
+      SELECT 
+        p."Guarantor", 
+        MAX(p."FName") as "FName", 
+        MAX(p."LName") as "LName", 
+        MAX(p."DateFirstVisit") as "DateFirstVisit",
+        SUM(COALESCE(pl."ProcFee", 0)) as "TotalProc",
+        SUM(COALESCE(a."AdjAmt", 0)) as "TotalAdj",
+        SUM(COALESCE(cp."InsPayAmt", 0) + COALESCE(cp."WriteOff", 0)) as "TotalIns",
+        SUM(COALESCE(ps."SplitAmt", 0)) as "TotalPay"
+      FROM patient p
+      LEFT JOIN (SELECT "PatNum", SUM("ProcFee") as "ProcFee" FROM procedurelog WHERE "ProcStatus" = 2 GROUP BY "PatNum") pl ON p."PatNum" = pl."PatNum"
+      LEFT JOIN (SELECT "PatNum", SUM("AdjAmt") as "AdjAmt" FROM adjustment GROUP BY "PatNum") a ON p."PatNum" = a."PatNum"
+      LEFT JOIN (SELECT "PatNum", SUM("InsPayAmt") as "InsPayAmt", SUM("WriteOff") as "WriteOff" FROM claimproc WHERE "Status" IN (1, 4, 0) GROUP BY "PatNum") cp ON p."PatNum" = cp."PatNum"
+      LEFT JOIN (SELECT "PatNum", SUM("SplitAmt") as "SplitAmt" FROM paysplit GROUP BY "PatNum") ps ON p."PatNum" = ps."PatNum"
+      WHERE p."PatNum" = p."Guarantor"
+      GROUP BY p."Guarantor"
+      HAVING (
+        SUM(COALESCE(pl."ProcFee", 0)) + 
+        SUM(COALESCE(a."AdjAmt", 0)) - 
+        SUM(COALESCE(cp."InsPayAmt", 0) + COALESCE(cp."WriteOff", 0)) - 
+        SUM(COALESCE(ps."SplitAmt", 0))
+      ) > 0
+      ORDER BY MAX(p."LName") ASC
+      LIMIT 200
+    `;
+
+    if (rawResult.length === 0) return [];
+
+    return rawResult.map(pat => {
+      const patientName = `${pat.FName ?? ''} ${pat.LName ?? ''}`.trim() || 'Unknown';
+      const totalOwing = Number(pat.TotalProc) + Number(pat.TotalAdj) - Number(pat.TotalIns) - Number(pat.TotalPay);
+      const insuranceOwing = Number(pat.TotalIns);
+      const patientOwing = totalOwing - insuranceOwing;
+      
+      let migrationDateStr = 'N/A';
+      if (pat.DateFirstVisit) {
+        migrationDateStr = new Date(pat.DateFirstVisit).toLocaleDateString();
+      }
+
+      return {
+        patient: patientName,
+        patientOwing: patientOwing < 0 ? 0 : patientOwing,
+        insuranceOwing,
+        totalOwing,
+        migrationDate: migrationDateStr
+      };
+    });
   }
 
   // ==========================================
