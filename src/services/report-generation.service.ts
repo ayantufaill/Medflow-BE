@@ -2638,18 +2638,46 @@ export class ReportGenerationService {
   }
 
   private async getOpenEdgeTransactions(start: Date, end: Date) {
-    return [
-      { id: 'Patient A (861)', created: '05/26/2025', type: 'Payment', number: '18381', status: 'Pending' },
-      { id: 'Patient B (452)', created: '06/24/2025', type: 'Payment', number: '18891', status: 'Pending' },
-      { id: 'Patient C (123)', created: '07/15/2025', type: 'Payment', number: '19282', status: 'Pending' },
-      { id: 'Patient D (789)', created: '02/03/2026', type: 'Payment', number: '23110', status: 'Pending' },
-      { id: 'Patient E (456)', created: '02/27/2026', type: 'Payment', number: '23519', status: 'Pending' },
-      { id: 'Patient F (321)', created: '03/20/2026', type: 'Payment', number: '23987', status: 'Pending' },
-      { id: 'Patient G (654)', created: '03/27/2026', type: 'Payment', number: '24171', status: 'Pending' },
-      { id: 'Patient H (987)', created: '05/08/2026', type: 'Payment', number: '25200', status: 'Pending' },
-      { id: 'Patient I (159)', created: '05/08/2026', type: 'Payment', number: '25214', status: 'Pending' },
-      { id: 'Patient J (753)', created: '07/15/2025', type: 'Deposit', number: '19272', status: 'Pending' }
-    ];
+    const responses = await prisma.xwebresponse.findMany({
+      where: {
+        DateTUpdate: {
+          gte: start,
+          lte: end
+        }
+      },
+      include: {
+        patient: {
+          select: { FName: true, LName: true }
+        }
+      },
+      take: 100,
+      orderBy: { DateTUpdate: 'desc' }
+    });
+
+    if (responses.length === 0) return [];
+
+    return responses.map(res => {
+      const pat = res.patient;
+      const patientName = pat ? `${pat.FName ?? ''} ${pat.LName ?? ''}`.trim() : 'Unknown Patient';
+      
+      let status = 'Pending';
+      const desc = res.ResponseDescription?.toLowerCase() || '';
+      if (desc.includes('approv') || res.TransactionStatus === 1 || res.ResponseCode === 0) {
+        status = 'Successful Transaction';
+      } else if (desc.includes('decline') || desc.includes('fail') || res.TransactionStatus === 2) {
+        status = 'Failed';
+      } else if (desc) {
+        status = res.ResponseDescription!;
+      }
+
+      return {
+        id: `${patientName} (${res.PatNum})`,
+        created: res.DateTUpdate ? (res.DateTUpdate as Date).toLocaleDateString() : '',
+        type: res.TransactionType || 'Payment',
+        number: res.TransactionID || res.OrderId || res.XWebResponseNum.toString(),
+        status: status
+      };
+    });
   }
 
   private async getProceduresInsurance(start: Date, end: Date) {
