@@ -14,7 +14,8 @@ export class ReportingService {
         COALESCE(c."CarrierName", 'Unknown Carrier') as "payerName",
         COUNT(DISTINCT cl."ClaimNum") as "totalSubmitted",
         SUM(CASE WHEN cp."Status" IN (4, 7) OR cl."ClaimStatus" = 'D' THEN 1 ELSE 0 END) as "deniedCount",
-        SUM(CASE WHEN cp."Status" IN (4, 7) OR cl."ClaimStatus" = 'D' THEN COALESCE(cp."FeeBilled", cl."ClaimFee", 0) ELSE 0 END) as "deniedValue"
+        SUM(CASE WHEN cp."Status" IN (4, 7) OR cl."ClaimStatus" = 'D' THEN COALESCE(cp."FeeBilled", cl."ClaimFee", 0) ELSE 0 END) as "deniedValue",
+        STRING_AGG(DISTINCT CASE WHEN (cp."Status" IN (4, 7) OR cl."ClaimStatus" = 'D') AND cp."Remarks" IS NOT NULL AND cp."Remarks" != '' THEN cp."Remarks" ELSE NULL END, ', ') as "reasons"
       FROM claim cl
       LEFT JOIN insplan ip ON cl."PlanNum" = ip."PlanNum"
       LEFT JOIN carrier c ON ip."CarrierNum" = c."CarrierNum"
@@ -35,14 +36,20 @@ export class ReportingService {
         const deniedValue = Number(row.deniedValue) || 0;
         const denialRate = totalSubmitted > 0 ? ((deniedCount / totalSubmitted) * 100).toFixed(1) + '%' : '0.0%';
 
+        let topReasons = ['None'];
+        if (row.reasons) {
+           const reasonsArray = String(row.reasons).split(',').map((r: string) => r.trim()).filter(Boolean);
+           if (reasonsArray.length > 0) {
+             topReasons = reasonsArray.filter((v, i, a) => a.indexOf(v) === i).slice(0, 3);
+           }
+        }
+
         return {
           payerName: row.payerName || 'Unknown Carrier',
           denialRate,
           totalSubmitted,
           deniedValue,
-          topReasons: deniedCount > 0
-            ? ['Missing Information (CO-16)', 'Duplicate Claim (CO-18)', 'Prior Auth Required (CO-197)']
-            : ['None'],
+          topReasons,
         };
       });
     } catch (err) {
