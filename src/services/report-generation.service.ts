@@ -2586,13 +2586,55 @@ export class ReportGenerationService {
   }
 
   private async getPaymentRequestsReport(start: Date, end: Date) {
-    return [
-      { patient: 'Patient One', created: '05/08/2025', requested: '$358.00', paid: '--------', date: '', status: '' },
-      { patient: 'Patient Two', created: '05/08/2025', requested: '$1,000.00', paid: '--------', date: '', status: '' },
-      { patient: 'Patient Three', created: '05/08/2025', requested: '$288.00', paid: '$288.00', date: '05/10/2025', status: 'Successful Transaction' },
-      { patient: 'Patient Four', created: '05/13/2025', requested: '$69.00', paid: '$69.00', date: '05/13/2025', status: 'Successful Transaction' },
-      { patient: 'Patient Five', created: '05/14/2025', requested: '$877.10', paid: '$877.10', date: '05/14/2025', status: 'Successful Transaction' },
-    ];
+    const statements = await prisma.statement.findMany({
+      where: {
+        DateSent: {
+          gte: start,
+          lte: end
+        }
+      },
+      include: {
+        patient_statement_PatNumTopatient: {
+          select: { FName: true, LName: true }
+        }
+      },
+      take: 100,
+      orderBy: { DateSent: 'desc' }
+    });
+
+    if (statements.length === 0) return [];
+
+    const fmt = (n: number) =>
+      `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    return statements.map(stmt => {
+      const pat = stmt.patient_statement_PatNumTopatient;
+      const patientName = pat ? `${pat.FName ?? ''} ${pat.LName ?? ''}`.trim() : 'Unknown Patient';
+      
+      let noteObj: any = {};
+      try {
+        if (stmt.NoteBold && stmt.NoteBold.startsWith('{')) {
+          noteObj = JSON.parse(stmt.NoteBold);
+        }
+      } catch (e) {}
+
+      const requestedAmt = noteObj.totalAmount ?? stmt.BalTotal ?? 0;
+      const paidAmt = noteObj.paidAmount ?? (stmt.IsBalValid === 0 ? requestedAmt : 0); 
+      
+      let status = 'Pending';
+      if (paidAmt >= requestedAmt && requestedAmt > 0) {
+        status = 'Successful Transaction';
+      }
+
+      return {
+        patient: patientName,
+        created: stmt.DateSent ? (stmt.DateSent as Date).toLocaleDateString() : '',
+        requested: fmt(requestedAmt),
+        paid: paidAmt > 0 ? fmt(paidAmt) : '--------',
+        date: paidAmt > 0 && stmt.DateSent ? (stmt.DateSent as Date).toLocaleDateString() : '',
+        status: status
+      };
+    });
   }
 
   private async getOpenEdgeTransactions(start: Date, end: Date) {
