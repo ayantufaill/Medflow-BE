@@ -1604,7 +1604,14 @@ export class ReportGenerationService {
           { LogText: { contains: 'Courtesy Credit' }, LogDateTime: { gte: sDate, lte: eDate } }
         ]
       },
-      include: { userod: true },
+      include: { 
+        userod: {
+          include: {
+            employee: true,
+            provider: true
+          }
+        }
+      },
       orderBy: { LogDateTime: 'desc' }
     });
 
@@ -1646,6 +1653,23 @@ export class ReportGenerationService {
       const flags = Array.isArray(meta.patientFlags) ? meta.patientFlags.filter(Boolean) : [];
       const amount = Math.abs(adj.AdjAmt ?? 0);
 
+      // Helper to get real name from userod
+      const getRealUserName = (userod: any) => {
+        if (!userod) return 'System';
+        let name = '';
+        if (userod.employee?.FName || userod.employee?.LName) {
+          name = [userod.employee.FName, userod.employee.LName].filter(Boolean).join(' ');
+        } else if (userod.provider?.FName || userod.provider?.LName) {
+          name = [userod.provider.FName, userod.provider.LName].filter(Boolean).join(' ');
+        }
+
+        if (!name || name.toLowerCase() === 'system employee') {
+          const uName = userod.UserName || 'System';
+          name = uName.includes('@') ? uName.split('@')[0] : uName;
+        }
+        return name;
+      };
+
       // Try to find the user who performed the action
       let userName = 'System';
       let actionType = 'Created';
@@ -1653,7 +1677,7 @@ export class ReportGenerationService {
       // Check direct FKey match first
       const directLog = logByAdjNum.get(adjKey);
       if (directLog) {
-        userName = directLog.userod?.UserName || 'System';
+        userName = getRealUserName(directLog.userod);
         if (directLog.PermType === 106) actionType = 'Updated';
         else if (directLog.PermType === 107) actionType = 'Deleted';
       }
@@ -1662,7 +1686,7 @@ export class ReportGenerationService {
       const jsonMatch = logByRecordId.get(adjKey);
       if (jsonMatch) {
         if (!directLog) {
-          userName = jsonMatch.log.userod?.UserName || 'System';
+          userName = getRealUserName(jsonMatch.log.userod);
         }
         const act = jsonMatch.parsed?.action;
         if (act === 'updated') actionType = 'Updated';
@@ -1693,6 +1717,9 @@ export class ReportGenerationService {
         flags: flags,
         amount,
         creditAmount: amount,
+        patientStatus: adj.patient?.PatStatus ?? 0,
+        providerId: adj.ProvNum?.toString() || '',
+        providerName: adj.provider ? [adj.provider.FName, adj.provider.LName].filter(Boolean).join(' ') || adj.provider.Abbr || '' : '',
         _secUserNum: adj.SecUserNumEntry
       };
     });
@@ -1708,9 +1735,25 @@ export class ReportGenerationService {
     if (unresolvedUserNums.size > 0) {
       const users = await prisma.userod.findMany({
         where: { UserNum: { in: Array.from(unresolvedUserNums) } },
-        select: { UserNum: true, UserName: true }
+        include: { employee: true, provider: true }
       });
-      const userMap = new Map(users.map(u => [u.UserNum.toString(), u.UserName || 'System']));
+      // Helper to get real name from userod
+      const getRealUserName = (userod: any) => {
+        if (!userod) return 'System';
+        let name = '';
+        if (userod.employee?.FName || userod.employee?.LName) {
+          name = [userod.employee.FName, userod.employee.LName].filter(Boolean).join(' ');
+        } else if (userod.provider?.FName || userod.provider?.LName) {
+          name = [userod.provider.FName, userod.provider.LName].filter(Boolean).join(' ');
+        }
+
+        if (!name || name.toLowerCase() === 'system employee') {
+          const uName = userod.UserName || 'System';
+          name = uName.includes('@') ? uName.split('@')[0] : uName;
+        }
+        return name;
+      };
+      const userMap = new Map(users.map(u => [u.UserNum.toString(), getRealUserName(u)]));
       results.forEach(r => {
         if (r.user === 'System' && r._secUserNum) {
           r.user = userMap.get(r._secUserNum.toString()) || 'System';
@@ -1726,6 +1769,15 @@ export class ReportGenerationService {
 
     // Apply filters
     let filtered = cleanResults;
+
+    // Patients filter (active/inactive)
+    if (query.patients && query.patients !== 'all') {
+      if (query.patients === 'active') {
+        filtered = filtered.filter(r => r.patientStatus === 0);
+      } else if (query.patients === 'inactive') {
+        filtered = filtered.filter(r => r.patientStatus !== 0);
+      }
+    }
 
     if (query.action && query.action !== 'all') {
       const actTerm = query.action.toLowerCase();
