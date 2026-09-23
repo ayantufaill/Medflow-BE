@@ -74,7 +74,7 @@ export class ReportGenerationService {
         return this.getOpenEdgeTransactions(startDate, endDate);
 
       case 'procedures-insurance':
-        return this.getProceduresInsurance(startDate, endDate);
+        return this.getProceduresInsurance(startDate, endDate, query.provider);
 
       case 'family-migrated-balances':
         return this.getFamilyMigratedBalances();
@@ -2680,10 +2680,66 @@ export class ReportGenerationService {
     });
   }
 
-  private async getProceduresInsurance(start: Date, end: Date) {
-    return [
-      { code: 'D1110', patient: 'Francis Fuller', insurance: 'Delta Dental', claimStatus: 'Sent' }
-    ];
+  private async getProceduresInsurance(start: Date, end: Date, providerId?: string) {
+    const whereClause: any = {
+      ProcDate: {
+        gte: start,
+        lte: end
+      },
+      claim: { isNot: null },
+      insplan: { isNot: null },
+      procedurelog: { isNot: null }
+    };
+
+    if (providerId && providerId !== 'all' && providerId !== 'All') {
+      const provNum = Number(providerId);
+      if (!isNaN(provNum)) {
+        whereClause.ProvNum = BigInt(provNum);
+      }
+    }
+
+    const claimprocs = await prisma.claimproc.findMany({
+      where: whereClause,
+      include: {
+        procedurelog: {
+          include: { 
+            procedurecode_procedurelog_CodeNumToprocedurecode: true, 
+            patient: true 
+          }
+        },
+        insplan: {
+          include: { carrier: true }
+        },
+        claim: true
+      },
+      take: 200,
+      orderBy: { ProcDate: 'desc' }
+    });
+
+    if (claimprocs.length === 0) return [];
+
+    return claimprocs.map(cp => {
+      const code = cp.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || 'Unknown';
+      const pat = cp.procedurelog?.patient;
+      const patient = pat ? `${pat.FName ?? ''} ${pat.LName ?? ''}`.trim() : 'Unknown';
+      const insurance = cp.insplan?.carrier?.CarrierName || 'Unknown Insurance';
+      
+      let claimStatus = 'Sent';
+      const statusChar = cp.claim?.ClaimStatus;
+      if (statusChar === 'U') claimStatus = 'Unsent';
+      else if (statusChar === 'H') claimStatus = 'Hold';
+      else if (statusChar === 'W') claimStatus = 'Waiting';
+      else if (statusChar === 'S') claimStatus = 'Sent';
+      else if (statusChar === 'R') claimStatus = 'Received';
+      else if (statusChar) claimStatus = statusChar;
+
+      return {
+        code,
+        patient,
+        insurance,
+        claimStatus
+      };
+    });
   }
 
   private async getFamilyMigratedBalances() {
