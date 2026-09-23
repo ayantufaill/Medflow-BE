@@ -2367,41 +2367,9 @@ export class ReportGenerationService {
     const fmt = (n: number) =>
       `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-    // Fallback dummy data
+    // No data found for the selected range
     if (familyMap.size === 0) {
-      return [
-        {
-          id: '196',
-          name: 'Fuller Family',
-          patientCollection: '$150.00',
-          insuranceCollection: '$470.00',
-          totalCollection: '$620.00',
-          members: [
-            { id: '196', name: 'Francis Fuller', patientCollection: '$150.00', insuranceCollection: '$470.00', totalCollection: '$620.00' }
-          ]
-        },
-        {
-          id: '298',
-          name: 'Gilmore Family',
-          patientCollection: '$120.00',
-          insuranceCollection: '$0.00',
-          totalCollection: '$120.00',
-          members: [
-            { id: '298', name: 'Garry Gilmore', patientCollection: '$80.00', insuranceCollection: '$0.00', totalCollection: '$80.00' },
-            { id: '299', name: 'Linda Gilmore', patientCollection: '$40.00', insuranceCollection: '$0.00', totalCollection: '$40.00' }
-          ]
-        },
-        {
-          id: '782',
-          name: 'Niblock Family',
-          patientCollection: '$0.00',
-          insuranceCollection: '$280.00',
-          totalCollection: '$280.00',
-          members: [
-            { id: '782', name: 'Zoe Niblock', patientCollection: '$0.00', insuranceCollection: '$280.00', totalCollection: '$280.00' }
-          ]
-        }
-      ];
+      return [];
     }
 
     return Array.from(familyMap.entries()).map(([guarantorId, family]) => {
