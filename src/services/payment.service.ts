@@ -82,6 +82,8 @@ export class PaymentService {
       paidAt: meta.paidAt ? new Date(meta.paidAt) : row.PayDate ?? null,
       paymentDate: meta.paidAt ? new Date(meta.paidAt) : row.PayDate ?? null,
       notes: meta.notes ?? null,
+      chequeNo: row.CheckNum ?? null,
+      branchNo: row.BankBranch ?? null,
       isAccountCredit: meta.isAccountCredit ?? false,
       appliedCreditAmount: meta.appliedCreditAmount ?? undefined,
       isDeposit,
@@ -251,6 +253,8 @@ export class PaymentService {
       paymentMethod?: string;
       paymentSource?: string;
       referenceNumber?: string;
+      chequeNo?: string;
+      branchNo?: string;
       processorFee?: number;
       notes?: string;
       status?: string;
@@ -348,6 +352,8 @@ export class PaymentService {
           overpaymentAmount: data.overpaymentAmount ?? 0,
           overpaymentAction: data.overpaymentAction ?? null,
         }),
+        CheckNum: data.chequeNo ?? null,
+        BankBranch: data.branchNo ?? null,
         SecUserNumEntry: BigInt(userId),
         ...(paysplitData ? { paysplit: paysplitData } : {}),
       },

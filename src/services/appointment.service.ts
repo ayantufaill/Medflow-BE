@@ -2784,6 +2784,18 @@ async getPatientAppointments(patientId: string, limit = 10) {
       data: { AptNum: null }
     });
 
+    // Delete all linked clinical exams to satisfy foreign key constraints
+    await Promise.all([
+      prisma.examradiographic.deleteMany({ where: { AptNum: BigInt(appointmentId) } }),
+      prisma.examtmj.deleteMany({ where: { AptNum: BigInt(appointmentId) } }),
+      prisma.examheadneck.deleteMany({ where: { AptNum: BigInt(appointmentId) } }),
+      prisma.examtoothstructure.deleteMany({ where: { AptNum: BigInt(appointmentId) } }),
+      prisma.exammorphological.deleteMany({ where: { AptNum: BigInt(appointmentId) } }),
+      prisma.examperiodontal.deleteMany({ where: { AptNum: BigInt(appointmentId) } }),
+      prisma.examdentofacial.deleteMany({ where: { AptNum: BigInt(appointmentId) } }),
+      prisma.examairway.deleteMany({ where: { AptNum: BigInt(appointmentId) } })
+    ]);
+
     // Hard delete - remove from database
     await prisma.appointment.delete({
       where: { AptNum: BigInt(appointmentId) },

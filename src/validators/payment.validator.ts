@@ -104,6 +104,8 @@ export const createPaymentValidator: ValidationChain[] = [
     .isISO8601()
     .withMessage('Payment date must be a valid date'),
   body('referenceNumber').optional().isString().withMessage('Reference number must be a string'),
+  body('chequeNo').optional().isString().withMessage('Cheque number must be a string'),
+  body('branchNo').optional().isString().withMessage('Branch number must be a string'),
   body('processorFee')
     .optional()
     .isFloat({ min: 0 })
