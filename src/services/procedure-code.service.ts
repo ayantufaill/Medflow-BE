@@ -44,20 +44,22 @@ export class ProcedureCodeService {
       orderBy: { ProcCode: 'asc' }
     });
 
-    return categories.map(cat => {
-      const catCodes = codes.filter(c => c.ProcCat === cat.DefNum);
-      return {
-        _id: cat.DefNum.toString(),
-        category: cat.ItemName,
-        itemOrder: cat.ItemOrder,
-        items: catCodes.map((c, index) => ({
-          _id: c.CodeNum!.toString(),
-          code: c.ProcCode,
-          name: c.AbbrDesc || c.Descript,
-          itemOrder: index.toString()
-        }))
-      };
-    });
+    return categories
+      .map(cat => {
+        const catCodes = codes.filter(c => c.ProcCat === cat.DefNum);
+        return {
+          _id: cat.DefNum.toString(),
+          category: cat.ItemName,
+          itemOrder: cat.ItemOrder,
+          items: catCodes.map((c, index) => ({
+            _id: c.CodeNum!.toString(),
+            code: c.ProcCode,
+            name: c.AbbrDesc || c.Descript,
+            itemOrder: index.toString()
+          }))
+        };
+      })
+      .filter(cat => cat.items.length > 0); // Only return categories that actually have procedure codes (this filters out Adjustment types that share Category 1)
   }
 }
 

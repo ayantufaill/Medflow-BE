@@ -1899,27 +1899,62 @@ async getPatientAppointments(patientId: string, limit = 10) {
     });
 
     if (updates.customFields?.procedures && Array.isArray(updates.customFields.procedures)) {
-      // For simplicity in MVP, we delete and recreate procedures for the appointment
-      await prisma.procedurelog.deleteMany({
-        where: { AptNum: BigInt(appointmentId) }
+      const existingProcs = await prisma.procedurelog.findMany({
+        where: { AptNum: BigInt(appointmentId) },
+        include: { procedurecode_procedurelog_CodeNumToprocedurecode: true }
       });
+
+      const procsToKeep = new Set();
+
       for (const proc of updates.customFields.procedures) {
         try {
           const fee = proc.charge ? parseFloat(proc.charge.toString().replace(/[^0-9.-]+/g, "")) : 0;
-          await this.addAppointmentProcedure(
-            appointmentId,
-            {
-              code: proc.code,
-              description: proc.treatment || proc.name || '',
-              fee: isNaN(fee) ? 0 : fee,
-              providerId: proc.provider || updates.providerId || appointment.ProvNum?.toString(),
-              tooth: proc.site || '',
-              status: proc.completed ? '2' : (proc.status !== undefined && proc.status !== null ? String(proc.status) : '1'),
-            },
-            updatedBy
+          
+          const matchIdx = existingProcs.findIndex(ep => 
+            !procsToKeep.has(ep.ProcNum) &&
+            ((ep.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode === proc.code) || (ep.OldCode === proc.code))
           );
+
+          if (matchIdx !== -1) {
+            const matchedProc = existingProcs[matchIdx];
+            procsToKeep.add(matchedProc.ProcNum);
+            
+            await prisma.procedurelog.update({
+              where: { ProcNum: matchedProc.ProcNum },
+              data: {
+                ProcFee: isNaN(fee) ? matchedProc.ProcFee : fee,
+                ProcStatus: proc.completed ? 2 : (proc.status !== undefined && proc.status !== null ? Number(proc.status) : 1),
+              }
+            });
+          } else {
+            await this.addAppointmentProcedure(
+              appointmentId,
+              {
+                code: proc.code,
+                description: proc.treatment || proc.name || '',
+                fee: isNaN(fee) ? 0 : fee,
+                providerId: proc.provider || updates.providerId || appointment.ProvNum?.toString(),
+                tooth: proc.site || '',
+                status: proc.completed ? '2' : (proc.status !== undefined && proc.status !== null ? String(proc.status) : '1'),
+              },
+              updatedBy
+            );
+          }
         } catch (error) {
           console.error(`Failed to sync procedure ${proc.code} for appointment ${appointmentId}:`, error);
+        }
+      }
+
+      for (const ep of existingProcs) {
+        if (!procsToKeep.has(ep.ProcNum)) {
+          try {
+            await prisma.procedurelog.delete({ where: { ProcNum: ep.ProcNum } });
+          } catch (e) {
+            await prisma.procedurelog.update({
+              where: { ProcNum: ep.ProcNum },
+              data: { AptNum: null }
+            });
+          }
         }
       }
     }
@@ -2742,6 +2777,12 @@ async getPatientAppointments(patientId: string, limit = 10) {
     }
 
     const oldData = await this.mapAppointmentWithMeta(appointment);
+
+    // Detach any attached procedures to avoid foreign key constraints
+    await prisma.procedurelog.updateMany({
+      where: { AptNum: BigInt(appointmentId) },
+      data: { AptNum: null }
+    });
 
     // Hard delete - remove from database
     await prisma.appointment.delete({

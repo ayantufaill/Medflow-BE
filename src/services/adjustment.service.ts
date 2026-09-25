@@ -126,6 +126,38 @@ export class AdjustmentService {
       }
     }
 
+    let finalProviderId = data.providerId;
+
+    if (!finalProviderId && statementNum) {
+      const statement = await prisma.statement.findUnique({ where: { StatementNum: statementNum } });
+      if (statement && statement.NoteBold) {
+        try {
+          const meta = JSON.parse(statement.NoteBold);
+          if (meta.providerId) {
+            finalProviderId = String(meta.providerId);
+          }
+        } catch {}
+      }
+    }
+
+    if (!finalProviderId && data.patientId) {
+      const patient = await prisma.patient.findUnique({ where: { PatNum: BigInt(data.patientId) } });
+      if (patient && patient.PriProv && patient.PriProv > 0n) {
+        finalProviderId = patient.PriProv.toString();
+      }
+    }
+
+    let finalProcNum: bigint | undefined = undefined;
+    if (statementNum) {
+      const proc = await prisma.procedurelog.findFirst({
+        where: { StatementNum: statementNum },
+        orderBy: { ProcDate: 'desc' }
+      });
+      if (proc) {
+        finalProcNum = proc.ProcNum;
+      }
+    }
+
     const adjustment = await prisma.adjustment.create({
       data: {
         AdjNum: adjNum,
@@ -133,7 +165,8 @@ export class AdjustmentService {
         AdjAmt: data.amount,
         AdjDate: data.date,
         AdjType: data.type ? BigInt(data.type) : undefined,
-        ProvNum: data.providerId ? BigInt(data.providerId) : undefined,
+        ProvNum: finalProviderId ? BigInt(finalProviderId) : undefined,
+        ProcNum: finalProcNum,
         AdjNote: data.notes,
         StatementNum: statementNum,
         DateEntry: new Date(),
