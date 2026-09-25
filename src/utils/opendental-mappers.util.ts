@@ -9,8 +9,10 @@ import type {
 } from '@prisma/client';
 
 const formatTime = (date: Date): string => {
-  const hours = date.getHours();
-  const minutes = date.getMinutes();
+  // Appointment datetimes are stored with their clinic-local wall-clock in
+  // the UTC components, so read them back that way regardless of server TZ.
+  const hours = date.getUTCHours();
+  const minutes = date.getUTCMinutes();
   return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 };
 

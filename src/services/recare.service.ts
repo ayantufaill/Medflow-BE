@@ -25,6 +25,7 @@ export interface RecareDueDateResult {
   dueDate: string | null;
   isOverdue: boolean;
   isNeverCompleted: boolean;
+  sourceAppointmentId?: string | null;
 }
 
 export interface PatientRecareDueDatesResult {
@@ -131,7 +132,7 @@ export class RecareService {
     }
 
     const intervalMonths = recallType?.DefaultInterval ?? 6;
-    const offsetDays = recallType?.OffsetDays ?? 0;
+    const offsetDays = 0;
     const recallTypeNum = recallType ? recallType.RecallTypeNum.toString() : null;
     const recallTypeName = recallType?.Description ?? null;
 
@@ -154,6 +155,7 @@ export class RecareService {
         DateComplete: true,
         CodeNum: true,
         OldCode: true,
+        AptNum: true,
       },
     });
 
@@ -171,6 +173,7 @@ export class RecareService {
         dueDate: null,
         isOverdue: false,
         isNeverCompleted: true,
+        sourceAppointmentId: null,
       };
     }
 
@@ -192,6 +195,7 @@ export class RecareService {
       dueDate,
       isOverdue,
       isNeverCompleted: false,
+      sourceAppointmentId: lastCompletedProc?.AptNum ? lastCompletedProc.AptNum.toString() : null,
     };
   }
 
@@ -284,7 +288,7 @@ export class RecareService {
       // 1. Check per-CDT recall types
       for (const rt of recallTypes) {
         const intervalMonths = rt.DefaultInterval ?? defaultIntervalMonths;
-        const offsetDays = rt.OffsetDays ?? 0;
+        const offsetDays = 0;
         const triggerCodeNums = rt.recalltrigger
           .map((t) => t.CodeNum)
           .filter((c): c is bigint => c !== null);

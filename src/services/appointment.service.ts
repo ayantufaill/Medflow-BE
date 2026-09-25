@@ -20,6 +20,7 @@ import { emailService } from './email.service';
 import { smsService } from './sms.service';
 import { practiceInfoService } from './practice-info.service';
 import { staffNotificationService } from './staffNotification.service';
+import { getAppointmentTimeZone, scheduledStartInstant } from '../utils/datetime.util';
 
 /**
  * Generate unique appointment code (e.g., APT001, APT002, etc.)
@@ -44,13 +45,15 @@ const formatMinutesToTime = (totalMinutes: number): string => {
 
 const getStartOfDay = (date: Date): Date => {
   const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
+  // Appointment datetimes carry the clinic-local wall-clock in their UTC
+  // components, so day boundaries are computed in UTC to match.
+  d.setUTCHours(0, 0, 0, 0);
   return d;
 };
 
 const getEndOfDay = (date: Date): Date => {
   const d = new Date(date);
-  d.setHours(23, 59, 59, 999);
+  d.setUTCHours(23, 59, 59, 999);
   return d;
 };
 
@@ -123,7 +126,7 @@ async function checkConflicts(
   providerAppointments.forEach((apt) => {
     if (!apt.AptDateTime) return;
     const aptStart = parseTimeToMinutes(formatMinutesToTime(
-      apt.AptDateTime.getHours() * 60 + apt.AptDateTime.getMinutes()
+      apt.AptDateTime.getUTCHours() * 60 + apt.AptDateTime.getUTCMinutes()
     ));
     const duration = getDurationMinutesFromPattern(apt.Pattern);
     const aptEnd = aptStart + duration;
@@ -152,7 +155,7 @@ async function checkConflicts(
     roomAppointments.forEach((apt) => {
       if (!apt.AptDateTime) return;
       const aptStart = parseTimeToMinutes(formatMinutesToTime(
-        apt.AptDateTime.getHours() * 60 + apt.AptDateTime.getMinutes()
+        apt.AptDateTime.getUTCHours() * 60 + apt.AptDateTime.getUTCMinutes()
       ));
       const duration = getDurationMinutesFromPattern(apt.Pattern);
       const aptEnd = aptStart + duration;
@@ -164,9 +167,9 @@ async function checkConflicts(
       }
     });
 
-    const year = startOfDay.getFullYear();
-    const month = String(startOfDay.getMonth() + 1).padStart(2, '0');
-    const day = String(startOfDay.getDate()).padStart(2, '0');
+    const year = startOfDay.getUTCFullYear();
+    const month = String(startOfDay.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(startOfDay.getUTCDate()).padStart(2, '0');
     const schedDate = new Date(`${year}-${month}-${day}T00:00:00.000Z`);
 
     const blockouts = await prisma.schedule.findMany({
@@ -212,7 +215,7 @@ async function checkConflicts(
     patientAppointments.forEach((apt) => {
       if (!apt.AptDateTime) return;
       const aptStart = parseTimeToMinutes(formatMinutesToTime(
-        apt.AptDateTime.getHours() * 60 + apt.AptDateTime.getMinutes()
+        apt.AptDateTime.getUTCHours() * 60 + apt.AptDateTime.getUTCMinutes()
       ));
       const duration = getDurationMinutesFromPattern(apt.Pattern);
       const aptEnd = aptStart + duration;
@@ -1061,12 +1064,12 @@ async getPatientAppointments(patientId: string, limit = 10) {
       const patient = apt.patient as any;
       const appointmentType = apt.appointmenttype as any;
       
-      // Fix timezone issue: Use local date formatting instead of toISOString()
-      // toISOString() converts to UTC which can shift the date by one day
+      // Appointment datetimes store the clinic-local wall-clock in their UTC
+      // components, so read them back that way to avoid server-TZ shifts.
       const appointmentDate = new Date(apt.AptDateTime as Date | string);
-      const year = appointmentDate.getFullYear();
-      const month = String(appointmentDate.getMonth() + 1).padStart(2, '0');
-      const day = String(appointmentDate.getDate()).padStart(2, '0');
+      const year = appointmentDate.getUTCFullYear();
+      const month = String(appointmentDate.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(appointmentDate.getUTCDate()).padStart(2, '0');
       const dateStr = `${year}-${month}-${day}`;
 
       // Calculate buffer times
@@ -1087,7 +1090,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       };
 
       const startMinutes = parseTime(formatMinutesToTime(
-        appointmentDate.getHours() * 60 + appointmentDate.getMinutes()
+        appointmentDate.getUTCHours() * 60 + appointmentDate.getUTCMinutes()
       ));
       const durationMinutes = getDurationMinutesFromPattern(apt.Pattern);
       const endMinutes = startMinutes + durationMinutes;
@@ -1221,7 +1224,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       const bufferBefore = 0;
       const bufferAfter = 0;
       const startTime = apt.AptDateTime ? formatMinutesToTime(
-        apt.AptDateTime.getHours() * 60 + apt.AptDateTime.getMinutes()
+        apt.AptDateTime.getUTCHours() * 60 + apt.AptDateTime.getUTCMinutes()
       ) : '00:00';
       const duration = getDurationMinutesFromPattern(apt.Pattern);
       const endTime = formatMinutesToTime(parseTimeToMinutes(startTime) + duration);
@@ -1524,7 +1527,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
         ProcDescript: data.chiefComplaint ?? null,
         Note: data.notes ?? null,
         Op: opId,
-        ClinicNum: data.branchId ? BigInt(data.branchId) : null,
+        ClinicNum: clinicNum,
         AptStatus: mapAppointmentStatusToDb(data.status ?? 'scheduled'),
         DateTimeArrived: null,
         DateTimeDismissed: null,
@@ -1688,15 +1691,20 @@ async getPatientAppointments(patientId: string, limit = 10) {
         apptStartDateTime = toDateTime(new Date(updates.appointmentDate), updates.startTime);
       } else if (updates.appointmentDate && appointment.AptDateTime) {
         const timeStr = formatMinutesToTime(
-          appointment.AptDateTime.getHours() * 60 + appointment.AptDateTime.getMinutes()
+          appointment.AptDateTime.getUTCHours() * 60 + appointment.AptDateTime.getUTCMinutes()
         );
         apptStartDateTime = toDateTime(new Date(updates.appointmentDate), timeStr);
       } else if (updates.startTime && appointment.AptDateTime) {
         apptStartDateTime = toDateTime(appointment.AptDateTime, updates.startTime);
       }
 
-      if (apptStartDateTime && Date.now() < apptStartDateTime.getTime()) {
-        throw new BadRequestError('Cannot check out an appointment before its scheduled start time.');
+      if (apptStartDateTime) {
+        // Interpret the scheduled start in the appointment's clinic timezone
+        // ("for all UTCs depending on the area"), not the server's timezone.
+        const clinicTimeZone = await getAppointmentTimeZone(appointment.ClinicNum, updatedBy);
+        if (Date.now() < scheduledStartInstant(apptStartDateTime, clinicTimeZone)) {
+          throw new BadRequestError('Cannot check out an appointment before its scheduled start time.');
+        }
       }
     }
 
@@ -1706,7 +1714,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
     if (!isInactiveStatus && (updates.appointmentDate || updates.startTime || updates.endTime || updates.providerId)) {
       const appointmentDate = updates.appointmentDate || appointment.AptDateTime || new Date();
       const startTime = updates.startTime || (appointment.AptDateTime ? formatMinutesToTime(
-        appointment.AptDateTime.getHours() * 60 + appointment.AptDateTime.getMinutes()
+        appointment.AptDateTime.getUTCHours() * 60 + appointment.AptDateTime.getUTCMinutes()
       ) : '09:00');
       const endTime =
         updates.endTime ||
@@ -1775,7 +1783,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
             updates.appointmentDate ? new Date(updates.appointmentDate) : (appointment.AptDateTime ?? new Date()),
             updates.startTime ||
               (appointment.AptDateTime
-                ? formatMinutesToTime(appointment.AptDateTime.getHours() * 60 + appointment.AptDateTime.getMinutes())
+                ? formatMinutesToTime(appointment.AptDateTime.getUTCHours() * 60 + appointment.AptDateTime.getUTCMinutes())
                 : '09:00')
           )
         : undefined;
@@ -3093,8 +3101,13 @@ async getPatientAppointments(patientId: string, limit = 10) {
       throw new BadRequestError('Appointment has already been checked out and its status is locked.');
     }
 
-    if (appointment.AptDateTime && Date.now() < new Date(appointment.AptDateTime).getTime()) {
-      throw new BadRequestError('Cannot check out an appointment before its scheduled start time.');
+    if (appointment.AptDateTime) {
+      // Interpret the scheduled start in the appointment's clinic timezone
+      // ("for all UTCs depending on the area"), not the server's timezone.
+      const clinicTimeZone = await getAppointmentTimeZone(appointment.ClinicNum, checkedOutBy);
+      if (Date.now() < scheduledStartInstant(appointment.AptDateTime, clinicTimeZone)) {
+        throw new BadRequestError('Cannot check out an appointment before its scheduled start time.');
+      }
     }
 
     const oldData = await this.mapAppointmentWithMeta(appointment);
