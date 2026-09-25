@@ -8,6 +8,7 @@ import {
   mapPatientToApi,
 } from '../utils/opendental-mappers.util';
 import { getPatientMeta, getPatientsMeta, setPatientMeta, getPatientInsurancesMeta } from '../utils/opendental-auth.util';
+import { recareService } from './recare.service';
 import {
   mapProcedureStatusToText,
   normalizeMedicalHistoryRows,
@@ -1768,9 +1769,24 @@ async getPatientHistoryAggregate(patientId: string) {
 
     const appointments = await appointmentService.mapAppointmentsBulk(rawAppointments);
 
+    // Compute recare due dates for each member (patient + family) so the
+    // "Due" tab can show overdue procedure due dates.
+    const recareDueDatesByMember: Record<string, Record<string, any>> = {};
+    await Promise.all(
+      allMembers.map(async (member) => {
+        try {
+          const result = await recareService.calculateRecareDueDates(member.id);
+          recareDueDatesByMember[member.id] = result.recareDueDates || {};
+        } catch {
+          recareDueDatesByMember[member.id] = {};
+        }
+      })
+    );
+
     return {
       familyMembers,
-      appointments
+      appointments,
+      recareDueDatesByMember,
     };
   }
   async purchaseProducts(patientId: string, products: any[]) {

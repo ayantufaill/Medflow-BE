@@ -31,7 +31,7 @@ const assertClinicInScope = (clinicNum: bigint, allowedClinicIds?: bigint[]): vo
   }
 };
 
-const getHomeClinicNum = async (userId: string): Promise<bigint | null> => {
+export const getHomeClinicNum = async (userId: string): Promise<bigint | null> => {
   const user = await prisma.userod.findUnique({
     where: { UserNum: BigInt(userId) },
     select: { ClinicNum: true },

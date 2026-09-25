@@ -28,6 +28,7 @@ type ClinicalNoteMeta = {
   objective?: string;
   assessment?: string;
   plan?: string;
+  content?: string;
   diagnosisCodes?: string[];
   structuredData?: any;
   historyOfPresentIllness?: string;
@@ -40,6 +41,25 @@ type ClinicalNoteMeta = {
   signedBy?: string;
   lastEditedBy?: string;
 };
+
+const CLINICAL_NOTE_META_KEYS: (keyof ClinicalNoteMeta)[] = [
+  'appointmentId',
+  'noteType',
+  'chiefComplaint',
+  'subjective',
+  'objective',
+  'assessment',
+  'plan',
+  'diagnosisCodes',
+  'structuredData',
+  'historyOfPresentIllness',
+  'physicalExam',
+];
+
+const isClinicalNoteMeta = (meta: Record<string, unknown>): boolean =>
+  CLINICAL_NOTE_META_KEYS.some(
+    (key) => meta[key] !== undefined && meta[key] !== null && meta[key] !== ''
+  );
 
 export class ClinicalNoteService {
   private async enrichClinicalNotes(notes: any[]) {
@@ -136,6 +156,7 @@ export class ClinicalNoteService {
       objective: meta.objective ?? null,
       assessment: meta.assessment ?? null,
       plan: meta.plan ?? null,
+      content: meta.content ?? null,
       diagnosisCodes: meta.diagnosisCodes ?? [],
       structuredData: meta.structuredData ?? null,
       historyOfPresentIllness: meta.historyOfPresentIllness ?? null,
@@ -180,10 +201,12 @@ export class ClinicalNoteService {
       orderBy: { CommDateTime: 'desc' },
     });
 
-    let clinicalNotes = rows.map((row) => {
-      const meta = parseJson<ClinicalNoteMeta>(row.Note);
-      return this.mapCommlogToClinicalNote(row, meta);
-    });
+    let clinicalNotes = rows
+      .filter((row) => isClinicalNoteMeta(parseJson<ClinicalNoteMeta>(row.Note)))
+      .map((row) => {
+        const meta = parseJson<ClinicalNoteMeta>(row.Note);
+        return this.mapCommlogToClinicalNote(row, meta);
+      });
 
     if (filters.providerId) {
       clinicalNotes = clinicalNotes.filter((note: any) => note.providerId === filters.providerId);
@@ -238,22 +261,21 @@ export class ClinicalNoteService {
   async getClinicalNotesByPatient(patientId: string, page = 1, limit = 10) {
     const skip = (page - 1) * limit;
 
-    const [rows, total] = await Promise.all([
-      prisma.commlog.findMany({
-        where: { PatNum: BigInt(patientId) },
-        orderBy: { CommDateTime: 'desc' },
-        skip,
-        take: limit,
-      }),
-      prisma.commlog.count({ where: { PatNum: BigInt(patientId) } }),
-    ]);
+    const rows = await prisma.commlog.findMany({
+      where: { PatNum: BigInt(patientId) },
+      orderBy: { CommDateTime: 'desc' },
+    });
 
-    const mapped = rows.map((row) => {
+    const mapped = rows
+      .filter((row) => isClinicalNoteMeta(parseJson<ClinicalNoteMeta>(row.Note)))
+      .map((row) => {
         const meta = parseJson<ClinicalNoteMeta>(row.Note);
         return this.mapCommlogToClinicalNote(row, meta);
       });
+    const total = mapped.length;
+    const paginated = mapped.slice(skip, skip + limit);
     return {
-      clinicalNotes: await this.enrichClinicalNotes(mapped),
+      clinicalNotes: await this.enrichClinicalNotes(paginated),
       pagination: {
         page,
         limit,
@@ -364,6 +386,7 @@ export class ClinicalNoteService {
       objective?: string;
       assessment?: string;
       plan?: string;
+      content?: string;
       diagnosisCodes?: string[];
       structuredData?: any;
       historyOfPresentIllness?: string;
@@ -393,6 +416,7 @@ export class ClinicalNoteService {
       objective: updates.objective ?? meta.objective,
       assessment: updates.assessment ?? meta.assessment,
       plan: updates.plan ?? meta.plan,
+      content: updates.content ?? meta.content,
       diagnosisCodes: updates.diagnosisCodes ?? meta.diagnosisCodes,
       structuredData: updates.structuredData ?? meta.structuredData,
       historyOfPresentIllness: updates.historyOfPresentIllness ?? meta.historyOfPresentIllness,
@@ -454,8 +478,13 @@ export class ClinicalNoteService {
       throw new BadRequestError('Clinical note is already signed');
     }
 
-    if (!meta.subjective && !meta.objective && !meta.assessment && !meta.plan) {
-      throw new ValidationError('Cannot sign an empty clinical note. At least one SOAP section must be completed.');
+    const hasStructuredContent =
+      !!meta.structuredData &&
+      typeof meta.structuredData === 'object' &&
+      Object.keys(meta.structuredData).length > 0;
+
+    if (!meta.subjective && !meta.objective && !meta.assessment && !meta.plan && !meta.content && !hasStructuredContent) {
+      throw new ValidationError('Cannot sign an empty clinical note. At least one SOAP section or note content must be completed.');
     }
 
     const nextMeta: ClinicalNoteMeta = {
