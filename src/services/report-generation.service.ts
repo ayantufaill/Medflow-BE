@@ -2935,45 +2935,7 @@ export class ReportGenerationService {
   // ==========================================
 
   private async getPatientInsuranceCoverage(query: any = {}) {
-    const { searchQuery, assignmentFilter, apptStartDate, apptEndDate, apptSingleDate, showNoCoverage, apptFilterType } = query;
-
-    let whereClause: any = {};
-    whereClause.AND = [];
-
-    if (showNoCoverage === 'true' || showNoCoverage === true) {
-      whereClause.inssub = { is: null };
-    } else if (showNoCoverage === 'false' || showNoCoverage === false) {
-      whereClause.inssub = { isNot: null };
-    }
-
-    if (searchQuery) {
-      let searchOr: any[] = [
-        { patient: { is: { FName: { contains: searchQuery } } } },
-        { patient: { is: { LName: { contains: searchQuery } } } },
-        { inssub: { is: { insplan: { is: { GroupName: { contains: searchQuery } } } } } },
-        { inssub: { is: { insplan: { is: { carrier: { is: { CarrierName: { contains: searchQuery } } } } } } } }
-      ];
-      if (!isNaN(Number(searchQuery))) {
-        searchOr.push({ PatNum: BigInt(searchQuery) });
-      }
-      whereClause.AND.push({ OR: searchOr });
-    }
-
-    if (assignmentFilter === 'assignment') {
-      whereClause.inssub = { ...whereClause.inssub, is: { ...whereClause.inssub?.is, AssignBen: 1 } };
-    } else if (assignmentFilter === 'non-assignment') {
-      whereClause.AND.push({
-        OR: [
-          { inssub: { is: null } },
-          { inssub: { is: { AssignBen: { not: 1 } } } },
-          { inssub: { is: { AssignBen: null } } }
-        ]
-      });
-    }
-
-    if (whereClause.AND.length === 0) {
-      delete whereClause.AND;
-    }
+    const { searchQuery, searchItems, assignmentFilter, apptStartDate, apptEndDate, apptSingleDate, showNoCoverage, apptFilterType } = query;
 
     let apptWhere: any = { AptStatus: { in: [1, 2] } };
     let hasApptFilter = false;
@@ -2995,67 +2957,166 @@ export class ReportGenerationService {
       apptWhere.AptDateTime = { gt: new Date(apptSingleDate) };
     }
 
-    if (hasApptFilter) {
-      whereClause.patient = {
-        ...whereClause.patient,
-        is: {
-          ...whereClause.patient?.is,
-          appointment: { some: apptWhere }
-        }
-      };
+    let termsToSearch: string[] = [];
+    if (searchQuery) termsToSearch.push(searchQuery);
+    if (searchItems) termsToSearch = termsToSearch.concat(searchItems.split('||').filter(Boolean));
+
+    const report: any[] = [];
+    let wantCoverage = true;
+    let wantNoCoverage = false;
+
+    if (showNoCoverage === 'true' || showNoCoverage === true) {
+      wantNoCoverage = true;
     }
 
-    const plans = await prisma.patplan.findMany({
-      where: whereClause,
-      include: {
-        patient: {
-          include: {
-            appointment: {
-              where: { AptStatus: { in: [1, 2] } },
-              orderBy: { AptDateTime: 'desc' },
-              take: 1
-            }
+    if (wantCoverage) {
+      let whereClause: any = {};
+      whereClause.AND = [];
+
+      if (termsToSearch.length > 0) {
+        let searchOr: any[] = [];
+        for (const term of termsToSearch) {
+          searchOr.push({ patient: { is: { FName: { contains: term } } } });
+          searchOr.push({ patient: { is: { LName: { contains: term } } } });
+          searchOr.push({ inssub: { is: { insplan: { is: { GroupName: { contains: term } } } } } });
+          searchOr.push({ inssub: { is: { insplan: { is: { carrier: { is: { CarrierName: { contains: term } } } } } } } });
+          if (!isNaN(Number(term)) && String(term).trim() !== '') {
+            searchOr.push({ PatNum: BigInt(term) });
           }
-        },
-        inssub: {
-          include: {
-            insplan: {
-              include: {
-                carrier: true,
-                feesched_insplan_FeeSchedTofeesched: true
+        }
+        whereClause.AND.push({ OR: searchOr });
+      }
+
+      if (assignmentFilter === 'assignment') {
+        whereClause.inssub = { ...whereClause.inssub, is: { ...whereClause.inssub?.is, AssignBen: 1 } };
+      } else if (assignmentFilter === 'non-assignment') {
+        whereClause.AND.push({
+          OR: [
+            { inssub: { is: null } },
+            { inssub: { is: { AssignBen: { not: 1 } } } },
+            { inssub: { is: { AssignBen: null } } }
+          ]
+        });
+      }
+
+      if (hasApptFilter) {
+        whereClause.patient = {
+          ...whereClause.patient,
+          is: {
+            ...whereClause.patient?.is,
+            appointment: { some: apptWhere }
+          }
+        };
+      }
+
+      if (whereClause.AND && whereClause.AND.length === 0) {
+        delete whereClause.AND;
+      }
+
+      const plans = await prisma.patplan.findMany({
+        where: whereClause,
+        include: {
+          patient: {
+            include: {
+              appointment: {
+                where: { AptStatus: { in: [1, 2] } },
+                orderBy: { AptDateTime: 'desc' },
+                take: 1
+              }
+            }
+          },
+          inssub: {
+            include: {
+              insplan: {
+                include: {
+                  carrier: true,
+                  feesched_insplan_FeeSchedTofeesched: true
+                }
               }
             }
           }
         }
+      });
+
+      for (const p of plans) {
+        const patientName = p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Patient';
+        const email = p.patient?.Email || '';
+        const planNameVal = p.inssub?.insplan?.GroupName
+          ? `${p.inssub.insplan.GroupName} (${p.inssub.insplan.PlanNum?.toString() || ''})`
+          : p.inssub?.insplan?.GroupNum
+            ? `${p.inssub.insplan.GroupNum} (${p.inssub.insplan.PlanNum?.toString() || ''})`
+            : 'Standard Insurance';
+        const payer = p.inssub?.insplan?.carrier?.CarrierName || 'Standard Insurance';
+        const patientNum = p.PatNum ? p.PatNum.toString() : '';
+        const lastAppt = (p.patient as any)?.appointment?.[0]?.AptDateTime;
+        const feeSchedDesc = p.inssub?.insplan?.feesched_insplan_FeeSchedTofeesched?.Description || '';
+        const isAssignment = p.inssub?.AssignBen === 1;
+
+        report.push({
+          number: patientNum,
+          patient: patientName,
+          email,
+          planName: planNameVal,
+          payer,
+          lastAppointment: lastAppt ? new Date(lastAppt).toLocaleDateString() : '',
+          feeSchedule: feeSchedDesc,
+          planRenewalDate: 'January',
+          assignmentStatus: isAssignment ? 'Assignment' : 'Non-Assignment'
+        });
       }
-    });
+    }
 
-    const report = plans.map(p => {
-      const patientName = p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Patient';
-      const email = p.patient?.Email || '';
-      const planNameVal = p.inssub?.insplan?.GroupName
-        ? `${p.inssub.insplan.GroupName} (${p.inssub.insplan.PlanNum?.toString() || ''})`
-        : p.inssub?.insplan?.GroupNum
-          ? `${p.inssub.insplan.GroupNum} (${p.inssub.insplan.PlanNum?.toString() || ''})`
-          : 'Standard Insurance';
-      const payer = p.inssub?.insplan?.carrier?.CarrierName || 'Standard Insurance';
-      const patientNum = p.PatNum ? p.PatNum.toString() : '';
-      const lastAppt = (p.patient as any)?.appointment?.[0]?.AptDateTime;
-      const feeSchedDesc = p.inssub?.insplan?.feesched_insplan_FeeSchedTofeesched?.Description || '';
-      const isAssignment = p.inssub?.AssignBen === 1;
+    if (wantNoCoverage) {
+      let rawSql = `SELECT p.* FROM patient p WHERE NOT EXISTS (SELECT 1 FROM patplan pp WHERE pp."PatNum" = p."PatNum")`;
+      let params: any[] = [];
+      let paramIdx = 1;
 
-      return {
-        number: patientNum,
-        patient: patientName,
-        email,
-        planName: planNameVal,
-        payer,
-        lastAppointment: lastAppt ? new Date(lastAppt).toLocaleDateString() : '',
-        feeSchedule: feeSchedDesc,
-        planRenewalDate: 'January',
-        assignmentStatus: isAssignment ? 'Assignment' : 'Non-Assignment'
-      };
-    });
+      if (termsToSearch.length > 0) {
+        let nameChecks = [];
+        for (const term of termsToSearch) {
+          nameChecks.push(`(p."FName" ILIKE $${paramIdx} OR p."LName" ILIKE $${paramIdx})`);
+          params.push(`%${term}%`);
+          paramIdx++;
+        }
+        if (nameChecks.length > 0) {
+          rawSql += ` AND (${nameChecks.join(' OR ')})`;
+        }
+      }
+
+      if (hasApptFilter) {
+        if (apptFilterType === 'range') {
+          rawSql += ` AND EXISTS (SELECT 1 FROM appointment a WHERE a."PatNum" = p."PatNum" AND a."AptStatus" IN (1, 2) AND a."AptDateTime" >= $${paramIdx}::date AND a."AptDateTime" <= $${paramIdx+1}::date)`;
+          params.push(apptStartDate, apptEndDate ? `${apptEndDate} 23:59:59` : '2099-01-01 23:59:59');
+          paramIdx += 2;
+        } else if (apptFilterType === 'before') {
+          rawSql += ` AND EXISTS (SELECT 1 FROM appointment a WHERE a."PatNum" = p."PatNum" AND a."AptStatus" IN (1, 2) AND a."AptDateTime" < $${paramIdx}::date)`;
+          params.push(apptSingleDate);
+          paramIdx++;
+        } else if (apptFilterType === 'after') {
+          rawSql += ` AND EXISTS (SELECT 1 FROM appointment a WHERE a."PatNum" = p."PatNum" AND a."AptStatus" IN (1, 2) AND a."AptDateTime" > $${paramIdx}::date)`;
+          params.push(apptSingleDate);
+          paramIdx++;
+        }
+      }
+
+      rawSql += ` LIMIT 200`;
+
+      const noCovPatients = await prisma.$queryRawUnsafe<any[]>(rawSql, ...params);
+      
+      for (const p of noCovPatients) {
+        report.push({
+          number: p.PatNum?.toString() || '',
+          patient: `${p.FName || ''} ${p.LName || ''}`.trim() || 'Patient',
+          email: p.Email || '',
+          planName: 'No Coverage',
+          payer: 'N/A',
+          lastAppointment: 'N/A', // Omitted for speed in raw sql, but we can assume N/A
+          feeSchedule: 'N/A',
+          planRenewalDate: 'N/A',
+          assignmentStatus: 'N/A'
+        });
+      }
+    }
 
     return report;
   }
@@ -3064,27 +3125,20 @@ export class ReportGenerationService {
     const { searchQuery, renewalMonth, apptFilterType, apptStartDate, apptEndDate, apptSingleDate, showNoPlan } = query;
     const months = ['January','February','March','April','May','June',
                     'July','August','September','October','November','December'];
+    const wantNoPlan = showNoPlan === 'true' || showNoPlan === true;
 
     let whereClause: any = { IsClosed: 0 };
     whereClause.AND = [];
-
-    if (showNoPlan === 'true' || showNoPlan === true) {
-      whereClause.AND.push({
-        OR: [
-          { PlanCategory: null },
-          { PlanCategory: 0 }
-        ]
-      });
-    } else if (showNoPlan === 'false' || showNoPlan === false) {
-      whereClause.AND.push({ PlanCategory: { not: null } });
-      whereClause.AND.push({ PlanCategory: { not: 0 } });
-    }
+    
+    // Always fetch plans unless we're strictly filtering for "only no plans" (if your UI supports that, but we'll fetch both)
+    whereClause.AND.push({ PlanCategory: { not: null } });
+    whereClause.AND.push({ PlanCategory: { not: 0 } });
 
     if (searchQuery) {
       let searchOr: any[] = [
-        { patient_payplan_PatNumTopatient: { is: { FName: { contains: searchQuery } } } },
-        { patient_payplan_PatNumTopatient: { is: { LName: { contains: searchQuery } } } },
-        { definition: { is: { ItemName: { contains: searchQuery } } } }
+        { patient_payplan_PatNumTopatient: { is: { FName: { contains: searchQuery, mode: 'insensitive' } } } },
+        { patient_payplan_PatNumTopatient: { is: { LName: { contains: searchQuery, mode: 'insensitive' } } } },
+        { definition: { is: { ItemName: { contains: searchQuery, mode: 'insensitive' } } } }
       ];
       if (!isNaN(Number(searchQuery))) {
         searchOr.push({ PatNum: BigInt(searchQuery) });
@@ -3125,6 +3179,8 @@ export class ReportGenerationService {
       delete whereClause.AND;
     }
 
+    let report: any[] = [];
+    
     const plans = await prisma.payplan.findMany({
       where: whereClause,
       include: {
@@ -3137,23 +3193,70 @@ export class ReportGenerationService {
       }
     });
 
-    if (plans.length === 0) {
-      return [];
-    }
-
-    let report = plans.map(p => {
+    for (const p of plans) {
       const pat = p.patient_payplan_PatNumTopatient;
-      const lastAppt = pat?.appointment?.[0]?.AptDateTime;
+      if (!pat) continue;
+      const lastAppt = pat.appointment?.[0]?.AptDateTime;
       const renewalDate = p.PayPlanDate as Date | null;
-      return {
-        number: pat?.PatNum?.toString() || '',
-        patient: pat ? `${pat.FName} ${pat.LName}` : 'Patient',
-        email: pat?.Email || '',
+      report.push({
+        number: pat.PatNum?.toString() || '',
+        patient: `${pat.FName} ${pat.LName}`.trim() || 'Patient',
+        email: pat.Email || '',
         planName: p.definition?.ItemName || 'Membership Plan',
         lastAppointment: lastAppt ? new Date(lastAppt).toLocaleDateString() : '',
         renewalMonth: renewalDate ? months[new Date(renewalDate).getMonth()] : ''
-      };
-    });
+      });
+    }
+
+    if (wantNoPlan) {
+      const termsToSearch = searchQuery ? String(searchQuery).split(' ').filter(Boolean) : [];
+      let rawSql = `SELECT p.* FROM patient p WHERE NOT EXISTS (SELECT 1 FROM payplan pp WHERE pp."PatNum" = p."PatNum" AND pp."IsClosed" = 0 AND pp."PlanCategory" != 0)`;
+      let params: any[] = [];
+      let paramIdx = 1;
+
+      if (termsToSearch.length > 0) {
+        let nameChecks = [];
+        for (const term of termsToSearch) {
+          nameChecks.push(`(p."FName" ILIKE $${paramIdx} OR p."LName" ILIKE $${paramIdx})`);
+          params.push(`%${term}%`);
+          paramIdx++;
+        }
+        if (nameChecks.length > 0) {
+          rawSql += ` AND (${nameChecks.join(' OR ')})`;
+        }
+      }
+
+      if (hasApptFilter) {
+        if (apptFilterType === 'range') {
+          rawSql += ` AND EXISTS (SELECT 1 FROM appointment a WHERE a."PatNum" = p."PatNum" AND a."AptStatus" IN (1, 2) AND a."AptDateTime" >= $${paramIdx}::date AND a."AptDateTime" <= $${paramIdx+1}::date)`;
+          params.push(apptStartDate, apptEndDate ? `${apptEndDate} 23:59:59` : '2099-01-01 23:59:59');
+          paramIdx += 2;
+        } else if (apptFilterType === 'before') {
+          rawSql += ` AND EXISTS (SELECT 1 FROM appointment a WHERE a."PatNum" = p."PatNum" AND a."AptStatus" IN (1, 2) AND a."AptDateTime" < $${paramIdx}::date)`;
+          params.push(apptSingleDate);
+          paramIdx++;
+        } else if (apptFilterType === 'after') {
+          rawSql += ` AND EXISTS (SELECT 1 FROM appointment a WHERE a."PatNum" = p."PatNum" AND a."AptStatus" IN (1, 2) AND a."AptDateTime" > $${paramIdx}::date)`;
+          params.push(apptSingleDate);
+          paramIdx++;
+        }
+      }
+
+      rawSql += ` LIMIT 200`;
+
+      const noPlanPatients = await prisma.$queryRawUnsafe<any[]>(rawSql, ...params);
+      
+      for (const p of noPlanPatients) {
+        report.push({
+          number: p.PatNum?.toString() || '',
+          patient: `${p.FName || ''} ${p.LName || ''}`.trim() || 'Patient',
+          email: p.Email || '',
+          planName: 'No Plan',
+          lastAppointment: 'N/A', // Omitted for speed in raw sql, can do subquery if strictly needed
+          renewalMonth: 'N/A'
+        });
+      }
+    }
 
     if (renewalMonth) {
       report = report.filter(r => r.renewalMonth === renewalMonth);
