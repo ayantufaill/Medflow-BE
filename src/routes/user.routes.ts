@@ -14,6 +14,7 @@ import {
   createUserValidator,
   assignUserRolesValidator,
   updateCurrentBranchValidator,
+  updateUserBranchesValidator,
 } from '../validators/user.validator';
 
 // Validator for activity and login history endpoints
@@ -446,6 +447,43 @@ router.patch(
   requireRoles('Admin'),
   validate(userIdValidator),
   userController.deactivateUser.bind(userController)
+);
+
+/**
+ * @swagger
+ * /users/{userId}/branches:
+ *   patch:
+ *     summary: Replace a user's branch access (Admin / Group Admin)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [branchIds]
+ *             properties:
+ *               branchIds:
+ *                 type: array
+ *                 items: { type: integer }
+ *     responses:
+ *       200:
+ *         description: User branches updated
+ *       403:
+ *         description: Admin / Group Admin role required
+ */
+router.patch(
+  '/:userId/branches',
+  requireRoles('Admin', 'Group Admin'),
+  validate(updateUserBranchesValidator),
+  userController.updateUserBranches.bind(userController)
 );
 
 /**

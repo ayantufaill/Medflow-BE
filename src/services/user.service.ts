@@ -763,6 +763,50 @@ export class UserService {
 
     return { branchId };
   }
+
+  /**
+   * Replaces a user's clinic access. Writes their userclinic assignments and
+   * repoints their userod.ClinicNum home clinic to the first branch (or clears
+   * it when empty), so the branchIds returned here exactly match the set
+   * PermissionService.getBranchAccess / the auth profile report for the user.
+   */
+  async updateUserBranches(userId: string, branchIds: string[], allowedClinicIds?: bigint[]) {
+    const userNum = BigInt(userId);
+    const user = await prisma.userod.findUnique({
+      where: { UserNum: userNum },
+    });
+    if (!user) {
+      throw new NotFoundError('User not found');
+    }
+    await assertUserInScope(userId, allowedClinicIds);
+
+    const clinicNums = branchIds.map((id) => BigInt(id));
+    const clinics = await prisma.clinic.findMany({
+      where: { ClinicNum: { in: clinicNums }, IsHidden: 0 },
+      select: { ClinicNum: true },
+    });
+    if (clinics.length !== clinicNums.length) {
+      throw new NotFoundError('One or more branches do not exist.');
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.userclinic.deleteMany({ where: { UserNum: userNum } });
+
+      for (const clinicNum of clinicNums) {
+        const nextId = await getNextId('userclinic', 'UserClinicNum');
+        await tx.userclinic.create({
+          data: { UserClinicNum: nextId, UserNum: userNum, ClinicNum: clinicNum },
+        });
+      }
+
+      await tx.userod.update({
+        where: { UserNum: userNum },
+        data: { ClinicNum: clinicNums.length > 0 ? clinicNums[0] : null },
+      });
+    });
+
+    return { message: 'User branches updated successfully', branchIds };
+  }
 }
 
 export const userService = new UserService();
