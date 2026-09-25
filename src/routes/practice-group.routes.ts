@@ -90,6 +90,31 @@ router.get(
 
 /**
  * @swagger
+ * /practice-groups/{groupId}/users:
+ *   get:
+ *     summary: List every user in the practice group with their branch assignments
+ *     tags: [Practice Groups]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: groupId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Group users (any role) with current branchIds
+ *       404:
+ *         description: Practice group not found
+ */
+router.get(
+  '/:groupId/users',
+  validate(groupIdParamValidator),
+  practiceGroupController.getGroupUsers.bind(practiceGroupController)
+);
+
+/**
+ * @swagger
  * /practice-groups/{groupId}/branches:
  *   post:
  *     summary: Provision a new branch (clinic) under a practice group

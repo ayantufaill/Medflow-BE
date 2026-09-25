@@ -42,6 +42,22 @@ export const userIdValidator: ValidationChain[] = [
     .withMessage('Invalid user ID format'),
 ];
 
+export const updateUserBranchesValidator: ValidationChain[] = [
+  param('userId')
+    .notEmpty()
+    .withMessage('User ID is required')
+    .isInt({ min: 1 })
+    .withMessage('Invalid user ID format'),
+  body('branchIds')
+    .optional()
+    .isArray()
+    .withMessage('branchIds must be an array'),
+  body('branchIds.*')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Invalid branch ID format'),
+];
+
 export const assignRoleValidator: ValidationChain[] = [
   body('roleId')
     .optional(),
