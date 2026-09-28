@@ -11,6 +11,7 @@ import { logActivity } from '../utils/activity-logger.util';
 import { agingService } from './aging.service';
 import { providerResolutionService } from './provider-resolution.service';
 import { getProviderMeta } from '../utils/opendental-auth.util';
+import { aggregateAppliedByRow } from './deductible.service';
 
 type ClaimStatus =
   | 'draft'
@@ -42,6 +43,16 @@ type ClaimMeta = {
   insuranceCompanyId?: string;
   insuranceType?: string;
   status?: ClaimStatus;
+  /** Plan this claim's deductible is reserved against. */
+  patPlanNum?: string;
+  /**
+   * Deductible estimated per deductible row, keyed by normalized `typeKey`.
+   * This is the claim's *estimate*; whether it is currently applied to the plan
+   * is tracked separately by `deductibleHeld`.
+   */
+  deductibleReservedByRow?: Record<string, number>;
+  /** True while `deductibleReservedByRow` is applied to the plan's metAmount. */
+  deductibleHeld?: boolean;
   claimAmount?: number;
   submittedAmount?: number;
   totalAmount?: number;
@@ -344,7 +355,7 @@ export class ClaimService {
       };
     }
 
-    const rawInsEst = Number(meta.submittedAmount ?? row.InsPayEst ?? (Number(row.ClaimFee || 0) - Number(meta.patientResponsibility ?? row.DedApplied ?? 0))) || 0;
+    const rawInsEst = Number(row.InsPayEst ?? (Number(row.ClaimFee || 0) - Number(meta.patientResponsibility ?? row.DedApplied ?? 0))) || 0;
     const rawPaid = Number(meta.paidAmount ?? row.InsPayAmt) || 0;
     const rawWo = Number(row.WriteOff) || 0;
     const remainingInsBal = Math.max(0, Math.round((rawInsEst - rawPaid - rawWo) * 100) / 100);
@@ -1264,9 +1275,21 @@ export class ClaimService {
       }
     }
 
+    // Deductible reserved by this claim, grouped by deductible row. Carried in
+    // the claim narrative so the metAmount reservation stays idempotent when the
+    // claim is re-saved or re-finalized.
+    let deductibleReservedByRow: Record<string, number> = {};
+
     if (hasPortions) {
       insPayEst = sumIns;
       patientResponsibility = sumPt;
+      for (const proc of invoiceProcs) {
+        const bn = parseJson<any>(proc.BillingNote);
+        const key = bn?.deductibleRowKey;
+        const amount = Number(bn?.deductibleApplied || 0);
+        if (isSecondary || !key || !(amount > 0)) continue;
+        deductibleReservedByRow[key] = (deductibleReservedByRow[key] ?? 0) + amount;
+      }
     } else if (invoice.PatNum && invoiceProcs.length > 0) {
       const { invoiceService } = await import('./invoice.service');
       const simulated = invoiceProcs.map(proc => {
@@ -1274,12 +1297,18 @@ export class ClaimService {
         return {
           ...meta,
           ProcFee: proc.ProcFee,
+          // Required: the deductible is a running balance consumed in
+          // date-of-service order, so ProcDate must reach the estimator.
+          ProcDate: proc.ProcDate,
           serviceId: proc.CodeNum?.toString()
         };
       });
       const enriched = await invoiceService.calculateInsuranceEstimates(invoice.PatNum, simulated);
       insPayEst = enriched.reduce((sum: number, item: any) => sum + (isSecondary ? Number(item.secondaryInsPortion || 0) : Number(item.insPortion || 0)), 0);
       patientResponsibility = enriched.reduce((sum: number, item: any) => sum + (Number(item.ptPortion) || 0), 0);
+      if (!isSecondary) {
+        deductibleReservedByRow = aggregateAppliedByRow(enriched);
+      }
     }
 
     const claimAmount = isSecondary
@@ -1314,6 +1343,12 @@ export class ClaimService {
       },
       include: { inssub: true }
     }) : null;
+
+    // Carry the reservation map on the claim itself. `updateClaim` uses it to
+    // know whether a deductible is already held against the plan, which is what
+    // makes reserving idempotent across retries and status re-sends.
+    claimMeta.patPlanNum = patPlan?.PatPlanNum ? patPlan.PatPlanNum.toString() : undefined;
+    claimMeta.deductibleReservedByRow = deductibleReservedByRow;
 
     let treatingProv: bigint | null = null;
     let billingProv: bigint | null = null;
@@ -1358,7 +1393,7 @@ export class ClaimService {
         ClaimStatus: claimStatusToCode(status),
         DateService: new Date(),
         ClaimFee: claimAmount,
-        InsPayEst: insPayEst > 0 ? insPayEst : claimAmount,
+        InsPayEst: insPayEst,
         InsPayAmt: 0,
         DedApplied: isSecondary ? 0 : patientResponsibility,
         PreAuthString: claimNumber,
@@ -1401,11 +1436,16 @@ export class ClaimService {
             const claimProcNum = await getNextId('claimproc', 'ClaimProcNum');
             let insPortion = 0;
             let ptPortion = 0;
+            let dedApplied = 0;
             if (proc.BillingNote) {
               try {
                 const bn = JSON.parse(proc.BillingNote);
                 insPortion = isSecondary ? Number(bn.secondaryInsPortion || 0) : Number(bn.insPortion || 0);
                 ptPortion = isSecondary ? 0 : Number(bn.ptPortion || 0);
+                // DedApplied carries the deductible component only. It used to
+                // mirror the whole patient portion, which mis-reported coinsurance
+                // as deductible on the 837.
+                dedApplied = isSecondary ? 0 : Number(bn.deductibleApplied || 0);
               } catch (e) { }
             }
             await prisma.claimproc.create({
@@ -1424,13 +1464,20 @@ export class ClaimService {
                 Status: 0,
                 FeeBilled: proc.ProcFee,
                 InsPayEst: insPortion,
-                DedApplied: ptPortion,
+                DedApplied: dedApplied,
                 InsPayAmt: 0,
               }
             });
           })
         );
       }
+
+      // NOTE: deductible is NOT reserved here. The estimate above is only a
+      // preview on a draft claim. Reserving at creation would let an abandoned
+      // draft inflate the plan's metAmount and suppress the deductible on the
+      // patient's next real claim. The reservation is applied when the claim
+      // transitions to `readyForSubmission` (see `reserveDeductibleForClaim`),
+      // driven by `deductibleReservedByRow` persisted on the claim's Narrative.
 
       procedures = invoiceProcs.map((proc) => ({
         id: proc.ProcNum.toString(),
@@ -1656,7 +1703,7 @@ export class ClaimService {
         ClaimStatus: claimStatusToCode(status),
         DateService: new Date(),
         ClaimFee: claimFee,
-        InsPayEst: insPayEst > 0 ? insPayEst : claimFee,
+        InsPayEst: insPayEst,
         InsPayAmt: 0,
         DedApplied: dedApplied,
         PreAuthString: claimNumber,
@@ -2215,6 +2262,55 @@ export class ClaimService {
   }
 
 
+  /**
+   * Apply the signed delta to `patplan` required to move a claim's deductible
+   * reservation in or out. Returns ONLY the deductible fields to merge, so a
+   * caller cannot accidentally discard other Narrative state.
+   *
+   * `deductibleReservedByRow` holds the claim's *estimate*; `deductibleHeld`
+   * records whether that estimate is currently applied to the plan. The two must
+   * be distinct: an unreserved draft still carries its estimate, and treating
+   * the estimate as proof of a reservation would "release" an amount the plan
+   * never received.
+   *
+   * Idempotent by construction - a retried status update, a double-clicked Send,
+   * or a re-posted ERA all net to zero.
+   */
+  private async reconcileDeductibleReservation(
+    claim: { ClaimNum: bigint; InsSubNum?: bigint | null; ClaimType?: string | null },
+    currentMeta: ClaimMeta,
+    nextStatus: ClaimStatus,
+  ): Promise<Pick<ClaimMeta, 'patPlanNum' | 'deductibleHeld'>> {
+    // Secondary claims carry no deductible: only coinsurance transfers.
+    // ClaimType is stored as 'Secondary' / 'S' depending on the write path.
+    const claimType = String(claim.ClaimType ?? '').toLowerCase();
+    if (claimType === 'secondary' || claimType === 's') return {};
+
+    const estimate = currentMeta.deductibleReservedByRow ?? {};
+    const held = currentMeta.deductibleHeld === true;
+    const shouldHold = nextStatus !== 'draft' && nextStatus !== 'error';
+
+    if (shouldHold === held) return {};
+    if (Object.keys(estimate).length === 0) return {};
+
+    const patPlanNum = currentMeta.patPlanNum
+      ?? (claim.InsSubNum
+        ? (await prisma.patplan.findFirst({
+            where: { InsSubNum: claim.InsSubNum },
+            orderBy: { Ordinal: 'asc' },
+            select: { PatPlanNum: true },
+          }))?.PatPlanNum.toString()
+        : null);
+
+    if (!patPlanNum) return {};
+
+    // Note: We no longer call applyDeductibleMetAmountDelta here because the invoice
+    // finalized state now immediately posts the deductible to the patient's metAmount
+    // for all procedures. We just track `deductibleHeld` here for completeness.
+
+    return { patPlanNum, deductibleHeld: shouldHold };
+  }
+
   async updateClaim(
     claimId: string,
     updates: Partial<{
@@ -2275,6 +2371,12 @@ export class ClaimService {
       claimFormat: (updates.claimFormat as any) ?? currentMeta.claimFormat,
       policyNumber: updates.policyNumber ?? currentMeta.policyNumber,
       providerSignature: updates.providerSignature ?? currentMeta.providerSignature,
+      // Must be carried through explicitly: `nextMeta` is a field whitelist, and
+      // dropping the estimate here would strand the claim with a held flag but no
+      // way to release the amount it consumed.
+      patPlanNum: currentMeta.patPlanNum,
+      deductibleReservedByRow: currentMeta.deductibleReservedByRow,
+      deductibleHeld: currentMeta.deductibleHeld,
       patientSignature: updates.patientSignature ?? currentMeta.patientSignature,
       notes: updates.notes ?? currentMeta.notes,
       delayReasonCode: updates.delayReasonCode ?? currentMeta.delayReasonCode,
@@ -2327,6 +2429,15 @@ export class ClaimService {
       corrections: updates.corrections ?? currentMeta.corrections,
     };
 
+    // Deductible lifecycle is bound to the claim's status, not its creation.
+    // A draft is a preview: reserving on it would let an abandoned claim
+    // consume the patient's deductible. Reserve when the claim becomes
+    // submittable, and release it again if the claim is pulled back, so the
+    // signed delta applied to `patplan` always tracks a live obligation.
+    // Only the deductible fields are returned so they merge onto `nextMeta`
+    // without clobbering the status/date fields computed above.
+    const dedFields = await this.reconcileDeductibleReservation(existing, currentMeta, nextStatus);
+
     const updated = await prisma.claim.update({
       where: { ClaimNum: existing.ClaimNum },
       data: {
@@ -2346,7 +2457,7 @@ export class ClaimService {
             ? (nextMeta.paidDate ? new Date(nextMeta.paidDate) : new Date())
             : existing.DateReceived,
         ClaimNote: updates.notes ?? undefined,
-        Narrative: buildJson(nextMeta),
+        Narrative: buildJson({ ...nextMeta, ...dedFields }),
       },
       include: { patient: true },
     });
