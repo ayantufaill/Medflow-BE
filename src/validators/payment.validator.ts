@@ -56,14 +56,33 @@ export const createPaymentValidator: ValidationChain[] = [
     .isInt({ min: 1 })
     .withMessage('Invalid patient ID format'),
   body('insuranceCompanyId')
-    .optional()
-    .isInt({ min: 1 })
-    .withMessage('Invalid insurance company ID format'),
+    .optional({ checkFalsy: true, nullable: true })
+    .customSanitizer((val) => {
+      if (val && typeof val === 'object') {
+        const id = val._id || val.id;
+        return id ? String(id) : null;
+      }
+      if (typeof val === 'string') {
+        const trimmed = val.trim();
+        if (trimmed === '[object Object]' || trimmed === 'undefined' || trimmed === 'null' || !trimmed) {
+          return null;
+        }
+        return trimmed;
+      }
+      return val;
+    })
+    .custom((val) => {
+      if (val === null || val === undefined || val === '') return true;
+      if (!/^\d+$/.test(String(val))) {
+        throw new Error('Invalid insurance company ID format');
+      }
+      return true;
+    }),
   body('amount')
-    .notEmpty()
+    .exists({ checkNull: true })
     .withMessage('Amount is required')
-    .isFloat({ min: 0.01 })
-    .withMessage('Amount must be greater than 0'),
+    .isFloat({ min: 0 })
+    .withMessage('Amount must be 0 or greater'),
   body('paymentMethod')
     .notEmpty()
     .withMessage('Payment method is required')
@@ -85,6 +104,8 @@ export const createPaymentValidator: ValidationChain[] = [
     .isISO8601()
     .withMessage('Payment date must be a valid date'),
   body('referenceNumber').optional().isString().withMessage('Reference number must be a string'),
+  body('chequeNo').optional().isString().withMessage('Cheque number must be a string'),
+  body('branchNo').optional().isString().withMessage('Branch number must be a string'),
   body('processorFee')
     .optional()
     .isFloat({ min: 0 })
@@ -102,6 +123,15 @@ export const createPaymentValidator: ValidationChain[] = [
   body('procedures.*.updateInsFlatPortion').optional().isBoolean().withMessage('updateInsFlatPortion must be a boolean'),
   body('procedures.*.moveToNewClaim').optional().isBoolean().withMessage('moveToNewClaim must be a boolean'),
   body('procedures.*.claimId').optional().isString().withMessage('Claim ID must be a string'),
+  body('isPartialPayment').optional().isBoolean().withMessage('isPartialPayment must be a boolean'),
+  body('overpaymentAmount')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('overpaymentAmount must be >= 0'),
+  body('overpaymentAction')
+    .optional()
+    .isIn(['credit', 'refund'])
+    .withMessage('overpaymentAction must be credit or refund'),
 ];
 
 export const applyPaymentValidator: ValidationChain[] = [

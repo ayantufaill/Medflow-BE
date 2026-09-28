@@ -20,6 +20,7 @@ import { emailService } from './email.service';
 import { smsService } from './sms.service';
 import { practiceInfoService } from './practice-info.service';
 import { staffNotificationService } from './staffNotification.service';
+import { getAppointmentTimeZone, scheduledStartInstant } from '../utils/datetime.util';
 
 /**
  * Generate unique appointment code (e.g., APT001, APT002, etc.)
@@ -44,13 +45,15 @@ const formatMinutesToTime = (totalMinutes: number): string => {
 
 const getStartOfDay = (date: Date): Date => {
   const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
+  // Appointment datetimes carry the clinic-local wall-clock in their UTC
+  // components, so day boundaries are computed in UTC to match.
+  d.setUTCHours(0, 0, 0, 0);
   return d;
 };
 
 const getEndOfDay = (date: Date): Date => {
   const d = new Date(date);
-  d.setHours(23, 59, 59, 999);
+  d.setUTCHours(23, 59, 59, 999);
   return d;
 };
 
@@ -72,6 +75,16 @@ const toDateTime = (date: Date, time: string): Date => {
 const normalizeText = (value?: string | null) => {
   const normalized = value?.trim();
   return normalized ? normalized : null;
+};
+
+const parseJson = <T>(value?: string | null): T => {
+  if (!value) return {} as T;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? (parsed as T) : ({} as T);
+  } catch {
+    return {} as T;
+  }
 };
 
 /**
@@ -113,7 +126,7 @@ async function checkConflicts(
   providerAppointments.forEach((apt) => {
     if (!apt.AptDateTime) return;
     const aptStart = parseTimeToMinutes(formatMinutesToTime(
-      apt.AptDateTime.getHours() * 60 + apt.AptDateTime.getMinutes()
+      apt.AptDateTime.getUTCHours() * 60 + apt.AptDateTime.getUTCMinutes()
     ));
     const duration = getDurationMinutesFromPattern(apt.Pattern);
     const aptEnd = aptStart + duration;
@@ -142,7 +155,7 @@ async function checkConflicts(
     roomAppointments.forEach((apt) => {
       if (!apt.AptDateTime) return;
       const aptStart = parseTimeToMinutes(formatMinutesToTime(
-        apt.AptDateTime.getHours() * 60 + apt.AptDateTime.getMinutes()
+        apt.AptDateTime.getUTCHours() * 60 + apt.AptDateTime.getUTCMinutes()
       ));
       const duration = getDurationMinutesFromPattern(apt.Pattern);
       const aptEnd = aptStart + duration;
@@ -154,9 +167,9 @@ async function checkConflicts(
       }
     });
 
-    const year = startOfDay.getFullYear();
-    const month = String(startOfDay.getMonth() + 1).padStart(2, '0');
-    const day = String(startOfDay.getDate()).padStart(2, '0');
+    const year = startOfDay.getUTCFullYear();
+    const month = String(startOfDay.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(startOfDay.getUTCDate()).padStart(2, '0');
     const schedDate = new Date(`${year}-${month}-${day}T00:00:00.000Z`);
 
     const blockouts = await prisma.schedule.findMany({
@@ -202,7 +215,7 @@ async function checkConflicts(
     patientAppointments.forEach((apt) => {
       if (!apt.AptDateTime) return;
       const aptStart = parseTimeToMinutes(formatMinutesToTime(
-        apt.AptDateTime.getHours() * 60 + apt.AptDateTime.getMinutes()
+        apt.AptDateTime.getUTCHours() * 60 + apt.AptDateTime.getUTCMinutes()
       ));
       const duration = getDurationMinutesFromPattern(apt.Pattern);
       const aptEnd = aptStart + duration;
@@ -292,12 +305,335 @@ export class AppointmentService {
     return defaultAppointmentType.AppointmentTypeNum.toString();
   }
 
+  private async getAppointmentsFinancialTotals(aptNums: bigint[]): Promise<{
+    totalsByApt: Map<string, number>;
+    paidByApt: Map<string, number>;
+  }> {
+    const totalsByApt = new Map<string, number>();
+    const paidByApt = new Map<string, number>();
+    const validAptNums = aptNums.filter((id): id is bigint => id != null);
+    if (!validAptNums.length) return { totalsByApt, paidByApt };
+
+    // Fetch appointment records
+    const appointments = await prisma.appointment.findMany({
+      where: { AptNum: { in: validAptNums } },
+      select: { AptNum: true, PatNum: true, AptDateTime: true },
+    });
+
+    // 1. Fetch all non-deleted procedures for these appointments
+    const procedures = await prisma.procedurelog.findMany({
+      where: {
+        AptNum: { in: validAptNums },
+        ProcStatus: { not: 6 }, // 6 = deleted in Open Dental
+      },
+      select: {
+        ProcNum: true,
+        AptNum: true,
+        ProcFee: true,
+        UnitQty: true,
+        BaseUnits: true,
+        StatementNum: true,
+        BillingNote: true,
+        CodeNum: true,
+      },
+    });
+
+    // Fetch appointment metadata for fallback
+    const aptMetas = await getAppointmentsMeta(validAptNums);
+
+    const procToAptMap = new Map<string, string>();
+    for (const proc of procedures) {
+      if (!proc.AptNum) continue;
+      const aptKey = proc.AptNum.toString();
+      const qty = (proc.UnitQty && proc.UnitQty > 0) ? proc.UnitQty : (proc.BaseUnits && proc.BaseUnits > 0 ? proc.BaseUnits : 1);
+      const fee = Number(proc.ProcFee ?? 0) * qty;
+      const currentTotal = totalsByApt.get(aptKey) ?? 0;
+      totalsByApt.set(aptKey, Math.round((currentTotal + fee) * 100) / 100);
+      procToAptMap.set(proc.ProcNum.toString(), aptKey);
+    }
+
+    // Fallback: If an appointment has no direct procedures in procedurelog (or total is 0),
+    // check its customFields.procedures metadata so that scheduled appointments display their total fee.
+    for (const apt of appointments) {
+      const aptKey = apt.AptNum.toString();
+      if ((totalsByApt.get(aptKey) ?? 0) === 0) {
+        const meta = aptMetas[aptKey];
+        const cfProcs = meta?.customFields?.procedures;
+        if (Array.isArray(cfProcs) && cfProcs.length > 0) {
+          let cfTotal = 0;
+          for (const p of cfProcs) {
+            const fee = p.charge ? parseFloat(p.charge.toString().replace(/[^0-9.-]+/g, "")) : 0;
+            if (!isNaN(fee)) cfTotal += fee;
+          }
+          if (cfTotal > 0) {
+            totalsByApt.set(aptKey, Math.round(cfTotal * 100) / 100);
+          }
+        }
+      }
+    }
+
+    // 2. Discover linked statements for each appointment:
+    //    (a) From procedures on the appointment that have StatementNum
+    //    (b) From statement.NoteBold containing appointmentId
+    //    (c) From patient's statements matching procedures or appointment date
+    const aptToStatements = new Map<string, Set<bigint>>();
+    for (const a of appointments) {
+      aptToStatements.set(a.AptNum.toString(), new Set<bigint>());
+    }
+
+    for (const proc of procedures) {
+      if (proc.AptNum && proc.StatementNum) {
+        aptToStatements.get(proc.AptNum.toString())?.add(proc.StatementNum);
+      }
+    }
+
+    for (const apt of appointments) {
+      const aptKey = apt.AptNum.toString();
+      const stmtsWithAptMeta = await prisma.statement.findMany({
+        where: {
+          OR: [
+            { NoteBold: { contains: `"appointmentId":"${aptKey}"` } },
+            { NoteBold: { contains: `"appointmentId":${aptKey}` } },
+          ],
+        },
+        select: { StatementNum: true },
+      });
+      for (const s of stmtsWithAptMeta) {
+        aptToStatements.get(aptKey)?.add(s.StatementNum);
+      }
+
+    }
+
+    // Collect all procedures: direct appointment procedures + procedures on linked statements
+    const allProcNums = new Set<bigint>(procedures.map(p => p.ProcNum));
+    for (const [aptKey, stmtNums] of aptToStatements.entries()) {
+      for (const stmtNum of stmtNums) {
+        const sProcs = await prisma.procedurelog.findMany({
+          where: { StatementNum: stmtNum, ProcStatus: { not: 6 } },
+          select: { ProcNum: true, ProcFee: true, UnitQty: true, BaseUnits: true, BillingNote: true },
+        });
+
+        // Use statement procedures only when the appointment has no direct
+        // procedures. Once direct procedures exist, statement lines may include
+        // unrelated invoice items and must not change the appointment total.
+        const hasDirectProcedures = procedures.some(
+          p => p.AptNum?.toString() === aptKey,
+        );
+        if (!hasDirectProcedures && sProcs.length > 0) {
+          let stmtTotal = 0;
+          for (const sp of sProcs) {
+            const qty = (sp.UnitQty && sp.UnitQty > 0) ? sp.UnitQty : (sp.BaseUnits && sp.BaseUnits > 0 ? sp.BaseUnits : 1);
+            stmtTotal += Number(sp.ProcFee ?? 0) * qty;
+          }
+          totalsByApt.set(aptKey, Math.round(stmtTotal * 100) / 100);
+        }
+
+        for (const sp of sProcs) {
+          allProcNums.add(sp.ProcNum);
+          if (!hasDirectProcedures && !procToAptMap.has(sp.ProcNum.toString())) {
+            procToAptMap.set(sp.ProcNum.toString(), aptKey);
+          }
+        }
+      }
+    }
+
+    const procNumArray = Array.from(allProcNums);
+
+    // 3. Fetch patient & insurance payments via paysplit (excluding voided/reversed)
+    const paySplits = await prisma.paysplit.findMany({
+      where: {
+        ProcNum: { in: procNumArray },
+      },
+      include: {
+        payment: {
+          select: {
+            PayAmt: true,
+            PayNote: true,
+          },
+        },
+      },
+    });
+
+    const patientPaidByProc = new Map<string, number>();
+    const insPaidByProcSplits = new Map<string, number>();
+
+    for (const ps of paySplits) {
+      if (!ps.ProcNum) continue;
+      const payMeta = parseJson<any>(ps.payment?.PayNote);
+      const st = String(payMeta?.status || '').toLowerCase();
+      if (st === 'void' || st === 'voided' || st === 'reversed') {
+        continue;
+      }
+      const splitAmt = Number(ps.SplitAmt ?? 0);
+      const procKey = ps.ProcNum.toString();
+      const isIns = payMeta?.paymentSource === 'insurance_company' || payMeta?.paymentSource === 'insurance';
+      if (isIns) {
+        insPaidByProcSplits.set(procKey, (insPaidByProcSplits.get(procKey) ?? 0) + splitAmt);
+      } else {
+        patientPaidByProc.set(procKey, (patientPaidByProc.get(procKey) ?? 0) + splitAmt);
+      }
+    }
+
+    // 4. Fetch insurance payments via claimproc (Status 1 = Received, 4 = Supplemental, 5 = CapClaim)
+    const claimProcs = await prisma.claimproc.findMany({
+      where: {
+        ProcNum: { in: procNumArray },
+        Status: { in: [1, 4, 5] },
+        ClaimNum: { not: null },
+      },
+      select: {
+        ProcNum: true,
+        InsPayAmt: true,
+        ClaimNum: true,
+      },
+    });
+
+    const insPaidByProcClaim = new Map<string, number>();
+    for (const cp of claimProcs) {
+      if (!cp.ProcNum) continue;
+      const procKey = cp.ProcNum.toString();
+      const insPay = Number(cp.InsPayAmt ?? 0);
+      insPaidByProcClaim.set(procKey, (insPaidByProcClaim.get(procKey) ?? 0) + insPay);
+    }
+
+    const paidByProc = new Map<string, number>();
+    for (const procNum of procNumArray) {
+      const procKey = procNum.toString();
+      const ptPaid = patientPaidByProc.get(procKey) ?? 0;
+      const insFromSplits = insPaidByProcSplits.get(procKey) ?? 0;
+      const insFromClaim = insPaidByProcClaim.get(procKey) ?? 0;
+      // Deduplicate insurance payments between paysplit and claimproc.
+      // Write-offs and adjustments are contractual discounts, NOT payments.
+      const insPaid = Math.max(insFromSplits, insFromClaim);
+      paidByProc.set(procKey, Math.round((ptPaid + insPaid) * 100) / 100);
+    }
+
+    // 5. Fallback: check procedurelog.BillingNote.paidAmount if no paysplit/claimproc recorded
+    const allProcsDetails = await prisma.procedurelog.findMany({
+      where: { ProcNum: { in: procNumArray } },
+      select: { ProcNum: true, BillingNote: true },
+    });
+    for (const proc of allProcsDetails) {
+      const procKey = proc.ProcNum.toString();
+      const currentPaid = paidByProc.get(procKey) ?? 0;
+      if (currentPaid === 0 && proc.BillingNote) {
+        const bn = parseJson<any>(proc.BillingNote);
+        const bnPaid = Number(bn?.paidAmount || 0);
+        if (bnPaid > 0) {
+          paidByProc.set(procKey, bnPaid);
+        }
+      }
+    }
+
+    // 6. Check invoice-level payments and adjustments for linked statements (if unallocated to procedure splits)
+    for (const [aptKey, stmtNums] of aptToStatements.entries()) {
+      for (const stmtNum of stmtNums) {
+        const statement = await prisma.statement.findUnique({
+          where: { StatementNum: stmtNum },
+          select: { NoteBold: true },
+        });
+        const stmtMeta = parseJson<any>(statement?.NoteBold);
+        if (String(stmtMeta?.status || '').toLowerCase() === 'void') {
+          continue;
+        }
+
+        const payments = await prisma.payment.findMany({
+          where: {
+            PayNote: { contains: `"invoiceId":"${stmtNum.toString()}"` },
+          },
+          select: {
+            PayAmt: true,
+            PayNote: true,
+          },
+        });
+
+        const validPayments = payments.filter(p => {
+          const meta = parseJson<any>(p.PayNote);
+          const st = String(meta?.status || '').toLowerCase();
+          return st !== 'void' && st !== 'voided' && st !== 'reversed';
+        });
+
+        const totalInvoicePayments = validPayments.reduce((sum, p) => sum + (Number(p.PayAmt) || 0), 0);
+
+        // Fetch invoice-level adjustments (credit subtractions, write-offs, etc.)
+        const invoiceAdjustments = await prisma.adjustment.findMany({
+          where: {
+            OR: [
+              { StatementNum: stmtNum },
+              { AdjNote: { contains: `Invoice #${stmtNum.toString()}` } },
+            ],
+          },
+          select: {
+            AdjAmt: true,
+            AdjNote: true,
+          },
+        });
+
+        const totalInvoiceAdj = invoiceAdjustments.reduce((sum, adj) => {
+          if (adj.AdjNote && adj.AdjNote.toLowerCase().includes('income transfer')) {
+            return sum;
+          }
+          // Credit adjustments are stored as negative numbers (e.g. -35)
+          return sum + Math.abs(Number(adj.AdjAmt) || 0);
+        }, 0);
+
+        const stmtAdjAmount = Number(stmtMeta?.adjustmentAmount || 0);
+        const resolvedAdj = Math.max(totalInvoiceAdj, stmtAdjAmount);
+        const totalInvoiceSettled = totalInvoicePayments + resolvedAdj;
+
+        if (totalInvoiceSettled > 0) {
+          const sProcs = await prisma.procedurelog.findMany({
+            where: { StatementNum: stmtNum, ProcStatus: { not: 6 } },
+            select: { ProcNum: true, ProcFee: true, UnitQty: true, BaseUnits: true },
+          });
+          const alreadyAttributed = sProcs.reduce(
+            (sum, p) => sum + (paidByProc.get(p.ProcNum.toString()) ?? 0),
+            0
+          );
+          let unallocated = Math.max(0, totalInvoiceSettled - alreadyAttributed);
+          for (const p of sProcs) {
+            if (unallocated <= 0) break;
+            const procKey = p.ProcNum.toString();
+            const currentPaid = paidByProc.get(procKey) ?? 0;
+            const qty = (p.UnitQty && p.UnitQty > 0) ? p.UnitQty : (p.BaseUnits && p.BaseUnits > 0 ? p.BaseUnits : 1);
+            const fee = Number(p.ProcFee ?? 0) * qty;
+            const needed = Math.max(0, fee - currentPaid);
+            const toApply = Math.min(needed, unallocated);
+            if (toApply > 0) {
+              paidByProc.set(procKey, currentPaid + toApply);
+              unallocated -= toApply;
+            }
+          }
+        }
+      }
+    }
+
+    // 7. Aggregate paid amounts by appointment and cap at total
+    for (const [procKey, procPaid] of paidByProc.entries()) {
+      const aptKey = procToAptMap.get(procKey);
+      if (aptKey) {
+        const currentPaid = paidByApt.get(aptKey) ?? 0;
+        paidByApt.set(aptKey, Math.round((currentPaid + procPaid) * 100) / 100);
+      }
+    }
+
+    for (const apt of appointments) {
+      const aptKey = apt.AptNum.toString();
+      const total = totalsByApt.get(aptKey) ?? 0;
+      const paid = paidByApt.get(aptKey) ?? 0;
+      paidByApt.set(aptKey, Math.min(total, paid));
+    }
+
+    return { totalsByApt, paidByApt };
+  }
+
   async mapAppointmentsBulk(appointments: any[]) {
     if (!appointments.length) return [];
 
     const { getAppointmentsMeta, getProvidersMeta } = await import('../utils/opendental-auth.util');
-    const aptNums = appointments.map(a => a.AptNum);
+    const aptNums = appointments.map(a => a.AptNum).filter(Boolean);
     const aptMetaMap = await getAppointmentsMeta(aptNums);
+    const { totalsByApt, paidByApt } = await this.getAppointmentsFinancialTotals(aptNums);
 
     const provNums = Array.from(new Set(appointments.map(a => a.ProvNum).filter(id => id != null)));
     const provMetaMap = provNums.length ? await getProvidersMeta(provNums) : {};
@@ -322,6 +658,8 @@ export class AppointmentService {
         preloadedAptMeta: aptMetaMap[apt.AptNum.toString()] ?? {},
         preloadedProviderMeta: provMetaMap[apt.ProvNum?.toString()] ?? {},
         preloadedLinkedUser: apt.provider_appointment_ProvNumToprovider?.CustomID ? mappedUsersMap.get(apt.provider_appointment_ProvNumToprovider.CustomID) : null,
+        preloadedAptTotal: totalsByApt.get(apt.AptNum.toString()) ?? 0,
+        preloadedAptPaid: paidByApt.get(apt.AptNum.toString()) ?? 0,
       }))
     );
   }
@@ -336,8 +674,24 @@ export class AppointmentService {
       preloadedAptMeta?: any;
       preloadedProviderMeta?: any;
       preloadedLinkedUser?: any;
+      preloadedAptTotal?: number;
+      preloadedAptPaid?: number;
     }
   ) {
+    let totalAmount = options?.preloadedAptTotal;
+    let paidAmount = options?.preloadedAptPaid;
+    if (totalAmount === undefined || paidAmount === undefined) {
+      if (appointment.AptNum) {
+        const financials = await this.getAppointmentsFinancialTotals([appointment.AptNum]);
+        const aptKey = appointment.AptNum.toString();
+        totalAmount = totalAmount ?? (financials.totalsByApt.get(aptKey) ?? 0);
+        paidAmount = paidAmount ?? (financials.paidByApt.get(aptKey) ?? 0);
+      } else {
+        totalAmount = totalAmount ?? 0;
+        paidAmount = paidAmount ?? 0;
+      }
+    }
+
     const meta = options?.preloadedAptMeta ?? await getAppointmentMeta(appointment.AptNum);
     const dbStatus = mapAppointmentStatusFromDb(appointment.AptStatus);
     let resolvedStatus = meta?.status ?? dbStatus;
@@ -358,6 +712,8 @@ export class AppointmentService {
     }
     const mapped: any = mapAppointmentToApi(appointment, {
       ...options,
+      totalAmount,
+      paidAmount,
       requiresInterpreter: meta.requiresInterpreter ?? false,
       insuranceVerified: meta.insuranceVerified ?? Boolean(appointment.InsPlan1 || appointment.InsPlan2),
       copayCollected: meta.copayCollected ?? 0,
@@ -601,6 +957,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
       procedures: apt.procedures ?? [],
       visitType: apt.visitType ?? null,
       systemEvents: apt.systemEvents ?? [],
+      totalAmount: apt.totalAmount ?? 0,
+      paidAmount: apt.paidAmount ?? 0,
     })),
     total: mappedAppointments.length,
     limit,
@@ -706,12 +1064,12 @@ async getPatientAppointments(patientId: string, limit = 10) {
       const patient = apt.patient as any;
       const appointmentType = apt.appointmenttype as any;
       
-      // Fix timezone issue: Use local date formatting instead of toISOString()
-      // toISOString() converts to UTC which can shift the date by one day
+      // Appointment datetimes store the clinic-local wall-clock in their UTC
+      // components, so read them back that way to avoid server-TZ shifts.
       const appointmentDate = new Date(apt.AptDateTime as Date | string);
-      const year = appointmentDate.getFullYear();
-      const month = String(appointmentDate.getMonth() + 1).padStart(2, '0');
-      const day = String(appointmentDate.getDate()).padStart(2, '0');
+      const year = appointmentDate.getUTCFullYear();
+      const month = String(appointmentDate.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(appointmentDate.getUTCDate()).padStart(2, '0');
       const dateStr = `${year}-${month}-${day}`;
 
       // Calculate buffer times
@@ -732,7 +1090,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       };
 
       const startMinutes = parseTime(formatMinutesToTime(
-        appointmentDate.getHours() * 60 + appointmentDate.getMinutes()
+        appointmentDate.getUTCHours() * 60 + appointmentDate.getUTCMinutes()
       ));
       const durationMinutes = getDurationMinutesFromPattern(apt.Pattern);
       const endMinutes = startMinutes + durationMinutes;
@@ -866,7 +1224,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
       const bufferBefore = 0;
       const bufferAfter = 0;
       const startTime = apt.AptDateTime ? formatMinutesToTime(
-        apt.AptDateTime.getHours() * 60 + apt.AptDateTime.getMinutes()
+        apt.AptDateTime.getUTCHours() * 60 + apt.AptDateTime.getUTCMinutes()
       ) : '00:00';
       const duration = getDurationMinutesFromPattern(apt.Pattern);
       const endTime = formatMinutesToTime(parseTimeToMinutes(startTime) + duration);
@@ -896,6 +1254,143 @@ async getPatientAppointments(patientId: string, limit = 10) {
     }
 
     return { availableSlots };
+  }
+
+  private getAppointmentFields(mapped: any): any {
+    return {
+      status: mapped.status,
+      appointmentDate: mapped.appointmentDate,
+      startTime: mapped.startTime,
+      endTime: mapped.endTime,
+      durationMinutes: mapped.durationMinutes,
+      appointmentTypeId: mapped.appointmentTypeId,
+      providerId: mapped.providerId,
+      chiefComplaint: mapped.chiefComplaint,
+      notes: mapped.notes,
+      roomId: mapped.roomId,
+      requiresInterpreter: mapped.requiresInterpreter,
+      insuranceVerified: mapped.insuranceVerified,
+      copayCollected: mapped.copayCollected,
+      reminderSent: mapped.reminderSent,
+      cancellationReason: mapped.cancellationReason,
+      procedures: Array.isArray(mapped.procedures)
+        ? mapped.procedures.map((p: any) => {
+            const { ProcNum, ...rest } = p;
+            return rest;
+          })
+        : (mapped.procedures || []),
+    };
+  }
+
+  private calculateChanges(oldData: any, newData: any): Record<string, any> | null {
+    const changes: Record<string, any> = {};
+
+    const keysToCheck = [
+      'status',
+      'appointmentDate',
+      'startTime',
+      'endTime',
+      'durationMinutes',
+      'appointmentTypeId',
+      'providerId',
+      'chiefComplaint',
+      'notes',
+      'roomId',
+      'requiresInterpreter',
+      'insuranceVerified',
+      'copayCollected',
+      'reminderSent',
+      'cancellationReason',
+      'procedures',
+    ];
+
+    const normalizeValue = (val: any) => {
+      if (!val) return null;
+      if (typeof val === 'bigint') return val.toString();
+      if (val instanceof Date) return val.toISOString();
+      if (typeof val === 'string' && isNaN(Number(val)) && !isNaN(Date.parse(val))) {
+        return new Date(val).toISOString();
+      }
+      if (Array.isArray(val)) {
+        return val.map((item) => {
+          if (typeof item === 'bigint') return item.toString();
+          if (typeof item === 'object' && item !== null) {
+            const cleanObj: any = {};
+            for (const k in item) {
+              cleanObj[k] = typeof item[k] === 'bigint' ? item[k].toString() : item[k];
+            }
+            return cleanObj;
+          }
+          return item;
+        });
+      }
+      return val;
+    };
+
+    keysToCheck.forEach((key) => {
+      const oldValue = normalizeValue(oldData?.[key]);
+      const newValue = normalizeValue(newData?.[key]);
+
+      let oldCompare = oldValue;
+      let newCompare = newValue;
+
+      if (typeof oldValue === 'object' && oldValue !== null && (oldValue.id || oldValue._id)) {
+        oldCompare = String(oldValue.id || oldValue._id);
+      } else if (typeof oldValue === 'string' || typeof oldValue === 'number') {
+        oldCompare = String(oldValue);
+      }
+
+      if (typeof newValue === 'object' && newValue !== null && (newValue.id || newValue._id)) {
+        newCompare = String(newValue.id || newValue._id);
+      } else if (typeof newValue === 'string' || typeof newValue === 'number') {
+        newCompare = String(newValue);
+      }
+
+      if (JSON.stringify(oldCompare) !== JSON.stringify(newCompare)) {
+        changes[key] = { from: oldValue, to: newValue };
+      }
+    });
+    return Object.keys(changes).length > 0 ? changes : null;
+  }
+
+  private async fetchAppointmentRelatedData(appointmentNum: bigint) {
+    const [procedures, provider, appointmentType, duration] = await Promise.all([
+      prisma.procedurelog.findMany({
+        where: { AptNum: appointmentNum },
+        select: {
+          ProcNum: true,
+          OldCode: true,
+          ProcFee: true,
+          ProcStatus: true,
+          ToothNum: true,
+        },
+      }),
+      prisma.appointment.findUnique({
+        where: { AptNum: appointmentNum },
+        select: { ProvNum: true },
+      }).then(apt => apt?.ProvNum ? prisma.provider.findUnique({
+        where: { ProvNum: apt.ProvNum },
+        select: { ProvNum: true, FName: true, LName: true, Specialty: true },
+      }) : null),
+      prisma.appointment.findUnique({
+        where: { AptNum: appointmentNum },
+        select: { AppointmentTypeNum: true },
+      }).then(apt => apt?.AppointmentTypeNum ? prisma.appointmenttype.findUnique({
+        where: { AppointmentTypeNum: apt.AppointmentTypeNum },
+        select: { AppointmentTypeNum: true, AppointmentTypeName: true },
+      }) : null),
+      prisma.appointment.findUnique({
+        where: { AptNum: appointmentNum },
+        select: { Pattern: true },
+      }).then(apt => apt?.Pattern),
+    ]);
+
+    return {
+      procedures,
+      provider,
+      appointmentType,
+      durationMinutes: duration,
+    };
   }
 
   /**
@@ -1032,7 +1527,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
         ProcDescript: data.chiefComplaint ?? null,
         Note: data.notes ?? null,
         Op: opId,
-        ClinicNum: data.branchId ? BigInt(data.branchId) : null,
+        ClinicNum: clinicNum,
         AptStatus: mapAppointmentStatusToDb(data.status ?? 'scheduled'),
         DateTimeArrived: null,
         DateTimeDismissed: null,
@@ -1095,6 +1590,19 @@ async getPatientAppointments(patientId: string, limit = 10) {
       }
     }
 
+    await patientWorkspaceService.recordAuditEvent(
+      appointment.PatNum?.toString() ?? String(appointment.AptNum),
+      {
+        action: 'appointment_created',
+        source: 'office',
+        actorUserId: createdBy,
+        section: 'appointment',
+        appointmentId: String(appointment.AptNum),
+        oldValue: undefined,
+        newValue: mapped,
+      }
+    );
+
     // Log activity
     await logActivity(
       createdBy,
@@ -1109,6 +1617,15 @@ async getPatientAppointments(patientId: string, limit = 10) {
     );
 
     await this.notifyStaffAppointmentBooked(String(appointment.AptNum));
+
+    if (data.customFields?.procedures && Array.isArray(data.customFields.procedures) && data.customFields.procedures.length > 0) {
+      return this.mapAppointmentWithMeta(appointment, {
+        patient: appointment.patient,
+        provider: appointment.provider_appointment_ProvNumToprovider,
+        appointmentType: appointment.appointmenttype,
+        createdBy: appointment.userod,
+      });
+    }
 
     return mapped;
   }
@@ -1145,6 +1662,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
       throw new NotFoundError('Appointment not found');
     }
 
+    const oldRelatedData = await this.fetchAppointmentRelatedData(appointment.AptNum);
+
     const existingMeta = await getAppointmentMeta(appointment.AptNum);
     const dbStatus = mapAppointmentStatusFromDb(appointment.AptStatus);
     const currentStatus = existingMeta?.status ?? dbStatus;
@@ -1172,15 +1691,20 @@ async getPatientAppointments(patientId: string, limit = 10) {
         apptStartDateTime = toDateTime(new Date(updates.appointmentDate), updates.startTime);
       } else if (updates.appointmentDate && appointment.AptDateTime) {
         const timeStr = formatMinutesToTime(
-          appointment.AptDateTime.getHours() * 60 + appointment.AptDateTime.getMinutes()
+          appointment.AptDateTime.getUTCHours() * 60 + appointment.AptDateTime.getUTCMinutes()
         );
         apptStartDateTime = toDateTime(new Date(updates.appointmentDate), timeStr);
       } else if (updates.startTime && appointment.AptDateTime) {
         apptStartDateTime = toDateTime(appointment.AptDateTime, updates.startTime);
       }
 
-      if (apptStartDateTime && Date.now() < apptStartDateTime.getTime()) {
-        throw new BadRequestError('Cannot check out an appointment before its scheduled start time.');
+      if (apptStartDateTime) {
+        // Interpret the scheduled start in the appointment's clinic timezone
+        // ("for all UTCs depending on the area"), not the server's timezone.
+        const clinicTimeZone = await getAppointmentTimeZone(appointment.ClinicNum, updatedBy);
+        if (Date.now() < scheduledStartInstant(apptStartDateTime, clinicTimeZone)) {
+          throw new BadRequestError('Cannot check out an appointment before its scheduled start time.');
+        }
       }
     }
 
@@ -1190,7 +1714,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
     if (!isInactiveStatus && (updates.appointmentDate || updates.startTime || updates.endTime || updates.providerId)) {
       const appointmentDate = updates.appointmentDate || appointment.AptDateTime || new Date();
       const startTime = updates.startTime || (appointment.AptDateTime ? formatMinutesToTime(
-        appointment.AptDateTime.getHours() * 60 + appointment.AptDateTime.getMinutes()
+        appointment.AptDateTime.getUTCHours() * 60 + appointment.AptDateTime.getUTCMinutes()
       ) : '09:00');
       const endTime =
         updates.endTime ||
@@ -1259,7 +1783,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
             updates.appointmentDate ? new Date(updates.appointmentDate) : (appointment.AptDateTime ?? new Date()),
             updates.startTime ||
               (appointment.AptDateTime
-                ? formatMinutesToTime(appointment.AptDateTime.getHours() * 60 + appointment.AptDateTime.getMinutes())
+                ? formatMinutesToTime(appointment.AptDateTime.getUTCHours() * 60 + appointment.AptDateTime.getUTCMinutes())
                 : '09:00')
           )
         : undefined;
@@ -1375,30 +1899,98 @@ async getPatientAppointments(patientId: string, limit = 10) {
     });
 
     if (updates.customFields?.procedures && Array.isArray(updates.customFields.procedures)) {
-      // For simplicity in MVP, we delete and recreate procedures for the appointment
-      await prisma.procedurelog.deleteMany({
-        where: { AptNum: BigInt(appointmentId) }
+      const existingProcs = await prisma.procedurelog.findMany({
+        where: { AptNum: BigInt(appointmentId) },
+        include: { procedurecode_procedurelog_CodeNumToprocedurecode: true }
       });
+
+      const procsToKeep = new Set();
+
       for (const proc of updates.customFields.procedures) {
         try {
           const fee = proc.charge ? parseFloat(proc.charge.toString().replace(/[^0-9.-]+/g, "")) : 0;
-          await this.addAppointmentProcedure(
-            appointmentId,
-            {
-              code: proc.code,
-              description: proc.treatment || proc.name || '',
-              fee: isNaN(fee) ? 0 : fee,
-              providerId: proc.provider || updates.providerId || appointment.ProvNum?.toString(),
-              tooth: proc.site || '',
-              status: proc.completed ? '2' : (proc.status !== undefined && proc.status !== null ? String(proc.status) : '1'),
-            },
-            updatedBy
+          
+          const matchIdx = existingProcs.findIndex(ep => 
+            !procsToKeep.has(ep.ProcNum) &&
+            ((ep.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode === proc.code) || (ep.OldCode === proc.code))
           );
+
+          if (matchIdx !== -1) {
+            const matchedProc = existingProcs[matchIdx];
+            procsToKeep.add(matchedProc.ProcNum);
+            
+            await prisma.procedurelog.update({
+              where: { ProcNum: matchedProc.ProcNum },
+              data: {
+                ProcFee: isNaN(fee) ? matchedProc.ProcFee : fee,
+                ProcStatus: proc.completed ? 2 : (proc.status !== undefined && proc.status !== null ? Number(proc.status) : 1),
+              }
+            });
+          } else {
+            await this.addAppointmentProcedure(
+              appointmentId,
+              {
+                code: proc.code,
+                description: proc.treatment || proc.name || '',
+                fee: isNaN(fee) ? 0 : fee,
+                providerId: proc.provider || updates.providerId || appointment.ProvNum?.toString(),
+                tooth: proc.site || '',
+                status: proc.completed ? '2' : (proc.status !== undefined && proc.status !== null ? String(proc.status) : '1'),
+              },
+              updatedBy
+            );
+          }
         } catch (error) {
           console.error(`Failed to sync procedure ${proc.code} for appointment ${appointmentId}:`, error);
         }
       }
+
+      for (const ep of existingProcs) {
+        if (!procsToKeep.has(ep.ProcNum)) {
+          try {
+            await prisma.procedurelog.delete({ where: { ProcNum: ep.ProcNum } });
+          } catch (e) {
+            await prisma.procedurelog.update({
+              where: { ProcNum: ep.ProcNum },
+              data: { AptNum: null }
+            });
+          }
+        }
+      }
     }
+
+    // Record audit event for appointment audit history
+    const newRelatedData = await this.fetchAppointmentRelatedData(updated.AptNum);
+    const oldDataWithRelated = {
+      ...oldData,
+      procedures: oldRelatedData.procedures,
+      providerName: oldRelatedData.provider ? `${oldRelatedData.provider.FName} ${oldRelatedData.provider.LName}` : null,
+      appointmentTypeName: oldRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: oldRelatedData.durationMinutes,
+    };
+    const mappedWithRelated = {
+      ...mapped,
+      procedures: newRelatedData.procedures,
+      providerName: newRelatedData.provider ? `${newRelatedData.provider.FName} ${newRelatedData.provider.LName}` : null,
+      appointmentTypeName: newRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: newRelatedData.durationMinutes,
+    };
+    const changes = this.calculateChanges(
+      this.getAppointmentFields(oldDataWithRelated),
+      this.getAppointmentFields(mappedWithRelated)
+    );
+    await patientWorkspaceService.recordAuditEvent(
+      appointment.PatNum?.toString() ?? String(appointmentId),
+      {
+        action: 'appointment_updated',
+        source: 'office',
+        actorUserId: updatedBy,
+        section: 'appointment',
+        appointmentId: appointmentId.toString(),
+        oldValue: changes,
+        newValue: undefined,
+      }
+    );
 
     // Log activity
     await logActivity(
@@ -1412,6 +2004,15 @@ async getPatientAppointments(patientId: string, limit = 10) {
       undefined,
       'medium'
     );
+
+    if (updates.customFields?.procedures && Array.isArray(updates.customFields.procedures) && updates.customFields.procedures.length > 0) {
+      return this.mapAppointmentWithMeta(updated, {
+        patient: updated.patient,
+        provider: updated.provider_appointment_ProvNumToprovider,
+        appointmentType: updated.appointmenttype,
+        createdBy: updated.userod,
+      });
+    }
 
     return mapped;
   }
@@ -1471,6 +2072,39 @@ async getPatientAppointments(patientId: string, limit = 10) {
       appointmentType: updated.appointmenttype,
       createdBy: updated.userod,
     });
+
+    const oldRelatedData = await this.fetchAppointmentRelatedData(appointment.AptNum);
+    const newRelatedData = await this.fetchAppointmentRelatedData(updated.AptNum);
+    const oldDataWithRelated = {
+      ...oldData,
+      procedures: oldRelatedData.procedures,
+      providerName: oldRelatedData.provider ? `${oldRelatedData.provider.FName} ${oldRelatedData.provider.LName}` : null,
+      appointmentTypeName: oldRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: oldRelatedData.durationMinutes,
+    };
+    const mappedWithRelated = {
+      ...mapped,
+      procedures: newRelatedData.procedures,
+      providerName: newRelatedData.provider ? `${newRelatedData.provider.FName} ${newRelatedData.provider.LName}` : null,
+      appointmentTypeName: newRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: newRelatedData.durationMinutes,
+    };
+    const cancelChanges = this.calculateChanges(
+      this.getAppointmentFields(oldDataWithRelated),
+      this.getAppointmentFields(mappedWithRelated)
+    );
+    await patientWorkspaceService.recordAuditEvent(
+      updated.PatNum?.toString() ?? appointmentId,
+      {
+        action: 'appointment_cancelled',
+        source: 'office',
+        actorUserId: cancelledBy,
+        section: 'appointment',
+        appointmentId: appointmentId.toString(),
+        oldValue: cancelChanges,
+        newValue: undefined,
+      }
+    );
 
     // Log activity
     await logActivity(
@@ -1603,6 +2237,39 @@ async getPatientAppointments(patientId: string, limit = 10) {
       appointmentType: updated.appointmenttype,
       createdBy: updated.userod,
     });
+
+    const oldRelatedData = await this.fetchAppointmentRelatedData(appointment.AptNum);
+    const newRelatedData = await this.fetchAppointmentRelatedData(updated.AptNum);
+    const oldDataWithRelated = {
+      ...oldData,
+      procedures: oldRelatedData.procedures,
+      providerName: oldRelatedData.provider ? `${oldRelatedData.provider.FName} ${oldRelatedData.provider.LName}` : null,
+      appointmentTypeName: oldRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: oldRelatedData.durationMinutes,
+    };
+    const mappedWithRelated = {
+      ...mapped,
+      procedures: newRelatedData.procedures,
+      providerName: newRelatedData.provider ? `${newRelatedData.provider.FName} ${newRelatedData.provider.LName}` : null,
+      appointmentTypeName: newRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: newRelatedData.durationMinutes,
+    };
+    const rescheduleChanges = this.calculateChanges(
+      this.getAppointmentFields(oldDataWithRelated),
+      this.getAppointmentFields(mappedWithRelated)
+    );
+    await patientWorkspaceService.recordAuditEvent(
+      updated.PatNum?.toString() ?? appointmentId,
+      {
+        action: 'appointment_rescheduled',
+        source: 'office',
+        actorUserId: rescheduledBy,
+        section: 'appointment',
+        appointmentId: appointmentId.toString(),
+        oldValue: rescheduleChanges,
+        newValue: undefined,
+      }
+    );
 
     // Log activity
     await logActivity(
@@ -2047,6 +2714,39 @@ async getPatientAppointments(patientId: string, limit = 10) {
       createdBy: updated.userod,
     });
 
+    const oldRelatedData = await this.fetchAppointmentRelatedData(appointment.AptNum);
+    const newRelatedData = await this.fetchAppointmentRelatedData(updated.AptNum);
+    const oldDataWithRelated = {
+      ...oldData,
+      procedures: oldRelatedData.procedures,
+      providerName: oldRelatedData.provider ? `${oldRelatedData.provider.FName} ${oldRelatedData.provider.LName}` : null,
+      appointmentTypeName: oldRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: oldRelatedData.durationMinutes,
+    };
+    const mappedWithRelated = {
+      ...mapped,
+      procedures: newRelatedData.procedures,
+      providerName: newRelatedData.provider ? `${newRelatedData.provider.FName} ${newRelatedData.provider.LName}` : null,
+      appointmentTypeName: newRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: newRelatedData.durationMinutes,
+    };
+    const checkInChanges = this.calculateChanges(
+      this.getAppointmentFields(oldDataWithRelated),
+      this.getAppointmentFields(mappedWithRelated)
+    );
+    await patientWorkspaceService.recordAuditEvent(
+      updated.PatNum?.toString() ?? appointmentId,
+      {
+        action: 'appointment_checked_in',
+        source: 'office',
+        actorUserId: checkedInBy,
+        section: 'appointment',
+        appointmentId: appointmentId.toString(),
+        oldValue: checkInChanges,
+        newValue: undefined,
+      }
+    );
+
     // Log activity
     await logActivity(
       checkedInBy,
@@ -2077,6 +2777,24 @@ async getPatientAppointments(patientId: string, limit = 10) {
     }
 
     const oldData = await this.mapAppointmentWithMeta(appointment);
+
+    // Detach any attached procedures to avoid foreign key constraints
+    await prisma.procedurelog.updateMany({
+      where: { AptNum: BigInt(appointmentId) },
+      data: { AptNum: null }
+    });
+
+    // Delete all linked clinical exams to satisfy foreign key constraints
+    await Promise.all([
+      prisma.examradiographic.deleteMany({ where: { AptNum: BigInt(appointmentId) } }),
+      prisma.examtmj.deleteMany({ where: { AptNum: BigInt(appointmentId) } }),
+      prisma.examheadneck.deleteMany({ where: { AptNum: BigInt(appointmentId) } }),
+      prisma.examtoothstructure.deleteMany({ where: { AptNum: BigInt(appointmentId) } }),
+      prisma.exammorphological.deleteMany({ where: { AptNum: BigInt(appointmentId) } }),
+      prisma.examperiodontal.deleteMany({ where: { AptNum: BigInt(appointmentId) } }),
+      prisma.examdentofacial.deleteMany({ where: { AptNum: BigInt(appointmentId) } }),
+      prisma.examairway.deleteMany({ where: { AptNum: BigInt(appointmentId) } })
+    ]);
 
     // Hard delete - remove from database
     await prisma.appointment.delete({
@@ -2278,15 +2996,17 @@ async getPatientAppointments(patientId: string, limit = 10) {
         finalSurface = null;
       } else if (treatArea === 'TOOTH') {
         finalSurface = null;
-        if (!finalTooth) {
+        if (data.status === '2' && !finalTooth) {
           throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a tooth number.`);
         }
       } else if (treatArea === 'SURFACE') {
-        if (!finalTooth) {
-          throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a tooth number.`);
-        }
-        if (!finalSurface) {
-          throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a surface.`);
+        if (data.status === '2') {
+          if (!finalTooth) {
+            throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a tooth number.`);
+          }
+          if (!finalSurface) {
+            throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a surface.`);
+          }
         }
       }
     }
@@ -2434,8 +3154,13 @@ async getPatientAppointments(patientId: string, limit = 10) {
       throw new BadRequestError('Appointment has already been checked out and its status is locked.');
     }
 
-    if (appointment.AptDateTime && Date.now() < new Date(appointment.AptDateTime).getTime()) {
-      throw new BadRequestError('Cannot check out an appointment before its scheduled start time.');
+    if (appointment.AptDateTime) {
+      // Interpret the scheduled start in the appointment's clinic timezone
+      // ("for all UTCs depending on the area"), not the server's timezone.
+      const clinicTimeZone = await getAppointmentTimeZone(appointment.ClinicNum, checkedOutBy);
+      if (Date.now() < scheduledStartInstant(appointment.AptDateTime, clinicTimeZone)) {
+        throw new BadRequestError('Cannot check out an appointment before its scheduled start time.');
+      }
     }
 
     const oldData = await this.mapAppointmentWithMeta(appointment);
@@ -2462,6 +3187,40 @@ async getPatientAppointments(patientId: string, limit = 10) {
       cancellationReason: null,
       systemEvents: [...(existingMeta.systemEvents ?? []), newEvent],
     });
+
+    const mapped = await this.mapAppointmentWithMeta(updated);
+    const oldRelatedData = await this.fetchAppointmentRelatedData(appointment.AptNum);
+    const newRelatedData = await this.fetchAppointmentRelatedData(updated.AptNum);
+    const oldDataWithRelated = {
+      ...oldData,
+      procedures: oldRelatedData.procedures,
+      providerName: oldRelatedData.provider ? `${oldRelatedData.provider.FName} ${oldRelatedData.provider.LName}` : null,
+      appointmentTypeName: oldRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: oldRelatedData.durationMinutes,
+    };
+    const mappedWithRelated = {
+      ...mapped,
+      procedures: newRelatedData.procedures,
+      providerName: newRelatedData.provider ? `${newRelatedData.provider.FName} ${newRelatedData.provider.LName}` : null,
+      appointmentTypeName: newRelatedData.appointmentType?.AppointmentTypeName ?? null,
+      durationMinutes: newRelatedData.durationMinutes,
+    };
+    const checkOutChanges = this.calculateChanges(
+      this.getAppointmentFields(oldDataWithRelated),
+      this.getAppointmentFields(mappedWithRelated)
+    );
+    await patientWorkspaceService.recordAuditEvent(
+      updated.PatNum?.toString() ?? appointmentId,
+      {
+        action: 'appointment_checked_out',
+        source: 'office',
+        actorUserId: checkedOutBy,
+        section: 'appointment',
+        appointmentId: appointmentId.toString(),
+        oldValue: checkOutChanges,
+        newValue: undefined,
+      }
+    );
 
     await logActivity(
       checkedOutBy,

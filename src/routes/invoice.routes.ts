@@ -703,4 +703,47 @@ router.post(
   invoiceController.transferOutstandingToPatient.bind(invoiceController)
 );
 
+/**
+ * @swagger
+ * /invoices/{invoiceId}/transfer-rejected-claim:
+ *   post:
+ *     summary: Transfer rejected claim balance to patient
+ *     description: Marks a claim as rejected and transfers its unpaid insurance balance to the patient.
+ *     tags: [Invoices]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: invoiceId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [claimId]
+ *             properties:
+ *               claimId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Success
+ */
+router.post(
+  '/transfer-rejected-claim',
+  authenticate,
+  requirePermission('invoices.update'),
+  invoiceController.transferRejectedClaim.bind(invoiceController)
+);
+
+router.post(
+  '/:invoiceId/transfer-rejected-claim',
+  authenticate,
+  requirePermission('invoices.update'),
+  validate(invoiceIdValidator),
+  invoiceController.transferRejectedClaim.bind(invoiceController)
+);
+
 export default router;

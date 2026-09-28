@@ -38,7 +38,7 @@ export const enterTenantContext = async (
   }
 
   try {
-    const isSystemAdmin = await PermissionService.hasRole(req.userId, 'Admin');
+    const isSystemAdmin = await PermissionService.hasRole(req.userId, 'Super Admin');
     const clinicIds: bigint[] | '*' =
       isSystemAdmin || req.branchAccess.clinicIds.length === 0 ? '*' : req.branchAccess.clinicIds;
     const patientGroupId: number | '*' =

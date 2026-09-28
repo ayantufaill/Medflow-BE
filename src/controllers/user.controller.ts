@@ -313,6 +313,32 @@ export class UserController {
     }
   }
 
+  async updateUserBranches(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId } = req.params;
+      const { branchIds } = req.body;
+
+      if (!userId) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'User ID is required' },
+        });
+      }
+
+      const result = await userService.updateUserBranches(
+        userId,
+        Array.isArray(branchIds) ? branchIds.map((id: string) => id.toString()) : [],
+        req.branchAccess?.clinicIds
+      );
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getUserActivity(req: Request, res: Response, next: NextFunction) {
     try {
       const { userId } = req.params;

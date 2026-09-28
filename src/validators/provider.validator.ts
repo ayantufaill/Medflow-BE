@@ -114,6 +114,11 @@ export const updateProviderValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 50 })
     .withMessage('Last name must be less than 50 characters'),
+  body('middleName')
+    .optional()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage('Middle name must be less than 50 characters'),
   body('npiNumber')
     .optional()
     .trim()
@@ -146,8 +151,125 @@ export const updateProviderValidator: ValidationChain[] = [
     .withMessage('Specialty must be a string or an array of strings (each <= 100 chars)'),
   body('title')
     .optional()
-    .isIn(['MD', 'DO', 'NP', 'PA', 'RN', 'LPN', 'Other'])
-    .withMessage('Title must be one of: MD, DO, NP, PA, RN, LPN, Other'),
+    .isString()
+    .isLength({ max: 50 })
+    .withMessage('Title must be a string with max 50 characters'),
+  body('prefix')
+    .optional()
+    .isString()
+    .isLength({ max: 50 })
+    .withMessage('Prefix must be a string with max 50 characters'),
+  body('suffix')
+    .optional()
+    .isString()
+    .isLength({ max: 50 })
+    .withMessage('Suffix must be a string with max 50 characters'),
+  body('preferredName')
+    .optional()
+    .isString()
+    .isLength({ max: 100 })
+    .withMessage('Preferred name must be less than 100 characters'),
+  body('internalCodeName')
+    .optional()
+    .isString()
+    .isLength({ max: 50 })
+    .withMessage('Internal code name must be less than 50 characters'),
+  body('email')
+    .optional()
+    .trim(),
+  body('mobilePhone')
+    .optional()
+    .isString(),
+  body('homePhone')
+    .optional()
+    .isString(),
+  body('organizationName')
+    .optional()
+    .isString()
+    .isLength({ max: 200 })
+    .withMessage('Organization name must be less than 200 characters'),
+  body('federalTaxNumber')
+    .optional()
+    .isString()
+    .isLength({ max: 50 })
+    .withMessage('Federal tax number must be less than 50 characters'),
+  body('additionalProviderId')
+    .optional()
+    .isString()
+    .isLength({ max: 50 })
+    .withMessage('Additional provider ID must be less than 50 characters'),
+  body('dea')
+    .optional()
+    .isString()
+    .isLength({ max: 50 })
+    .withMessage('DEA number must be less than 50 characters'),
+  body('taxIdType')
+    .optional()
+    .isString()
+    .isLength({ max: 50 })
+    .withMessage('Tax ID type must be less than 50 characters'),
+  body('providerType')
+    .optional()
+    .isString(),
+  body('signatureOnFile')
+    .optional()
+    .isBoolean()
+    .withMessage('signatureOnFile must be a boolean'),
+  body('defaultDentist')
+    .optional()
+    .isBoolean()
+    .withMessage('defaultDentist must be a boolean'),
+  body('defaultHygienist')
+    .optional()
+    .isBoolean()
+    .withMessage('defaultHygienist must be a boolean'),
+  body('country')
+    .optional()
+    .isString(),
+  body('addressLine1')
+    .optional()
+    .isString()
+    .isLength({ max: 200 })
+    .withMessage('Address line 1 must be less than 200 characters'),
+  body('addressLine2')
+    .optional()
+    .isString()
+    .isLength({ max: 200 })
+    .withMessage('Address line 2 must be less than 200 characters'),
+  body('city')
+    .optional()
+    .isString()
+    .isLength({ max: 100 })
+    .withMessage('City must be less than 100 characters'),
+  body('state')
+    .optional()
+    .isString()
+    .isLength({ max: 100 })
+    .withMessage('State must be less than 100 characters'),
+  body('zipCode')
+    .optional()
+    .isString()
+    .isLength({ max: 20 })
+    .withMessage('Zip code must be less than 20 characters'),
+  body('openEdgeToken')
+    .optional()
+    .isString(),
+  body('openDentalProviderId')
+    .optional()
+    .isString(),
+  body('description')
+    .optional()
+    .isString()
+    .isLength({ max: 1000 })
+    .withMessage('Description must be less than 1000 characters'),
+  body('branchIds')
+    .optional()
+    .isArray()
+    .withMessage('branchIds must be an array'),
+  body('carriersOutOfNetwork')
+    .optional()
+    .isArray()
+    .withMessage('carriersOutOfNetwork must be an array'),
   body('appointmentBufferMinutes')
     .optional()
     .isInt({ min: 0 })

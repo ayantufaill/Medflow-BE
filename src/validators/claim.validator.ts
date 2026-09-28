@@ -191,9 +191,13 @@ export const createManualClaimValidator: ValidationChain[] = [
 
   body('claimType')
     .optional()
-    .isIn(['Manual', 'Electronic'])
+    .isIn(['Manual', 'Electronic', 'Secondary', 'Primary', 'manual', 'electronic', 'secondary', 'primary'])
     .withMessage('claimType must be either Manual or Electronic')
     .default('Manual'),
+
+  body('insuranceType')
+    .optional()
+    .isString(),
 
   body('description')
     .optional()
@@ -228,5 +232,13 @@ export const createManualClaimValidator: ValidationChain[] = [
     .withMessage('amount must be a number')
     .custom((value) => value > 0)
     .withMessage('amount must be greater than 0'),
+
+  body('selectedItems.*.code').optional().isString(),
+  body('selectedItems.*.description').optional().isString(),
+  body('selectedItems.*.fee').optional().isNumeric(),
+  body('selectedItems.*.ptAmount').optional().isNumeric(),
+  body('selectedItems.*.insAmount').optional().isNumeric(),
+  body('selectedItems.*.invoiceNumber').optional().isString(),
+  body('selectedItems.*.invoiceDate').optional().isString(),
 ];
 

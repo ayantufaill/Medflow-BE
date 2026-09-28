@@ -3,6 +3,7 @@ import { NotFoundError, ConflictError } from '../utils/error.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { RoleService } from './role.service';
 import { userService } from './user.service';
+import { getUsersMeta } from '../utils/opendental-auth.util';
 import { GROUP_ADMIN_PERMISSIONS } from '../types/auth.types';
 
 const roleService = new RoleService();
@@ -49,10 +50,20 @@ export class PracticeGroupService {
     return { id: group.id, name: group.name, isActive: group.isActive, branches: [] };
   }
 
-  async getAllGroups(): Promise<PracticeGroupSummary[]> {
+  async getAllGroups(filter?: { groupId?: number; clinicIds?: bigint[] }): Promise<PracticeGroupSummary[]> {
     const groups = await prisma.practicegroup.findMany({
-      where: { isActive: true },
-      include: { clinic: { select: { ClinicNum: true, Description: true, City: true, State: true } } },
+      where: {
+        isActive: true,
+        ...(filter?.groupId !== undefined ? { id: filter.groupId } : {}),
+      },
+      include: {
+        clinic: {
+          where: filter?.clinicIds && filter.clinicIds.length > 0
+            ? { ClinicNum: { in: filter.clinicIds } }
+            : undefined,
+          select: { ClinicNum: true, Description: true, City: true, State: true },
+        },
+      },
       orderBy: { name: 'asc' },
     });
     return groups.map((g) => ({
@@ -185,23 +196,70 @@ export class PracticeGroupService {
     }
 
     const clinicNums = group.clinic.map((c) => c.ClinicNum);
-    const userClinics = await prisma.userclinic.findMany({
-      where: { ClinicNum: { in: clinicNums } },
-      include: { userod: true },
-    });
+    const clinicNumSet = new Set(clinicNums.map((c) => c.toString()));
+
+    // A member's branches within this group = their userclinic assignments
+    // plus their userod.ClinicNum home clinic (same definition PermissionService
+    // uses for branchIds), filtered to clinics that belong to this group.
+    const [userClinics, homeClinicUsers] = await Promise.all([
+      prisma.userclinic.findMany({
+        where: { ClinicNum: { in: clinicNums } },
+        include: { userod: true },
+      }),
+      prisma.userod.findMany({
+        where: { ClinicNum: { in: clinicNums } },
+        select: { UserNum: true, UserName: true, DomainUser: true, ClinicNum: true },
+      }),
+    ]);
 
     const uniqueUsersMap = new Map<string, any>();
-    for (const uc of userClinics) {
-      if (uc.userod && !uniqueUsersMap.has(uc.userod.UserNum.toString())) {
-        uniqueUsersMap.set(uc.userod.UserNum.toString(), {
-          id: uc.userod.UserNum.toString(),
-          username: uc.userod.UserName ?? '',
-          isDomainUser: Boolean(uc.userod.DomainUser),
-        });
+    const ensureEntry = (user: any) => {
+      const userNum = user.UserNum.toString();
+      let entry = uniqueUsersMap.get(userNum);
+      if (!entry) {
+        entry = {
+          id: userNum,
+          username: user.UserName ?? '',
+          firstName: '',
+          lastName: '',
+          email: '',
+          isDomainUser: Boolean(user.DomainUser),
+          branchIds: new Set<string>(),
+        };
+        uniqueUsersMap.set(userNum, entry);
       }
+      return entry;
+    };
+
+    for (const uc of userClinics) {
+      if (!uc.userod) continue;
+      const entry = ensureEntry(uc.userod);
+      const assignment = uc.ClinicNum?.toString();
+      if (assignment && clinicNumSet.has(assignment)) entry.branchIds.add(assignment);
     }
 
-    return Array.from(uniqueUsersMap.values());
+    for (const user of homeClinicUsers) {
+      const entry = ensureEntry(user);
+      const homeClinic = user.ClinicNum?.toString();
+      if (homeClinic && clinicNumSet.has(homeClinic)) entry.branchIds.add(homeClinic);
+    }
+
+    const userNums = Array.from(uniqueUsersMap.keys()).map((id) => BigInt(id));
+    const metaMap = await getUsersMeta(userNums);
+
+    return Array.from(uniqueUsersMap.values()).map((entry) => {
+      const meta = metaMap[entry.id] ?? {};
+      const email = meta.email ?? entry.username;
+      return {
+        id: entry.id,
+        username: entry.username,
+        firstName: meta.firstName ?? '',
+        lastName: meta.lastName ?? '',
+        email,
+        isDomainUser: entry.isDomainUser,
+        branchIds: Array.from(entry.branchIds).sort(),
+      };
+    });
   }
 }
 

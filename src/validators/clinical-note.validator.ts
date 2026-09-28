@@ -148,6 +148,10 @@ export const updateClinicalNoteValidator: ValidationChain[] = [
     .optional()
     .isString()
     .withMessage('Plan must be a string'),
+  body('content')
+    .optional()
+    .isString()
+    .withMessage('Content must be a string'),
   body('diagnosisCodes')
     .optional()
     .isArray()

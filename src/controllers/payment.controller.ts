@@ -3,6 +3,31 @@ import { paymentService } from '../services/payment.service';
 import { logActivityFromRequest } from '../utils/activity-logger.util';
 
 export class PaymentController {
+  async getPaymentMethodsConfig(req: Request, res: Response, next: NextFunction) {
+    try {
+      const fullList = [
+        'EFT', 'Debit Card (debit)', 'Visa Card', 'Master Card', 'Amex',
+        'Patient Check', 'Insurance Check', 'Cash', 'Account Credit',
+        'Account Correction', 'Courtesy Credit', 'INP Special',
+        'Insurance Refund/Back to Office', 'HSA', 'Testing Credit',
+        'Collection Agency Payment'
+      ];
+      const refundList = ['Do not use', 'Cash', 'Credit Card', 'Check'];
+
+      res.status(200).json({
+        success: true,
+        data: {
+          insurance: fullList,
+          patient: fullList,
+          deposit: fullList,
+          refund: refundList,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getAllPayments(req: Request, res: Response, next: NextFunction) {
     try {
       const page = parseInt(req.query.page as string) || 1;

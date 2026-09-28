@@ -94,7 +94,11 @@ export class PatientInsuranceService {
   async getPatientInsurances(patientId: string, isActive?: boolean) {
     const where: any = { PatNum: BigInt(patientId) };
     if (isActive !== undefined) {
-      where.IsPending = isActive ? 0 : 1;
+      if (isActive) {
+        where.OR = [{ IsPending: 0 }, { IsPending: null }];
+      } else {
+        where.IsPending = 1;
+      }
     }
 
     const patPlans = await prisma.patplan.findMany({
@@ -221,7 +225,11 @@ export class PatientInsuranceService {
   async getAllPatientInsurances(isActive?: boolean) {
     const where: any = {};
     if (isActive !== undefined) {
-      where.IsPending = isActive ? 0 : 1;
+      if (isActive) {
+        where.OR = [{ IsPending: 0 }, { IsPending: null }];
+      } else {
+        where.IsPending = 1;
+      }
     }
 
     const patPlans = await prisma.patplan.findMany({
@@ -515,7 +523,10 @@ export class PatientInsuranceService {
 
     // Calculate maxOrdinal for existing active plans and assign next available ordinal
     const activePatPlans = await prisma.patplan.findMany({
-      where: { PatNum: BigInt(patientId), IsPending: 0 },
+      where: {
+        PatNum: BigInt(patientId),
+        OR: [{ IsPending: 0 }, { IsPending: null }],
+      },
       select: { Ordinal: true },
     });
     const maxOrdinal = activePatPlans.reduce((max, plan) => Math.max(max, plan.Ordinal || 0), 0);
@@ -663,6 +674,22 @@ export class PatientInsuranceService {
         );
       } catch (err) {
         console.error('Failed to generate unsent claims for patient after insurance creation:', err);
+      }
+    });
+
+    // Recalculate open invoices asynchronously to reflect any new secondary portions
+    Promise.resolve().then(async () => {
+      try {
+        const { invoiceService } = await import('./invoice.service');
+        const openInvoices = await prisma.statement.findMany({
+          where: { PatNum: BigInt(patientId), IsInvoice: 1, BalTotal: { gt: 0 } },
+          select: { StatementNum: true }
+        });
+        for (const inv of openInvoices) {
+          await invoiceService.recalculateInvoice(inv.StatementNum.toString()).catch(() => {});
+        }
+      } catch (err) {
+        console.error('Failed to recalculate invoices after insurance creation:', err);
       }
     });
 
@@ -1003,7 +1030,10 @@ async setPrimaryInsurance(patientId: string, patientInsuranceId: string) {
    */
   private async resequenceActiveInsurances(patientId: string) {
     const activePlans = await prisma.patplan.findMany({
-      where: { PatNum: BigInt(patientId), IsPending: 0 },
+      where: {
+        PatNum: BigInt(patientId),
+        OR: [{ IsPending: 0 }, { IsPending: null }],
+      },
       orderBy: { Ordinal: 'asc' },
     });
 

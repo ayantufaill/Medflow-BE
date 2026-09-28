@@ -23,6 +23,48 @@ router.use(authenticate);
 router.use(resolveBranchAccess);
 router.use(enterTenantContext);
 
+const STAFF_READ_ROLES = [
+  'Admin',
+  'Super Admin',
+  'Group Admin',
+  'Branch Admin',
+  'Provider',
+  'Doctor',
+  'Hygienist',
+  'Assistant',
+  'Clinical Staff',
+  'Front Desk',
+  'Receptionist',
+  'Biller',
+  'Billing Staff',
+  'Staff',
+];
+
+const BILLING_STAFF_ROLES = [
+  'Admin',
+  'Super Admin',
+  'Group Admin',
+  'Branch Admin',
+  'Biller',
+  'Billing Staff',
+  'Front Desk',
+  'Receptionist',
+];
+
+const CLINICAL_STAFF_ROLES = [
+  'Admin',
+  'Super Admin',
+  'Group Admin',
+  'Branch Admin',
+  'Provider',
+  'Doctor',
+  'Hygienist',
+  'Assistant',
+  'Clinical Staff',
+  'Front Desk',
+  'Receptionist',
+];
+
 /**
  * @swagger
  * /patients/{patientId}/purchase-products:
@@ -63,7 +105,7 @@ router.use(enterTenantContext);
  */
 router.post(
   '/:patientId/purchase-products',
-  requireRoles('Admin', 'Provider', 'Receptionist', 'Clinical Staff'),
+  requireRoles(...BILLING_STAFF_ROLES, ...CLINICAL_STAFF_ROLES),
   validate(purchaseProductsValidator),
   patientController.purchaseProducts.bind(patientController)
 );
@@ -88,7 +130,7 @@ router.post(
  */
 router.get(
   '/:patientId/unbilled-products',
-  requireRoles('Admin', 'Provider', 'Receptionist', 'Clinical Staff', 'Billing Staff'),
+  requireRoles(...STAFF_READ_ROLES),
   validate(patientIdValidator),
   patientController.getUnbilledProducts.bind(patientController)
 );
@@ -233,7 +275,7 @@ router.get(
  *                   properties:
  *                     message: { type: string, example: "A patient already exists with given details." }
  */
-router.get('/', requireRoles('Receptionist', 'Admin', 'Super Admin', 'Group Admin', 'Branch Admin'), validate(patientSearchValidator), patientController.getAllPatients.bind(patientController));
+router.get('/', requireRoles(...STAFF_READ_ROLES), validate(patientSearchValidator), patientController.getAllPatients.bind(patientController));
 /**
  * @swagger
  * /patients:
@@ -306,7 +348,7 @@ router.post('/', requireRoles('Receptionist', 'Admin'), validate(createPatientVa
  *       401: { description: Unauthorized }
  *       403: { description: Forbidden }
  */
-router.get('/search', requireRoles('Receptionist', 'Admin'), validate(patientSearchValidator), patientController.searchPatients.bind(patientController));
+router.get('/search', requireRoles(...STAFF_READ_ROLES), validate(patientSearchValidator), patientController.searchPatients.bind(patientController));
 
 /**
  * @swagger
@@ -527,7 +569,7 @@ router.post('/bulk-delete', requireRoles('Admin'), patientController.bulkDeleteP
  *         description: Not found
  */
 
-router.get('/:patientId', requireRoles('Receptionist', 'Admin'), validate(patientIdValidator), patientController.getPatientById.bind(patientController));
+router.get('/:patientId', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getPatientById.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}:
@@ -563,7 +605,7 @@ router.get('/:patientId', requireRoles('Receptionist', 'Admin'), validate(patien
  *         description: Not found
  */
 
-router.patch('/:patientId', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...updatePatientValidator]), patientController.updatePatient.bind(patientController));
+router.patch('/:patientId', requireRoles(...BILLING_STAFF_ROLES, 'Provider', 'Doctor'), validate([...patientIdValidator, ...updatePatientValidator]), patientController.updatePatient.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}:
@@ -620,7 +662,7 @@ router.delete('/:patientId', requireRoles('Admin'), validate(patientIdValidator)
  *       200:
  *         description: Successful response
  */
-router.post('/:patientId/family-members', requireRoles('Receptionist', 'Admin'), validate(patientIdValidator), patientController.addFamilyMember.bind(patientController));
+router.post('/:patientId/family-members', requireRoles(...BILLING_STAFF_ROLES), validate(patientIdValidator), patientController.addFamilyMember.bind(patientController));
 
 /**
  * @swagger
@@ -643,7 +685,7 @@ router.post('/:patientId/family-members', requireRoles('Receptionist', 'Admin'),
  *       200:
  *         description: Successful response
  */
-router.delete('/:patientId/family-members/:memberId', requireRoles('Receptionist', 'Admin'), validate(patientIdValidator), patientController.removeFamilyMember.bind(patientController));
+router.delete('/:patientId/family-members/:memberId', requireRoles(...BILLING_STAFF_ROLES), validate(patientIdValidator), patientController.removeFamilyMember.bind(patientController));
 
 /**
  * @swagger
@@ -674,7 +716,7 @@ router.delete('/:patientId/family-members/:memberId', requireRoles('Receptionist
  *         description: Not found
  */
 
-router.get('/:patientId/account-notes', requireRoles('Receptionist', 'Admin', 'Billing Staff'), validate(patientIdValidator), patientController.getPatientAccountNotes.bind(patientController));
+router.get('/:patientId/account-notes', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getPatientAccountNotes.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}/account-notes:
@@ -710,7 +752,7 @@ router.get('/:patientId/account-notes', requireRoles('Receptionist', 'Admin', 'B
  *         description: Not found
  */
 
-router.post('/:patientId/account-notes', requireRoles('Receptionist', 'Admin', 'Billing Staff'), validate(patientIdValidator), patientController.createPatientAccountNote.bind(patientController));
+router.post('/:patientId/account-notes', requireRoles(...BILLING_STAFF_ROLES, 'Provider', 'Doctor'), validate(patientIdValidator), patientController.createPatientAccountNote.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}/account-notes/{noteId}:
@@ -750,7 +792,7 @@ router.post('/:patientId/account-notes', requireRoles('Receptionist', 'Admin', '
  *         description: Not found
  */
 
-router.put('/:patientId/account-notes/:noteId', requireRoles('Receptionist', 'Admin', 'Billing Staff'), validate(patientIdValidator), patientController.updatePatientAccountNote.bind(patientController));
+router.put('/:patientId/account-notes/:noteId', requireRoles(...BILLING_STAFF_ROLES, 'Provider', 'Doctor'), validate(patientIdValidator), patientController.updatePatientAccountNote.bind(patientController));
 
 /**
  * @swagger
@@ -779,13 +821,64 @@ router.put('/:patientId/account-notes/:noteId', requireRoles('Receptionist', 'Ad
  *                   type: object
  *                   properties:
  *                     balance: { type: number, example: 150.00 }
- *                     lastPaymentDate: { type: string, example: "2026-06-09T00:00:00.000Z", nullable: true }
  *                     overdueAmount: { type: number, example: 150.00 }
+ *                     lastPaymentDate: { type: string, example: "2026-06-09T00:00:00.000Z", nullable: true }
+ *                     lastInsPayDate: { type: string, example: "2026-06-15T00:00:00.000Z", nullable: true }
  *       401: { description: Unauthorized }
  *       403: { description: Forbidden }
  *       404: { description: Patient not found }
  */
-router.get('/:patientId/balance', requireRoles('Receptionist', 'Admin', 'Billing Staff'), validate(patientIdValidator), patientController.getPatientBalance.bind(patientController));
+router.get('/:patientId/balance', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getPatientBalance.bind(patientController));
+
+/**
+ * @swagger
+ * /patients/{patientId}/insurance-usage:
+ *   get:
+ *     summary: Get patient insurance benefit usage
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *         example: 1
+ *     responses:
+ *       200:
+ *         description: Insurance usage summary
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     primaryInsurance:
+ *                       type: object
+ *                       nullable: true
+ *                       properties:
+ *                         planName: { type: string, example: "Delta Dental" }
+ *                         usedAmount: { type: number, example: 600.00 }
+ *                         annualMax: { type: number, example: 1500.00 }
+ *                         remaining: { type: number, example: 900.00 }
+ *                         renewalMonth: { type: integer, example: 1 }
+ *                     secondaryInsurance:
+ *                       type: object
+ *                       nullable: true
+ *                       properties:
+ *                         planName: { type: string, example: "MetLife" }
+ *                         usedAmount: { type: number, example: 200.00 }
+ *                         annualMax: { type: number, example: 1000.00 }
+ *                         remaining: { type: number, example: 800.00 }
+ *                         renewalMonth: { type: integer, example: 1 }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Patient not found }
+ */
+router.get('/:patientId/insurance-usage', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getInsuranceUsage.bind(patientController));
 
 /**
  * @swagger
@@ -829,7 +922,63 @@ router.get('/:patientId/balance', requireRoles('Receptionist', 'Admin', 'Billing
  *                 success: { type: boolean, example: false }
  *                 error: { type: object, properties: { message: { type: string, example: "No completed appointments found for this patient" } } }
  */
-router.get('/:patientId/last-visit', requireRoles('Receptionist', 'Admin', 'Provider'), validate(patientIdValidator), patientController.getPatientLastVisit.bind(patientController));
+router.get('/:patientId/last-visit', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getPatientLastVisit.bind(patientController));
+
+/**
+ * @swagger
+ * /patients/{patientId}/recare-due-dates:
+ *   get:
+ *     summary: Get calculated recare (recall) due dates per CDT code for a patient
+ *     description: Computes due dates based on patient's last completed CDT procedure, configured recall intervals, and offset days (e.g. 6mo + 1d for prophylaxis).
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *         example: 1
+ *       - in: query
+ *         name: procedures
+ *         required: false
+ *         schema: { type: string }
+ *         description: Comma-separated list of CDT procedure codes (e.g., D1110,D0120). Defaults to all active recare codes if omitted.
+ *         example: "D1110,D0120"
+ *     responses:
+ *       200:
+ *         description: Recare due dates calculated per CDT code
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 status: { type: string, example: "success" }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     patientId: { type: string, example: "1" }
+ *                     recareDueDates:
+ *                       type: object
+ *                       additionalProperties:
+ *                         type: object
+ *                         properties:
+ *                           code: { type: string, example: "D1110" }
+ *                           procedureName: { type: string, example: "Adult cleaning" }
+ *                           recallTypeNum: { type: string, example: "1" }
+ *                           recallTypeName: { type: string, example: "Adult Prophy" }
+ *                           intervalMonths: { type: integer, example: 6 }
+ *                           offsetDays: { type: integer, example: 1 }
+ *                           lastCompletedDate: { type: string, example: "2022-07-14", nullable: true }
+ *                           dueDate: { type: string, example: "2023-01-15", nullable: true }
+ *                           isOverdue: { type: boolean, example: true }
+ *                           isNeverCompleted: { type: boolean, example: false }
+ *       400: { description: Invalid patient ID }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ */
+router.get('/:patientId/recare-due-dates', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getPatientRecareDueDates.bind(patientController));
 
 /**
  * @swagger
@@ -886,7 +1035,7 @@ router.get('/:patientId/last-visit', requireRoles('Receptionist', 'Admin', 'Prov
  *       403: { description: Forbidden }
  *       404: { description: Patient not found }
  */
-router.get('/:patientId/workspace', requireRoles('Receptionist', 'Admin', 'Provider'), validate(patientIdValidator), patientController.getPatientWorkspace.bind(patientController));
+router.get('/:patientId/workspace', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getPatientWorkspace.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}/workspace:
@@ -922,7 +1071,7 @@ router.get('/:patientId/workspace', requireRoles('Receptionist', 'Admin', 'Provi
  *         description: Not found
  */
 
-router.patch('/:patientId/workspace', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...patientWorkspaceMetaValidator]), patientController.updatePatientWorkspaceMeta.bind(patientController));
+router.patch('/:patientId/workspace', requireRoles(...STAFF_READ_ROLES), validate([...patientIdValidator, ...patientWorkspaceMetaValidator]), patientController.updatePatientWorkspaceMeta.bind(patientController));
 
 /**
  * @swagger
@@ -988,7 +1137,7 @@ router.patch('/:patientId/workspace', requireRoles('Receptionist', 'Admin'), val
  *       403: { description: Forbidden }
  *       404: { description: Patient not found }
  */
-router.get('/:patientId/medical-history', requireRoles('Receptionist', 'Admin', 'Provider'), validate(patientIdValidator), patientController.getStructuredMedicalHistory.bind(patientController));
+router.get('/:patientId/medical-history', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getStructuredMedicalHistory.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}/medical-history:
@@ -1024,7 +1173,7 @@ router.get('/:patientId/medical-history', requireRoles('Receptionist', 'Admin', 
  *         description: Not found
  */
 
-router.patch('/:patientId/medical-history', requireRoles('Receptionist', 'Admin', 'Provider'), validate([...patientIdValidator, ...patientMedicalHistoryValidator]), patientController.updateStructuredMedicalHistory.bind(patientController));
+router.patch('/:patientId/medical-history', requireRoles(...CLINICAL_STAFF_ROLES), validate([...patientIdValidator, ...patientMedicalHistoryValidator]), patientController.updateStructuredMedicalHistory.bind(patientController));
 
 /**
  * @swagger
@@ -1087,7 +1236,7 @@ router.patch('/:patientId/medical-history', requireRoles('Receptionist', 'Admin'
  *       403: { description: Forbidden }
  *       404: { description: Patient not found }
  */
-router.get('/:patientId/dental-history', requireRoles('Receptionist', 'Admin', 'Provider'), validate(patientIdValidator), patientController.getDentalHistory.bind(patientController));
+router.get('/:patientId/dental-history', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getDentalHistory.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}/dental-history:
@@ -1123,7 +1272,7 @@ router.get('/:patientId/dental-history', requireRoles('Receptionist', 'Admin', '
  *         description: Not found
  */
 
-router.patch('/:patientId/dental-history', requireRoles('Receptionist', 'Admin', 'Provider'), validate([...patientIdValidator, ...patientDentalHistoryValidator]), patientController.updateDentalHistory.bind(patientController));
+router.patch('/:patientId/dental-history', requireRoles(...CLINICAL_STAFF_ROLES), validate([...patientIdValidator, ...patientDentalHistoryValidator]), patientController.updateDentalHistory.bind(patientController));
 
 /**
  * @swagger
@@ -1160,8 +1309,8 @@ router.patch('/:patientId/dental-history', requireRoles('Receptionist', 'Admin',
  *       403: { description: Forbidden }
  *       404: { description: Patient not found }
  */
-router.get('/:patientId/appointments', requireRoles('Receptionist', 'Admin', 'Provider'), validate(patientIdValidator), appointmentController.getPatientAppointments.bind(appointmentController));
-router.get('/:patientId/family-appointments', requireRoles('Receptionist', 'Admin', 'Provider'), validate(patientIdValidator), patientController.getPatientFamilyAppointments.bind(patientController));
+router.get('/:patientId/appointments', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), appointmentController.getPatientAppointments.bind(appointmentController));
+router.get('/:patientId/family-appointments', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getPatientFamilyAppointments.bind(patientController));
 
 /**
  * @swagger
@@ -1200,7 +1349,7 @@ router.get('/:patientId/family-appointments', requireRoles('Receptionist', 'Admi
  *       403: { description: Forbidden }
  *       404: { description: Patient not found }
  */
-router.get('/:patientId/history', requireRoles('Receptionist', 'Admin', 'Provider'), validate(patientIdValidator), patientController.getPatientHistory.bind(patientController));
+router.get('/:patientId/history', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getPatientHistory.bind(patientController));
 
 /**
  * @swagger
@@ -1280,7 +1429,7 @@ router.get('/:patientId/history', requireRoles('Receptionist', 'Admin', 'Provide
  *       403: { description: Forbidden }
  *       404: { description: Patient not found }
  */
-router.get('/:patientId/allergies', validate(patientIdValidator), requireRoles('Receptionist', 'Provider', 'Admin'), allergyController.getPatientAllergies.bind(allergyController));
+router.get('/:patientId/allergies', validate(patientIdValidator), requireRoles(...STAFF_READ_ROLES), allergyController.getPatientAllergies.bind(allergyController));
 /**
  * @swagger
  * /patients/{patientId}/allergies:
@@ -1316,7 +1465,7 @@ router.get('/:patientId/allergies', validate(patientIdValidator), requireRoles('
  *         description: Not found
  */
 
-router.post('/:patientId/allergies', requireRoles('Receptionist', 'Provider', 'Admin'), validate([...patientIdValidator, ...createPatientAllergyValidator]), allergyController.createPatientAllergy.bind(allergyController));
+router.post('/:patientId/allergies', requireRoles(...CLINICAL_STAFF_ROLES), validate([...patientIdValidator, ...createPatientAllergyValidator]), allergyController.createPatientAllergy.bind(allergyController));
 
 /**
  * @swagger
@@ -1336,7 +1485,7 @@ router.post('/:patientId/allergies', requireRoles('Receptionist', 'Provider', 'A
  *         name: allergyId
  *         required: true
  *         schema: { type: integer }
- *         example: 1
+ *         example: 10
  *     responses:
  *       200:
  *         description: Allergy details
@@ -1351,7 +1500,7 @@ router.post('/:patientId/allergies', requireRoles('Receptionist', 'Provider', 'A
  *       403: { description: Forbidden }
  *       404: { description: Allergy not found }
  *   put:
- *     summary: Update patient allergy
+ *     summary: Update an allergy
  *     tags: [Patients]
  *     security:
  *       - bearerAuth: []
@@ -1365,7 +1514,7 @@ router.post('/:patientId/allergies', requireRoles('Receptionist', 'Provider', 'A
  *         name: allergyId
  *         required: true
  *         schema: { type: integer }
- *         example: 1
+ *         example: 10
  *     requestBody:
  *       required: true
  *       content:
@@ -1373,25 +1522,18 @@ router.post('/:patientId/allergies', requireRoles('Receptionist', 'Provider', 'A
  *           schema:
  *             type: object
  *             properties:
- *               reaction: { type: string, example: "Updated reaction" }
- *               severity: { type: string, enum: [mild, moderate, severe, unknown] }
- *               isActive: { type: boolean, example: false }
+ *               reaction: { type: string, example: "Mild rash only" }
+ *               severity: { type: string, enum: [mild, moderate, severe, unknown], example: "mild" }
+ *               isActive: { type: boolean, example: true }
+ *               notes: { type: string, example: "Updated note" }
  *     responses:
- *       200:
- *         description: Allergy updated
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success: { type: boolean, example: true }
- *                 data: { type: object }
+ *       200: { description: Allergy updated }
  *       400: { description: Validation error }
  *       401: { description: Unauthorized }
  *       403: { description: Forbidden }
  *       404: { description: Allergy not found }
  *   delete:
- *     summary: Delete patient allergy
+ *     summary: Delete an allergy
  *     tags: [Patients]
  *     security:
  *       - bearerAuth: []
@@ -1405,7 +1547,7 @@ router.post('/:patientId/allergies', requireRoles('Receptionist', 'Provider', 'A
  *         name: allergyId
  *         required: true
  *         schema: { type: integer }
- *         example: 1
+ *         example: 10
  *     responses:
  *       200:
  *         description: Allergy deleted
@@ -1420,7 +1562,7 @@ router.post('/:patientId/allergies', requireRoles('Receptionist', 'Provider', 'A
  *       403: { description: Forbidden }
  *       404: { description: Allergy not found }
  */
-router.get('/:patientId/allergies/:allergyId', requireRoles('Receptionist', 'Provider', 'Admin'), validate([...patientIdValidator, ...allergyIdParamValidator]), allergyController.getAllergyById.bind(allergyController));
+router.get('/:patientId/allergies/:allergyId', requireRoles(...STAFF_READ_ROLES), validate([...patientIdValidator, ...allergyIdParamValidator]), allergyController.getAllergyById.bind(allergyController));
 /**
  * @swagger
  * /patients/{patientId}/allergies/{allergyId}:
@@ -1460,7 +1602,7 @@ router.get('/:patientId/allergies/:allergyId', requireRoles('Receptionist', 'Pro
  *         description: Not found
  */
 
-router.put('/:patientId/allergies/:allergyId', requireRoles('Receptionist', 'Provider', 'Admin'), validate([...patientIdValidator, ...allergyIdParamValidator, ...updateAllergyValidator]), allergyController.updatePatientAllergy.bind(allergyController));
+router.put('/:patientId/allergies/:allergyId', requireRoles(...CLINICAL_STAFF_ROLES), validate([...patientIdValidator, ...allergyIdParamValidator, ...updateAllergyValidator]), allergyController.updatePatientAllergy.bind(allergyController));
 /**
  * @swagger
  * /patients/{patientId}/allergies/{allergyId}:
@@ -1494,7 +1636,7 @@ router.put('/:patientId/allergies/:allergyId', requireRoles('Receptionist', 'Pro
  *         description: Not found
  */
 
-router.delete('/:patientId/allergies/:allergyId', requireRoles('Receptionist', 'Provider', 'Admin'), validate([...patientIdValidator, ...allergyIdParamValidator]), allergyController.deletePatientAllergy.bind(allergyController));
+router.delete('/:patientId/allergies/:allergyId', requireRoles(...CLINICAL_STAFF_ROLES), validate([...patientIdValidator, ...allergyIdParamValidator]), allergyController.deletePatientAllergy.bind(allergyController));
 
 /**
  * @swagger
@@ -1524,7 +1666,7 @@ router.delete('/:patientId/allergies/:allergyId', requireRoles('Receptionist', '
  *       403: { description: Forbidden }
  *       404: { description: Patient not found }
  */
-router.get('/:patientId/communications', requireRoles('Receptionist', 'Admin', 'Provider'), validate(patientIdValidator), patientController.getPatientCommunications.bind(patientController));
+router.get('/:patientId/communications', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getPatientCommunications.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}/communications/send:
@@ -1560,7 +1702,7 @@ router.get('/:patientId/communications', requireRoles('Receptionist', 'Admin', '
  *         description: Not found
  */
 
-router.post('/:patientId/communications/send', requireRoles('Receptionist', 'Admin', 'Provider'), validate([...patientIdValidator, ...patientCommunicationValidator]), patientController.createPatientCommunication.bind(patientController));
+router.post('/:patientId/communications/send', requireRoles(...BILLING_STAFF_ROLES, ...CLINICAL_STAFF_ROLES), validate([...patientIdValidator, ...patientCommunicationValidator]), patientController.createPatientCommunication.bind(patientController));
 
 /**
  * @swagger
@@ -1591,7 +1733,7 @@ router.post('/:patientId/communications/send', requireRoles('Receptionist', 'Adm
  *         description: Not found
  */
 
-router.get('/:patientId/update-requests', requireRoles('Receptionist', 'Admin', 'Provider'), validate(patientIdValidator), patientController.getPatientUpdateRequests.bind(patientController));
+router.get('/:patientId/update-requests', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getPatientUpdateRequests.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}/update-requests:
@@ -1627,7 +1769,7 @@ router.get('/:patientId/update-requests', requireRoles('Receptionist', 'Admin', 
  *         description: Not found
  */
 
-router.post('/:patientId/update-requests', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...createPatientUpdateRequestValidator]), patientController.createPatientUpdateRequest.bind(patientController));
+router.post('/:patientId/update-requests', requireRoles(...BILLING_STAFF_ROLES, ...CLINICAL_STAFF_ROLES), validate([...patientIdValidator, ...createPatientUpdateRequestValidator]), patientController.createPatientUpdateRequest.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}/reconciliation/{requestId}:
@@ -1661,7 +1803,7 @@ router.post('/:patientId/update-requests', requireRoles('Receptionist', 'Admin')
  *         description: Not found
  */
 
-router.get('/:patientId/reconciliation/:requestId', requireRoles('Receptionist', 'Admin', 'Provider'), validate([...patientIdValidator, ...patientRequestIdValidator]), patientController.getPatientReconciliation.bind(patientController));
+router.get('/:patientId/reconciliation/:requestId', requireRoles(...STAFF_READ_ROLES), validate([...patientIdValidator, ...patientRequestIdValidator]), patientController.getPatientReconciliation.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}/reconciliation/{requestId}/apply:
@@ -1701,7 +1843,7 @@ router.get('/:patientId/reconciliation/:requestId', requireRoles('Receptionist',
  *         description: Not found
  */
 
-router.post('/:patientId/reconciliation/:requestId/apply', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...patientRequestIdValidator, ...applyPatientReconciliationValidator]), patientController.applyPatientReconciliation.bind(patientController));
+router.post('/:patientId/reconciliation/:requestId/apply', requireRoles(...BILLING_STAFF_ROLES), validate([...patientIdValidator, ...patientRequestIdValidator, ...applyPatientReconciliationValidator]), patientController.applyPatientReconciliation.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}/audit-history:
@@ -1731,7 +1873,7 @@ router.post('/:patientId/reconciliation/:requestId/apply', requireRoles('Recepti
  *         description: Not found
  */
 
-router.get('/:patientId/audit-history', requireRoles('Receptionist', 'Admin', 'Provider'), validate(patientIdValidator), patientController.getPatientAuditHistory.bind(patientController));
+router.get('/:patientId/audit-history', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getPatientAuditHistory.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}/coverages:
@@ -1761,7 +1903,7 @@ router.get('/:patientId/audit-history', requireRoles('Receptionist', 'Admin', 'P
  *         description: Not found
  */
 
-router.get('/:patientId/coverages', requireRoles('Receptionist', 'Admin', 'Billing Staff'), validate(patientIdValidator), insurancePlanController.getPatientCoverages.bind(insurancePlanController));
+router.get('/:patientId/coverages', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), insurancePlanController.getPatientCoverages.bind(insurancePlanController));
 /**
  * @swagger
  * /patients/{patientId}/coverages:
@@ -1797,7 +1939,7 @@ router.get('/:patientId/coverages', requireRoles('Receptionist', 'Admin', 'Billi
  *         description: Not found
  */
 
-router.post('/:patientId/coverages', requireRoles('Receptionist', 'Admin', 'Billing Staff'), validate([...patientIdValidator, ...createPatientInsuranceValidator]), insurancePlanController.createPatientCoverage.bind(insurancePlanController));
+router.post('/:patientId/coverages', requireRoles(...BILLING_STAFF_ROLES), validate([...patientIdValidator, ...createPatientInsuranceValidator]), insurancePlanController.createPatientCoverage.bind(insurancePlanController));
 /**
  * @swagger
  * /patients/{patientId}/reports/summary:
@@ -1827,7 +1969,7 @@ router.post('/:patientId/coverages', requireRoles('Receptionist', 'Admin', 'Bill
  *         description: Not found
  */
 
-router.get('/:patientId/reports/summary', requireRoles('Receptionist', 'Admin', 'Provider'), validate(patientIdValidator), patientController.getPatientReportSummary.bind(patientController));
+router.get('/:patientId/reports/summary', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getPatientReportSummary.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}/reports/showcase:
@@ -1857,7 +1999,7 @@ router.get('/:patientId/reports/summary', requireRoles('Receptionist', 'Admin', 
  *         description: Not found
  */
 
-router.get('/:patientId/reports/showcase', requireRoles('Receptionist', 'Admin', 'Provider'), validate(patientIdValidator), patientController.getPatientReportShowcase.bind(patientController));
+router.get('/:patientId/reports/showcase', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getPatientReportShowcase.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}/reports/concerns:
@@ -1887,7 +2029,7 @@ router.get('/:patientId/reports/showcase', requireRoles('Receptionist', 'Admin',
  *         description: Not found
  */
 
-router.get('/:patientId/reports/concerns', requireRoles('Receptionist', 'Admin', 'Provider'), validate(patientIdValidator), patientController.getPatientReportConcerns.bind(patientController));
+router.get('/:patientId/reports/concerns', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getPatientReportConcerns.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}/reports/refresh:
@@ -1923,6 +2065,6 @@ router.get('/:patientId/reports/concerns', requireRoles('Receptionist', 'Admin',
  *         description: Not found
  */
 
-router.post('/:patientId/reports/refresh', requireRoles('Receptionist', 'Admin', 'Provider'), validate(patientIdValidator), patientController.refreshPatientReports.bind(patientController));
+router.post('/:patientId/reports/refresh', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.refreshPatientReports.bind(patientController));
 
 export default router;

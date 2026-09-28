@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { authorizationService } from '../services/authorization.service';
+import { edi837Service } from '../services/edi837.service';
 
 export class AuthorizationController {
   async getAllAuthorizations(req: Request, res: Response, next: NextFunction) {
@@ -159,6 +160,33 @@ export class AuthorizationController {
         success: true,
         data: null,
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+  async generate837D(req: Request, res: Response, next: NextFunction) {
+    try {
+      const authorizationId = req.params.authorizationId as string;
+      const result = await edi837Service.generate837D(authorizationId);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+        message: '837D dental predetermination generated and stored successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async export837D(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const authorizationId = req.params.authorizationId as string;
+      const x12Content = await edi837Service.get837DText(authorizationId);
+
+      res.setHeader('Content-Type', 'text/plain');
+      res.setHeader('Content-Disposition', `attachment; filename="predetermination_${authorizationId}.837"`);
+      res.send(x12Content);
     } catch (error) {
       next(error);
     }

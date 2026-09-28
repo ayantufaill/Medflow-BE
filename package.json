@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx src/server.ts",
     "dev:debug": "nodemon --exec node --inspect-brk=9229 node_modules/.bin/tsx src/server.ts",
-    "build": "tsc && node scripts/fix-dist-imports.cjs",
+    "build": "node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc && node scripts/fix-dist-imports.cjs",
     "start": "node dist/server.js",
     "test": "vitest run",
     "test:integration": "DOTENV_CONFIG_PATH=.env.test NODE_ENV=test npm run seed:all && DOTENV_CONFIG_PATH=.env.test NODE_ENV=test vitest run",

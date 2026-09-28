@@ -3504,6 +3504,64 @@
         }
       }
     },
+    "/appointments/{appointmentId}/audit-history": {
+      "get": {
+        "summary": "Get appointment audit history",
+        "tags": [
+          "Appointments"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "appointmentId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Appointment ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Audit history retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "auditEvents": {
+                          "type": "array",
+                          "items": {
+                            "type": "object"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Appointment not found"
+          }
+        }
+      }
+    },
     "/appointments/{appointmentId}/tags": {
       "get": {
         "summary": "Get appointment tags",
@@ -4716,6 +4774,35 @@
         "responses": {
           "200": {
             "description": "Authorization updated"
+          },
+          "404": {
+            "description": "Authorization not found"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete authorization by ID",
+        "tags": [
+          "Authorizations"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "authorizationId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorization deleted"
           },
           "404": {
             "description": "Authorization not found"
@@ -11285,6 +11372,86 @@
             "description": "Deposit not found"
           }
         }
+      },
+      "delete": {
+        "summary": "Void/Delete a deposit",
+        "tags": [
+          "Deposits"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "depositId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deposit voided successfully"
+          },
+          "400": {
+            "description": "Invalid request or already voided"
+          },
+          "404": {
+            "description": "Deposit not found"
+          }
+        }
+      }
+    },
+    "/deposits/{depositId}/void": {
+      "patch": {
+        "summary": "Void a deposit",
+        "tags": [
+          "Deposits"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "depositId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Deposit voided successfully"
+          },
+          "400": {
+            "description": "Invalid request or already voided"
+          },
+          "404": {
+            "description": "Deposit not found"
+          }
+        }
       }
     },
     "/documents/types": {
@@ -11463,6 +11630,34 @@
         "responses": {
           "200": {
             "description": "List of appointment documents"
+          }
+        }
+      }
+    },
+    "/documents/authorization/{authorizationId}": {
+      "get": {
+        "summary": "Get documents by authorization",
+        "tags": [
+          "Documents"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "authorizationId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of authorization documents"
           }
         }
       }
@@ -15328,6 +15523,53 @@
         }
       }
     },
+    "/invoices/{invoiceId}/transfer-rejected-claim": {
+      "post": {
+        "summary": "Transfer rejected claim balance to patient",
+        "description": "Marks a claim as rejected and transfers its unpaid insurance balance to the patient.",
+        "tags": [
+          "Invoices"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invoiceId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "claimId"
+                ],
+                "properties": {
+                  "claimId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success"
+          }
+        }
+      }
+    },
     "/kpis": {
       "get": {
         "summary": "Get rolling 12-month consolidated KPI metrics",
@@ -17854,6 +18096,154 @@
         }
       }
     },
+    "/patients/{patientId}/report": {
+      "get": {
+        "summary": "Generate a comprehensive patient clinical report",
+        "description": "Aggregates all clinical exam data for a patient and returns report-ready findings\nwith risk scores across gum health, tooth decay, bite alignment, appearance,\nand medical factors. Also includes home care recommendations, primary concerns,\nand a showcase of completed treatments.\n\nIf `appointmentId` is provided, fetches exams for that specific appointment.\nIf omitted, automatically finds the most recent appointment with clinical exam data.\n",
+        "tags": [
+          "Patient Report"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Patient ID",
+            "example": "123"
+          },
+          {
+            "in": "query",
+            "name": "appointmentId",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional appointment ID to scope exams to a specific visit",
+            "example": "456"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully generated patient report",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "riskAssessment": {
+                          "type": "object",
+                          "properties": {
+                            "gumHealth": {
+                              "type": "object"
+                            },
+                            "toothDecay": {
+                              "type": "object"
+                            },
+                            "biteAlignment": {
+                              "type": "object"
+                            },
+                            "appearance": {
+                              "type": "object"
+                            },
+                            "medicalFactors": {
+                              "type": "object"
+                            }
+                          }
+                        },
+                        "homeCare": {
+                          "type": "object",
+                          "properties": {
+                            "oralHygiene": {
+                              "type": "object"
+                            },
+                            "flossing": {
+                              "type": "object"
+                            },
+                            "products": {
+                              "type": "object"
+                            }
+                          }
+                        },
+                        "concerns": {
+                          "type": "object",
+                          "properties": {
+                            "primaryConcern": {
+                              "type": "string"
+                            },
+                            "concernType": {
+                              "type": "string"
+                            },
+                            "templateKey": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "showcase": {
+                          "type": "object",
+                          "properties": {
+                            "completedTreatments": {
+                              "type": "array"
+                            }
+                          }
+                        },
+                        "metadata": {
+                          "type": "object",
+                          "properties": {
+                            "patientId": {
+                              "type": "string"
+                            },
+                            "appointmentId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "examDate": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            },
+                            "providerName": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error — invalid patientId"
+          },
+          "401": {
+            "description": "Unauthorized — missing or invalid token"
+          },
+          "403": {
+            "description": "Forbidden — missing clinical-notes.read permission"
+          },
+          "404": {
+            "description": "Patient not found"
+          }
+        }
+      }
+    },
     "/patients/{patientId}/purchase-products": {
       "post": {
         "summary": "Purchase products for a patient",
@@ -19145,14 +19535,127 @@
                           "type": "number",
                           "example": 150
                         },
+                        "overdueAmount": {
+                          "type": "number",
+                          "example": 150
+                        },
                         "lastPaymentDate": {
                           "type": "string",
                           "example": "2026-06-09T00:00:00.000Z",
                           "nullable": true
                         },
-                        "overdueAmount": {
-                          "type": "number",
-                          "example": 150
+                        "lastInsPayDate": {
+                          "type": "string",
+                          "example": "2026-06-15T00:00:00.000Z",
+                          "nullable": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Patient not found"
+          }
+        }
+      }
+    },
+    "/patients/{patientId}/insurance-usage": {
+      "get": {
+        "summary": "Get patient insurance benefit usage",
+        "tags": [
+          "Patients"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Insurance usage summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "primaryInsurance": {
+                          "type": "object",
+                          "nullable": true,
+                          "properties": {
+                            "planName": {
+                              "type": "string",
+                              "example": "Delta Dental"
+                            },
+                            "usedAmount": {
+                              "type": "number",
+                              "example": 600
+                            },
+                            "annualMax": {
+                              "type": "number",
+                              "example": 1500
+                            },
+                            "remaining": {
+                              "type": "number",
+                              "example": 900
+                            },
+                            "renewalMonth": {
+                              "type": "integer",
+                              "example": 1
+                            }
+                          }
+                        },
+                        "secondaryInsurance": {
+                          "type": "object",
+                          "nullable": true,
+                          "properties": {
+                            "planName": {
+                              "type": "string",
+                              "example": "MetLife"
+                            },
+                            "usedAmount": {
+                              "type": "number",
+                              "example": 200
+                            },
+                            "annualMax": {
+                              "type": "number",
+                              "example": 1000
+                            },
+                            "remaining": {
+                              "type": "number",
+                              "example": 800
+                            },
+                            "renewalMonth": {
+                              "type": "integer",
+                              "example": 1
+                            }
+                          }
                         }
                       }
                     }
@@ -19264,6 +19767,131 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/patients/{patientId}/recare-due-dates": {
+      "get": {
+        "summary": "Get calculated recare (recall) due dates per CDT code for a patient",
+        "description": "Computes due dates based on patient's last completed CDT procedure, configured recall intervals, and offset days (e.g. 6mo + 1d for prophylaxis).",
+        "tags": [
+          "Patients"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "patientId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 1
+          },
+          {
+            "in": "query",
+            "name": "procedures",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Comma-separated list of CDT procedure codes (e.g., D1110,D0120). Defaults to all active recare codes if omitted.",
+            "example": "D1110,D0120"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recare due dates calculated per CDT code",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "example": true
+                    },
+                    "status": {
+                      "type": "string",
+                      "example": "success"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "patientId": {
+                          "type": "string",
+                          "example": "1"
+                        },
+                        "recareDueDates": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "object",
+                            "properties": {
+                              "code": {
+                                "type": "string",
+                                "example": "D1110"
+                              },
+                              "procedureName": {
+                                "type": "string",
+                                "example": "Adult cleaning"
+                              },
+                              "recallTypeNum": {
+                                "type": "string",
+                                "example": "1"
+                              },
+                              "recallTypeName": {
+                                "type": "string",
+                                "example": "Adult Prophy"
+                              },
+                              "intervalMonths": {
+                                "type": "integer",
+                                "example": 6
+                              },
+                              "offsetDays": {
+                                "type": "integer",
+                                "example": 1
+                              },
+                              "lastCompletedDate": {
+                                "type": "string",
+                                "example": "2022-07-14",
+                                "nullable": true
+                              },
+                              "dueDate": {
+                                "type": "string",
+                                "example": "2023-01-15",
+                                "nullable": true
+                              },
+                              "isOverdue": {
+                                "type": "boolean",
+                                "example": true
+                              },
+                              "isNeverCompleted": {
+                                "type": "boolean",
+                                "example": false
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid patient ID"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
           }
         }
       }
@@ -20126,7 +20754,7 @@
             "schema": {
               "type": "integer"
             },
-            "example": 1
+            "example": 10
           }
         ],
         "responses": {
@@ -20192,7 +20820,7 @@
             "schema": {
               "type": "string"
             },
-            "example": 1
+            "example": 10
           }
         ],
         "requestBody": {
@@ -20204,7 +20832,7 @@
                 "properties": {
                   "reaction": {
                     "type": "string",
-                    "example": "Updated reaction"
+                    "example": "Mild rash only"
                   },
                   "severity": {
                     "type": "string",
@@ -20213,11 +20841,16 @@
                       "moderate",
                       "severe",
                       "unknown"
-                    ]
+                    ],
+                    "example": "mild"
                   },
                   "isActive": {
                     "type": "boolean",
-                    "example": false
+                    "example": true
+                  },
+                  "notes": {
+                    "type": "string",
+                    "example": "Updated note"
                   }
                 }
               }
@@ -20233,8 +20866,7 @@
                   "type": "object",
                   "properties": {
                     "success": {
-                      "type": "boolean",
-                      "example": true
+                      "type": "boolean"
                     },
                     "data": {
                       "type": "object"
@@ -20285,7 +20917,7 @@
             "schema": {
               "type": "string"
             },
-            "example": 1
+            "example": 10
           }
         ],
         "responses": {
@@ -21026,6 +21658,24 @@
           },
           "404": {
             "description": "Not found"
+          }
+        }
+      }
+    },
+    "/payments/methods/config": {
+      "get": {
+        "summary": "Get payment methods configuration",
+        "tags": [
+          "Payments"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Payment methods lists"
           }
         }
       }
@@ -23904,6 +24554,49 @@
         }
       }
     },
+    "/api/productivity/panel-summary": {
+      "get": {
+        "summary": "Get daily productivity panel summary for Total, Dentist, and Hygienist",
+        "tags": [
+          "Productivity"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Target date (YYYY-MM-DD)"
+          },
+          {
+            "in": "query",
+            "name": "providerId",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional provider ID ('all', 'Dentist', 'Hygienist', or numeric ID)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Productivity panel summary data"
+          },
+          "400": {
+            "description": "Invalid date format"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
     "/api/productivity/production-over-time": {
       "get": {
         "summary": "Get daily production totals over a date range",
@@ -26133,6 +26826,24 @@
         }
       }
     },
+    "/reports/denial-rates": {
+      "get": {
+        "summary": "Retrieve denial rate metrics grouped by carrier",
+        "tags": [
+          "Reporting"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Denial rates successfully compiled"
+          }
+        }
+      }
+    },
     "/reports/definitions": {
       "get": {
         "summary": "Retrieve all saved report definitions",
@@ -26202,6 +26913,24 @@
         "responses": {
           "201": {
             "description": "Report definition successfully saved"
+          }
+        }
+      }
+    },
+    "/reports/carriers": {
+      "get": {
+        "summary": "Retrieve list of insurance carriers for reports",
+        "tags": [
+          "Reporting"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of carriers"
           }
         }
       }
@@ -26289,24 +27018,6 @@
         "responses": {
           "200": {
             "description": "Report results successfully compiled"
-          }
-        }
-      }
-    },
-    "/reports/denial-rates": {
-      "get": {
-        "summary": "Retrieve denial rate metrics grouped by carrier",
-        "tags": [
-          "Reporting"
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Denial rates successfully compiled"
           }
         }
       }
@@ -26481,6 +27192,25 @@
               ]
             },
             "description": "Reporting period granularity (default Daily)"
+          },
+          {
+            "in": "query",
+            "name": "billingBeforeDate",
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Filter statements before this date when billingDate is pt_last_statement_before"
+          },
+          {
+            "in": "query",
+            "name": "billingDaysSince",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3650
+            },
+            "description": "Filter statements older than this number of days when billingDate is day_since_last_statement"
           }
         ],
         "responses": {
@@ -29284,6 +30014,53 @@
           },
           "422": {
             "description": "No accepted items in treatment plan"
+          }
+        }
+      }
+    },
+    "/treatment-plans/{id}/generate-preauth": {
+      "post": {
+        "summary": "Generate a Pre-Authorization from a treatment plan",
+        "description": "Creates a PreAuth claim (status=6) from selected treatment plan items.",
+        "tags": [
+          "Treatment Plans",
+          "Claims"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "ID of the treatment plan (TreatPlanNum)",
+            "example": "1"
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Pre-Authorization claim generated successfully"
+          },
+          "400": {
+            "description": "Validation error"
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Treatment plan or patient insurance not found"
+          },
+          "422": {
+            "description": "No valid items found"
           }
         }
       }

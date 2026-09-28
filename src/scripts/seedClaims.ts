@@ -68,6 +68,7 @@ const seedClaims = async () => {
             InsSubNum: insSub.InsSubNum,
             Ordinal: 1, // Primary
             Relationship: 0, // Self
+            IsPending: 0,
           },
         });
         console.log(`Created patient plan association for ${pat.FName}`);

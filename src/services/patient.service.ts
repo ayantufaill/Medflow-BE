@@ -7,7 +7,8 @@ import {
   mapGenderToDb,
   mapPatientToApi,
 } from '../utils/opendental-mappers.util';
-import { getPatientMeta, getPatientsMeta, setPatientMeta } from '../utils/opendental-auth.util';
+import { getPatientMeta, getPatientsMeta, setPatientMeta, getPatientInsurancesMeta } from '../utils/opendental-auth.util';
+import { recareService } from './recare.service';
 import {
   mapProcedureStatusToText,
   normalizeMedicalHistoryRows,
@@ -422,6 +423,7 @@ async getPatientBalance(patientId: string) {
     invoicePaymentAgg,
     lastPayment,
     overdueAgg,
+    lastClaimProc,
   ] = await Promise.all([
     // Sum all completed procedure fees
     prisma.procedurelog.aggregate({
@@ -458,23 +460,139 @@ async getPatientBalance(patientId: string) {
       },
       _sum: { ProcFee: true },
     }),
+    // Most recent insurance payment from claimproc
+    prisma.claimproc.findFirst({
+      where: {
+        PatNum: patNum,
+        InsPayAmt: { gt: 0 },
+      },
+      orderBy: { DateCP: 'desc' },
+      select: { DateCP: true },
+    }),
   ]);
 
   const totalCharged = procedureAgg._sum.ProcFee ?? 0;
   const totalAdjustments = adjustmentAgg._sum.AdjAmt ?? 0;
   const totalPaid = (paysplitAgg._sum.SplitAmt ?? 0) + (invoicePaymentAgg._sum.PayAmt ?? 0);
   const balance = totalCharged + totalAdjustments - totalPaid;
-
   const overdueProcFee = overdueAgg._sum.ProcFee ?? 0;
   const overdueRatio = totalCharged > 0 ? overdueProcFee / totalCharged : 0;
   const overdueAmount = Math.max(0, balance * overdueRatio);
 
   return {
     balance: parseFloat(balance.toFixed(2)),
-    lastPaymentDate: lastPayment?.PayDate ?? null,
     overdueAmount: parseFloat(overdueAmount.toFixed(2)),
+    lastPaymentDate: lastPayment?.PayDate ?? null,
+    lastInsPayDate: lastClaimProc?.DateCP ?? null,
   };
 }
+
+  /**
+   * Get patient's insurance benefit usage (primary & secondary)
+   */
+  async getInsuranceUsage(patientId: string) {
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(patientId) },
+      select: { PatNum: true },
+    });
+    if (!patient) {
+      throw new NotFoundError('Patient not found');
+    }
+
+    const patNum = BigInt(patientId);
+    const currentYear = new Date().getFullYear();
+    const startOfYear = new Date(currentYear, 0, 1);
+
+    // Active patplan records ordered by Ordinal ASC
+    const patPlans = await prisma.patplan.findMany({
+      where: {
+        PatNum: patNum,
+        OR: [{ IsPending: 0 }, { IsPending: null }],
+      },
+      include: {
+        inssub: {
+          include: {
+            insplan: {
+              include: {
+                carrier: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { Ordinal: 'asc' },
+    });
+
+    if (!patPlans.length) {
+      return {
+        primaryInsurance: null,
+        secondaryInsurance: null,
+      };
+    }
+
+    const patPlanNums = patPlans.map((p) => p.PatPlanNum);
+    const metaMap = await getPatientInsurancesMeta(patPlanNums);
+
+    const parseNumber = (val: unknown): number | null => {
+      if (val === null || val === undefined || val === '') return null;
+      if (typeof val === 'number') return isNaN(val) ? null : val;
+      const cleaned = String(val).replace(/[^0-9.-]+/g, '');
+      if (!cleaned) return null;
+      const num = parseFloat(cleaned);
+      return isNaN(num) ? null : num;
+    };
+
+    const buildPlanUsage = async (plan: (typeof patPlans)[0]) => {
+      const planMeta = metaMap[plan.PatPlanNum.toString()] || {};
+      const planName = plan.inssub?.insplan?.carrier?.CarrierName || 'Unknown Plan';
+
+      let usedAmount = 0;
+      if (plan.InsSubNum && plan.InsSubNum !== 0n) {
+        const claimProcAgg = await prisma.claimproc.aggregate({
+          where: {
+            PatNum: patNum,
+            InsSubNum: plan.InsSubNum,
+            Status: { in: [1, 4] },
+            DateCP: { gte: startOfYear },
+          },
+          _sum: {
+            InsPayAmt: true,
+          },
+        });
+        usedAmount = claimProcAgg._sum.InsPayAmt ?? 0;
+      }
+
+      const rawAnnualMax =
+        planMeta.annualMax ??
+        planMeta.coverageLimits?.individual?.annualMax ??
+        planMeta.coverageLimits?.annualMax ??
+        planMeta.individualAnnualMax;
+
+      const annualMax = parseNumber(rawAnnualMax) ?? 0;
+      const renewalMonth = planMeta.renewalMonth ? Number(planMeta.renewalMonth) : 1;
+      const remaining = annualMax > 0 ? Math.max(0, parseFloat((annualMax - usedAmount).toFixed(2))) : 0;
+
+      return {
+        planName,
+        usedAmount: parseFloat(usedAmount.toFixed(2)),
+        annualMax: parseFloat(annualMax.toFixed(2)),
+        remaining,
+        renewalMonth,
+      };
+    };
+
+    const primaryPlan = patPlans.find((p) => p.Ordinal === 1) || patPlans[0];
+    const secondaryPlan = patPlans.find((p) => p.Ordinal === 2) || (patPlans.length > 1 && patPlans[1].PatPlanNum !== primaryPlan?.PatPlanNum ? patPlans[1] : null);
+
+    const primaryInsurance = primaryPlan ? await buildPlanUsage(primaryPlan) : null;
+    const secondaryInsurance = secondaryPlan ? await buildPlanUsage(secondaryPlan) : null;
+
+    return {
+      primaryInsurance,
+      secondaryInsurance,
+    };
+  }
+
 /**
  * Get the most recent completed appointment for a patient
  */
@@ -1651,9 +1769,24 @@ async getPatientHistoryAggregate(patientId: string) {
 
     const appointments = await appointmentService.mapAppointmentsBulk(rawAppointments);
 
+    // Compute recare due dates for each member (patient + family) so the
+    // "Due" tab can show overdue procedure due dates.
+    const recareDueDatesByMember: Record<string, Record<string, any>> = {};
+    await Promise.all(
+      allMembers.map(async (member) => {
+        try {
+          const result = await recareService.calculateRecareDueDates(member.id);
+          recareDueDatesByMember[member.id] = result.recareDueDates || {};
+        } catch {
+          recareDueDatesByMember[member.id] = {};
+        }
+      })
+    );
+
     return {
       familyMembers,
-      appointments
+      appointments,
+      recareDueDatesByMember,
     };
   }
   async purchaseProducts(patientId: string, products: any[]) {

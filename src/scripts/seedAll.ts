@@ -30,6 +30,7 @@ const scripts = [
   'src/scripts/seedClinicalProducts.ts',
   'src/scripts/seedFees.ts',
   'src/scripts/seedFormTemplates.ts',
+  'src/scripts/seedRecareTypes.ts',
 ];
 
 for (const script of scripts) {

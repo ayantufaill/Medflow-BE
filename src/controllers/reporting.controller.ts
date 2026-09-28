@@ -15,6 +15,18 @@ export class ReportingController {
     }
   }
 
+  async getCarriers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const carriers = await reportingService.getCarriers();
+      res.status(200).json({
+        success: true,
+        data: carriers,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getSavedReports(req: Request, res: Response, next: NextFunction) {
     try {
       const reports = await reportingService.getSavedReports();

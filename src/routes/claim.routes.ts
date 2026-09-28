@@ -63,6 +63,33 @@ router.get(
   claimController.getAllClaims.bind(claimController)
 );
 
+router.get(
+  '/blocked-claims-report',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('claims.read'),
+  claimController.getBlockedClaimsReport.bind(claimController)
+);
+
+router.post(
+  '/:claimId/generate-837',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('claims.write'),
+  claimController.generate837D.bind(claimController)
+);
+
+router.get(
+  '/:claimId/edi-837',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('claims.read'),
+  claimController.export837D.bind(claimController)
+);
+
 /**
  * @swagger
  * /claims/{primaryClaimId}/generate-secondary:

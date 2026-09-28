@@ -19,6 +19,27 @@ const router = Router();
 
 /**
  * @swagger
+ * /payments/methods/config:
+ *   get:
+ *     summary: Get payment methods configuration
+ *     tags: [Payments]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Payment methods lists
+ */
+router.get(
+  '/methods/config',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('payments.read'),
+  paymentController.getPaymentMethodsConfig.bind(paymentController)
+);
+
+/**
+ * @swagger
  * /payments:
  *   get:
  *     summary: Get all payments

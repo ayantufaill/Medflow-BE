@@ -1,13 +1,19 @@
 import { prisma } from '../config/db';
-import { getPatientsMeta } from '../utils/opendental-auth.util';
+import { getPatientsMeta, PATIENT_META_FKEYTYPE } from '../utils/opendental-auth.util';
 import { BadRequestError } from '../utils/error.util';
 
 export class ReportGenerationService {
+  private getProviderName(prov: any) {
+    if (!prov) return 'Unassigned';
+    const name = [prov.FName, prov.LName].filter(Boolean).join(' ');
+    return name || prov.Abbr || 'Unassigned';
+  }
+
   /**
    * Process and compile financial reports
    */
   async getFinancialReport(reportName: string, query: any) {
-    const { startDate, endDate } = this.getRangeDates(query.date, query.range || 'Daily');
+    const { startDate, endDate } = this.getRangeDates(query.date, query.range || 'Daily', query.startDate, query.endDate);
     const name = String(reportName).toLowerCase();
 
     switch (name) {
@@ -29,7 +35,7 @@ export class ReportGenerationService {
         return this.getProviderCollectionPaymentType(startDate, endDate);
 
       case 'production-per-code':
-        return this.getProductionPerCode(startDate, endDate);
+        return this.getProductionPerCode(startDate, endDate, query);
 
       case 'collection-code-carrier':
         return this.getCollectionCodeCarrier(startDate, endDate);
@@ -51,7 +57,7 @@ export class ReportGenerationService {
         return this.getDepositSummary(startDate, endDate);
 
       case 'collection-carrier':
-        return this.getCollectionCarrier(startDate, endDate);
+          return this.getCollectionCarrier(startDate, endDate, query.provider, query.payer, query.plan, query.network);
 
       case 'total-collection-individuals':
       case 'total-collection-family':
@@ -68,7 +74,7 @@ export class ReportGenerationService {
         return this.getOpenEdgeTransactions(startDate, endDate);
 
       case 'procedures-insurance':
-        return this.getProceduresInsurance(startDate, endDate);
+        return this.getProceduresInsurance(startDate, endDate, query.provider);
 
       case 'family-migrated-balances':
         return this.getFamilyMigratedBalances();
@@ -223,8 +229,9 @@ export class ReportGenerationService {
     if (query.provider && query.provider !== 'all') {
       const provNum = Number(query.provider);
       if (!isNaN(provNum)) {
-        filters.push(`p."PriProv" = $${paramIdx++}`);
-        params.push(provNum);
+        filters.push(`(p."PriProv" = $${paramIdx} OR EXISTS (SELECT 1 FROM procedurelog pl WHERE pl."PatNum" = p."PatNum" AND pl."ProvNum" = $${paramIdx + 1}))`);
+        params.push(BigInt(provNum), BigInt(provNum));
+        paramIdx += 2;
       }
     }
 
@@ -291,35 +298,52 @@ export class ReportGenerationService {
       ) {
         filters.push(`f."BalOver90" > 0`);
       } else if (normRange === 'custom') {
-        if (query.startDate && query.endDate) {
-          filters.push(`EXISTS (SELECT 1 FROM procedurelog pl WHERE pl."PatNum" = p."PatNum" AND pl."ProcDate" BETWEEN $${paramIdx++}::date AND $${paramIdx++}::date)`);
-          params.push(query.startDate, query.endDate);
+        if (query.customArRangeStart && query.customArRangeEnd) {
+          filters.push(`EXISTS (SELECT 1 FROM procedurelog pl WHERE pl."PatNum" = p."PatNum" AND pl."ProcDate" BETWEEN $${paramIdx}::date AND $${paramIdx + 1}::date)`);
+          params.push(query.customArRangeStart, query.customArRangeEnd);
+          paramIdx += 2;
         }
       }
     }
 
     // 7. query.flags (Patient with Flags)
     if (query.flags === 'with') {
-      filters.push(`EXISTS (SELECT 1 FROM patfield pf WHERE pf."PatNum" = p."PatNum")`);
+      filters.push(`EXISTS (
+        SELECT 1 FROM userodpref up 
+        WHERE up."Fkey" = p."PatNum" 
+          AND up."FkeyType" = ${PATIENT_META_FKEYTYPE} 
+          AND up."ValueString" LIKE '%patientFlags%' 
+          AND up."ValueString" NOT LIKE '%"patientFlags":[]%'
+      )`);
     } else if (query.flags === 'without') {
-      filters.push(`NOT EXISTS (SELECT 1 FROM patfield pf WHERE pf."PatNum" = p."PatNum")`);
+      filters.push(`NOT EXISTS (
+        SELECT 1 FROM userodpref up 
+        WHERE up."Fkey" = p."PatNum" 
+          AND up."FkeyType" = ${PATIENT_META_FKEYTYPE} 
+          AND up."ValueString" LIKE '%patientFlags%' 
+          AND up."ValueString" NOT LIKE '%"patientFlags":[]%'
+      )`);
     }
 
     // 8. query.branch
     if (query.branch && query.branch !== 'all') {
       const branchId = Number(query.branch);
       if (!isNaN(branchId)) {
-        filters.push(`p."ClinicNum" = $${paramIdx++}`);
-        params.push(branchId);
+        filters.push(`(p."ClinicNum" = $${paramIdx} OR EXISTS (SELECT 1 FROM procedurelog pl WHERE pl."PatNum" = p."PatNum" AND pl."ClinicNum" = $${paramIdx + 1}))`);
+        params.push(BigInt(branchId), BigInt(branchId));
+        paramIdx += 2;
       }
     }
 
     // 9. query.carrier
     if (query.carrier && query.carrier !== 'all') {
+      const knownCarriers = ['delta', 'cigna', 'metlife', 'aetna'];
+      const isNamedCarrier = knownCarriers.includes(query.carrier.toLowerCase());
       const carrierId = Number(query.carrier);
-      if (!isNaN(carrierId)) {
+
+      if (!isNaN(carrierId) && !isNamedCarrier) {
         filters.push(`c."CarrierNum" = $${paramIdx++}`);
-        params.push(carrierId);
+        params.push(BigInt(carrierId));
       } else {
         // Safe parameterized carrier name matching
         filters.push(`c."CarrierName" ILIKE $${paramIdx++}`);
@@ -346,16 +370,36 @@ export class ReportGenerationService {
       if (!Number.isInteger(daysSince) || daysSince < 1 || daysSince > 3650) {
         throw new BadRequestError('billingDaysSince must be an integer between 1 and 3650');
       }
-      filters.push(`(SELECT MAX(st."DateSent") FROM statement st WHERE st."PatNum" = p."PatNum") <= CURRENT_DATE - ($${paramIdx++} * INTERVAL '1 day')`);
+      filters.push(`(
+        NOT EXISTS (SELECT 1 FROM statement st WHERE st."PatNum" = p."PatNum")
+        OR
+        (SELECT MAX(st."DateSent") FROM statement st WHERE st."PatNum" = p."PatNum") <= CURRENT_DATE - ($${paramIdx++} * INTERVAL '1 day')
+      )`);
       params.push(daysSince);
     }
 
     const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
 
     // 11. query.sortReport (Sorting)
-    let orderByClause = 'ORDER BY f."BalTotal" DESC NULLS LAST';
+    let sortColumn = 'COALESCE(f."BalTotal", 0)';
+    let sortDirection = 'DESC'; // Default
+    
+    // Dynamically change what we sort by based on the balance/owing filter
+    if (query.balance === 'min_insurance' || query.owing === 'pt_insurance') {
+      sortColumn = 'COALESCE(f."InsEst", 0)';
+    } else if (query.balance === 'min_patient' || query.owing === 'pt_individual') {
+      sortColumn = '(COALESCE(f."BalTotal", 0) - COALESCE(f."InsEst", 0))';
+    }
+
+    // Automatically sort Low to High if a "Minimum" balance filter is applied
+    if (query.balance === 'min_total' || query.balance === 'min_patient' || query.balance === 'min_insurance') {
+      sortDirection = 'ASC';
+    }
+
+    let orderByClause = `ORDER BY ${sortColumn} ${sortDirection} NULLS LAST`;
+
     if (query.sortReport === 'low_to_high') {
-      orderByClause = 'ORDER BY f."BalTotal" ASC NULLS LAST';
+      orderByClause = `ORDER BY ${sortColumn} ASC NULLS LAST`;
     } else if (query.sortReport === 'a_to_z' || query.sortReport === 'pt_first_name') {
       orderByClause = 'ORDER BY p."FName" ASC NULLS LAST, p."LName" ASC NULLS LAST';
     } else if (query.sortReport === 'pt_last_name') {
@@ -373,7 +417,9 @@ export class ReportGenerationService {
         p."PatNum", p."FName", p."LName", p."PatStatus", p."PriProv",
         f."Bal_0_30", f."Bal_31_60", f."Bal_61_90", f."BalOver90", f."InsEst", f."BalTotal", f."PayPlanDue",
         c."CarrierName",
-        (SELECT MAX(st."DateSent") FROM statement st WHERE st."PatNum" = p."PatNum") AS "LastStatementDate"
+        (SELECT MAX(st."DateSent") FROM statement st WHERE st."PatNum" = p."PatNum") AS "LastStatementDate",
+        (SELECT MAX(ps."DatePay") FROM paysplit ps WHERE ps."PatNum" = p."PatNum") AS "LastPatientPaymentDate",
+        (SELECT MAX(cp."DateCP") FROM claimproc cp WHERE cp."PatNum" = p."PatNum" AND cp."Status" IN (1, 4, 5) AND cp."InsPayAmt" > 0) AS "LastInsPaymentDate"
       FROM patient p
       LEFT JOIN famaging f ON p."PatNum" = f."PatNum"
       LEFT JOIN patplan pp ON p."PatNum" = pp."PatNum" AND pp."Ordinal" = 1
@@ -392,6 +438,10 @@ export class ReportGenerationService {
 
     const agingBuckets = ['0 - 30 days', '31 - 60 days', '61 - 90 days', '91 - 120 days', '121 - 150 days', '151 - 180 days', '> 180 day'];
 
+    const isResetPatient = query.resetOnPatientPayment === 'reset_any';
+    const isResetInsurance = query.resetOnInsurancePayment === 'reset';
+    const now = new Date();
+
     const report = rawPatients.map((p) => {
       const bal0_30 = Number(p.Bal_0_30) || 0;
       const bal31_60 = Number(p.Bal_31_60) || 0;
@@ -406,14 +456,46 @@ export class ReportGenerationService {
         buckets[bucket] = { pt: 0, ins: 0 };
       });
 
-      // Distribute appropriately based on famaging table
-      buckets['0 - 30 days'] = { pt: bal0_30, ins: insEst };
-      buckets['31 - 60 days'] = { pt: bal31_60, ins: 0 };
-      buckets['61 - 90 days'] = { pt: bal61_90, ins: 0 };
-      buckets['91 - 120 days'] = { pt: balOver90, ins: 0 };
+      let resetClock = false;
+      if (isResetPatient && p.LastPatientPaymentDate) {
+        const payDate = new Date(p.LastPatientPaymentDate);
+        if (!isNaN(payDate.getTime())) {
+          const daysSincePay = Math.floor((now.getTime() - payDate.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysSincePay <= 30) {
+            resetClock = true;
+          }
+        }
+      }
+
+      if (isResetInsurance && p.LastInsPaymentDate) {
+        const insPayDate = new Date(p.LastInsPaymentDate);
+        if (!isNaN(insPayDate.getTime())) {
+          const daysSinceInsPay = Math.floor((now.getTime() - insPayDate.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysSinceInsPay <= 30) {
+            resetClock = true;
+          }
+        }
+      }
+
+      if (resetClock && balance > 0) {
+        buckets['0 - 30 days'] = { pt: balance, ins: insEst };
+        buckets['31 - 60 days'] = { pt: 0, ins: 0 };
+        buckets['61 - 90 days'] = { pt: 0, ins: 0 };
+        buckets['91 - 120 days'] = { pt: 0, ins: 0 };
+      } else {
+        buckets['0 - 30 days'] = { pt: bal0_30, ins: insEst };
+        buckets['31 - 60 days'] = { pt: bal31_60, ins: 0 };
+        buckets['61 - 90 days'] = { pt: bal61_90, ins: 0 };
+        buckets['91 - 120 days'] = { pt: balOver90, ins: 0 };
+      }
 
       const pNumStr = p.PatNum.toString();
-      const patientFlags = meta[pNumStr]?.patientFlags || [];
+      
+      let patientFlags = meta[pNumStr]?.patientFlags || [];
+      if (Array.isArray(patientFlags)) {
+        patientFlags = patientFlags.filter(f => f && (typeof f === 'string' ? f.trim() !== '' : true));
+      }
+      
       const lastBilledDate = p.LastStatementDate ? new Date(p.LastStatementDate).toLocaleDateString() : '';
 
       return {
@@ -429,6 +511,29 @@ export class ReportGenerationService {
         lastBilled: lastBilledDate
       };
     });
+
+    // Post-query sort for fields not available in SQL (flags come from metadata)
+    if (query.sortReport === 'flag') {
+      report.sort((a: any, b: any) => {
+        const aHasFlags = a.flags && a.flags.length > 0 ? 1 : 0;
+        const bHasFlags = b.flags && b.flags.length > 0 ? 1 : 0;
+        return bHasFlags - aHasFlags; // Patients with flags first
+      });
+    } else if (query.sortReport === 'carrier') {
+      report.sort((a: any, b: any) => {
+        if (!a.insuranceName && !b.insuranceName) return 0;
+        if (!a.insuranceName) return 1;
+        if (!b.insuranceName) return -1;
+        return a.insuranceName.localeCompare(b.insuranceName);
+      });
+    } else if (query.sortReport === 'last_billed') {
+      report.sort((a: any, b: any) => {
+        if (!a.lastBilled && !b.lastBilled) return 0;
+        if (!a.lastBilled) return 1;
+        if (!b.lastBilled) return -1;
+        return new Date(b.lastBilled).getTime() - new Date(a.lastBilled).getTime();
+      });
+    }
 
     if (report.length === 0) {
       return [];
@@ -458,22 +563,228 @@ export class ReportGenerationService {
       include: { 
         patient: true,
         provider_procedurelog_ProvNumToprovider: true,
-        procedurecode_procedurelog_CodeNumToprocedurecode: true 
+        procedurecode_procedurelog_CodeNumToprocedurecode: true,
       }
     });
 
     const patNums = Array.from(new Set(procs.map(p => p.PatNum).filter(Boolean))) as bigint[];
     const metaMap = await getPatientsMeta(patNums);
 
+    // Build a set of StatementNums from the procedures in range
+    const statementNumSet = new Set<string>();
+    for (const p of procs) {
+      if (p.StatementNum) statementNumSet.add(p.StatementNum.toString());
+    }
+
+    // Build a map: StatementNum -> total fee across ALL procedures in that statement
+    // (needed for prorating invoice-level payments across procedures)
+    const statementNums = Array.from(new Set(procs.map(p => p.StatementNum).filter(Boolean))) as bigint[];
+    const allProcsInStatements = statementNums.length > 0 ? await prisma.procedurelog.findMany({
+      where: { StatementNum: { in: statementNums } }
+    }) : [];
+
+    const statementTotals = new Map<string, number>();
+    for (const sp of allProcsInStatements) {
+      if (sp.StatementNum) {
+        const stmtStr = sp.StatementNum.toString();
+        statementTotals.set(stmtStr, (statementTotals.get(stmtStr) || 0) + (sp.ProcFee || 0));
+      }
+    }
+
+    // Fetch all payments, adjustments, and claimprocs for these patients
+    const [patientPayments, patientAdjustments, patientClaimProcs] = await Promise.all([
+      prisma.payment.findMany({
+        where: { PatNum: { in: patNums } },
+        include: { paysplit: true }
+      }),
+      prisma.adjustment.findMany({
+        where: { PatNum: { in: patNums } }
+      }),
+      prisma.claimproc.findMany({
+        where: { PatNum: { in: patNums } }
+      })
+    ]);
+
+    // ── ClaimProcs: group by ProcNum ──
+    const claimsByProc = new Map<string, any[]>();
+    for (const cp of patientClaimProcs) {
+      if (cp.ProcNum) {
+        const key = cp.ProcNum.toString();
+        if (!claimsByProc.has(key)) claimsByProc.set(key, []);
+        claimsByProc.get(key)!.push(cp);
+      }
+    }
+
+    // ── Adjustments: group by ProcNum (direct), StatementNum, or AdjNote invoice ref ──
+    const adjsByProc = new Map<string, any[]>();
+    const adjsByStatement = new Map<string, any[]>();
+    for (const adj of patientAdjustments) {
+      if (adj.ProcNum) {
+        const key = adj.ProcNum.toString();
+        if (!adjsByProc.has(key)) adjsByProc.set(key, []);
+        adjsByProc.get(key)!.push(adj);
+      } else if (adj.StatementNum) {
+        const key = adj.StatementNum.toString();
+        if (!adjsByStatement.has(key)) adjsByStatement.set(key, []);
+        adjsByStatement.get(key)!.push(adj);
+      } else if (adj.AdjNote) {
+        // Billing page matches adjustments by checking notes for "Invoice #<id>"
+        const noteMatch = String(adj.AdjNote).match(/Invoice\s*#(\d+)/i);
+        if (noteMatch) {
+          const invId = noteMatch[1];
+          if (!adjsByStatement.has(invId)) adjsByStatement.set(invId, []);
+          adjsByStatement.get(invId)!.push(adj);
+        }
+      }
+    }
+
+    // ── Payments: parse PayNote JSON to get invoiceId, then map to StatementNum ──
+    // Group payments into:
+    //   (a) directPaysplits: paysplit.ProcNum is set → directly linked to a procedure
+    //   (b) invoicePaymentsByStmt: payment.PayNote.invoiceId → maps to StatementNum
+    //   (c) For payments with NO paysplits at all, use PayAmt and invoiceId
+    const directPaysplits = new Map<string, any[]>();
+
+    type InvoicePaymentEntry = { amount: number; isInsurance: boolean };
+    const invoicePaymentsByStmt = new Map<string, InvoicePaymentEntry[]>();
+
+    for (const pay of patientPayments) {
+      // Parse PayNote to extract invoiceId and paymentSource
+      let invoiceId: string | null = null;
+      let isInsurance = false;
+      try {
+        const note = JSON.parse(pay.PayNote || '{}');
+        if (note.invoiceId) invoiceId = String(note.invoiceId);
+        if (note.paymentSource === 'insurance_company' || note.method === 'insurance') {
+          isInsurance = true;
+        }
+        // Check for voided status from PayNote
+        if (note.status === 'void' || note.status === 'voided') continue;
+      } catch(e) {}
+
+      const hasPaysplits = pay.paysplit && pay.paysplit.length > 0;
+
+      if (hasPaysplits) {
+        // Process each paysplit
+        let unallocatedAmount = 0;
+        for (const ps of pay.paysplit) {
+          if (ps.ProcNum) {
+            // Directly linked to a procedure
+            const key = ps.ProcNum.toString();
+            if (!directPaysplits.has(key)) directPaysplits.set(key, []);
+            directPaysplits.get(key)!.push({ ...ps, _isInsurance: isInsurance });
+          } else {
+            unallocatedAmount += (ps.SplitAmt || 0);
+          }
+        }
+        // If there are unallocated paysplits and we have an invoiceId, map to statement
+        if (invoiceId && unallocatedAmount !== 0) {
+          if (!invoicePaymentsByStmt.has(invoiceId)) invoicePaymentsByStmt.set(invoiceId, []);
+          invoicePaymentsByStmt.get(invoiceId)!.push({ amount: unallocatedAmount, isInsurance });
+        }
+      } else if (invoiceId && pay.PayAmt) {
+        // Payment has NO paysplits at all — use PayAmt directly and map via invoiceId
+        if (!invoicePaymentsByStmt.has(invoiceId)) invoicePaymentsByStmt.set(invoiceId, []);
+        invoicePaymentsByStmt.get(invoiceId)!.push({ amount: Number(pay.PayAmt), isInsurance });
+      }
+    }
+
     return procs.map(p => {
       const patNumStr = p.PatNum?.toString() || '';
       const meta = metaMap[patNumStr] || {};
-      const flags = Array.isArray(meta.patientFlags) ? meta.patientFlags.filter(Boolean) : [];
+      let flags = Array.isArray(meta.patientFlags) ? meta.patientFlags : [];
+      flags = flags.filter(f => f && (typeof f === 'string' ? f.trim() !== '' : true));
 
       let dobStr = '-';
       if (p.patient?.Birthdate) {
         dobStr = new Date(p.patient.Birthdate).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' });
       }
+
+      let adj = 0;
+      let actualWriteOff = 0;
+      let ptPay = 0;
+      let insPay = 0;
+      let ptRefund = 0;
+      let insRefund = 0;
+
+      const procStr = p.ProcNum.toString();
+      const procFee = p.ProcFee || 0;
+
+      // ── 1. Insurance Claims (direct by ProcNum) ──
+      const myClaims = claimsByProc.get(procStr) || [];
+      for (const cp of myClaims) {
+        const payAmt = Number(cp.InsPayAmt || 0);
+        const woAmt = Number(cp.WriteOff || 0);
+        if (payAmt < 0) insRefund += Math.abs(payAmt);
+        else if (payAmt > 0) insPay += payAmt;
+        if (woAmt > 0) actualWriteOff += woAmt;
+      }
+
+      // ── 2. Adjustments (direct by ProcNum) ──
+      const myDirectAdjs = adjsByProc.get(procStr) || [];
+      for (const a of myDirectAdjs) {
+        const amt = Number(a.AdjAmt || 0);
+        if (amt < 0) actualWriteOff += Math.abs(amt);
+        else if (amt > 0) adj += amt;
+      }
+
+      // ── 3. Patient Payments (direct paysplits by ProcNum) ──
+      const myDirectPays = directPaysplits.get(procStr) || [];
+      for (const ps of myDirectPays) {
+        const amt = Number(ps.SplitAmt || 0);
+        if (ps._isInsurance) {
+          if (amt < 0) insRefund += Math.abs(amt);
+          else if (amt > 0) insPay += amt;
+        } else {
+          if (amt < 0) ptRefund += Math.abs(amt);
+          else if (amt > 0) ptPay += amt;
+        }
+      }
+
+      // ── 4. Invoice-level payments & adjustments (prorated via StatementNum) ──
+      if (p.StatementNum) {
+        const stmtStr = p.StatementNum.toString();
+        const invoiceTotal = statementTotals.get(stmtStr) || 0;
+        const ratio = invoiceTotal > 0 ? (procFee / invoiceTotal) : 0;
+
+        // Prorated adjustments
+        const myInvoiceAdjs = adjsByStatement.get(stmtStr) || [];
+        for (const a of myInvoiceAdjs) {
+          const allocated = Number(a.AdjAmt || 0) * ratio;
+          if (allocated < 0) actualWriteOff += Math.abs(allocated);
+          else if (allocated > 0) adj += allocated;
+        }
+
+        // Prorated payments (with insurance/patient differentiation)
+        const myInvoicePays = invoicePaymentsByStmt.get(stmtStr) || [];
+        for (const entry of myInvoicePays) {
+          const allocated = entry.amount * ratio;
+          if (entry.isInsurance) {
+            if (allocated < 0) insRefund += Math.abs(allocated);
+            else if (allocated > 0) insPay += allocated;
+          } else {
+            if (allocated < 0) ptRefund += Math.abs(allocated);
+            else if (allocated > 0) ptPay += allocated;
+          }
+        }
+      }
+
+      let parsedEstWriteOff = 0;
+      let parsedInsPortion = 0;
+      let parsedPtPortion = 0;
+      try {
+        if (p.BillingNote) {
+          const bn = JSON.parse(p.BillingNote);
+          parsedEstWriteOff = Number(bn.writeoff || 0);
+          parsedInsPortion = Number(bn.insPortion || 0);
+          parsedPtPortion = Number(bn.ptPortion || 0);
+        }
+      } catch (e) {}
+
+      // Add the estimated portions from the invoice popup to the payment columns
+      // as requested by the user, so they show up on the production report.
+      insPay += parsedInsPortion;
+      ptPay += parsedPtPortion;
 
       return {
         procedureId: p.ProcNum.toString(),
@@ -483,25 +794,287 @@ export class ReportGenerationService {
         dob: dobStr,
         code: p.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || p.OldCode || 'Unknown Code',
         procedure: p.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || 'Unknown Procedure',
-        provider: p.provider_procedurelog_ProvNumToprovider?.Abbr || p.provider_procedurelog_ProvNumToprovider?.FName || 'Unknown Provider',
-        fee: p.ProcFee || 0
+        providerId: p.ProvNum ? p.ProvNum.toString() : '',
+        provider: this.getProviderName(p.provider_procedurelog_ProvNumToprovider),
+        fee: procFee,
+        adj: Math.round(adj * 100) / 100,
+        actualWriteOff: Math.round(actualWriteOff * 100) / 100,
+        ptPay: Math.round(ptPay * 100) / 100,
+        insPay: Math.round(insPay * 100) / 100,
+        ptRefund: Math.round(ptRefund * 100) / 100,
+        insRefund: Math.round(insRefund * 100) / 100,
+        estWriteOff: Math.round(parsedEstWriteOff * 100) / 100,
+        collectionAdj: 0,
+        payFromCredit: 0,
+        refundToCredit: 0,
+        credit: 0,
+        overpaymentToCredit: 0
       };
     });
   }
 
   private async getProductionCollectionReport(start: Date, end: Date, summary = false) {
-    // Standard joins of production and collections
-    const payments = await prisma.payment.findMany({
-      where: { PayDate: { gte: start, lte: end } },
-      take: 30
+    const records: any[] = [];
+    const patNums = new Set<bigint>();
+
+    // 1. Fetch Production (procedurelog)
+    const procs = await prisma.procedurelog.findMany({
+      where: { ProcDate: { gte: start, lte: end }, ProcStatus: 2 },
+      include: {
+        patient: true,
+        provider_procedurelog_ProvNumToprovider: true,
+        procedurecode_procedurelog_CodeNumToprocedurecode: true
+      }
     });
 
-    return payments.map(p => ({
-      date: p.PayDate?.toLocaleDateString() || '',
-      production: (p.PayAmt ?? 0) * 1.1, // Mock production slightly higher
-      collection: p.PayAmt ?? 0,
-      paymentMethod: p.PayType ? 'Credit Card' : 'Check'
-    }));
+    for (const p of procs) {
+      if (p.PatNum) patNums.add(p.PatNum);
+      const providerStr = this.getProviderName(p.provider_procedurelog_ProvNumToprovider);
+      
+      let parsedEstWriteOff = 0;
+      let parsedInsPortion = 0;
+      let parsedPtPortion = 0;
+      try {
+        if (p.BillingNote) {
+          const bn = JSON.parse(p.BillingNote);
+          parsedEstWriteOff = Number(bn.writeoff || 0);
+          parsedInsPortion = Number(bn.insPortion || 0);
+          parsedPtPortion = Number(bn.ptPortion || 0);
+        }
+      } catch (e) {}
+
+      records.push({
+        type: 'production',
+        procedureId: p.ProcNum.toString(),
+        dateRaw: p.ProcDate,
+        date: p.ProcDate?.toISOString() || '',
+        dosRaw: p.ProcDate,
+        dos: p.ProcDate?.toISOString() || null,
+        patNumStr: p.PatNum?.toString() || '',
+        patient: p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Unknown Patient',
+        dobRaw: p.patient?.Birthdate,
+        code: p.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || p.OldCode || 'Unknown Code',
+        procedure: p.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || 'Unknown Procedure',
+        providerId: p.ProvNum ? p.ProvNum.toString() : '',
+        provider: providerStr,
+        render: providerStr,
+        bill: providerStr,
+        charge: p.ProcFee || 0,
+        estWriteOff: parsedEstWriteOff,
+        ins: parsedInsPortion,
+        pt: parsedPtPortion,
+        paymentType: 'Production'
+      });
+    }
+
+    // 2. Fetch Adjustments (adjustment)
+    const adjs = await prisma.adjustment.findMany({
+      where: { AdjDate: { gte: start, lte: end } },
+      include: {
+        patient: true,
+        provider: true,
+        procedurelog: {
+          include: { procedurecode_procedurelog_CodeNumToprocedurecode: true }
+        }
+      }
+    });
+
+    for (const a of adjs) {
+      if (a.PatNum) patNums.add(a.PatNum);
+      const providerStr = this.getProviderName(a.provider);
+      const isWriteOff = a.AdjAmt && a.AdjAmt < 0; 
+      records.push({
+        type: 'adjustment',
+        procedureId: a.AdjNum.toString(),
+        dateRaw: a.AdjDate,
+        date: a.AdjDate?.toISOString() || '',
+        dosRaw: a.ProcDate,
+        dos: a.ProcDate?.toISOString() || null,
+        patNumStr: a.PatNum?.toString() || '',
+        patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Unknown Patient',
+        dobRaw: a.patient?.Birthdate,
+        code: 'Adj',
+        procedure: a.AdjNote || 'Adjustment',
+        providerId: a.ProvNum ? a.ProvNum.toString() : '',
+        provider: providerStr,
+        render: providerStr,
+        bill: providerStr,
+        adj: isWriteOff ? 0 : (a.AdjAmt || 0),
+        actual: isWriteOff ? Math.abs(a.AdjAmt || 0) : 0,
+        paymentType: 'Adjustment'
+      });
+    }
+
+    // 3. Fetch Patient Payments — both via paysplit and via payment (for payments with no paysplits)
+    const pays = await prisma.paysplit.findMany({
+      where: { DatePay: { gte: start, lte: end } },
+      include: {
+        patient: true,
+        provider: true
+      }
+    });
+
+    for (const p of pays) {
+      if (p.PatNum) patNums.add(p.PatNum);
+      const providerStr = this.getProviderName(p.provider);
+      const isRefund = p.SplitAmt && p.SplitAmt < 0;
+      records.push({
+        type: 'ptPay',
+        procedureId: p.SplitNum.toString(),
+        dateRaw: p.DatePay,
+        date: p.DatePay?.toISOString() || '',
+        dosRaw: p.ProcDate,
+        dos: p.ProcDate?.toISOString() || null,
+        patNumStr: p.PatNum?.toString() || '',
+        patient: p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Unknown Patient',
+        dobRaw: p.patient?.Birthdate,
+        code: 'PtPay',
+        procedure: isRefund ? 'Patient Refund' : 'Patient Payment',
+        providerId: p.ProvNum ? p.ProvNum.toString() : '',
+        provider: providerStr,
+        render: providerStr,
+        bill: providerStr,
+        pt: isRefund ? 0 : (p.SplitAmt || 0),
+        ptRef: isRefund ? Math.abs(p.SplitAmt || 0) : 0,
+        paymentType: 'Payment'
+      });
+    }
+
+    // 3b. Also fetch payments that have NO paysplits but do have a PayNote with invoiceId
+    const paymentsWithoutSplits = await prisma.payment.findMany({
+      where: { PayDate: { gte: start, lte: end } },
+      include: { patient: true, paysplit: true }
+    });
+
+    for (const pay of paymentsWithoutSplits) {
+      if (pay.paysplit && pay.paysplit.length > 0) continue; // already handled above
+      if (!pay.PayAmt || pay.PayAmt === 0) continue;
+
+      let isInsurance = false;
+      try {
+        const note = JSON.parse(pay.PayNote || '{}');
+        if (note.paymentSource === 'insurance_company' || note.method === 'insurance') {
+          isInsurance = true;
+        }
+        if (note.status === 'void' || note.status === 'voided') continue;
+      } catch(e) {}
+
+      if (pay.PatNum) patNums.add(pay.PatNum);
+      const payAmt = Number(pay.PayAmt);
+      const isRefund = payAmt < 0;
+
+      if (isInsurance) {
+        records.push({
+          type: 'insPay',
+          procedureId: pay.PayNum.toString(),
+          dateRaw: pay.PayDate,
+          date: pay.PayDate?.toISOString() || '',
+          dosRaw: null,
+          dos: null,
+          patNumStr: pay.PatNum?.toString() || '',
+          patient: pay.patient ? `${pay.patient.FName} ${pay.patient.LName}` : 'Unknown Patient',
+          dobRaw: pay.patient?.Birthdate,
+          code: 'InsPay',
+          procedure: isRefund ? 'Insurance Refund' : 'Insurance Payment',
+          providerId: '',
+          provider: 'Unassigned',
+          render: 'Unassigned',
+          bill: 'Unassigned',
+          ins: isRefund ? 0 : payAmt,
+          insRef: isRefund ? Math.abs(payAmt) : 0,
+          actual: 0,
+          paymentType: 'Insurance'
+        });
+      } else {
+        records.push({
+          type: 'ptPay',
+          procedureId: pay.PayNum.toString(),
+          dateRaw: pay.PayDate,
+          date: pay.PayDate?.toISOString() || '',
+          dosRaw: null,
+          dos: null,
+          patNumStr: pay.PatNum?.toString() || '',
+          patient: pay.patient ? `${pay.patient.FName} ${pay.patient.LName}` : 'Unknown Patient',
+          dobRaw: pay.patient?.Birthdate,
+          code: 'PtPay',
+          procedure: isRefund ? 'Patient Refund' : 'Patient Payment',
+          providerId: '',
+          provider: 'Unassigned',
+          render: 'Unassigned',
+          bill: 'Unassigned',
+          pt: isRefund ? 0 : payAmt,
+          ptRef: isRefund ? Math.abs(payAmt) : 0,
+          paymentType: 'Payment'
+        });
+      }
+    }
+
+    // 4. Fetch Insurance Payments (claimproc)
+    const claims = await prisma.claimproc.findMany({
+      where: { DateCP: { gte: start, lte: end }, Status: { in: [1, 4] } },
+      include: {
+        patient: true,
+        provider: true
+      }
+    });
+
+    for (const c of claims) {
+      if (c.PatNum) patNums.add(c.PatNum);
+      const providerStr = this.getProviderName(c.provider);
+      const isRefund = c.InsPayAmt && c.InsPayAmt < 0;
+      records.push({
+        type: 'insPay',
+        procedureId: c.ClaimProcNum.toString(),
+        dateRaw: c.DateCP,
+        date: c.DateCP?.toISOString() || '',
+        dosRaw: c.ProcDate,
+        dos: c.ProcDate?.toISOString() || null,
+        patNumStr: c.PatNum?.toString() || '',
+        patient: c.patient ? `${c.patient.FName} ${c.patient.LName}` : 'Unknown Patient',
+        dobRaw: c.patient?.Birthdate,
+        code: 'InsPay',
+        procedure: isRefund ? 'Insurance Refund' : 'Insurance Payment',
+        providerId: c.ProvNum ? c.ProvNum.toString() : '',
+        provider: providerStr,
+        render: providerStr,
+        bill: providerStr,
+        ins: isRefund ? 0 : (c.InsPayAmt || 0),
+        insRef: isRefund ? Math.abs(c.InsPayAmt || 0) : 0,
+        actual: c.WriteOff || 0,
+        paymentType: 'Insurance'
+      });
+    }
+
+    // Sort by date
+    records.sort((a, b) => {
+      const timeA = a.dateRaw ? new Date(a.dateRaw).getTime() : 0;
+      const timeB = b.dateRaw ? new Date(b.dateRaw).getTime() : 0;
+      return timeA - timeB;
+    });
+
+    const metaMap = await getPatientsMeta(Array.from(patNums));
+
+    return records.map(r => {
+      const meta = metaMap[r.patNumStr] || {};
+      let flags = Array.isArray(meta.patientFlags) ? meta.patientFlags : [];
+      flags = flags.map((f: any) => (f && typeof f === 'object' && f.id) ? f.id : f);
+      flags = flags.filter((f: any) => f && (typeof f === 'string' ? f.trim() !== '' : true));
+      
+      let dobStr = '-';
+      if (r.dobRaw) {
+        dobStr = new Date(r.dobRaw).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' });
+      }
+
+      return {
+        ...r,
+        flags,
+        dob: dobStr,
+        dosRaw: undefined,
+        dateRaw: undefined,
+        patNumStr: undefined,
+        dobRaw: undefined
+      };
+    });
   }
 
   private async getProviderCollectionPaymentType(start: Date, end: Date) {
@@ -513,7 +1086,12 @@ export class ReportGenerationService {
       include: {
         patient: true,
         provider: true,
-        procedurelog: true,
+        procedurelog: {
+          include: {
+            procedurecode_procedurelog_CodeNumToprocedurecode: true,
+            provider_procedurelog_ProvNumToprovider: true
+          }
+        },
         payment: {
           include: {
             definition: true
@@ -532,7 +1110,12 @@ export class ReportGenerationService {
       include: {
         patient: true,
         provider: true,
-        procedurelog: true,
+        procedurelog: {
+          include: {
+            procedurecode_procedurelog_CodeNumToprocedurecode: true,
+            provider_procedurelog_ProvNumToprovider: true
+          }
+        },
         claimpayment: true
       },
       take: 50
@@ -546,24 +1129,39 @@ export class ReportGenerationService {
       include: {
         patient: true,
         provider: true,
-        procedurelog: true
+        procedurelog: {
+          include: {
+            procedurecode_procedurelog_CodeNumToprocedurecode: true,
+            provider_procedurelog_ProvNumToprovider: true
+          }
+        }
       },
       take: 50
     });
 
+    const patNums = new Set<bigint>();
+    for (const ps of paySplits) if (ps.PatNum) patNums.add(ps.PatNum);
+    for (const cp of claimProcs) if (cp.PatNum) patNums.add(cp.PatNum);
+    for (const adj of adjustments) if (adj.PatNum) patNums.add(adj.PatNum);
+
+    const metaMap = await getPatientsMeta(Array.from(patNums));
+
     const records: any[] = [];
 
-    // Helper to format provider name/initials
-    const getInitials = (prov: any) => {
-      if (!prov) return 'MF';
-      if (prov.Abbr) return prov.Abbr.trim();
-      const f = prov.FName ? prov.FName.trim() : '';
-      const l = prov.LName ? prov.LName.trim() : '';
-      if (f && l) {
-        return (f[0] + l.substring(0, 2)).toUpperCase();
-      }
-      return (f ? f.substring(0, 3) : 'MF').toUpperCase();
+    // Helper to extract real flags - send full objects with color info
+    const getFlags = (patNum: any) => {
+      if (!patNum) return [];
+      const meta = metaMap[patNum.toString()] || {};
+      let flags = Array.isArray(meta.patientFlags) ? meta.patientFlags : [];
+      return flags.filter((f: any) => {
+        if (!f) return false;
+        if (typeof f === 'string') return f.trim() !== '';
+        if (typeof f === 'object' && f.id) return true;
+        return false;
+      });
     };
+
+
 
     // Helper to map definition/PayType to paymentType string
     const getPaymentType = (ps: any) => {
@@ -575,16 +1173,30 @@ export class ReportGenerationService {
 
     // Process patient payments
     for (const ps of paySplits) {
+      let isInsurance = false;
+      try {
+        if (ps.payment?.PayNote) {
+          const note = JSON.parse(ps.payment.PayNote);
+          if (note.paymentSource === 'insurance_company' || note.method === 'insurance') {
+            isInsurance = true;
+          }
+        }
+      } catch (e) {}
+
+      // If it's an insurance payment, skip it because the claimproc loop handles it
+      if (isInsurance) continue;
+
       const splitAmt = ps.SplitAmt ?? 0;
       const isRefund = splitAmt < 0;
       records.push({
         date: ps.DatePay?.toLocaleDateString() || ps.DateEntry?.toLocaleDateString() || '',
-        flags: splitAmt > 1000 ? ['#e11d48'] : splitAmt > 200 ? ['#4a90e2'] : ['#f5a623'],
+        flags: getFlags(ps.PatNum),
         patient: ps.patient ? `${ps.patient.FName} ${ps.patient.LName}` : 'Patient',
-        code: ps.procedurelog?.OldCode || 'D0120',
-        procedure: ps.procedurelog?.Surf || 'hygiene',
-        render: getInitials(ps.provider),
-        bill: getInitials(ps.provider),
+        code: ps.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || ps.procedurelog?.OldCode || 'D0120',
+        procedure: ps.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || ps.procedurelog?.Surf || 'hygiene',
+        providerId: (ps.provider || ps.procedurelog?.provider_procedurelog_ProvNumToprovider) ? (ps.provider?.ProvNum || ps.procedurelog?.provider_procedurelog_ProvNumToprovider?.ProvNum || '').toString() : '',
+        render: this.getProviderName(ps.provider || ps.procedurelog?.provider_procedurelog_ProvNumToprovider),
+        bill: this.getProviderName(ps.provider || ps.procedurelog?.provider_procedurelog_ProvNumToprovider),
         ins: 0,
         pt: isRefund ? 0 : splitAmt,
         actual: 0,
@@ -606,12 +1218,13 @@ export class ReportGenerationService {
       const isRefund = insPay < 0;
       records.push({
         date: cp.DateCP?.toLocaleDateString() || cp.DateCP?.toLocaleDateString() || '',
-        flags: insPay > 1000 ? ['#e11d48'] : insPay > 200 ? ['#4a90e2'] : ['#f5a623'],
+        flags: getFlags(cp.PatNum),
         patient: cp.patient ? `${cp.patient.FName} ${cp.patient.LName}` : 'Patient',
-        code: cp.procedurelog?.OldCode || 'D0120',
-        procedure: cp.procedurelog?.Surf || 'hygiene',
-        render: getInitials(cp.provider),
-        bill: getInitials(cp.provider),
+        code: cp.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || cp.procedurelog?.OldCode || 'D0120',
+        procedure: cp.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || cp.procedurelog?.Surf || 'hygiene',
+        providerId: cp.provider ? cp.provider.ProvNum.toString() : '',
+        render: this.getProviderName(cp.provider),
+        bill: this.getProviderName(cp.provider),
         ins: isRefund ? 0 : insPay,
         pt: 0,
         actual: writeOff,
@@ -630,12 +1243,13 @@ export class ReportGenerationService {
       if (amount === 0) continue;
       records.push({
         date: adj.AdjDate?.toLocaleDateString() || adj.DateEntry?.toLocaleDateString() || '',
-        flags: ['#4a90e2'],
+        flags: getFlags(adj.PatNum),
         patient: adj.patient ? `${adj.patient.FName} ${adj.patient.LName}` : 'Patient',
-        code: adj.procedurelog?.OldCode || 'D0120',
-        procedure: adj.procedurelog?.Surf || 'Adjustment',
-        render: getInitials(adj.provider),
-        bill: getInitials(adj.provider),
+        code: adj.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || adj.procedurelog?.OldCode || 'D0120',
+        procedure: adj.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || adj.procedurelog?.Surf || 'Adjustment',
+        providerId: adj.provider ? adj.provider.ProvNum.toString() : '',
+        render: this.getProviderName(adj.provider),
+        bill: this.getProviderName(adj.provider),
         ins: 0,
         pt: 0,
         actual: 0,
@@ -648,118 +1262,219 @@ export class ReportGenerationService {
       });
     }
 
-    // If no real records found, return realistic default data for visualization
-    if (records.length === 0) {
-      const dateStr = start.toLocaleDateString();
-      return [
-        {
-          date: dateStr,
-          flags: ['#f5a623'],
-          patient: 'Francis Fuller',
-          code: 'D0274',
-          procedure: 'BW4',
-          render: 'SAB',
-          bill: 'SAB',
-          ins: 0,
-          pt: 150.00,
-          actual: 0,
-          adj: 0,
-          ptRef: 0,
-          insRef: 0,
-          payFrom: 0,
-          newCredit: 0,
-          paymentType: 'Credit Card'
-        },
-        {
-          date: dateStr,
-          flags: ['#f5a623'],
-          patient: 'Garry Gilmore',
-          code: 'D1110',
-          procedure: 'hygiene',
-          render: 'SAB',
-          bill: 'SAB',
-          ins: 0,
-          pt: 120.00,
-          actual: 0,
-          adj: 0,
-          ptRef: 0,
-          insRef: 0,
-          payFrom: 0,
-          newCredit: 0,
-          paymentType: 'Check'
-        },
-        {
-          date: dateStr,
-          flags: ['#f5a623', '#4a90e2', '#e11d48'],
-          patient: 'Francis Fuller',
-          code: 'D2740',
-          procedure: '19 porc Cr',
-          render: 'SAB',
-          bill: 'SAB',
-          ins: 470.00,
-          pt: 0,
-          actual: 100.00,
-          adj: 0,
-          ptRef: 0,
-          insRef: 0,
-          payFrom: 0,
-          newCredit: 0,
-          paymentType: 'Insurance'
-        },
-        {
-          date: dateStr,
-          flags: ['#4a90e2'],
-          patient: 'Zoe Niblock',
-          code: 'D0120',
-          procedure: 'Periodic Exam',
-          render: 'NIB',
-          bill: 'NIB',
-          ins: 0,
-          pt: 80.00,
-          actual: 0,
-          adj: -10.00,
-          ptRef: 0,
-          insRef: 0,
-          payFrom: 0,
-          newCredit: 0,
-          paymentType: 'Credit Card'
-        }
-      ];
-    }
+
 
     return records;
   }
 
-  private async getProductionPerCode(start: Date, end: Date) {
-    const procs = await prisma.procedurelog.findMany({
-      where: { ProcDate: { gte: start, lte: end }, ProcStatus: 2 },
-      take: 50
-    });
+  private async getProductionPerCode(start: Date, end: Date, query: any = {}) {
+    const where: any = { ProcDate: { gte: start, lte: end }, ProcStatus: 2 };
 
-    const groups: Record<string, { code: string; count: number; totalFee: number }> = {};
-    for (const p of procs) {
-      const code = p.OldCode || 'D0120';
-      if (!groups[code]) {
-        groups[code] = { code, count: 0, totalFee: 0 };
+    // Provider filter
+    if (query.provider && query.provider !== 'all') {
+      const provNum = Number(query.provider);
+      if (!isNaN(provNum)) {
+        where.ProvNum = provNum;
       }
-      groups[code].count++;
-      groups[code].totalFee += p.ProcFee ?? 0;
     }
 
-    return Object.values(groups);
+    // Referral provider filter
+    if (query.referralProvider && query.referralProvider !== 'all') {
+      const refNum = Number(query.referralProvider);
+      if (!isNaN(refNum)) {
+        where.OrderingReferralNum = refNum;
+      }
+    }
+
+    const showCollection = query.showCollection === 'true' || query.showCollection === true;
+
+    const procs = await prisma.procedurelog.findMany({
+      where,
+      include: {
+        procedurecode_procedurelog_CodeNumToprocedurecode: true,
+        provider_procedurelog_ProvNumToprovider: true,
+        ...(showCollection && {
+          claimproc: true,
+          paysplit: true
+        })
+      }
+    });
+
+    const groupByProvider = query.groupBy === 'provider';
+
+    // Build groups keyed by code (and optionally by provider)
+    const groups: Record<string, {
+      code: string;
+      procedure: string;
+      quantity: number;
+      totalProduction: number;
+      totalCollection?: number;
+      providerName?: string;
+      providerId?: string;
+    }> = {};
+
+    for (const p of procs) {
+      const procCode = p.procedurecode_procedurelog_CodeNumToprocedurecode;
+      const code = procCode?.ProcCode || p.OldCode || 'Unknown';
+      const procedure = procCode?.Descript || code;
+      const providerObj = p.provider_procedurelog_ProvNumToprovider;
+      const providerName = this.getProviderName(providerObj);
+      const providerId = p.ProvNum ? p.ProvNum.toString() : '';
+
+      const groupKey = groupByProvider ? `${providerId}::${code}` : code;
+
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          code,
+          procedure,
+          quantity: 0,
+          totalProduction: 0,
+          ...(showCollection ? { totalCollection: 0 } : {}),
+          ...(groupByProvider ? { providerName, providerId } : {})
+        };
+      }
+      
+      let procCollection = 0;
+      if (showCollection) {
+        if (p.claimproc && Array.isArray(p.claimproc)) {
+          procCollection += p.claimproc.reduce((sum, cp) => sum + (cp.InsPayAmt || 0), 0);
+        }
+        if (p.paysplit && Array.isArray(p.paysplit)) {
+          procCollection += p.paysplit.reduce((sum, ps) => sum + (ps.SplitAmt || 0), 0);
+        }
+        groups[groupKey].totalCollection = (groups[groupKey].totalCollection || 0) + procCollection;
+      }
+
+      groups[groupKey].quantity++;
+      groups[groupKey].totalProduction += p.ProcFee ?? 0;
+    }
+
+    const allRows = Object.values(groups);
+
+    // Calculate grand total for percent calculation
+    const grandTotal = allRows.reduce((sum, r) => sum + r.totalProduction, 0);
+
+    const enrichedRows = allRows.map(r => ({
+      ...r,
+      totalProduction: Math.round(r.totalProduction * 100) / 100,
+      ...(showCollection ? { totalCollection: Math.round((r.totalCollection || 0) * 100) / 100 } : {}),
+      avgProduction: r.quantity > 0 ? Math.round((r.totalProduction / r.quantity) * 100) / 100 : 0,
+      percentProduction: grandTotal > 0 ? Math.round((r.totalProduction / grandTotal) * 10000) / 100 : 0
+    }));
+
+    // Sort by totalProduction descending
+    enrichedRows.sort((a, b) => b.totalProduction - a.totalProduction);
+
+    if (groupByProvider) {
+      // Group rows by provider
+      const providerGroups: Record<string, { providerName: string; providerId: string; rows: any[] }> = {};
+      for (const row of enrichedRows) {
+        const pid = row.providerId || 'unassigned';
+        if (!providerGroups[pid]) {
+          providerGroups[pid] = {
+            providerName: row.providerName || 'Unassigned',
+            providerId: pid,
+            rows: []
+          };
+        }
+        providerGroups[pid].rows.push(row);
+      }
+      const finalResult: any = { grouped: true, groups: Object.values(providerGroups) };
+      if (showCollection) finalResult.showCollection = true;
+      return finalResult;
+    }
+
+    if (showCollection) {
+      return { showCollection: true, rows: enrichedRows };
+    }
+    
+    return enrichedRows;
   }
 
   private async getCollectionCodeCarrier(start: Date, end: Date) {
-    return [
-      { code: 'D1110', carrier: 'Delta Dental', collection: 120.00 },
-      { code: 'D0210', carrier: 'Blue Cross', collection: 250.00 }
-    ];
+    const claimProcs = await prisma.claimproc.findMany({
+      where: {
+        DateCP: { gte: start, lte: end },
+        Status: { in: [1, 4] },
+        InsPayAmt: { not: 0 }
+      },
+      include: {
+        procedurelog: {
+          include: {
+            procedurecode_procedurelog_CodeNumToprocedurecode: true
+          }
+        },
+        insplan: {
+          include: {
+            carrier: true
+          }
+        }
+      }
+    });
+
+    // Group by Code + Carrier
+    const groups: Record<string, {
+      code: string;
+      procedure: string;
+      carrier: string;
+      quantity: number;
+      totalProduction: number;
+      totalCollection: number;
+      avgPerCode: number;
+    }> = {};
+
+    for (const cp of claimProcs) {
+      if (!cp.procedurelog) continue;
+
+      const procCode = cp.procedurelog.procedurecode_procedurelog_CodeNumToprocedurecode;
+      const code = procCode?.ProcCode || cp.procedurelog.OldCode || 'Unknown';
+      const procedure = procCode?.Descript || code;
+      const carrierName = cp.insplan?.carrier?.CarrierName || 'Unknown Carrier';
+
+      const groupKey = `${code}::${carrierName}`;
+
+      if (!groups[groupKey]) {
+        groups[groupKey] = {
+          code,
+          procedure,
+          carrier: carrierName,
+          quantity: 0,
+          totalProduction: 0,
+          totalCollection: 0,
+          avgPerCode: 0
+        };
+      }
+
+      groups[groupKey].quantity += 1;
+      groups[groupKey].totalProduction += (cp.FeeBilled || 0);
+      groups[groupKey].totalCollection += (cp.InsPayAmt || 0);
+    }
+
+    const rows = Object.values(groups);
+    rows.sort((a, b) => b.totalCollection - a.totalCollection);
+
+    return rows.map(r => {
+      const totalCol = Math.round(r.totalCollection * 100) / 100;
+      return {
+        ...r,
+        totalProduction: Math.round(r.totalProduction * 100) / 100,
+        totalCollection: totalCol,
+        avgPerCode: r.quantity > 0 ? Math.round((totalCol / r.quantity) * 100) / 100 : 0
+      };
+    });
   }
 
   private async getAdjustmentReport(start: Date, end: Date, query: any = {}) {
     const where: any = {};
 
-    if (query.filterByProductionDate || query.dateType === 'DateEntry') {
+    const isFilterByProductionDate = query.filterByProductionDate === 'true' || query.filterByProductionDate === true;
+    const isFilterByDOS = query.filterByDOS === 'true' || query.filterByDOS === true;
+
+    if (isFilterByDOS) {
+      where.procedurelog = {
+        ProcDate: { gte: start, lte: end }
+      };
+    } else if (isFilterByProductionDate || query.dateType === 'DateEntry') {
       where.DateEntry = { gte: start, lte: end };
     } else {
       where.AdjDate = { gte: start, lte: end };
@@ -778,6 +1493,13 @@ export class ReportGenerationService {
         where.AdjType = typeNum;
       }
     }
+
+    // Exclude Courtesy Credits from the generic Adjustment Report
+    where.NOT = {
+      AdjNote: {
+        startsWith: 'Courtesy Credit'
+      }
+    };
 
     const adjustments = await prisma.adjustment.findMany({
       where,
@@ -813,15 +1535,16 @@ export class ReportGenerationService {
         id: a.AdjNum.toString(),
         date: a.AdjDate?.toLocaleDateString() || a.DateEntry?.toLocaleDateString() || '',
         amount: a.AdjAmt ?? 0,
-        patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Patient',
+        patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : '',
         patientId: patNumStr,
         dob: dobStr,
         flags: flags,
-        provider: a.provider ? (a.provider.Abbr || `${a.provider.FName} ${a.provider.LName}`) : 'Provider',
+        provider: a.provider ? `${a.provider.FName || ''} ${a.provider.LName || ''}`.trim() || a.provider.Abbr || '' : '',
         providerId: a.provider?.ProvNum?.toString() || '',
         typeId: a.AdjType?.toString() || '',
         code: procCode,
-        procedure: a.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || procCode || 'Adjustment',
+        procedure: a.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || procCode || '',
+        site: a.procedurelog?.ToothNum ? `#${a.procedurelog.ToothNum}` : (a.procedurelog?.Surf || ''),
         notes: a.AdjNote ?? ''
       };
     });
@@ -840,87 +1563,258 @@ export class ReportGenerationService {
   }
 
   private async getCourtesyCreditModifications(start: Date, end: Date, query: any = {}) {
+    // Determine date range
+    let sDate = start;
+    let eDate = end;
+    if (query.startDate && query.endDate) {
+      sDate = new Date(query.startDate);
+      eDate = new Date(query.endDate);
+      eDate.setHours(23, 59, 59, 999);
+    }
+
+    // Query all courtesy credit adjustments directly — this is the authoritative source
     const courtesyDefs = await prisma.definition.findMany({
-      where: {
-        Category: 1, // AdjTypes
-        ItemName: { contains: 'Courtesy', mode: 'insensitive' }
-      }
+      where: { Category: 1 }
     });
     const courtesyDefNums = courtesyDefs.map(d => d.DefNum);
-
     if (courtesyDefNums.length === 0) return [];
 
-    const adjWhere: any = { AdjType: { in: courtesyDefNums } };
-    if (query.startDate && query.endDate) {
-      const sDate = new Date(query.startDate);
-      const eDate = new Date(query.endDate);
-      adjWhere.AdjDate = { gte: sDate, lte: eDate };
-    } else {
-      adjWhere.AdjDate = { gte: start, lte: end };
-    }
-
     const adjustments = await prisma.adjustment.findMany({
-      where: adjWhere
-    });
-    const adjNums = adjustments.map(a => a.AdjNum);
-
-    const logWhere: any = {
-      PermType: { in: [105, 106, 107] }
-    };
-
-    if (adjNums.length > 0) {
-      logWhere.FKey = { in: adjNums };
-    }
-
-    if (query.startDate && query.endDate) {
-      logWhere.LogDateTime = { gte: new Date(query.startDate), lte: new Date(query.endDate) };
-    } else {
-      logWhere.LogDateTime = { gte: start, lte: end };
-    }
-
-    if (query.users && query.users !== 'all') {
-      const userNum = Number(query.users);
-      if (!isNaN(userNum)) {
-        logWhere.UserNum = userNum;
-      }
-    }
-
-    const logs = await prisma.securitylog.findMany({
-      where: logWhere,
-      include: {
-        userod: true,
-        patient: true
+      where: {
+        AdjType: { in: courtesyDefNums },
+        AdjNote: { startsWith: 'Courtesy Credit' },
+        AdjDate: { gte: sDate, lte: eDate }
       },
-      orderBy: { LogDateTime: 'desc' },
+      include: {
+        patient: true,
+        provider: true
+      },
+      orderBy: { DateEntry: 'desc' },
       take: 300
     });
 
-    let results = logs.map(log => ({
-      id: log.SecurityLogNum.toString(),
-      dateModified: log.LogDateTime?.toLocaleDateString() || '',
-      timestamp: log.LogDateTime?.toISOString() || '',
-      user: log.userod ? (log.userod.UserName || 'System') : 'System',
-      action: log.LogText || 'Modified Courtesy Credit',
-      type: 'Adjustment',
-      patient: log.patient ? `${log.patient.FName} ${log.patient.LName}` : 'Unknown',
-      amount: 0
-    }));
+    if (adjustments.length === 0) return [];
+
+    // Build a map of AdjNum -> securitylog entries for enrichment (user who performed action)
+    const adjNums = adjustments.map(a => a.AdjNum);
+    const securityLogs = await prisma.securitylog.findMany({
+      where: {
+        OR: [
+          { FKey: { in: adjNums }, PermType: { in: [105, 106, 107] } },
+          { LogText: { contains: 'Courtesy Credit' }, LogDateTime: { gte: sDate, lte: eDate } }
+        ]
+      },
+      include: { 
+        userod: {
+          include: {
+            employee: true,
+            provider: true
+          }
+        }
+      },
+      orderBy: { LogDateTime: 'desc' }
+    });
+
+    // Map: AdjNum -> best log entry
+    const logByAdjNum = new Map<string, any>();
+    const logByRecordId = new Map<string, any>();
+    for (const log of securityLogs) {
+      // Direct FKey match
+      if (log.FKey && log.FKey > 0n) {
+        const key = log.FKey.toString();
+        if (!logByAdjNum.has(key)) logByAdjNum.set(key, log);
+      }
+      // Parse JSON LogText to extract recordId
+      if (log.LogText && log.LogText.startsWith('{')) {
+        try {
+          const parsed = JSON.parse(log.LogText);
+          if (parsed.recordId && parsed.tableName === 'adjustments') {
+            if (!logByRecordId.has(parsed.recordId)) {
+              logByRecordId.set(parsed.recordId, { log, parsed });
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
+    const defMap = new Map<string, string>();
+    courtesyDefs.forEach(d => {
+      defMap.set(d.DefNum.toString(), d.ItemName || 'Adjustment');
+    });
+
+    const patNums = Array.from(new Set(adjustments.map(a => a.PatNum).filter(Boolean))) as bigint[];
+    const metaMap = await getPatientsMeta(patNums);
+
+    let results = adjustments.map(adj => {
+      const adjKey = adj.AdjNum.toString();
+      const patientName = adj.patient ? `${adj.patient.FName} ${adj.patient.LName}` : 'Unknown';
+      const patNumStr = adj.patient?.PatNum?.toString() || '0';
+      const meta = metaMap[patNumStr] || {};
+      const flags = Array.isArray(meta.patientFlags) ? meta.patientFlags.filter(Boolean) : [];
+      const amount = Math.abs(adj.AdjAmt ?? 0);
+
+      // Helper to get real name from userod
+      const getRealUserName = (userod: any) => {
+        if (!userod) return 'System';
+        let name = '';
+        if (userod.employee?.FName || userod.employee?.LName) {
+          name = [userod.employee.FName, userod.employee.LName].filter(Boolean).join(' ');
+        } else if (userod.provider?.FName || userod.provider?.LName) {
+          name = [userod.provider.FName, userod.provider.LName].filter(Boolean).join(' ');
+        }
+
+        if (!name || name.toLowerCase() === 'system employee') {
+          const uName = userod.UserName || 'System';
+          name = uName.includes('@') ? uName.split('@')[0] : uName;
+        }
+        return name;
+      };
+
+      // Try to find the user who performed the action
+      let userName = 'System';
+      let actionType = 'Created';
+
+      // Check direct FKey match first
+      const directLog = logByAdjNum.get(adjKey);
+      if (directLog) {
+        userName = getRealUserName(directLog.userod);
+        if (directLog.PermType === 106) actionType = 'Updated';
+        else if (directLog.PermType === 107) actionType = 'Deleted';
+      }
+
+      // Check JSON recordId match
+      const jsonMatch = logByRecordId.get(adjKey);
+      if (jsonMatch) {
+        if (!directLog) {
+          userName = getRealUserName(jsonMatch.log.userod);
+        }
+        const act = jsonMatch.parsed?.action;
+        if (act === 'updated') actionType = 'Updated';
+        else if (act === 'deleted') actionType = 'Deleted';
+      }
+
+      // Fallback: use SecUserNumEntry from the adjustment itself
+      if (userName === 'System' && adj.SecUserNumEntry) {
+        // We'll resolve this below
+      }
+
+      // Check if voided
+      const isVoided = (adj.AdjNote || '').includes('[VOIDED]');
+      if (isVoided) actionType = 'Deleted';
+
+      const noteText = (adj.AdjNote || '').replace('[VOIDED] ', '');
+
+      return {
+        id: adjKey,
+        date: adj.AdjDate?.toLocaleDateString() || adj.DateEntry?.toLocaleDateString() || '',
+        dateModified: adj.DateEntry?.toLocaleDateString() || adj.AdjDate?.toLocaleDateString() || '',
+        timestamp: adj.DateEntry?.toISOString() || adj.AdjDate?.toISOString() || '',
+        user: userName,
+        action: `${actionType} Courtesy Credit${noteText ? ' (' + noteText + ')' : ''}`,
+        actionType,
+        type: adj.AdjType ? (defMap.get(adj.AdjType.toString()) || 'Adjustment') : 'Adjustment',
+        patient: patientName,
+        flags: flags,
+        amount,
+        creditAmount: amount,
+        patientStatus: adj.patient?.PatStatus ?? 0,
+        providerId: adj.ProvNum?.toString() || '',
+        providerName: adj.provider ? [adj.provider.FName, adj.provider.LName].filter(Boolean).join(' ') || adj.provider.Abbr || '' : '',
+        _secUserNum: adj.SecUserNumEntry
+      };
+    });
+
+    // Resolve usernames for any entries that still show 'System' but have SecUserNumEntry
+    const unresolvedUserNums = new Set<bigint>();
+    results.forEach(r => {
+      if (r.user === 'System' && r._secUserNum && r._secUserNum > 0n) {
+        unresolvedUserNums.add(r._secUserNum);
+      }
+    });
+
+    if (unresolvedUserNums.size > 0) {
+      const users = await prisma.userod.findMany({
+        where: { UserNum: { in: Array.from(unresolvedUserNums) } },
+        include: { employee: true, provider: true }
+      });
+      // Helper to get real name from userod
+      const getRealUserName = (userod: any) => {
+        if (!userod) return 'System';
+        let name = '';
+        if (userod.employee?.FName || userod.employee?.LName) {
+          name = [userod.employee.FName, userod.employee.LName].filter(Boolean).join(' ');
+        } else if (userod.provider?.FName || userod.provider?.LName) {
+          name = [userod.provider.FName, userod.provider.LName].filter(Boolean).join(' ');
+        }
+
+        if (!name || name.toLowerCase() === 'system employee') {
+          const uName = userod.UserName || 'System';
+          name = uName.includes('@') ? uName.split('@')[0] : uName;
+        }
+        return name;
+      };
+      const userMap = new Map(users.map(u => [u.UserNum.toString(), getRealUserName(u)]));
+      results.forEach(r => {
+        if (r.user === 'System' && r._secUserNum) {
+          r.user = userMap.get(r._secUserNum.toString()) || 'System';
+        }
+      });
+    }
+
+    // Clean up internal fields
+    const cleanResults: any[] = results.map(r => {
+      const { _secUserNum, ...rest } = r;
+      return rest;
+    });
+
+    // Apply filters
+    let filtered = cleanResults;
+
+    // Patients filter (active/inactive)
+    if (query.patients && query.patients !== 'all') {
+      if (query.patients === 'active') {
+        filtered = filtered.filter(r => r.patientStatus === 0);
+      } else if (query.patients === 'inactive') {
+        filtered = filtered.filter(r => r.patientStatus !== 0);
+      }
+    }
 
     if (query.action && query.action !== 'all') {
       const actTerm = query.action.toLowerCase();
-      results = results.filter(r => r.action.toLowerCase().includes(actTerm));
+      filtered = filtered.filter(r => (r.actionType || '').toLowerCase() === actTerm);
+    }
+
+    if (query.users && query.users !== 'all') {
+      const userTerm = query.users.toLowerCase();
+      filtered = filtered.filter(r => (r.user || '').toLowerCase().includes(userTerm));
+    }
+
+    if (query.flags && query.flags !== 'all' && query.flags !== 'pts') {
+      if (query.flags === 'with_flags') {
+        filtered = filtered.filter(r => r.flags && r.flags.length > 0);
+      } else if (query.flags === 'without_flags') {
+        filtered = filtered.filter(r => !r.flags || r.flags.length === 0);
+      } else {
+        const flagTerm = query.flags.toLowerCase();
+        filtered = filtered.filter(r => 
+          (r.flags || []).some((f: any) => 
+            f?.text?.toLowerCase().includes(flagTerm) || 
+            f?.id?.toLowerCase().includes(flagTerm)
+          )
+        );
+      }
     }
 
     if (query.searchText) {
       const sTerm = query.searchText.toLowerCase();
-      results = results.filter(r =>
+      filtered = filtered.filter(r =>
         r.patient.toLowerCase().includes(sTerm) ||
         r.user.toLowerCase().includes(sTerm) ||
         r.action.toLowerCase().includes(sTerm)
       );
     }
 
-    return results;
+    return filtered;
   }
 
   private async getCourtesyCreditReport(start: Date, end: Date, modifications = false, query: any = {}) {
@@ -930,8 +1824,7 @@ export class ReportGenerationService {
 
     const courtesyDefs = await prisma.definition.findMany({
       where: {
-        Category: 1, // AdjTypes
-        ItemName: { contains: 'Courtesy', mode: 'insensitive' }
+        Category: 1, // All adjustment types
       }
     });
     
@@ -942,7 +1835,8 @@ export class ReportGenerationService {
     const adjustments = await prisma.adjustment.findMany({
       where: { 
         AdjDate: { gte: start, lte: end },
-        AdjType: { in: courtesyDefNums } 
+        AdjType: { in: courtesyDefNums },
+        AdjNote: { startsWith: 'Courtesy Credit' }
       },
       include: {
         patient: true
@@ -966,9 +1860,35 @@ export class ReportGenerationService {
         amount: Math.abs(a.AdjAmt ?? 0),
         creditAmount: Math.abs(a.AdjAmt ?? 0),
         date: a.AdjDate?.toLocaleDateString() || '',
-        notes: a.AdjNote || ''
+        notes: a.AdjNote || '',
+        patientStatus: a.patient?.PatStatus ?? 0,
+        balTotal: a.patient?.BalTotal ?? 0
       };
     });
+
+    if (query.patientFilter && query.patientFilter !== 'all') {
+      if (query.patientFilter === 'active') {
+        results = results.filter(r => r.patientStatus === 0);
+      } else if (query.patientFilter === 'inactive') {
+        results = results.filter(r => r.patientStatus !== 0);
+      }
+    }
+
+    if (query.outstandingFilter && query.outstandingFilter !== 'all') {
+      if (query.outstandingFilter === 'with_bal') {
+        results = results.filter(r => r.balTotal > 0);
+      } else if (query.outstandingFilter === 'without_bal') {
+        results = results.filter(r => r.balTotal <= 0);
+      }
+    }
+
+    if (query.flagFilter && query.flagFilter !== 'pts') {
+      if (query.flagFilter === 'with_flags') {
+        results = results.filter(r => r.flags.length > 0);
+      } else if (query.flagFilter === 'without_flags') {
+        results = results.filter(r => r.flags.length === 0);
+      }
+    }
 
     if (query.searchText) {
       const term = query.searchText.toLowerCase();
@@ -981,9 +1901,7 @@ export class ReportGenerationService {
   private async getCreditAccountsReport(query: any = {}) {
     const where: any = { BalTotal: { lt: 0 } };
 
-    if (query.includeInactive === false || query.includeInactive === 'false') {
-      where.PatStatus = 0;
-    } else if (query.filter === 'Active patients') {
+    if (query.filter === 'Active patients') {
       where.PatStatus = 0;
     } else if (query.filter === 'Inactive patients') {
       where.PatStatus = { not: 0 };
@@ -1028,49 +1946,153 @@ export class ReportGenerationService {
   }
 
   private async getModificationsReport(start: Date, end: Date, query: any = {}) {
-    const where: any = {
-      LogDateTime: { gte: start, lte: end }
-    };
+    const results: any[] = [];
 
-    if (query.category === 'appointments') {
-      where.PermType = { in: [25, 26, 27, 49] };
-    } else if (query.category === 'fees') {
-      where.PermType = { in: [63, 84] };
-    } else if (query.category === 'claims') {
-      where.PermType = { in: [47, 48] };
-    } else if (query.category === 'patient') {
-      where.PermType = { in: [1, 2] };
-    }
+    const providers = await prisma.provider.findMany({ select: { ProvNum: true, Abbr: true, FName: true, LName: true } });
+    const provMap = new Map();
+    providers.forEach(p => {
+      const fullName = `${p.FName || ''} ${p.LName || ''}`.trim();
+      provMap.set(p.ProvNum.toString(), fullName || p.Abbr);
+    });
 
-    const logs = await prisma.securitylog.findMany({
-      where,
-      include: {
-        userod: true,
-        patient: true
+    const getProvName = (num: any) => num ? provMap.get(num.toString()) || num.toString() : 'Unassigned';
+
+    const users = await prisma.userod.findMany({ select: { UserNum: true, UserName: true } });
+    const userMap = new Map();
+    users.forEach(u => userMap.set(u.UserNum.toString(), u.UserName));
+
+    const getUserName = (num: any) => num ? userMap.get(num.toString()) || num.toString() : 'Sys';
+
+    // 1. Procedures
+    const procs = await prisma.procedurelog.findMany({
+      where: {
+        OR: [
+          { SecDateEntry: { gte: start, lte: end } },
+          { ProcDate: { gte: start, lte: end } },
+          { DateEntryC: { gte: start, lte: end } }
+        ]
       },
-      orderBy: { LogDateTime: 'desc' },
+      include: { patient: { select: { PriProv: true } } },
       take: 300
     });
 
-    if (logs.length === 0) {
-      return [];
-    }
-
-    return logs.map(log => {
-      const modifiedBy = log.userod ? (log.userod.UserName || 'System') : 'System';
-      const patientName = log.patient ? `${log.patient.FName} ${log.patient.LName}` : 'N/A';
-      
-      return {
-        id: log.SecurityLogNum.toString(),
-        timestamp: log.LogDateTime?.toISOString() || new Date().toISOString(),
-        modifiedBy,
-        field: log.PermType ? `Permission Event #${log.PermType}` : 'General Edit',
-        originalValue: '-',
-        newValue: log.LogText || 'System Audit Record',
-        patient: patientName,
-        action: log.LogText || 'Modified system entity'
-      };
+    procs.forEach((p: any) => {
+      const isAdd = p.SecDateEntry && p.SecDateEntry >= start && p.SecDateEntry <= end;
+      results.push({
+        action: isAdd ? 'Add' : 'Modify',
+        trans: p.ProcNum.toString(),
+        proc: p.OldCode || 'Proc',
+        rendering: getProvName(p.ProvNum),
+        billing: getProvName(p.patient?.PriProv) === 'Unassigned' ? getProvName(p.ProvNum) : getProvName(p.patient?.PriProv),
+        fees: p.ProcFee || 0,
+        creditAdj: 0,
+        debitAdj: 0,
+        collection: 0,
+        accountCredit: 0
+      });
     });
+
+    // 2. Adjustments
+    const adjs = await prisma.adjustment.findMany({
+      where: {
+        OR: [
+          { DateEntry: { gte: start, lte: end } },
+          { SecDateTEdit: { gte: start, lte: end } },
+          { AdjDate: { gte: start, lte: end } }
+        ]
+      },
+      include: { patient: { select: { PriProv: true } } },
+      take: 300
+    });
+
+    adjs.forEach((a: any) => {
+      const isAdd = a.DateEntry && a.DateEntry >= start && a.DateEntry <= end;
+      const amt = a.AdjAmt || 0;
+      results.push({
+        action: isAdd ? 'Add' : 'Modify',
+        trans: a.AdjNum.toString(),
+        proc: 'Adjustment',
+        rendering: getProvName(a.ProvNum),
+        billing: getProvName(a.patient?.PriProv) === 'Unassigned' ? getProvName(a.ProvNum) : getProvName(a.patient?.PriProv),
+        fees: 0,
+        creditAdj: amt < 0 ? Math.abs(amt) : 0,
+        debitAdj: amt > 0 ? amt : 0,
+        collection: 0,
+        accountCredit: 0
+      });
+    });
+
+    // 3. Paysplits
+    const splits = await prisma.paysplit.findMany({
+      where: {
+        OR: [
+          { DateEntry: { gte: start, lte: end } },
+          { SecDateTEdit: { gte: start, lte: end } },
+          { DatePay: { gte: start, lte: end } }
+        ]
+      },
+      include: { patient: { select: { PriProv: true } } },
+      take: 300
+    });
+
+    splits.forEach((s: any) => {
+      const isAdd = s.DateEntry && s.DateEntry >= start && s.DateEntry <= end;
+      results.push({
+        action: isAdd ? 'Add' : 'Modify',
+        trans: s.SplitNum.toString(),
+        proc: 'Payment',
+        rendering: getProvName(s.ProvNum),
+        billing: getProvName(s.patient?.PriProv) === 'Unassigned' ? getProvName(s.ProvNum) : getProvName(s.patient?.PriProv),
+        fees: 0,
+        creditAdj: 0,
+        debitAdj: 0,
+        collection: s.SplitAmt || 0,
+        accountCredit: 0
+      });
+    });
+
+    // 4. Deletions from SecurityLog
+    const deletedLogs = await prisma.securitylog.findMany({
+      where: {
+        LogDateTime: { gte: start, lte: end },
+        LogText: { contains: 'elet', mode: 'insensitive' } // matches Delete, Deleted
+      },
+      take: 300
+    });
+
+    deletedLogs.forEach((log: any) => {
+      let amount = 0;
+      const match = log.LogText?.match(/\$?(\d+(\.\d{2})?)/);
+      if (match) {
+        amount = parseFloat(match[1]);
+      }
+
+      let procStr = 'Deleted Item';
+      const text = (log.LogText || '').toLowerCase();
+      if (text.includes('procedure')) procStr = 'Deleted Procedure';
+      if (text.includes('payment') || text.includes('paysplit')) procStr = 'Deleted Payment';
+      if (text.includes('adjustment')) procStr = 'Deleted Adjustment';
+
+      if (procStr !== 'Deleted Item') {
+        results.push({
+          action: 'Void',
+          trans: log.SecurityLogNum.toString(),
+          proc: procStr,
+          rendering: getUserName(log.UserNum),
+          billing: '-',
+          fees: procStr.includes('Procedure') ? amount : 0,
+          creditAdj: procStr.includes('Adjustment') ? amount : 0,
+          debitAdj: 0,
+          collection: procStr.includes('Payment') ? amount : 0,
+          accountCredit: 0
+        });
+      }
+    });
+
+    // Sort by trans or action just to have a predictable order
+    results.sort((a, b) => a.action.localeCompare(b.action));
+
+    return results;
   }
 
   private async getDepositSummary(start: Date, end: Date) {
@@ -1085,12 +2107,64 @@ export class ReportGenerationService {
     }));
   }
 
-  private async getCollectionCarrier(start: Date, end: Date) {
+  private async getCollectionCarrier(start: Date, end: Date, provider?: string, payer?: string, plan?: string, network?: string) {
+    const whereClause: any = {
+      DateCP: { gte: start, lte: end },
+      Status: { in: [1, 4] } // 1 = Received/Finalized, 4 = Supplemental
+    };
+    if (provider && provider !== 'All') {
+      const pNum = parseInt(provider, 10);
+      if (!isNaN(pNum)) {
+        whereClause.ProvNum = pNum;
+      }
+    }
+
+    if (payer && payer.trim() !== '') {
+      whereClause.insplan = {
+        ...(whereClause.insplan || {}),
+        carrier: {
+          CarrierName: { contains: payer.trim() }
+        }
+      };
+    }
+
+    if (plan && plan.trim() !== '') {
+      whereClause.insplan = {
+        ...(whereClause.insplan || {}),
+        GroupName: { contains: plan.trim() }
+      };
+    }
+
+    if (network === 'In') {
+      whereClause.insplan = {
+        ...(whereClause.insplan || {}),
+        carrier: {
+          ...(whereClause.insplan?.carrier || {}),
+          OR: [
+            { CarrierName: { contains: 'cigna' } },
+            { CarrierName: { contains: 'delta dental' } },
+            { CarrierName: { contains: 'blue cross' } }
+          ]
+        }
+      };
+    } else if (network === 'Out') {
+      whereClause.insplan = {
+        ...(whereClause.insplan || {}),
+        carrier: {
+          ...(whereClause.insplan?.carrier || {}),
+          NOT: {
+            OR: [
+              { CarrierName: { contains: 'cigna' } },
+              { CarrierName: { contains: 'delta dental' } },
+              { CarrierName: { contains: 'blue cross' } }
+            ]
+          }
+        }
+      };
+    }
+
     const claimProcs = await prisma.claimproc.findMany({
-      where: {
-        DateCP: { gte: start, lte: end },
-        Status: { in: [1, 4] } // 1 = Received/Finalized, 4 = Supplemental
-      },
+      where: whereClause,
       include: {
         patient: true,
         insplan: {
@@ -1140,41 +2214,8 @@ export class ReportGenerationService {
     const fmt = (n: number) =>
       `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-    // Fallback dummy data when no real records exist for the period
     if (carrierMap.size === 0) {
-      return [
-        {
-          name: 'Delta Dental',
-          collection: '$4,520.00',
-          production: '$5,200.00',
-          writeoff: '$680.00',
-          patients: [
-            { name: 'Francis Fuller', collection: '$2,200.00', production: '$2,550.00', writeoff: '$350.00' },
-            { name: 'John Doe', collection: '$1,500.00', production: '$1,700.00', writeoff: '$200.00' },
-            { name: 'Jane Smith', collection: '$820.00', production: '$950.00', writeoff: '$130.00' }
-          ]
-        },
-        {
-          name: 'Aetna',
-          collection: '$2,850.00',
-          production: '$3,300.00',
-          writeoff: '$450.00',
-          patients: [
-            { name: 'Robert Brown', collection: '$1,500.00', production: '$1,750.00', writeoff: '$250.00' },
-            { name: 'Emily Davis', collection: '$1,350.00', production: '$1,550.00', writeoff: '$200.00' }
-          ]
-        },
-        {
-          name: 'Cigna',
-          collection: '$1,950.00',
-          production: '$2,300.00',
-          writeoff: '$350.00',
-          patients: [
-            { name: 'Michael Wilson', collection: '$1,000.00', production: '$1,200.00', writeoff: '$200.00' },
-            { name: 'Sarah Johnson', collection: '$950.00', production: '$1,100.00', writeoff: '$150.00' }
-          ]
-        }
-      ];
+      return [];
     }
 
     return Array.from(carrierMap.entries()).map(([name, data]) => ({
@@ -1326,41 +2367,9 @@ export class ReportGenerationService {
     const fmt = (n: number) =>
       `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-    // Fallback dummy data
+    // No data found for the selected range
     if (familyMap.size === 0) {
-      return [
-        {
-          id: '196',
-          name: 'Fuller Family',
-          patientCollection: '$150.00',
-          insuranceCollection: '$470.00',
-          totalCollection: '$620.00',
-          members: [
-            { id: '196', name: 'Francis Fuller', patientCollection: '$150.00', insuranceCollection: '$470.00', totalCollection: '$620.00' }
-          ]
-        },
-        {
-          id: '298',
-          name: 'Gilmore Family',
-          patientCollection: '$120.00',
-          insuranceCollection: '$0.00',
-          totalCollection: '$120.00',
-          members: [
-            { id: '298', name: 'Garry Gilmore', patientCollection: '$80.00', insuranceCollection: '$0.00', totalCollection: '$80.00' },
-            { id: '299', name: 'Linda Gilmore', patientCollection: '$40.00', insuranceCollection: '$0.00', totalCollection: '$40.00' }
-          ]
-        },
-        {
-          id: '782',
-          name: 'Niblock Family',
-          patientCollection: '$0.00',
-          insuranceCollection: '$280.00',
-          totalCollection: '$280.00',
-          members: [
-            { id: '782', name: 'Zoe Niblock', patientCollection: '$0.00', insuranceCollection: '$280.00', totalCollection: '$280.00' }
-          ]
-        }
-      ];
+      return [];
     }
 
     return Array.from(familyMap.entries()).map(([guarantorId, family]) => {
@@ -1413,45 +2422,9 @@ export class ReportGenerationService {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    // Fallback dummy data when DB has no plans
+    // No payment plans found
     if (plans.length === 0) {
-      return [
-        {
-          patient: 'Francis Fuller',
-          createdOn: '09/18/2025',
-          amount: '$357.87',
-          totalPayments: 6,
-          remainingPayments: 3,
-          remainingBalance: '$1,073.61',
-          nextDue: '12/18/2025',
-          missed: 3,
-          lastBilled: '11/18/2025',
-          lastPayment: '11/18/2025',
-          type: 'Regular Invoice',
-          status: 'Failed',
-          history: [
-            { amount: '$357.87', status: 'Paid', created: '09/18/2025', due: '09/18/2025', downPayment: 'No', charged: '09/18/2025', failed: '', error: '' },
-            { amount: '$357.87', status: 'Paid', created: '09/18/2025', due: '10/18/2025', downPayment: 'No', charged: '10/18/2025', failed: '', error: '' },
-            { amount: '$357.87', status: 'Paid', created: '09/18/2025', due: '11/18/2025', downPayment: 'No', charged: '11/18/2025', failed: '', error: '' },
-            { amount: '$357.87', status: 'Failed', created: '09/18/2025', due: '12/18/2025', downPayment: 'No', charged: '', failed: '12/24/2025', error: 'Transaction declined: Insufficient Funds' },
-          ]
-        },
-        {
-          patient: 'Garry Gilmore',
-          createdOn: '12/15/2025',
-          amount: '$42.00',
-          totalPayments: 10,
-          remainingPayments: 5,
-          remainingBalance: '$210.00',
-          nextDue: '05/24/2026',
-          missed: 0,
-          lastBilled: '04/24/2026',
-          lastPayment: '04/24/2026',
-          type: 'Regular Invoice',
-          status: 'Scheduled',
-          history: []
-        }
-      ];
+      return [];
     }
 
     const results = plans.map(plan => {
@@ -1613,40 +2586,211 @@ export class ReportGenerationService {
   }
 
   private async getPaymentRequestsReport(start: Date, end: Date) {
-    return [
-      { patient: 'Patient One', created: '05/08/2025', requested: '$358.00', paid: '--------', date: '', status: '' },
-      { patient: 'Patient Two', created: '05/08/2025', requested: '$1,000.00', paid: '--------', date: '', status: '' },
-      { patient: 'Patient Three', created: '05/08/2025', requested: '$288.00', paid: '$288.00', date: '05/10/2025', status: 'Successful Transaction' },
-      { patient: 'Patient Four', created: '05/13/2025', requested: '$69.00', paid: '$69.00', date: '05/13/2025', status: 'Successful Transaction' },
-      { patient: 'Patient Five', created: '05/14/2025', requested: '$877.10', paid: '$877.10', date: '05/14/2025', status: 'Successful Transaction' },
-    ];
+    const statements = await prisma.statement.findMany({
+      where: {
+        DateSent: {
+          gte: start,
+          lte: end
+        }
+      },
+      include: {
+        patient_statement_PatNumTopatient: {
+          select: { FName: true, LName: true }
+        }
+      },
+      take: 100,
+      orderBy: { DateSent: 'desc' }
+    });
+
+    if (statements.length === 0) return [];
+
+    const fmt = (n: number) =>
+      `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    return statements.map(stmt => {
+      const pat = stmt.patient_statement_PatNumTopatient;
+      const patientName = pat ? `${pat.FName ?? ''} ${pat.LName ?? ''}`.trim() : 'Unknown Patient';
+      
+      let noteObj: any = {};
+      try {
+        if (stmt.NoteBold && stmt.NoteBold.startsWith('{')) {
+          noteObj = JSON.parse(stmt.NoteBold);
+        }
+      } catch (e) {}
+
+      const requestedAmt = noteObj.totalAmount ?? stmt.BalTotal ?? 0;
+      const paidAmt = noteObj.paidAmount ?? (stmt.IsBalValid === 0 ? requestedAmt : 0); 
+      
+      let status = 'Pending';
+      if (paidAmt >= requestedAmt && requestedAmt > 0) {
+        status = 'Successful Transaction';
+      }
+
+      return {
+        patient: patientName,
+        created: stmt.DateSent ? (stmt.DateSent as Date).toLocaleDateString() : '',
+        requested: fmt(requestedAmt),
+        paid: paidAmt > 0 ? fmt(paidAmt) : '--------',
+        date: paidAmt > 0 && stmt.DateSent ? (stmt.DateSent as Date).toLocaleDateString() : '',
+        status: status
+      };
+    });
   }
 
   private async getOpenEdgeTransactions(start: Date, end: Date) {
-    return [
-      { id: 'Patient A (861)', created: '05/26/2025', type: 'Payment', number: '18381', status: 'Pending' },
-      { id: 'Patient B (452)', created: '06/24/2025', type: 'Payment', number: '18891', status: 'Pending' },
-      { id: 'Patient C (123)', created: '07/15/2025', type: 'Payment', number: '19282', status: 'Pending' },
-      { id: 'Patient D (789)', created: '02/03/2026', type: 'Payment', number: '23110', status: 'Pending' },
-      { id: 'Patient E (456)', created: '02/27/2026', type: 'Payment', number: '23519', status: 'Pending' },
-      { id: 'Patient F (321)', created: '03/20/2026', type: 'Payment', number: '23987', status: 'Pending' },
-      { id: 'Patient G (654)', created: '03/27/2026', type: 'Payment', number: '24171', status: 'Pending' },
-      { id: 'Patient H (987)', created: '05/08/2026', type: 'Payment', number: '25200', status: 'Pending' },
-      { id: 'Patient I (159)', created: '05/08/2026', type: 'Payment', number: '25214', status: 'Pending' },
-      { id: 'Patient J (753)', created: '07/15/2025', type: 'Deposit', number: '19272', status: 'Pending' }
-    ];
+    const responses = await prisma.xwebresponse.findMany({
+      where: {
+        DateTUpdate: {
+          gte: start,
+          lte: end
+        }
+      },
+      include: {
+        patient: {
+          select: { FName: true, LName: true }
+        }
+      },
+      take: 100,
+      orderBy: { DateTUpdate: 'desc' }
+    });
+
+    if (responses.length === 0) return [];
+
+    return responses.map(res => {
+      const pat = res.patient;
+      const patientName = pat ? `${pat.FName ?? ''} ${pat.LName ?? ''}`.trim() : 'Unknown Patient';
+      
+      let status = 'Pending';
+      const desc = res.ResponseDescription?.toLowerCase() || '';
+      if (desc.includes('approv') || res.TransactionStatus === 1 || res.ResponseCode === 0) {
+        status = 'Successful Transaction';
+      } else if (desc.includes('decline') || desc.includes('fail') || res.TransactionStatus === 2) {
+        status = 'Failed';
+      } else if (desc) {
+        status = res.ResponseDescription!;
+      }
+
+      return {
+        id: `${patientName} (${res.PatNum})`,
+        created: res.DateTUpdate ? (res.DateTUpdate as Date).toLocaleDateString() : '',
+        type: res.TransactionType || 'Payment',
+        number: res.TransactionID || res.OrderId || res.XWebResponseNum.toString(),
+        status: status
+      };
+    });
   }
 
-  private async getProceduresInsurance(start: Date, end: Date) {
-    return [
-      { code: 'D1110', patient: 'Francis Fuller', insurance: 'Delta Dental', claimStatus: 'Sent' }
-    ];
+  private async getProceduresInsurance(start: Date, end: Date, providerId?: string) {
+    const whereClause: any = {
+      ProcDate: {
+        gte: start,
+        lte: end
+      },
+      claim: { isNot: null },
+      insplan: { isNot: null },
+      procedurelog: { isNot: null }
+    };
+
+    if (providerId && providerId !== 'all' && providerId !== 'All') {
+      const provNum = Number(providerId);
+      if (!isNaN(provNum)) {
+        whereClause.ProvNum = BigInt(provNum);
+      }
+    }
+
+    const claimprocs = await prisma.claimproc.findMany({
+      where: whereClause,
+      include: {
+        procedurelog: {
+          include: { 
+            procedurecode_procedurelog_CodeNumToprocedurecode: true, 
+            patient: true 
+          }
+        },
+        insplan: {
+          include: { carrier: true }
+        },
+        claim: true
+      },
+      take: 200,
+      orderBy: { ProcDate: 'desc' }
+    });
+
+    if (claimprocs.length === 0) return [];
+
+    return claimprocs.map(cp => {
+      const code = cp.procedurelog?.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode || 'Unknown';
+      const pat = cp.procedurelog?.patient;
+      const patient = pat ? `${pat.FName ?? ''} ${pat.LName ?? ''}`.trim() : 'Unknown';
+      const insurance = cp.insplan?.carrier?.CarrierName || 'Unknown Insurance';
+      
+      let claimStatus = 'Sent';
+      const statusChar = cp.claim?.ClaimStatus;
+      if (statusChar === 'U') claimStatus = 'Unsent';
+      else if (statusChar === 'H') claimStatus = 'Hold';
+      else if (statusChar === 'W') claimStatus = 'Waiting';
+      else if (statusChar === 'S') claimStatus = 'Sent';
+      else if (statusChar === 'R') claimStatus = 'Received';
+      else if (statusChar) claimStatus = statusChar;
+
+      return {
+        code,
+        patient,
+        insurance,
+        claimStatus
+      };
+    });
   }
 
   private async getFamilyMigratedBalances() {
-    return [
-      { patient: 'Jane Smith', patientOwing: 2500.00, insuranceOwing: 1224.00, totalOwing: 3724.00, migrationDate: '04/10/2026' }
-    ];
+    const rawResult: any[] = await prisma.$queryRaw`
+      SELECT 
+        p."Guarantor", 
+        MAX(p."FName") as "FName", 
+        MAX(p."LName") as "LName", 
+        MAX(p."DateFirstVisit") as "DateFirstVisit",
+        SUM(COALESCE(pl."ProcFee", 0)) as "TotalProc",
+        SUM(COALESCE(a."AdjAmt", 0)) as "TotalAdj",
+        SUM(COALESCE(cp."InsPayAmt", 0) + COALESCE(cp."WriteOff", 0)) as "TotalIns",
+        SUM(COALESCE(ps."SplitAmt", 0)) as "TotalPay"
+      FROM patient p
+      LEFT JOIN (SELECT "PatNum", SUM("ProcFee") as "ProcFee" FROM procedurelog WHERE "ProcStatus" = 2 GROUP BY "PatNum") pl ON p."PatNum" = pl."PatNum"
+      LEFT JOIN (SELECT "PatNum", SUM("AdjAmt") as "AdjAmt" FROM adjustment GROUP BY "PatNum") a ON p."PatNum" = a."PatNum"
+      LEFT JOIN (SELECT "PatNum", SUM("InsPayAmt") as "InsPayAmt", SUM("WriteOff") as "WriteOff" FROM claimproc WHERE "Status" IN (1, 4, 0) GROUP BY "PatNum") cp ON p."PatNum" = cp."PatNum"
+      LEFT JOIN (SELECT "PatNum", SUM("SplitAmt") as "SplitAmt" FROM paysplit GROUP BY "PatNum") ps ON p."PatNum" = ps."PatNum"
+      WHERE p."PatNum" = p."Guarantor"
+      GROUP BY p."Guarantor"
+      HAVING (
+        SUM(COALESCE(pl."ProcFee", 0)) + 
+        SUM(COALESCE(a."AdjAmt", 0)) - 
+        SUM(COALESCE(cp."InsPayAmt", 0) + COALESCE(cp."WriteOff", 0)) - 
+        SUM(COALESCE(ps."SplitAmt", 0))
+      ) > 0
+      ORDER BY MAX(p."LName") ASC
+      LIMIT 200
+    `;
+
+    if (rawResult.length === 0) return [];
+
+    return rawResult.map(pat => {
+      const patientName = `${pat.FName ?? ''} ${pat.LName ?? ''}`.trim() || 'Unknown';
+      const totalOwing = Number(pat.TotalProc) + Number(pat.TotalAdj) - Number(pat.TotalIns) - Number(pat.TotalPay);
+      const insuranceOwing = Number(pat.TotalIns);
+      const patientOwing = totalOwing - insuranceOwing;
+      
+      let migrationDateStr = 'N/A';
+      if (pat.DateFirstVisit) {
+        migrationDateStr = new Date(pat.DateFirstVisit).toLocaleDateString();
+      }
+
+      return {
+        patient: patientName,
+        patientOwing: patientOwing < 0 ? 0 : patientOwing,
+        insuranceOwing,
+        totalOwing,
+        migrationDate: migrationDateStr
+      };
+    });
   }
 
   // ==========================================
@@ -1791,45 +2935,7 @@ export class ReportGenerationService {
   // ==========================================
 
   private async getPatientInsuranceCoverage(query: any = {}) {
-    const { searchQuery, assignmentFilter, apptStartDate, apptEndDate, apptSingleDate, showNoCoverage, apptFilterType } = query;
-
-    let whereClause: any = {};
-    whereClause.AND = [];
-
-    if (showNoCoverage === 'true' || showNoCoverage === true) {
-      whereClause.inssub = { is: null };
-    } else if (showNoCoverage === 'false' || showNoCoverage === false) {
-      whereClause.inssub = { isNot: null };
-    }
-
-    if (searchQuery) {
-      let searchOr: any[] = [
-        { patient: { is: { FName: { contains: searchQuery } } } },
-        { patient: { is: { LName: { contains: searchQuery } } } },
-        { inssub: { is: { insplan: { is: { GroupName: { contains: searchQuery } } } } } },
-        { inssub: { is: { insplan: { is: { carrier: { is: { CarrierName: { contains: searchQuery } } } } } } } }
-      ];
-      if (!isNaN(Number(searchQuery))) {
-        searchOr.push({ PatNum: BigInt(searchQuery) });
-      }
-      whereClause.AND.push({ OR: searchOr });
-    }
-
-    if (assignmentFilter === 'assignment') {
-      whereClause.inssub = { ...whereClause.inssub, is: { ...whereClause.inssub?.is, AssignBen: 1 } };
-    } else if (assignmentFilter === 'non-assignment') {
-      whereClause.AND.push({
-        OR: [
-          { inssub: { is: null } },
-          { inssub: { is: { AssignBen: { not: 1 } } } },
-          { inssub: { is: { AssignBen: null } } }
-        ]
-      });
-    }
-
-    if (whereClause.AND.length === 0) {
-      delete whereClause.AND;
-    }
+    const { searchQuery, searchItems, assignmentFilter, apptStartDate, apptEndDate, apptSingleDate, showNoCoverage, apptFilterType } = query;
 
     let apptWhere: any = { AptStatus: { in: [1, 2] } };
     let hasApptFilter = false;
@@ -1851,67 +2957,166 @@ export class ReportGenerationService {
       apptWhere.AptDateTime = { gt: new Date(apptSingleDate) };
     }
 
-    if (hasApptFilter) {
-      whereClause.patient = {
-        ...whereClause.patient,
-        is: {
-          ...whereClause.patient?.is,
-          appointment: { some: apptWhere }
-        }
-      };
+    let termsToSearch: string[] = [];
+    if (searchQuery) termsToSearch.push(searchQuery);
+    if (searchItems) termsToSearch = termsToSearch.concat(searchItems.split('||').filter(Boolean));
+
+    const report: any[] = [];
+    let wantCoverage = true;
+    let wantNoCoverage = false;
+
+    if (showNoCoverage === 'true' || showNoCoverage === true) {
+      wantNoCoverage = true;
     }
 
-    const plans = await prisma.patplan.findMany({
-      where: whereClause,
-      include: {
-        patient: {
-          include: {
-            appointment: {
-              where: { AptStatus: { in: [1, 2] } },
-              orderBy: { AptDateTime: 'desc' },
-              take: 1
-            }
+    if (wantCoverage) {
+      let whereClause: any = {};
+      whereClause.AND = [];
+
+      if (termsToSearch.length > 0) {
+        let searchOr: any[] = [];
+        for (const term of termsToSearch) {
+          searchOr.push({ patient: { is: { FName: { contains: term } } } });
+          searchOr.push({ patient: { is: { LName: { contains: term } } } });
+          searchOr.push({ inssub: { is: { insplan: { is: { GroupName: { contains: term } } } } } });
+          searchOr.push({ inssub: { is: { insplan: { is: { carrier: { is: { CarrierName: { contains: term } } } } } } } });
+          if (!isNaN(Number(term)) && String(term).trim() !== '') {
+            searchOr.push({ PatNum: BigInt(term) });
           }
-        },
-        inssub: {
-          include: {
-            insplan: {
-              include: {
-                carrier: true,
-                feesched_insplan_FeeSchedTofeesched: true
+        }
+        whereClause.AND.push({ OR: searchOr });
+      }
+
+      if (assignmentFilter === 'assignment') {
+        whereClause.inssub = { ...whereClause.inssub, is: { ...whereClause.inssub?.is, AssignBen: 1 } };
+      } else if (assignmentFilter === 'non-assignment') {
+        whereClause.AND.push({
+          OR: [
+            { inssub: { is: null } },
+            { inssub: { is: { AssignBen: { not: 1 } } } },
+            { inssub: { is: { AssignBen: null } } }
+          ]
+        });
+      }
+
+      if (hasApptFilter) {
+        whereClause.patient = {
+          ...whereClause.patient,
+          is: {
+            ...whereClause.patient?.is,
+            appointment: { some: apptWhere }
+          }
+        };
+      }
+
+      if (whereClause.AND && whereClause.AND.length === 0) {
+        delete whereClause.AND;
+      }
+
+      const plans = await prisma.patplan.findMany({
+        where: whereClause,
+        include: {
+          patient: {
+            include: {
+              appointment: {
+                where: { AptStatus: { in: [1, 2] } },
+                orderBy: { AptDateTime: 'desc' },
+                take: 1
+              }
+            }
+          },
+          inssub: {
+            include: {
+              insplan: {
+                include: {
+                  carrier: true,
+                  feesched_insplan_FeeSchedTofeesched: true
+                }
               }
             }
           }
         }
+      });
+
+      for (const p of plans) {
+        const patientName = p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Patient';
+        const email = p.patient?.Email || '';
+        const planNameVal = p.inssub?.insplan?.GroupName
+          ? `${p.inssub.insplan.GroupName} (${p.inssub.insplan.PlanNum?.toString() || ''})`
+          : p.inssub?.insplan?.GroupNum
+            ? `${p.inssub.insplan.GroupNum} (${p.inssub.insplan.PlanNum?.toString() || ''})`
+            : 'Standard Insurance';
+        const payer = p.inssub?.insplan?.carrier?.CarrierName || 'Standard Insurance';
+        const patientNum = p.PatNum ? p.PatNum.toString() : '';
+        const lastAppt = (p.patient as any)?.appointment?.[0]?.AptDateTime;
+        const feeSchedDesc = p.inssub?.insplan?.feesched_insplan_FeeSchedTofeesched?.Description || '';
+        const isAssignment = p.inssub?.AssignBen === 1;
+
+        report.push({
+          number: patientNum,
+          patient: patientName,
+          email,
+          planName: planNameVal,
+          payer,
+          lastAppointment: lastAppt ? new Date(lastAppt).toLocaleDateString() : '',
+          feeSchedule: feeSchedDesc,
+          planRenewalDate: 'January',
+          assignmentStatus: isAssignment ? 'Assignment' : 'Non-Assignment'
+        });
       }
-    });
+    }
 
-    const report = plans.map(p => {
-      const patientName = p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Patient';
-      const email = p.patient?.Email || '';
-      const planNameVal = p.inssub?.insplan?.GroupName
-        ? `${p.inssub.insplan.GroupName} (${p.inssub.insplan.PlanNum?.toString() || ''})`
-        : p.inssub?.insplan?.GroupNum
-          ? `${p.inssub.insplan.GroupNum} (${p.inssub.insplan.PlanNum?.toString() || ''})`
-          : 'Standard Insurance';
-      const payer = p.inssub?.insplan?.carrier?.CarrierName || 'Standard Insurance';
-      const patientNum = p.PatNum ? p.PatNum.toString() : '';
-      const lastAppt = (p.patient as any)?.appointment?.[0]?.AptDateTime;
-      const feeSchedDesc = p.inssub?.insplan?.feesched_insplan_FeeSchedTofeesched?.Description || '';
-      const isAssignment = p.inssub?.AssignBen === 1;
+    if (wantNoCoverage) {
+      let rawSql = `SELECT p.* FROM patient p WHERE NOT EXISTS (SELECT 1 FROM patplan pp WHERE pp."PatNum" = p."PatNum")`;
+      let params: any[] = [];
+      let paramIdx = 1;
 
-      return {
-        number: patientNum,
-        patient: patientName,
-        email,
-        planName: planNameVal,
-        payer,
-        lastAppointment: lastAppt ? new Date(lastAppt).toLocaleDateString() : '',
-        feeSchedule: feeSchedDesc,
-        planRenewalDate: 'January',
-        assignmentStatus: isAssignment ? 'Assignment' : 'Non-Assignment'
-      };
-    });
+      if (termsToSearch.length > 0) {
+        let nameChecks = [];
+        for (const term of termsToSearch) {
+          nameChecks.push(`(p."FName" ILIKE $${paramIdx} OR p."LName" ILIKE $${paramIdx})`);
+          params.push(`%${term}%`);
+          paramIdx++;
+        }
+        if (nameChecks.length > 0) {
+          rawSql += ` AND (${nameChecks.join(' OR ')})`;
+        }
+      }
+
+      if (hasApptFilter) {
+        if (apptFilterType === 'range') {
+          rawSql += ` AND EXISTS (SELECT 1 FROM appointment a WHERE a."PatNum" = p."PatNum" AND a."AptStatus" IN (1, 2) AND a."AptDateTime" >= $${paramIdx}::date AND a."AptDateTime" <= $${paramIdx+1}::date)`;
+          params.push(apptStartDate, apptEndDate ? `${apptEndDate} 23:59:59` : '2099-01-01 23:59:59');
+          paramIdx += 2;
+        } else if (apptFilterType === 'before') {
+          rawSql += ` AND EXISTS (SELECT 1 FROM appointment a WHERE a."PatNum" = p."PatNum" AND a."AptStatus" IN (1, 2) AND a."AptDateTime" < $${paramIdx}::date)`;
+          params.push(apptSingleDate);
+          paramIdx++;
+        } else if (apptFilterType === 'after') {
+          rawSql += ` AND EXISTS (SELECT 1 FROM appointment a WHERE a."PatNum" = p."PatNum" AND a."AptStatus" IN (1, 2) AND a."AptDateTime" > $${paramIdx}::date)`;
+          params.push(apptSingleDate);
+          paramIdx++;
+        }
+      }
+
+      rawSql += ` LIMIT 200`;
+
+      const noCovPatients = await prisma.$queryRawUnsafe<any[]>(rawSql, ...params);
+      
+      for (const p of noCovPatients) {
+        report.push({
+          number: p.PatNum?.toString() || '',
+          patient: `${p.FName || ''} ${p.LName || ''}`.trim() || 'Patient',
+          email: p.Email || '',
+          planName: 'No Coverage',
+          payer: 'N/A',
+          lastAppointment: 'N/A', // Omitted for speed in raw sql, but we can assume N/A
+          feeSchedule: 'N/A',
+          planRenewalDate: 'N/A',
+          assignmentStatus: 'N/A'
+        });
+      }
+    }
 
     return report;
   }
@@ -1920,27 +3125,20 @@ export class ReportGenerationService {
     const { searchQuery, renewalMonth, apptFilterType, apptStartDate, apptEndDate, apptSingleDate, showNoPlan } = query;
     const months = ['January','February','March','April','May','June',
                     'July','August','September','October','November','December'];
+    const wantNoPlan = showNoPlan === 'true' || showNoPlan === true;
 
     let whereClause: any = { IsClosed: 0 };
     whereClause.AND = [];
-
-    if (showNoPlan === 'true' || showNoPlan === true) {
-      whereClause.AND.push({
-        OR: [
-          { PlanCategory: null },
-          { PlanCategory: 0 }
-        ]
-      });
-    } else if (showNoPlan === 'false' || showNoPlan === false) {
-      whereClause.AND.push({ PlanCategory: { not: null } });
-      whereClause.AND.push({ PlanCategory: { not: 0 } });
-    }
+    
+    // Always fetch plans unless we're strictly filtering for "only no plans" (if your UI supports that, but we'll fetch both)
+    whereClause.AND.push({ PlanCategory: { not: null } });
+    whereClause.AND.push({ PlanCategory: { not: 0 } });
 
     if (searchQuery) {
       let searchOr: any[] = [
-        { patient_payplan_PatNumTopatient: { is: { FName: { contains: searchQuery } } } },
-        { patient_payplan_PatNumTopatient: { is: { LName: { contains: searchQuery } } } },
-        { definition: { is: { ItemName: { contains: searchQuery } } } }
+        { patient_payplan_PatNumTopatient: { is: { FName: { contains: searchQuery, mode: 'insensitive' } } } },
+        { patient_payplan_PatNumTopatient: { is: { LName: { contains: searchQuery, mode: 'insensitive' } } } },
+        { definition: { is: { ItemName: { contains: searchQuery, mode: 'insensitive' } } } }
       ];
       if (!isNaN(Number(searchQuery))) {
         searchOr.push({ PatNum: BigInt(searchQuery) });
@@ -1981,6 +3179,8 @@ export class ReportGenerationService {
       delete whereClause.AND;
     }
 
+    let report: any[] = [];
+    
     const plans = await prisma.payplan.findMany({
       where: whereClause,
       include: {
@@ -1993,23 +3193,70 @@ export class ReportGenerationService {
       }
     });
 
-    if (plans.length === 0) {
-      return [];
-    }
-
-    let report = plans.map(p => {
+    for (const p of plans) {
       const pat = p.patient_payplan_PatNumTopatient;
-      const lastAppt = pat?.appointment?.[0]?.AptDateTime;
+      if (!pat) continue;
+      const lastAppt = pat.appointment?.[0]?.AptDateTime;
       const renewalDate = p.PayPlanDate as Date | null;
-      return {
-        number: pat?.PatNum?.toString() || '',
-        patient: pat ? `${pat.FName} ${pat.LName}` : 'Patient',
-        email: pat?.Email || '',
+      report.push({
+        number: pat.PatNum?.toString() || '',
+        patient: `${pat.FName} ${pat.LName}`.trim() || 'Patient',
+        email: pat.Email || '',
         planName: p.definition?.ItemName || 'Membership Plan',
         lastAppointment: lastAppt ? new Date(lastAppt).toLocaleDateString() : '',
         renewalMonth: renewalDate ? months[new Date(renewalDate).getMonth()] : ''
-      };
-    });
+      });
+    }
+
+    if (wantNoPlan) {
+      const termsToSearch = searchQuery ? String(searchQuery).split(' ').filter(Boolean) : [];
+      let rawSql = `SELECT p.* FROM patient p WHERE NOT EXISTS (SELECT 1 FROM payplan pp WHERE pp."PatNum" = p."PatNum" AND pp."IsClosed" = 0 AND pp."PlanCategory" != 0)`;
+      let params: any[] = [];
+      let paramIdx = 1;
+
+      if (termsToSearch.length > 0) {
+        let nameChecks = [];
+        for (const term of termsToSearch) {
+          nameChecks.push(`(p."FName" ILIKE $${paramIdx} OR p."LName" ILIKE $${paramIdx})`);
+          params.push(`%${term}%`);
+          paramIdx++;
+        }
+        if (nameChecks.length > 0) {
+          rawSql += ` AND (${nameChecks.join(' OR ')})`;
+        }
+      }
+
+      if (hasApptFilter) {
+        if (apptFilterType === 'range') {
+          rawSql += ` AND EXISTS (SELECT 1 FROM appointment a WHERE a."PatNum" = p."PatNum" AND a."AptStatus" IN (1, 2) AND a."AptDateTime" >= $${paramIdx}::date AND a."AptDateTime" <= $${paramIdx+1}::date)`;
+          params.push(apptStartDate, apptEndDate ? `${apptEndDate} 23:59:59` : '2099-01-01 23:59:59');
+          paramIdx += 2;
+        } else if (apptFilterType === 'before') {
+          rawSql += ` AND EXISTS (SELECT 1 FROM appointment a WHERE a."PatNum" = p."PatNum" AND a."AptStatus" IN (1, 2) AND a."AptDateTime" < $${paramIdx}::date)`;
+          params.push(apptSingleDate);
+          paramIdx++;
+        } else if (apptFilterType === 'after') {
+          rawSql += ` AND EXISTS (SELECT 1 FROM appointment a WHERE a."PatNum" = p."PatNum" AND a."AptStatus" IN (1, 2) AND a."AptDateTime" > $${paramIdx}::date)`;
+          params.push(apptSingleDate);
+          paramIdx++;
+        }
+      }
+
+      rawSql += ` LIMIT 200`;
+
+      const noPlanPatients = await prisma.$queryRawUnsafe<any[]>(rawSql, ...params);
+      
+      for (const p of noPlanPatients) {
+        report.push({
+          number: p.PatNum?.toString() || '',
+          patient: `${p.FName || ''} ${p.LName || ''}`.trim() || 'Patient',
+          email: p.Email || '',
+          planName: 'No Plan',
+          lastAppointment: 'N/A', // Omitted for speed in raw sql, can do subquery if strictly needed
+          renewalMonth: 'N/A'
+        });
+      }
+    }
 
     if (renewalMonth) {
       report = report.filter(r => r.renewalMonth === renewalMonth);
@@ -2133,7 +3380,10 @@ export class ReportGenerationService {
 
     const results = patients.map(p => {
       const meta = patientsMeta[p.PatNum.toString()] || {};
-      const pFlags: string[] = meta.patientFlags || [];
+      const rawFlags = meta.patientFlags || [];
+      const pFlags: string[] = Array.isArray(rawFlags)
+        ? rawFlags.map(f => (typeof f === 'string' ? f : (f?.name || f?.label || ''))).filter(Boolean)
+        : [];
 
       // Check inclusion
       if (includeFlags.length > 0) {
@@ -3106,6 +4356,7 @@ export class ReportGenerationService {
       select: {
         PatNum: true,
         ProcFee: true,
+        ProcDate: true,
       },
     });
 
@@ -3128,6 +4379,10 @@ export class ReportGenerationService {
       if (!pat) continue;
 
       const production = patientProductionMap.get(patKey) || 0;
+      
+      // Only include patients that actually generated production in this period
+      if (production === 0) continue;
+
       const source = ref.referralSource || 'Unknown';
 
       // Update Summary
@@ -3157,9 +4412,55 @@ export class ReportGenerationService {
       detailData[source] = list;
     }
 
+    // 5. Generate Trend Data
+    const patSourceMap = new Map(patientReferrals.map(r => [r.patNum!.toString(), r.referralSource]));
+    const trendPoints = 12;
+    const intervalMs = (end.getTime() - start.getTime()) / trendPoints;
+    const trendData = Array.from({ length: trendPoints }, (_, i) => {
+      const segmentStart = new Date(start.getTime() + i * intervalMs);
+      let label = '';
+      const rangeDays = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
+      if (rangeDays > 60) {
+        label = segmentStart.toLocaleString('default', { month: 'short' });
+      } else if (rangeDays > 7) {
+        label = `${segmentStart.getMonth()+1}/${segmentStart.getDate()}`;
+      } else if (rangeDays <= 1 || intervalMs < 1000 * 60 * 60 * 24) {
+        // If range is 1 day or interval is less than a day, show the time
+        label = segmentStart.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      } else {
+        label = segmentStart.toLocaleDateString('en-US', { weekday: 'short' });
+      }
+      const pt: any = { label, _start: segmentStart.getTime(), _end: start.getTime() + (i + 1) * intervalMs };
+      for (const source of Array.from(sourceSummary.keys())) {
+         pt[source] = 0;
+      }
+      return pt;
+    });
+
+    for (const proc of procedures) {
+      if (!proc.PatNum || !proc.ProcDate) continue;
+      const pDate = new Date(proc.ProcDate).getTime();
+      const source = patSourceMap.get(proc.PatNum.toString());
+      if (!source || !sourceSummary.has(source)) continue;
+      
+      const segment = trendData.find(t => pDate >= t._start && pDate < t._end);
+      if (segment) {
+        segment[source] += (proc.ProcFee || 0);
+      }
+    }
+    
+    const finalTrendData = trendData.map(t => {
+       const finalPt: any = { name: t.label };
+       for (const source of Array.from(sourceSummary.keys())) {
+          finalPt[source] = parseFloat(t[source].toFixed(2));
+       }
+       return finalPt;
+    });
+
     return {
       summary: summaryData,
       detail: detailData,
+      trend: finalTrendData,
     };
   }
 

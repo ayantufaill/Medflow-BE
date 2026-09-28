@@ -137,6 +137,7 @@ async function seedClaimsComplete() {
             InsSubNum: insSub.InsSubNum,
             Ordinal: 1, // Primary
             Relationship: 0, // Self
+            IsPending: 0,
           },
         });
         console.log(`Created insurance sub-structure for ${patient.FName} linked to ${carrier.CarrierName}`);

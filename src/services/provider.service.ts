@@ -151,6 +151,7 @@ export class ProviderService {
           isAcceptingNewPatients: meta.isAcceptingNewPatients ?? true,
           telehealthEnabled: meta.telehealthEnabled ?? false,
           color: meta.color ?? null,
+          meta: meta,
         });
       }),
       pagination: {
@@ -205,6 +206,7 @@ export class ProviderService {
       isAcceptingNewPatients: providerMeta.isAcceptingNewPatients ?? true,
       telehealthEnabled: providerMeta.telehealthEnabled ?? false,
       color: providerMeta.color ?? null,
+      meta: providerMeta,
     });
   }
 
@@ -281,15 +283,16 @@ export class ProviderService {
       },
     });
 
-    await setProviderMeta(provider.ProvNum, {
+    const initialMeta = {
       appointmentBufferMinutes: data.appointmentBufferMinutes ?? 0,
+      workingHours: data.workingHours ?? [],
       maxDailyAppointments: data.maxDailyAppointments ?? null,
       consultationFee: data.consultationFee ?? null,
       isAcceptingNewPatients: data.isAcceptingNewPatients ?? true,
       telehealthEnabled: data.telehealthEnabled ?? false,
-      workingHours: data.workingHours ?? [],
       color: data.color ?? null,
-    });
+    };
+    await setProviderMeta(provider.ProvNum, initialMeta);
 
     // Log activity
     await logActivity(
@@ -329,10 +332,38 @@ export class ProviderService {
     updates: {
       firstName?: string;
       lastName?: string;
+      middleName?: string;
       npiNumber?: string;
       licenseNumber?: string;
       specialty?: string[] | string;
       title?: string;
+      prefix?: string;
+      suffix?: string;
+      preferredName?: string;
+      internalCodeName?: string;
+      email?: string;
+      mobilePhone?: string;
+      homePhone?: string;
+      organizationName?: string;
+      federalTaxNumber?: string;
+      additionalProviderId?: string;
+      dea?: string;
+      taxIdType?: string;
+      providerType?: string;
+      signatureOnFile?: boolean;
+      defaultDentist?: boolean;
+      defaultHygienist?: boolean;
+      country?: string;
+      addressLine1?: string;
+      addressLine2?: string;
+      city?: string;
+      state?: string;
+      zipCode?: string;
+      openEdgeToken?: string;
+      openDentalProviderId?: string;
+      description?: string;
+      branchIds?: string[];
+      carriersOutOfNetwork?: string[];
       appointmentBufferMinutes?: number;
       maxDailyAppointments?: number;
       consultationFee?: number;
@@ -389,20 +420,25 @@ export class ProviderService {
       }
     }
 
+    // Map prefix to Suffix column if provided (frontend sends 'prefix' not 'title')
+    const suffixValue = updates.prefix ?? updates.title ?? undefined;
+
     const updated = await prisma.provider.update({
       where: { ProvNum: BigInt(providerId) },
       data: {
         FName: updates.firstName ?? undefined,
         LName: updates.lastName ?? undefined,
+        MI: updates.middleName ?? undefined,
         NationalProvID: updates.npiNumber ?? undefined,
         StateLicense: updates.licenseNumber ?? undefined,
         Specialty: specialtyDefNum,
-        Suffix: updates.title ?? undefined,
+        Suffix: suffixValue,
+        Abbr: updates.internalCodeName ?? undefined,
         IsHidden: updates.isActive !== undefined ? (updates.isActive ? 0 : 1) : undefined,
       },
     });
 
-    await setProviderMeta(provider.ProvNum, {
+    const updatedMeta = {
       appointmentBufferMinutes: updates.appointmentBufferMinutes ?? currentMeta.appointmentBufferMinutes ?? 0,
       maxDailyAppointments: updates.maxDailyAppointments ?? currentMeta.maxDailyAppointments ?? null,
       consultationFee: updates.consultationFee ?? currentMeta.consultationFee ?? null,
@@ -410,7 +446,47 @@ export class ProviderService {
       telehealthEnabled: updates.telehealthEnabled ?? currentMeta.telehealthEnabled ?? false,
       workingHours: updates.workingHours ?? currentMeta.workingHours ?? [],
       color: updates.color !== undefined ? updates.color : (currentMeta.color ?? null),
-    });
+      // Extended fields stored in meta
+      preferredName: updates.preferredName !== undefined ? updates.preferredName : (currentMeta.preferredName ?? ''),
+      suffix: updates.suffix !== undefined ? updates.suffix : (currentMeta.suffix ?? ''),
+      email: updates.email !== undefined ? updates.email : (currentMeta.email ?? ''),
+      mobilePhone: updates.mobilePhone !== undefined ? updates.mobilePhone : (currentMeta.mobilePhone ?? ''),
+      homePhone: updates.homePhone !== undefined ? updates.homePhone : (currentMeta.homePhone ?? ''),
+      organizationName: updates.organizationName !== undefined ? updates.organizationName : (currentMeta.organizationName ?? ''),
+      federalTaxNumber: updates.federalTaxNumber !== undefined ? updates.federalTaxNumber : (currentMeta.federalTaxNumber ?? ''),
+      federalTaxId: updates.federalTaxNumber !== undefined ? updates.federalTaxNumber : (currentMeta.federalTaxId ?? currentMeta.federalTaxNumber ?? ''),
+      additionalProviderId: updates.additionalProviderId !== undefined ? updates.additionalProviderId : (currentMeta.additionalProviderId ?? ''),
+      dea: updates.dea !== undefined ? updates.dea : (currentMeta.dea ?? ''),
+      deaNumber: updates.dea !== undefined ? updates.dea : (currentMeta.deaNumber ?? currentMeta.dea ?? ''),
+      taxIdType: updates.taxIdType !== undefined ? updates.taxIdType : (currentMeta.taxIdType ?? ''),
+      providerType: updates.providerType !== undefined ? updates.providerType : (currentMeta.providerType ?? 'Dentist'),
+      signatureOnFile: updates.signatureOnFile !== undefined ? updates.signatureOnFile : (currentMeta.signatureOnFile ?? false),
+      defaultDentist: updates.defaultDentist !== undefined ? updates.defaultDentist : (currentMeta.defaultDentist ?? false),
+      isDefaultDentist: updates.defaultDentist !== undefined ? updates.defaultDentist : (currentMeta.isDefaultDentist ?? currentMeta.defaultDentist ?? false),
+      defaultHygienist: updates.defaultHygienist !== undefined ? updates.defaultHygienist : (currentMeta.defaultHygienist ?? false),
+      isDefaultHygienist: updates.defaultHygienist !== undefined ? updates.defaultHygienist : (currentMeta.isDefaultHygienist ?? currentMeta.defaultHygienist ?? false),
+      address: {
+        street: updates.addressLine1 !== undefined ? updates.addressLine1 : (currentMeta.address?.street ?? ''),
+        address1: updates.addressLine1 !== undefined ? updates.addressLine1 : (currentMeta.address?.address1 ?? ''),
+        addressLine1: updates.addressLine1 !== undefined ? updates.addressLine1 : (currentMeta.address?.addressLine1 ?? ''),
+        address2: updates.addressLine2 !== undefined ? updates.addressLine2 : (currentMeta.address?.address2 ?? ''),
+        addressLine2: updates.addressLine2 !== undefined ? updates.addressLine2 : (currentMeta.address?.addressLine2 ?? ''),
+        city: updates.city !== undefined ? updates.city : (currentMeta.address?.city ?? ''),
+        state: updates.state !== undefined ? updates.state : (currentMeta.address?.state ?? ''),
+        zipCode: updates.zipCode !== undefined ? updates.zipCode : (currentMeta.address?.zipCode ?? ''),
+        zip: updates.zipCode !== undefined ? updates.zipCode : (currentMeta.address?.zip ?? ''),
+        country: updates.country !== undefined ? updates.country : (currentMeta.address?.country ?? 'United States'),
+      },
+      openEdgeToken: updates.openEdgeToken !== undefined ? updates.openEdgeToken : (currentMeta.openEdgeToken ?? ''),
+      openDentalProviderId: updates.openDentalProviderId !== undefined ? updates.openDentalProviderId : (currentMeta.openDentalProviderId ?? ''),
+      description: updates.description !== undefined ? updates.description : (currentMeta.description ?? ''),
+      branchIds: updates.branchIds !== undefined ? updates.branchIds : (currentMeta.branchIds ?? []),
+      carriersOutOfNetwork: updates.carriersOutOfNetwork !== undefined ? updates.carriersOutOfNetwork : (currentMeta.carriersOutOfNetwork ?? []),
+      phone: updates.mobilePhone !== undefined ? updates.mobilePhone : (currentMeta.phone ?? currentMeta.mobilePhone ?? ''),
+    };
+
+    // Persist all extended fields to provider meta JSON
+    await setProviderMeta(provider.ProvNum, updatedMeta);
 
     // Log activity
     await logActivity(
@@ -423,6 +499,7 @@ export class ProviderService {
         specialtyName: updates.specialty?.[0] ?? provider.definition?.ItemName ?? null,
         userId: provider.CustomID ?? null,
         color: updates.color !== undefined ? updates.color : (currentMeta.color ?? null),
+        meta: updatedMeta,
       }),
       undefined,
       undefined,
@@ -439,6 +516,7 @@ export class ProviderService {
       isAcceptingNewPatients: updates.isAcceptingNewPatients ?? currentMeta.isAcceptingNewPatients ?? true,
       telehealthEnabled: updates.telehealthEnabled ?? currentMeta.telehealthEnabled ?? false,
       color: updates.color !== undefined ? updates.color : (currentMeta.color ?? null),
+      meta: updatedMeta,
     });
   }
 

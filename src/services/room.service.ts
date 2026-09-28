@@ -6,9 +6,11 @@ import { mapRoomToApi } from '../utils/opendental-mappers.util';
 
 export class RoomService {
   /**
-   * Get all rooms with pagination and search
+   * Get all rooms with pagination and search.
+   * When clinicIds is provided and non-empty, scopes results to those clinics
+   * (defense-in-depth on top of the RLS tenant_isolation policy).
    */
-  async getAllRooms(page = 1, limit = 10, search?: string, isActive?: boolean) {
+  async getAllRooms(page = 1, limit = 10, search?: string, isActive?: boolean, clinicIds?: bigint[]) {
     const skip = (page - 1) * limit;
     const where: any = {};
 
@@ -22,6 +24,11 @@ export class RoomService {
 
     if (isActive !== undefined) {
       where.IsHidden = isActive ? 0 : 1;
+    }
+
+    // Scope to the caller's accessible clinics (branch/group scoping)
+    if (clinicIds && clinicIds.length > 0) {
+      where.ClinicNum = { in: clinicIds };
     }
 
     const [rows, total] = await Promise.all([
@@ -61,22 +68,26 @@ export class RoomService {
   }
 
   /**
-   * Create new room
+   * Create new room.
+   * clinicNum must be provided so the operatory is properly scoped to a branch.
    */
   async createRoom(
     data: {
       name: string;
       itemOrder?: number;
+      clinicNum?: bigint;
     },
     createdBy: string
   ) {
-    // Check if name already exists among active rooms
-    const existing = await prisma.operatory.findFirst({
-      where: {
-        IsHidden: 0,
-        OR: [{ OpName: data.name }, { Abbrev: data.name }],
-      },
-    });
+    // Check if name already exists among active rooms (scoped to the same clinic if provided)
+    const dupWhere: any = {
+      IsHidden: 0,
+      OR: [{ OpName: data.name }, { Abbrev: data.name }],
+    };
+    if (data.clinicNum) {
+      dupWhere.ClinicNum = data.clinicNum;
+    }
+    const existing = await prisma.operatory.findFirst({ where: dupWhere });
     if (existing) {
       throw new ConflictError('Room with this name already exists');
     }
@@ -92,7 +103,7 @@ export class RoomService {
       itemOrder = (maxOrder._max.ItemOrder ?? 0) + 1;
     }
 
-    // Create room
+    // Create room — always tag to the caller's clinic so RLS scoping works
     const room = await prisma.operatory.create({
       data: {
         OperatoryNum: nextId,
@@ -100,6 +111,7 @@ export class RoomService {
         Abbrev: data.name,
         ItemOrder: itemOrder,
         IsHidden: 0,
+        ClinicNum: data.clinicNum ?? null,
       },
     });
 

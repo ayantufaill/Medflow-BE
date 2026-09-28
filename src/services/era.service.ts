@@ -2,6 +2,8 @@ import crypto from 'crypto';
 import { prisma } from '../config/db';
 import { BadRequestError, NotFoundError } from '../utils/error.util';
 import { getNextId } from '../utils/opendental-ids.util';
+import { era835Service, type Parsed835File } from './era835.service';
+import { agingService } from './aging.service';
 
 type EraStatus = 'imported' | 'processing' | 'processed' | 'error' | 'partial';
 
@@ -32,6 +34,7 @@ type EraMeta = {
   totalAmount: number;
   autoPosted?: boolean;
   items: EraItem[];
+  parsed835?: Parsed835File;
 };
 
 type EraFilters = {
@@ -311,9 +314,26 @@ export class EraService {
     const content = file.buffer.toString('utf8');
     const ext = file.originalname.split('.').pop()?.toLowerCase();
 
+    const isX12 = content.includes('ISA') || ext === '835' || ext === 'edi';
     let parsedItems: EraItem[] = [];
+    let parsed835: Parsed835File | undefined = undefined;
 
-    if (ext === 'csv') {
+    if (isX12) {
+      const parsed = era835Service.parse835Content(content);
+      parsed835 = await era835Service.matchClaims(parsed);
+
+      parsedItems = parsed835.claims.map((c) => ({
+        id: crypto.randomUUID(),
+        patientName: `${c.patientFirstName || ''} ${c.patientLastName || ''}`.trim() || undefined,
+        claimNumber: c.claimIdentifier,
+        claimId: c.matchedClaimId,
+        amount: c.totalPaymentAmount,
+        paymentDate: parsed835?.checkDate,
+        insurance: parsed835?.payerName,
+        status: c.status,
+        posted: false,
+      }));
+    } else if (ext === 'csv') {
       parsedItems = this.parseCsvItems(content);
     } else {
       parsedItems = this.parseTextItems(content);
@@ -330,8 +350,11 @@ export class EraService {
       ];
     }
 
-    const items = await this.enrichMatches(parsedItems);
+    const items = isX12 ? parsedItems : await this.enrichMatches(parsedItems);
     const meta = this.buildEraMeta(file.originalname, items);
+    if (parsed835) {
+      meta.parsed835 = parsed835;
+    }
 
     const etransNum = await getNextId('etrans', 'EtransNum');
 
@@ -448,83 +471,120 @@ export class EraService {
     const items = [...(meta.items || [])];
     let postedNow = 0;
 
-    for (const item of items) {
-      if (item.status !== 'matched' || item.posted) {
-        continue;
+    if (meta.parsed835) {
+      const result = await era835Service.autoPostClaimPayments(meta.parsed835, eraId, _userId);
+      for (const item of items) {
+        if (item.status === 'matched') {
+          item.posted = true;
+        }
       }
-
-      if (!item.claimId && !item.invoiceId) {
-        continue;
-      }
-
-      let patientId: string | null = null;
-
-      if (item.claimId) {
-        const claim = await prisma.claim.findUnique({
-          where: { ClaimNum: BigInt(item.claimId) },
-        });
-
-        if (claim?.PatNum) {
-          patientId = claim.PatNum.toString();
+      postedNow = result.postedCount;
+    } else {
+      for (const item of items) {
+        if (item.status !== 'matched' || item.posted) {
+          continue;
         }
 
-        if (!item.invoiceId) {
-          const claimMeta = parseJson<Record<string, any>>(claim?.Narrative);
-          if (claimMeta.invoiceId) {
-            item.invoiceId = String(claimMeta.invoiceId);
+        if (!item.claimId && !item.invoiceId) {
+          continue;
+        }
+
+        let patientId: string | null = null;
+
+        if (item.claimId) {
+          const claim = await prisma.claim.findUnique({
+            where: { ClaimNum: BigInt(item.claimId) },
+            include: { claimproc: true },
+          });
+
+          if (claim?.PatNum) {
+            patientId = claim.PatNum.toString();
+          }
+
+          if (claim) {
+            // Update claim and claimproc status
+            for (const cp of claim.claimproc || []) {
+              await prisma.claimproc.update({
+                where: { ClaimProcNum: cp.ClaimProcNum },
+                data: {
+                  Status: 1, // Received
+                  InsPayAmt: Number(item.amount || 0),
+                  DateCP: item.paymentDate ? new Date(item.paymentDate) : new Date(),
+                  Remarks: `Auto-posted from ERA ${eraId}`,
+                },
+              });
+            }
+            await prisma.claim.update({
+              where: { ClaimNum: claim.ClaimNum },
+              data: {
+                ClaimStatus: 'R', // Received
+                DateReceived: item.paymentDate ? new Date(item.paymentDate) : new Date(),
+                InsPayAmt: Number(item.amount || 0),
+              },
+            });
+          }
+
+          if (!item.invoiceId) {
+            const claimMeta = parseJson<Record<string, any>>(claim?.Narrative);
+            if (claimMeta.invoiceId) {
+              item.invoiceId = String(claimMeta.invoiceId);
+            }
           }
         }
-      }
 
-      if (!patientId && item.invoiceId) {
-        const invoice = await prisma.statement.findUnique({
-          where: { StatementNum: BigInt(item.invoiceId) },
-        });
+        if (!patientId && item.invoiceId) {
+          const invoice = await prisma.statement.findUnique({
+            where: { StatementNum: BigInt(item.invoiceId) },
+          });
 
-        if (invoice?.PatNum) {
-          patientId = invoice.PatNum.toString();
+          if (invoice?.PatNum) {
+            patientId = invoice.PatNum.toString();
+          }
         }
-      }
 
-      if (!patientId) {
-        continue;
-      }
+        if (!patientId) {
+          continue;
+        }
 
-      const existingPayment = await prisma.payment.findFirst({
-        where: {
-          PayNote: {
-            contains: `\"eraItemId\":\"${item.id}\"`,
-          },
-        },
-      });
-
-      if (!existingPayment) {
-        const payNum = await getNextId('payment', 'PayNum');
-        const amount = Number(item.amount || 0);
-
-        await prisma.payment.create({
-          data: {
-            PayNum: payNum,
-            PatNum: BigInt(patientId),
-            PayAmt: amount,
-            PayDate: item.paymentDate ? new Date(item.paymentDate) : new Date(),
-            PayNote: buildJson({
-              invoiceId: item.invoiceId ?? null,
-              method: 'insurance',
-              status: 'completed',
-              notes: `Auto-posted from ERA ${eraId}`,
-              eraId,
-              eraItemId: item.id,
-            }),
+        const existingPayment = await prisma.payment.findFirst({
+          where: {
+            PayNote: {
+              contains: `\"eraItemId\":\"${item.id}\"`,
+            },
           },
         });
-      }
 
-      item.posted = true;
-      postedNow += 1;
+        if (!existingPayment) {
+          const payNum = await getNextId('payment', 'PayNum');
+          const amount = Number(item.amount || 0);
+
+          await prisma.payment.create({
+            data: {
+              PayNum: payNum,
+              PatNum: BigInt(patientId),
+              PayAmt: amount,
+              PayDate: item.paymentDate ? new Date(item.paymentDate) : new Date(),
+              PayNote: buildJson({
+                invoiceId: item.invoiceId ?? null,
+                method: 'insurance',
+                status: 'completed',
+                notes: `Auto-posted from ERA ${eraId}`,
+                eraId,
+                eraItemId: item.id,
+              }),
+            },
+          });
+        }
+
+        item.posted = true;
+        postedNow += 1;
+      }
     }
 
     const updatedMeta = this.buildEraMeta(meta.fileName || `ERA-${eraId}`, items);
+    if (meta.parsed835) {
+      updatedMeta.parsed835 = meta.parsed835;
+    }
     updatedMeta.postedCount = items.filter((item) => item.posted).length;
     updatedMeta.autoPosted = updatedMeta.postedCount > 0;
 
@@ -660,7 +720,18 @@ export class EraService {
     item.status = item.claimId || item.invoiceId ? 'matched' : 'unmatched';
     items[index] = item;
 
+    if (meta.parsed835 && item.claimNumber && claimId) {
+      const pClaim = meta.parsed835.claims.find((c) => c.claimIdentifier === item.claimNumber);
+      if (pClaim) {
+        pClaim.matchedClaimId = claimId;
+        pClaim.status = 'matched';
+      }
+    }
+
     const updatedMeta = this.buildEraMeta(meta.fileName || `ERA-${target.EtransNum}`, items);
+    if (meta.parsed835) {
+      updatedMeta.parsed835 = meta.parsed835;
+    }
     updatedMeta.postedCount = meta.postedCount ?? updatedMeta.postedCount;
     updatedMeta.autoPosted = meta.autoPosted ?? updatedMeta.autoPosted;
 

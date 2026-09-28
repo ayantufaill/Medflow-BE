@@ -144,6 +144,24 @@ export class TreatmentPlanController {
       next(error);
     }
   };
+
+  generatePreAuth = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const planId = req.params.id;
+      const userId = req.userId;
+      const payload = req.body;
+      
+      const claim = await treatmentPlanService.generatePreAuth(planId, payload, userId);
+      
+      res.status(201).json({
+        success: true,
+        data: claim,
+        message: 'Pre-Authorization claim generated successfully'
+      });
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 export const treatmentPlanController = new TreatmentPlanController();

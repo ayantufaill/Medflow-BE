@@ -84,6 +84,13 @@ describe('Patients', () => {
     expect(res.status).toBe(400);
   });
 
+  it('validates patient insurance-usage params', async () => {
+    const res = await request(app)
+      .get('/api/patients/invalid-id/insurance-usage')
+      .set(authHeader);
+    expect(res.status).toBe(400);
+  });
+
   it('validates get patient params', async () => {
     const res = await request(app)
       .get('/api/patients/invalid-id')
