@@ -120,7 +120,10 @@ export class ReportGenerationService {
   async getPatientReport(reportName: string, query: any) {
     let { startDate, endDate } = this.getRangeDates(query.date, query.range || 'Daily');
     
-    if (query.startDate) startDate = new Date(query.startDate);
+    if (query.startDate) {
+      startDate = new Date(query.startDate);
+      startDate.setHours(0, 0, 0, 0);
+    }
     if (query.endDate) {
       endDate = new Date(query.endDate);
       endDate.setHours(23, 59, 59, 999);
@@ -134,6 +137,7 @@ export class ReportGenerationService {
       case 'membership-plan':
         return this.getPatientMembershipPlan(query);
 
+      case 'referral':
       case 'referral-by-patient':
         return this.getReferralByPatient(startDate, endDate);
 
@@ -167,7 +171,7 @@ export class ReportGenerationService {
         return this.getLabCaseReport(startDate, endDate, query);
 
       case 'discount-edited-fee':
-        return this.getDiscountEditedFeeReport(startDate, endDate);
+        return this.getDiscountEditedFeeReport(startDate, endDate, query);
 
       case 'review':
         return this.getPatientReviewsReport(startDate, endDate, query);
@@ -3302,12 +3306,39 @@ export class ReportGenerationService {
   }
 
   private async getOnlineSchedulingReferral(start: Date, end: Date) {
+    const patients = await prisma.patient.findMany({
+      // We will grab patients modified recently to include the user's latest updates
+      where: { DateTStamp: { gte: start, lte: end } }
+    });
+    
+    const groups = new Map<string, number>();
+    
+    if (patients.length > 0) {
+      const patNums = patients.map(p => p.PatNum);
+      const patientsMeta = await getPatientsMeta(patNums);
+  
+      for (const p of patients) {
+        const meta = patientsMeta[p.PatNum.toString()] || {};
+        let source = meta.referralSource;
+        
+        if (!source) {
+          // Fallback to checking refattach for this patient just in case
+          continue;
+        }
+        
+        source = source.trim();
+        if (source) {
+          groups.set(source, (groups.get(source) || 0) + 1);
+        }
+      }
+    }
+
+    // Also include refattach for the date range to combine both
     const refAttaches = await prisma.refattach.findMany({
       where: { RefDate: { gte: start, lte: end } },
       include: { referral: true }
     });
 
-    const groups = new Map<string, number>();
     for (const r of refAttaches) {
       const source = r.referral?.BusinessName ||
         `${r.referral?.FName || ''} ${r.referral?.LName || ''}`.trim() || 'Unknown';
@@ -3402,7 +3433,7 @@ export class ReportGenerationService {
       return {
         number: p.PatNum.toString(),
         patient: `${p.FName} ${p.LName}`,
-        flags: pFlags.join(', '),
+        flags: pFlags,
         lastAppointment: lastAppt ? lastAppt.toLocaleDateString() : ''
       };
     }).filter(Boolean);
@@ -3480,6 +3511,11 @@ export class ReportGenerationService {
   }
 
   private async getAppointmentsReport(start: Date, end: Date, query?: any) {
+    const globalFlagsPref = await prisma.clinicpref.findFirst({
+      where: { PrefName: 'medflow.practiceInfo.patientFlags' }
+    });
+    const allFlags = globalFlagsPref?.ValueString ? JSON.parse(globalFlagsPref.ValueString) : [];
+
     const where: any = {};
     if (query?.dateType === 'created') {
       where.SecDateTEntry = { gte: start, lte: end };
@@ -3488,14 +3524,20 @@ export class ReportGenerationService {
     }
 
     if (query?.provider && query.provider !== 'all') {
-      const provNum = Number(query.provider);
-      if (!isNaN(provNum)) where.ProvNum = provNum;
+      try {
+        const provNum = BigInt(query.provider);
+        where.ProvNum = provNum;
+      } catch (e) {
+        // ignore invalid provider id
+      }
     }
     if (query?.status && query.status !== 'all') {
       const statusMap: Record<string, number> = {
         scheduled: 1, complete: 2, broken: 3, cancelled: 4
       };
-      if (statusMap[query.status]) where.AptStatus = statusMap[query.status];
+      if (statusMap[query.status]) {
+        where.AptStatus = statusMap[query.status];
+      }
     }
     if (query?.locationType === 'online') {
       // Mock filter for online location (e.g. specific clinic num if applicable)
@@ -3509,6 +3551,7 @@ export class ReportGenerationService {
       where,
       include: {
         patient: true,
+        operatory: true,
         provider_appointment_ProvNumToprovider: true,
         procedurelog_procedurelog_AptNumToappointment: {
           where: { ProcStatus: { in: [1, 2] } },
@@ -3547,20 +3590,29 @@ export class ReportGenerationService {
     let mappedAppointments = appointments.map(a => {
       const apptDate = a.AptDateTime ? new Date(a.AptDateTime) : null;
       const patKey = a.PatNum?.toString() || '';
-      const flags = (meta as any)[patKey]?.patientFlags || [];
+      const rawFlags = (meta as any)[patKey]?.patientFlags || [];
+      const flags = rawFlags.map((f: any) => {
+        if (typeof f === 'string') {
+          return allFlags.find((af: any) => af.id === f) || { name: f, color: '#3b82f6' };
+        }
+        return f;
+      });
       const aAny = a as any;
       const procedures = (aAny.procedurelog_procedurelog_AptNumToappointment || [])
         .map((p: any) => p.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || p.OldCode || '')
         .filter(Boolean).join(' / ');
       const dayNames = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
+      const prov = a.provider_appointment_ProvNumToprovider;
+      const providerName = prov ? `${prov.FName || ''} ${prov.LName || ''}`.trim() || prov.Abbr : '';
+
       return {
         patient: a.patient ? `${a.patient.FName} ${a.patient.LName}` : 'Patient',
         flags,
         type: a.IsNewPatient ? 'New Patient' : 'Recare',
         status: statusLabels[a.AptStatus ?? 1] || 'Unknown',
-        providers: a.provider_appointment_ProvNumToprovider?.Abbr || '',
-        operatory: `Operatory ${a.Op || ''}`,
+        providers: providerName,
+        operatory: a.operatory?.OpName || `Operatory ${a.Op || ''}`,
         aptDate: apptDate?.toLocaleDateString('en-US',
           { month: 'short', day: '2-digit', year: 'numeric' }) || '',
         time: apptDate ? `${dayNames[apptDate.getDay()]}, ${apptDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}` : '',
@@ -3637,17 +3689,62 @@ export class ReportGenerationService {
   }
 
   private async getPatientAppointmentMilestones(nextAppt = false, query?: any) {
+    const globalFlagsPref = await prisma.clinicpref.findFirst({
+      where: { PrefName: 'medflow.practiceInfo.patientFlags' }
+    });
+    const allFlags = globalFlagsPref?.ValueString ? JSON.parse(globalFlagsPref.ValueString) : [];
+
     const where: any = { PatStatus: 0 };
     if (query?.filterBy === 'inactive') where.PatStatus = 2;
     else if (query?.filterBy === 'all') delete where.PatStatus;
+
+    const apptWhere: any = nextAppt
+      ? { AptDateTime: { gte: new Date() }, AptStatus: { in: [1, 6] } }
+      : { AptDateTime: { lte: new Date() }, AptStatus: { in: [1, 2, 3, 4, 5] } };
+
+    if (query?.startDate) {
+      apptWhere.AptDateTime = { ...apptWhere.AptDateTime, gte: new Date(query.startDate) };
+    }
+    if (query?.endDate) {
+      const endOfDay = new Date(query.endDate);
+      endOfDay.setHours(23, 59, 59, 999);
+      apptWhere.AptDateTime = { ...apptWhere.AptDateTime, lte: endOfDay };
+    }
+    if (query?.provider && query.provider !== 'all') {
+      try {
+        apptWhere.ProvNum = BigInt(query.provider);
+      } catch (e) {
+        const nameParts = String(query.provider).trim().split(' ');
+        if (nameParts.length > 1) {
+          apptWhere.provider_appointment_ProvNumToprovider = {
+            FName: { contains: nameParts[0] },
+            LName: { contains: nameParts.slice(1).join(' ') }
+          };
+        } else {
+          apptWhere.provider_appointment_ProvNumToprovider = {
+            OR: [
+              { FName: { contains: query.provider } },
+              { LName: { contains: query.provider } }
+            ]
+          };
+        }
+      }
+    }
+    if (query?.appointmentStatus) {
+      if (query.appointmentStatus === 'all') {
+        delete apptWhere.AptStatus;
+      } else {
+        apptWhere.AptStatus = Number(query.appointmentStatus);
+      }
+    }
+
+    where.appointment = { some: apptWhere };
 
     const patients = await prisma.patient.findMany({
       where,
       include: {
         appointment: {
-          where: nextAppt
-            ? { AptDateTime: { gte: new Date() }, AptStatus: { in: [1, 6] } }
-            : { AptDateTime: { lte: new Date() }, AptStatus: { in: [1, 2, 3, 4, 5] } },
+          where: apptWhere,
           orderBy: { AptDateTime: nextAppt ? 'asc' : 'desc' },
           take: 1,
           include: { provider_appointment_ProvNumToprovider: true }
@@ -3656,33 +3753,7 @@ export class ReportGenerationService {
       take: 200
     });
 
-    const filtered = patients.filter(p => p.appointment.length > 0);
-
-    let results = filtered;
-    if (query?.startDate || query?.endDate || (query?.provider && query.provider !== 'all') || (query?.appointmentStatus && query.appointmentStatus !== 'all')) {
-      const startFilter = query.startDate ? new Date(query.startDate) : null;
-      const endFilter = query.endDate ? new Date(query.endDate) : null;
-      results = filtered.filter(p => {
-        const appt = p.appointment[0];
-        if (!appt) return false;
-        
-        const d = appt.AptDateTime;
-        if (d) {
-          if (startFilter && d < startFilter) return false;
-          if (endFilter && d > endFilter) return false;
-        }
-
-        if (query?.provider && query.provider !== 'all') {
-          if (appt.ProvNum !== BigInt(query.provider)) return false;
-        }
-
-        if (query?.appointmentStatus && query.appointmentStatus !== 'all') {
-          if (appt.AptStatus !== Number(query.appointmentStatus)) return false;
-        }
-
-        return true;
-      });
-    }
+    let results = patients.filter(p => p.appointment.length > 0);
 
     // Get next appointments for "Last Appointment" report
     let nextApptMap = new Map<string, string>();
@@ -3718,7 +3789,13 @@ export class ReportGenerationService {
       const appt = p.appointment[0];
       const prov = appt?.provider_appointment_ProvNumToprovider;
       const patKey = p.PatNum.toString();
-      const flags = (meta as any)[patKey]?.patientFlags || [];
+      const rawFlags = (meta as any)[patKey]?.patientFlags || [];
+      const flags = rawFlags.map((f: any) => {
+        if (typeof f === 'string') {
+          return allFlags.find((af: any) => af.id === f) || { name: f, color: '#3b82f6' };
+        }
+        return f;
+      });
 
       return {
         id: patKey,
@@ -3750,7 +3827,44 @@ export class ReportGenerationService {
   }
 
   private async getReferralDocuments(query?: any) {
+    const where: any = {};
+
+    if (query?.startDate) {
+      where.RefDate = { ...where.RefDate, gte: new Date(query.startDate) };
+    }
+    if (query?.endDate) {
+      const endOfDay = new Date(query.endDate);
+      endOfDay.setHours(23, 59, 59, 999);
+      where.RefDate = { ...where.RefDate, lte: endOfDay };
+    }
+    
+    if (query?.status && query.status !== 'none') {
+      where.IsTransitionOfCare = query.status === 'sent' ? 1 : 0;
+    }
+
+    if (query?.provider && query.provider !== 'all') {
+      try {
+        where.ProvNum = BigInt(query.provider);
+      } catch (e) {
+        const nameParts = String(query.provider).trim().split(' ');
+        if (nameParts.length > 1) {
+          where.provider = {
+            FName: { contains: nameParts[0] },
+            LName: { contains: nameParts.slice(1).join(' ') }
+          };
+        } else {
+          where.provider = {
+            OR: [
+              { FName: { contains: query.provider } },
+              { LName: { contains: query.provider } }
+            ]
+          };
+        }
+      }
+    }
+
     const refAttaches = await prisma.refattach.findMany({
+      where,
       include: {
         patient: true,
         referral: true
@@ -3806,6 +3920,27 @@ export class ReportGenerationService {
       where.patient = { PatStatus: 0 };
     }
 
+    if (query?.provider && query.provider !== 'all') {
+      try {
+        where.ProvNum = BigInt(query.provider);
+      } catch (e) {
+        const nameParts = String(query.provider).trim().split(' ');
+        if (nameParts.length > 1) {
+          where.provider = {
+            FName: { contains: nameParts[0] },
+            LName: { contains: nameParts.slice(1).join(' ') }
+          };
+        } else {
+          where.provider = {
+            OR: [
+              { FName: { contains: query.provider } },
+              { LName: { contains: query.provider } }
+            ]
+          };
+        }
+      }
+    }
+
     const cases = await prisma.labcase.findMany({
       where,
       include: {
@@ -3845,9 +3980,32 @@ export class ReportGenerationService {
     });
   }
 
-  private async getDiscountEditedFeeReport(start: Date, end: Date) {
+  private async getDiscountEditedFeeReport(start: Date, end: Date, query?: any) {
+    const where: any = { AdjDate: { gte: start, lte: end } };
+
+    if (query?.provider && query.provider !== 'all') {
+      try {
+        where.ProvNum = BigInt(query.provider);
+      } catch (e) {
+        const nameParts = String(query.provider).trim().split(' ');
+        if (nameParts.length > 1) {
+          where.provider = {
+            FName: { contains: nameParts[0] },
+            LName: { contains: nameParts.slice(1).join(' ') }
+          };
+        } else {
+          where.provider = {
+            OR: [
+              { FName: { contains: query.provider } },
+              { LName: { contains: query.provider } }
+            ]
+          };
+        }
+      }
+    }
+
     const adjustments = await prisma.adjustment.findMany({
-      where: { AdjDate: { gte: start, lte: end } },
+      where,
       include: {
         patient: true,
         provider: true,
