@@ -4046,7 +4046,10 @@ export class ReportGenerationService {
     if (query?.status === 'pending') {
       where.SentOrReceived = 1;
     } else if (query?.status === 'completed') {
-      where.SentOrReceived = 2;
+      where.OR = [
+        { SentOrReceived: { not: 1 } },
+        { SentOrReceived: null }
+      ];
     }
 
     const commlogs = await prisma.commlog.findMany({
@@ -4061,9 +4064,8 @@ export class ReportGenerationService {
     }
 
     return commlogs.map(c => {
-      let actualStatus = 'Published';
+      let actualStatus = 'Completed';
       if (c.SentOrReceived === 1) actualStatus = 'Pending';
-      if (c.SentOrReceived === 2) actualStatus = 'Completed';
 
       return {
         patientName: c.patient ? `${c.patient.FName} ${c.patient.LName}` : 'Patient',
@@ -4076,70 +4078,51 @@ export class ReportGenerationService {
   private async getPatientNotificationsReport(start: Date, end: Date, query?: any) {
     const where: any = {};
 
-    if (query?.sentStart && query?.sentEnd) {
-      where.CommDateTime = { 
-        gte: new Date(query.sentStart), 
-        lte: new Date(query.sentEnd) 
-      };
-    } else if (start && end) {
-      where.CommDateTime = { gte: start, lte: end };
-    }
-
-    if (query?.plannedStart && query?.plannedEnd) {
-      where.DateTimeEnd = { 
-        gte: new Date(query.plannedStart), 
-        lte: new Date(query.plannedEnd) 
-      };
-    }
+    const startDateFilter = query?.sentStart ? new Date(query.sentStart) : start;
+    const endDateFilter = query?.sentEnd ? new Date(query.sentEnd) : end;
+    where.DateTimeEntry = { gte: startDateFilter, lte: endDateFilter };
 
     if (query?.status && query.status !== 'none') {
-      if (query.status === 'sent') where.SentOrReceived = 1;
-      else if (query.status === 'failed') where.SentOrReceived = 2;
-      else if (query.status === 'pending') where.SentOrReceived = { notIn: [1, 2] };
+      if (query.status === 'sent') where.IsRead = true;
+      else if (query.status === 'pending') where.IsRead = false;
     }
 
     if (query?.notificationType === 'patient') {
-      where.PatNum = { not: null };
+      where.RelatedType = 'patient';
     } else if (query?.notificationType === 'internal') {
-      where.PatNum = null;
+      where.RelatedType = 'user';
     }
 
     if (query?.template && query.template !== 'none') {
-      if (query.template === 'welcome') where.definition = { ItemName: { contains: 'Welcome' } };
-      else if (query.template === 'save') where.definition = { ItemName: { contains: 'Save' } };
-      else if (query.template === 'custom') where.definition = { ItemName: { contains: 'Custom' } };
+      if (query.template === 'welcome') where.Type = { contains: 'welcome' };
+      else if (query.template === 'save') where.Type = { contains: 'save' };
+      else if (query.template === 'custom') where.Type = { contains: 'custom' };
     }
 
-    const commlogs = await prisma.commlog.findMany({
+    const notifications = await prisma.notification.findMany({
       where,
       include: {
-        patient: true,
-        userod: true,
-        definition: true
+        userod: true
       },
-      orderBy: { CommDateTime: 'desc' },
+      orderBy: { DateTimeEntry: 'desc' },
       take: 100
     });
 
-    if (commlogs.length === 0) {
+    if (notifications.length === 0) {
       return [];
     }
 
-    return commlogs.map(c => {
-      const cAny = c as any;
-      const commDate = c.CommDateTime ? new Date(c.CommDateTime) : null;
-      const plannedDate = c.DateTimeEnd ? new Date(c.DateTimeEnd) : commDate;
+    return notifications.map((n: any) => {
+      const entryDate = n.DateTimeEntry ? new Date(n.DateTimeEntry) : null;
       
       return {
-        sentToPatient: c.patient ? `${c.patient.FName} ${c.patient.LName}` : 'Patient',
-        sentToUser: c.userod?.UserName || 'Staff User',
-        template: c.definition?.ItemName || 'Standard Reminder',
-        status: c.SentOrReceived === 1 ? 'Sent' : c.SentOrReceived === 2 ? 'Failed' : 'Pending',
-        plannedOn: plannedDate ? plannedDate.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '',
-        sentOn: commDate ? `${commDate.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })} ${commDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}` : '',
-        info: c.Note || 'Notification delivered successfully',
-        sentBy: c.userod?.UserName || 'System',
-        reply: ''
+        id: Number(n.NotificationNum),
+        title: n.Title || 'System Alert',
+        details: n.Body || '',
+        type: n.Type || 'System',
+        status: n.IsRead ? 'Read' : 'Unread',
+        date: entryDate ? `${entryDate.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })} ${entryDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}` : '',
+        user: n.userod?.UserName || 'System'
       };
     });
   }
@@ -4157,9 +4140,36 @@ export class ReportGenerationService {
       where.ProcDate = { gte: startDateFilter, lte: endDateFilter };
     }
 
+    where.AND = [];
+
     if (query?.provider && query.provider !== 'all') {
-      const provNum = Number(query.provider);
-      if (!isNaN(provNum)) where.ProvNum = provNum;
+      try {
+        const provNum = BigInt(query.provider);
+        where.AND.push({
+          OR: [
+            { ProvNum: provNum },
+            { ProvNum: 0n, patient: { PriProv: provNum } },
+            { ProvNum: null, patient: { PriProv: provNum } }
+          ]
+        });
+      } catch (e) {
+        const nameParts = String(query.provider).trim().split(' ');
+        if (nameParts.length > 1) {
+          where.AND.push({
+            OR: [
+              { provider_procedurelog_ProvNumToprovider: { FName: { contains: nameParts[0], mode: 'insensitive' }, LName: { contains: nameParts.slice(1).join(' '), mode: 'insensitive' } } },
+              { patient: { provider_patient_PriProvToprovider: { FName: { contains: nameParts[0], mode: 'insensitive' }, LName: { contains: nameParts.slice(1).join(' '), mode: 'insensitive' } } } }
+            ]
+          });
+        } else {
+          where.AND.push({
+            OR: [
+              { provider_procedurelog_ProvNumToprovider: { OR: [{ FName: { contains: query.provider, mode: 'insensitive' } }, { LName: { contains: query.provider, mode: 'insensitive' } }] } },
+              { patient: { provider_patient_PriProvToprovider: { OR: [{ FName: { contains: query.provider, mode: 'insensitive' } }, { LName: { contains: query.provider, mode: 'insensitive' } }] } } }
+            ]
+          });
+        }
+      }
     }
 
     if (query?.status && query.status !== 'all') {
@@ -4174,16 +4184,27 @@ export class ReportGenerationService {
     }
 
     if (query?.adaCode && query.adaCode !== 'all') {
-      where.OR = [
-        { OldCode: { contains: query.adaCode } },
-        { procedurecode_procedurelog_CodeNumToprocedurecode: { ProcCode: { contains: query.adaCode } } }
-      ];
+      where.AND.push({
+        OR: [
+          { OldCode: { contains: query.adaCode, mode: 'insensitive' } },
+          { procedurecode_procedurelog_CodeNumToprocedurecode: { ProcCode: { contains: query.adaCode, mode: 'insensitive' } } },
+          { procedurecode_procedurelog_CodeNumToprocedurecode: { Descript: { contains: query.adaCode, mode: 'insensitive' } } }
+        ]
+      });
+    }
+
+    if (where.AND.length === 0) {
+      delete where.AND;
     }
 
     const procs = await prisma.procedurelog.findMany({
       where,
       include: {
-        patient: true,
+        patient: {
+          include: {
+            provider_patient_PriProvToprovider: true
+          }
+        },
         provider_procedurelog_ProvNumToprovider: true,
         procedurecode_procedurelog_CodeNumToprocedurecode: true,
         appointment_procedurelog_AptNumToappointment: true
@@ -4208,7 +4229,7 @@ export class ReportGenerationService {
       const pAny = p as any;
       const codeObj = pAny.procedurecode_procedurelog_CodeNumToprocedurecode;
       const appt = pAny.appointment_procedurelog_AptNumToappointment;
-      const prov = pAny.provider_procedurelog_ProvNumToprovider;
+      const prov = pAny.provider_procedurelog_ProvNumToprovider || pAny.patient?.provider_patient_PriProvToprovider;
 
       return {
         patient: p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Patient',
@@ -4216,8 +4237,8 @@ export class ReportGenerationService {
         description: codeObj?.Descript || 'Dental Procedure',
         status: procStatusLabels[p.ProcStatus ?? 2] || 'Completed',
         provider: prov ? `${prov.FName || ''} ${prov.LName || ''}`.trim() || prov.Abbr || 'Provider' : 'Provider',
-        created: p.DateEntryC ? new Date(p.DateEntryC).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : (p.DateTStamp ? new Date(p.DateTStamp).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : ''),
-        scheduled: appt?.AptDateTime ? new Date(appt.AptDateTime).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : (p.ProcDate ? new Date(p.ProcDate).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '')
+        created: (pAny.DateEntryC || pAny.SecDateEntry || pAny.DateTStamp || pAny.ProcDate) ? new Date(pAny.DateEntryC || pAny.SecDateEntry || pAny.DateTStamp || pAny.ProcDate).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '--',
+        scheduled: appt?.AptDateTime ? new Date(appt.AptDateTime).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : (p.ProcDate ? new Date(p.ProcDate).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : '--')
       };
     });
   }
@@ -4323,7 +4344,7 @@ export class ReportGenerationService {
         : '';
         
       let ip = '127.0.0.1';
-      let machine = log.CompName ? `Machine: ${log.CompName}` : 'Unknown';
+      let machine = log.CompName ? `Machine: ${log.CompName}` : null;
       let status = 'Success';
       
       const logText = log.LogText || '';
@@ -4409,7 +4430,7 @@ export class ReportGenerationService {
         : '';
         
       let parsedAction = 'Action Performed';
-      let parsedCategory = 'General';
+      let parsedCategory = 'Patient';
       let parsedObject = 'System Record';
 
       const text = log.LogText?.toLowerCase() || '';
@@ -4426,8 +4447,33 @@ export class ReportGenerationService {
       let finalMessage = log.LogText ?? 'Success';
       try {
         const parsed = JSON.parse(finalMessage);
-        if (parsed.description) finalMessage = parsed.description;
-        else if (parsed.message) finalMessage = parsed.message;
+        if (parsed.description) {
+          finalMessage = parsed.description;
+        } else if (parsed.message) {
+          finalMessage = parsed.message;
+        } else if (parsed.action && parsed.tableName) {
+          finalMessage = `Action: ${parsed.action} on ${parsed.tableName}`;
+          if (parsed.recordId) finalMessage += ` (ID: ${parsed.recordId})`;
+          
+          // Map action to match dropdown options: "Action Performed", "Create", "Update", "Delete"
+          if (parsed.action === 'created') parsedAction = 'Create';
+          else if (parsed.action === 'updated') parsedAction = 'Update';
+          else if (parsed.action === 'deleted') parsedAction = 'Delete';
+          else parsedAction = 'Action Performed';
+          
+          parsedObject = parsed.tableName;
+
+          // Map category to match dropdown options: "Report", "Patient", "Schedule"
+          if (parsed.tableName === 'appointment' || parsed.tableName === 'schedule') {
+            parsedCategory = 'Schedule';
+          } else if (parsed.tableName === 'task' || parsed.tableName === 'patient') {
+            parsedCategory = 'Patient';
+          } else if (parsed.tableName.includes('report')) {
+            parsedCategory = 'Report';
+          } else {
+            parsedCategory = 'Patient'; // Default fallback that exists in dropdown
+          }
+        }
       } catch (e) {
         // Not JSON, leave as is
       }
