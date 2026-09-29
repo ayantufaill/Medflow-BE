@@ -3049,10 +3049,53 @@ export class ReportGenerationService {
       }
     });
 
+    // Collect all distinct procedure codes from all three tables for the dropdown
+    // This should NOT be affected by the code filter so the dropdown always shows all options
+    const allCodesSet = new Set<string>();
+
+    // Codes from commlog notes (unsigned + signed from commlog)
+    notes.forEach((note: any) => {
+      if (note.structuredData && note.structuredData.procedureCodes && Array.isArray(note.structuredData.procedureCodes)) {
+        note.structuredData.procedureCodes.forEach((code: string) => {
+          if (code && code !== '-') allCodesSet.add(code);
+        });
+      }
+    });
+
+    // Codes from procedurelog entries (missing, unsigned, signed from procs)
+    // Use a separate unfiltered query to get ALL procedure codes in the date range
+    const unfilteredProcWhere: any = {
+      ProcDate: { gte: start, lte: end },
+      ProcStatus: 2
+    };
+    if (query?.provider && query.provider !== 'All') {
+      const provNum = Number(query.provider);
+      if (!isNaN(provNum)) unfilteredProcWhere.ProvNum = provNum;
+    }
+
+    const allProcsForCodes = await prisma.procedurelog.findMany({
+      where: unfilteredProcWhere,
+      select: {
+        OldCode: true,
+        procedurecode_procedurelog_CodeNumToprocedurecode: {
+          select: { ProcCode: true }
+        }
+      },
+      take: 10000
+    });
+
+    allProcsForCodes.forEach((p: any) => {
+      const code = p.OldCode ?? p.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode;
+      if (code && code !== '-') allCodesSet.add(code);
+    });
+
+    const availableCodes = Array.from(allCodesSet).sort();
+
     return {
       unsigned,
       signed,
-      missing
+      missing,
+      availableCodes
     };
   }
 
