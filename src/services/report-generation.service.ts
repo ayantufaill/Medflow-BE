@@ -1,6 +1,7 @@
 import { prisma } from '../config/db';
 import { getPatientsMeta, PATIENT_META_FKEYTYPE } from '../utils/opendental-auth.util';
 import { BadRequestError } from '../utils/error.util';
+import { clinicalNoteService } from './clinical-note.service';
 
 export class ReportGenerationService {
   private getProviderName(prov: any) {
@@ -102,7 +103,7 @@ export class ReportGenerationService {
         return this.getRecareReport(startDate, endDate);
 
       case 'unsigned-progress-notes':
-        return this.getUnsignedProgressNotesReport(startDate, endDate);
+        return this.getUnsignedProgressNotesReport(startDate, endDate, query);
 
       case 'rx':
         return this.getRxReport(startDate, endDate);
@@ -2859,51 +2860,200 @@ export class ReportGenerationService {
     });
   }
 
-  private async getUnsignedProgressNotesReport(start: Date, end: Date) {
+  private async getUnsignedProgressNotesReport(start: Date, end: Date, query?: any) {
+    const filters: any = {
+      startDate: start,
+      endDate: end,
+    };
+    
+    if (query?.provider && query.provider !== 'All') {
+      filters.providerId = query.provider;
+    }
+    
+    if (query?.kind && query.kind !== 'All') {
+      filters.noteType = query.kind.toLowerCase();
+    }
+    
+    // Do not pass search filter directly to clinicalNoteService so we can manually handle exclude and comma-separation
+    // if (query?.code) {
+    //  filters.search = query.code;
+    // }
+
+    // 1. Fetch Commlog clinical notes
+    const result = await clinicalNoteService.getAllClinicalNotes(1, 10000, filters);
+    const notes = result.clinicalNotes || [];
+    
+    const unsigned: any[] = [];
+    const signed: any[] = [];
+    const missing: any[] = [];
+    
+    const codeTerms: string[] = query?.code ? query.code.split(',').map((t: string) => t.trim().toLowerCase()).filter(Boolean) : [];
+    const isExclude = query?.codeFilterType === 'exclude';
+
+    notes.forEach((note: any) => {
+      let contentPreview = '';
+      if (note.content) contentPreview = note.content;
+      else {
+        const sections = [];
+        if (note.chiefComplaint) sections.push(`CC: ${note.chiefComplaint}`);
+        if (note.subjective) sections.push(`S: ${note.subjective}`);
+        if (note.objective) sections.push(`O: ${note.objective}`);
+        if (note.assessment) sections.push(`A: ${note.assessment}`);
+        if (note.plan) sections.push(`P: ${note.plan}`);
+        contentPreview = sections.join('\n');
+      }
+
+      let extractedCode = '-';
+      if (note.structuredData && note.structuredData.procedureCodes && Array.isArray(note.structuredData.procedureCodes) && note.structuredData.procedureCodes.length > 0) {
+        extractedCode = note.structuredData.procedureCodes.join(', ');
+      }
+
+      // Manual code filtering for Commlog notes
+      if (codeTerms.length > 0) {
+         const searchText = `${note.chiefComplaint || ''} ${note.noteType || ''} ${contentPreview} ${extractedCode}`.toLowerCase();
+         const matches = codeTerms.some(term => searchText.includes(term));
+         
+         if (isExclude && matches) return; // exclude if matches
+         if (!isExclude && !matches) return; // filter (include) only if matches
+      }
+
+      const patIdObj = note.patientId || note.PatNum;
+      const mappedPatientId = patIdObj?._id || patIdObj?.id || patIdObj?.PatNum || patIdObj?.toString();
+      
+      const provIdObj = note.providerId || note.ProvNum;
+      const mappedProviderId = provIdObj?._id || provIdObj?.id || provIdObj?.ProvNum || provIdObj?.toString();
+
+      const mapped = {
+        id: `commlog_${note._id || note.id || note.CommlogNum}`,
+        rawId: (note._id || note.id || note.CommlogNum).toString(),
+        sourceType: 'commlog',
+        patientId: mappedPatientId,
+        providerId: mappedProviderId,
+        patient: note.patientId ? `${note.patientId.firstName} ${note.patientId.lastName}`.trim() : 'Unknown Patient',
+        date: note.createdAt ? new Date(note.createdAt).toLocaleDateString() : '',
+        code: extractedCode,
+        kind: note.noteType ? note.noteType.charAt(0).toUpperCase() + note.noteType.slice(1) : 'Clinical Note',
+        provider: note.providerId ? `${note.providerId.firstName} ${note.providerId.lastName}`.trim() : 'Unknown Provider',
+        note: contentPreview
+      };
+      
+      if (note.isSigned) {
+        signed.push(mapped);
+      } else {
+        unsigned.push(mapped);
+      }
+    });
+
+    // 2. Fetch Procedurelog (for legacy procnote AND missing notes)
+    const procWhere: any = {
+      ProcDate: { gte: start, lte: end },
+      ProcStatus: 2
+    };
+
+    if (query?.provider && query.provider !== 'All') {
+      const provNum = Number(query.provider);
+      if (!isNaN(provNum)) procWhere.ProvNum = provNum;
+    }
+
+    if (query?.code) {
+      const codeTerms = query.code.split(',').map((t: string) => t.trim()).filter(Boolean);
+      const termConditions = codeTerms.map((term: string) => ({
+        OR: [
+          { OldCode: { contains: term, mode: 'insensitive' } },
+          { procedurecode_procedurelog_CodeNumToprocedurecode: { ProcCode: { contains: term, mode: 'insensitive' } } },
+          { procedurecode_procedurelog_CodeNumToprocedurecode: { Descript: { contains: term, mode: 'insensitive' } } }
+        ]
+      }));
+
+      if (query.codeFilterType === 'exclude') {
+        procWhere.NOT = { OR: termConditions };
+      } else {
+        procWhere.OR = termConditions;
+      }
+    }
+
     const procs = await prisma.procedurelog.findMany({
-      where: {
-        ProcDate: { gte: start, lte: end },
-        ProcStatus: 2
-      },
+      where: procWhere,
       include: {
         patient: true,
         provider_procedurelog_ProvNumToprovider: true,
         procnote: {
           orderBy: { EntryDateTime: 'desc' },
           take: 1
-        }
+        },
+        procedurecode_procedurelog_CodeNumToprocedurecode: true
       },
-      take: 50
+      take: 10000
     });
 
     const getKindByCpt = (cpt: string) => {
+      if (!cpt) return 'General';
       const code = cpt.toUpperCase();
-      if (code.startsWith('D01') || code.startsWith('D02') || code.startsWith('D03') || code.startsWith('D04')) {
-        return 'Exam';
-      }
-      if (code.startsWith('D1')) {
-        return 'Recare';
-      }
-      if (code.startsWith('D2') || code.startsWith('D3') || code.startsWith('D4') || code.startsWith('D5') || code.startsWith('D6') || code.startsWith('D7') || code.startsWith('D8') || code.startsWith('D9')) {
-        return 'Treatment';
-      }
+      if (code.startsWith('D01') || code.startsWith('D02') || code.startsWith('D03') || code.startsWith('D04')) return 'Exam';
+      if (code.startsWith('D1')) return 'Recare';
+      if (code.startsWith('D2') || code.startsWith('D3') || code.startsWith('D4') || code.startsWith('D5') || code.startsWith('D6') || code.startsWith('D7') || code.startsWith('D8') || code.startsWith('D9')) return 'Treatment';
       return 'General';
     };
 
-    return procs.map((p, idx) => {
-      const matchedNote = p.procnote?.[0]?.Note || '';
-      const cpt = p.OldCode ?? 'D0120';
+    // Build a set of patient_procedureCode that have modern commlog notes
+    const coveredProcedures = new Set<string>();
+    notes.forEach((note: any) => {
+      if (note.structuredData && note.structuredData.procedureCodes && Array.isArray(note.structuredData.procedureCodes)) {
+        const patIdObj = note.patientId || note.PatNum;
+        const patIdStr = patIdObj?._id || patIdObj?.id || patIdObj?.PatNum || patIdObj;
+        
+        note.structuredData.procedureCodes.forEach((code: string) => {
+          coveredProcedures.add(`${String(patIdStr)}_${code}`);
+        });
+      }
+    });
+
+    procs.forEach((p) => {
+      const matchedNoteObj = p.procnote?.[0];
+      const matchedNote = matchedNoteObj?.Note || '';
+      const hasSignature = matchedNoteObj?.Signature && matchedNoteObj.Signature.trim() !== '';
+      const cpt = p.OldCode ?? p.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? 'D0120';
       const kind = getKindByCpt(cpt);
 
-      return {
-        id: p.ProcNum.toString(),
+      // Skip if covered by a modern commlog note
+      if (coveredProcedures.has(`${p.PatNum?.toString()}_${cpt}`)) {
+        return;
+      }
+
+      // If kind filter is active, skip procedures that don't match
+      if (query?.kind && query.kind !== 'All' && kind.toLowerCase() !== query.kind.toLowerCase()) {
+        return;
+      }
+
+      const mapped = {
+        id: `proc_${p.ProcNum.toString()}`,
+        rawId: p.ProcNum.toString(),
+        sourceType: 'procedurelog',
+        patientId: p.PatNum ? p.PatNum.toString() : undefined,
+        providerId: p.ProvNum ? p.ProvNum.toString() : undefined,
         patient: p.patient ? `${p.patient.FName} ${p.patient.LName}` : 'Patient',
         date: p.ProcDate ? (p.ProcDate as Date).toLocaleDateString() : '',
+        code: cpt,
         kind,
         provider: p.provider_procedurelog_ProvNumToprovider ? `${p.provider_procedurelog_ProvNumToprovider.FName} ${p.provider_procedurelog_ProvNumToprovider.LName}` : 'Provider',
         note: matchedNote
       };
+
+      if (!matchedNoteObj) {
+        mapped.note = `Missing note for Procedure: ${cpt} - ${p.procedurecode_procedurelog_CodeNumToprocedurecode?.Descript || 'Unknown procedure'}`;
+        missing.push(mapped);
+      } else if (hasSignature) {
+        signed.push(mapped);
+      } else {
+        unsigned.push(mapped);
+      }
     });
+
+    return {
+      unsigned,
+      signed,
+      missing
+    };
   }
 
   private async getRxReport(start: Date, end: Date) {

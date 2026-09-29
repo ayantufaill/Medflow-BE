@@ -389,9 +389,9 @@ export class TreatmentPlanService {
               ProcStatus: 2, // Complete
               ProcDate: new Date(),
               ProcFee: Number(item.charge ?? item.fee ?? 0),
-              Surf: item.site ?? item.surface ?? '',
-              ToothNum: item.tooth ? String(item.tooth) : '',
-              OldCode: codeStr ?? '',
+              Surf: (item.site ?? item.surface ?? '').substring(0, 10),
+              ToothNum: item.tooth ? String(item.tooth).substring(0, 2) : '',
+              OldCode: (codeStr ?? '').substring(0, 15),
               DateTP: plan.DateTP,
             },
           });
