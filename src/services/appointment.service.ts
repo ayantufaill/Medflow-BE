@@ -479,21 +479,25 @@ export class AppointmentService {
       where: {
         ProcNum: { in: procNumArray },
         Status: { in: [1, 4, 5] },
+        // Patient payments are represented by paysplit. Only claim-linked
+        // records represent insurance payments and should be added separately.
         ClaimNum: { not: null },
       },
       select: {
         ProcNum: true,
         InsPayAmt: true,
         ClaimNum: true,
+        WriteOff: true,
       },
     });
 
     const insPaidByProcClaim = new Map<string, number>();
+    const writeOffByProc = new Map<string, number>();
     for (const cp of claimProcs) {
       if (!cp.ProcNum) continue;
       const procKey = cp.ProcNum.toString();
-      const insPay = Number(cp.InsPayAmt ?? 0);
-      insPaidByProcClaim.set(procKey, (insPaidByProcClaim.get(procKey) ?? 0) + insPay);
+      insPaidByProcClaim.set(procKey, (insPaidByProcClaim.get(procKey) ?? 0) + Number(cp.InsPayAmt ?? 0));
+      writeOffByProc.set(procKey, (writeOffByProc.get(procKey) ?? 0) + Math.max(0, Number(cp.WriteOff ?? 0)));
     }
 
     const paidByProc = new Map<string, number>();
@@ -502,10 +506,11 @@ export class AppointmentService {
       const ptPaid = patientPaidByProc.get(procKey) ?? 0;
       const insFromSplits = insPaidByProcSplits.get(procKey) ?? 0;
       const insFromClaim = insPaidByProcClaim.get(procKey) ?? 0;
-      // Deduplicate insurance payments between paysplit and claimproc.
-      // Write-offs and adjustments are contractual discounts, NOT payments.
+      // Deduplicate insurance payments between paysplit and claimproc,
+      // then add write-offs as settled (not as a payment).
       const insPaid = Math.max(insFromSplits, insFromClaim);
-      paidByProc.set(procKey, Math.round((ptPaid + insPaid) * 100) / 100);
+      const writeOff = writeOffByProc.get(procKey) ?? 0;
+      paidByProc.set(procKey, Math.round((ptPaid + insPaid + writeOff) * 100) / 100);
     }
 
     // 5. Fallback: check procedurelog.BillingNote.paidAmount if no paysplit/claimproc recorded
