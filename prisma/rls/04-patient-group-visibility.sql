@@ -26,10 +26,19 @@
 -- grant. A Branch B user can now see a Branch A patient, but still cannot
 -- create or edit one while scoped to Branch B.
 --
--- Safe to re-run: DROP POLICY IF EXISTS before each CREATE POLICY.
+-- Safe to re-run: DROP POLICY IF EXISTS before each CREATE POLICY. Note this
+-- file creates FIVE policies, not one — every one of them must be dropped
+-- first, or the second run aborts with
+-- `policy "patient_write_own" for table "patient" already exists`
+-- partway through and the remaining policies are never (re)created.
+-- Because the whole file is sent as one simple-query batch, a single failure
+-- rolls back the entire file, leaving the table with stale policies.
 
 DROP POLICY IF EXISTS tenant_isolation ON patient;
 DROP POLICY IF EXISTS patient_read_group ON patient;
+DROP POLICY IF EXISTS patient_write_own ON patient;
+DROP POLICY IF EXISTS patient_update_own ON patient;
+DROP POLICY IF EXISTS patient_delete_own ON patient;
 
 CREATE POLICY patient_read_group ON patient FOR SELECT
 USING (
