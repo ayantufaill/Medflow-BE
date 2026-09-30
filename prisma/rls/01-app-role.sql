@@ -30,7 +30,7 @@ $$;
 -- Role already exists (every re-run): rotate the password to the current value.
 ALTER ROLE medflow_app WITH LOGIN PASSWORD __APP_DB_PASSWORD__ NOSUPERUSER NOCREATEDB NOCREATEROLE;
 
-GRANT CONNECT ON DATABASE medflow TO medflow_app;
+GRANT CONNECT ON DATABASE medflow_db TO medflow_app;
 GRANT USAGE ON SCHEMA public TO medflow_app;
 
 -- medflow_app deliberately has no CREATE on schema public (DML only, no
@@ -46,5 +46,5 @@ GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO medflow_app;
 -- Explicit `FOR ROLE postgres` since default-privilege scope is otherwise
 -- tied to whichever role executes this statement, which happens to also be
 -- postgres here — spelled out so that isn't left implicit.
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO medflow_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO medflow_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE medflow IN SCHEMA public GRANT ALL ON TABLES TO medflow_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE medflow IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO medflow_app;

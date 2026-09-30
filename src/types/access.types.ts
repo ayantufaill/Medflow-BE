@@ -53,11 +53,11 @@ export type GroupScope = number | '*' | null;
  * six are accepted (B's sharing.service.ts enforces this).
  */
 export const SHARING_CATEGORIES = [
-  'FINANCIAL',
-  'IMAGING',
+  'IDENTITY',
   'CLINICAL',
-  'SCHEDULING',
-  'DOCUMENTS',
+  'IMAGING',
+  'APPOINTMENTS',
+  'FINANCIAL',
   'INSURANCE',
 ] as const;
 
@@ -74,11 +74,11 @@ export type SharingMode = (typeof SHARING_MODES)[number];
 
 /** Default policy for a newly created group. */
 export const DEFAULT_SHARING_POLICY: Record<SharingCategory, SharingMode> = {
-  FINANCIAL: 'GROUP_READ',
-  IMAGING: 'GROUP_READ',
+  IDENTITY: 'OWN_BRANCH',
   CLINICAL: 'OWN_BRANCH',
-  SCHEDULING: 'OWN_BRANCH',
-  DOCUMENTS: 'OWN_BRANCH',
+  IMAGING: 'GROUP_READ',
+  APPOINTMENTS: 'OWN_BRANCH',
+  FINANCIAL: 'GROUP_READ',
   INSURANCE: 'OWN_BRANCH',
 };
 

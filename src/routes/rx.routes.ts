@@ -3,6 +3,7 @@ import { rxController } from '../controllers/rx.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -87,6 +88,7 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.read'),
@@ -177,6 +179,7 @@ router.get(
 router.post(
   '/',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.update'),
@@ -252,6 +255,7 @@ router.post(
 router.get(
   '/:id/print',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.read'),

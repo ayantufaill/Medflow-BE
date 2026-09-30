@@ -486,6 +486,20 @@ router.patch(
   userController.updateUserBranches.bind(userController)
 );
 
+router.get(
+  '/:userId/clinics',
+  requireRoles('Admin', 'Group Admin'),
+  validate(userIdValidator),
+  userController.getUserClinics.bind(userController)
+);
+
+router.put(
+  '/:userId/clinics',
+  requireRoles('Admin', 'Group Admin'),
+  validate(userIdValidator), // Minimal validation, could add more for body
+  userController.setUserClinics.bind(userController)
+);
+
 /**
  * @swagger
  * /users/{userId}/permissions:

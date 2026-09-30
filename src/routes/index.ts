@@ -70,8 +70,10 @@ import taskRoutes from './task.routes';
 import timeclockRoutes from './timeclock.routes';
 import patientReportRoutes from './patient-report.routes';
 import securityRoutes from './security.routes';
+import sharingRoutes from './sharing.routes';
 
 const router = Router();
+router.use('/sharing', sharingRoutes);
 router.use('/coverage-groups', coverageGroupRoutes);
 router.use('/timeclock', timeclockRoutes);
 

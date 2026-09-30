@@ -2,13 +2,13 @@ import type { Request, Response, NextFunction } from 'express';
 import { roleService } from '../services/role.service';
 import { PermissionService } from '../services/permission.service';
 import { logActivityFromRequest } from '../utils/activity-logger.util';
-import { PERMISSION_CATALOG } from '../constants/permissions';
+import { PERMISSION_MODULES } from '../constants/permission-catalog';
 export class RoleController {
   async getPermissionCatalog(req: Request, res: Response, next: NextFunction) {
     try {
       res.status(200).json({
         success: true,
-        data: { catalog: PERMISSION_CATALOG },
+        data: { catalog: PERMISSION_MODULES, modules: PERMISSION_MODULES },
       });
     } catch (error) {
       next(error);

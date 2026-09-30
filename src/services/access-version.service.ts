@@ -21,6 +21,17 @@ export async function bumpAccessVersion(userNum: bigint): Promise<void> {
   const meta = await getUserMeta(userNum);
   const nextVersion = ((meta.tokenVersion as number) || 0) + 1;
   await setUserMeta(userNum, { ...meta, tokenVersion: nextVersion });
+  
+  try {
+    const { prisma } = await import('../config/db');
+    await prisma.user_access_profile.upsert({
+      where: { user_num: userNum },
+      update: { access_version: { increment: 1 } },
+      create: { user_num: userNum, access_version: 1 },
+    });
+  } catch (error) {
+    console.error(`Failed to bump access_version for user ${userNum}:`, error);
+  }
 }
 
 /**

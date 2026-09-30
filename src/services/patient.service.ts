@@ -1985,6 +1985,17 @@ async getPatientHistoryAggregate(patientId: string) {
       };
     });
   }
+  async updateCrossBranchRestriction(patientId: bigint, restricted: boolean): Promise<void> {
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: patientId }
+    });
+    if (!patient) throw new Error('Patient not found');
+
+    await prisma.patient.update({
+      where: { PatNum: patientId },
+      data: { cross_branch_restricted: restricted }
+    });
+  }
 }
 
 export const patientService = new PatientService();

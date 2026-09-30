@@ -3,6 +3,7 @@ import { patientReferralController } from '../controllers/patient-referral.contr
 import { authenticate } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -37,6 +38,9 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.read'),
   validate(getPatientReferralsValidator),
   patientReferralController.getPatientReferrals
@@ -72,6 +76,9 @@ router.get(
 router.post(
   '/',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.update'),
   validate(createPatientReferralValidator),
   patientReferralController.createPatientReferral

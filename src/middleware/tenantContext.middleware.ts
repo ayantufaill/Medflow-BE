@@ -55,11 +55,14 @@ export const enterTenantContext = async (
   }
 
   try {
-    const isSystemAdmin = await PermissionService.hasRole(req.userId, 'Super Admin');
+    const isSystemAdmin = req.access
+      ? req.access.isPlatformAdmin || req.access.roles.includes('Super Admin')
+      : await PermissionService.hasRole(req.userId, 'Super Admin');
+    const accessAllClinics = req.access?.accessAllClinics === true;
 
     // Deny rather than widen. A caller with no branch assignment gets a 403
     // with an actionable code instead of a silently unrestricted session.
-    if (!isSystemAdmin && req.branchAccess.clinicIds.length === 0) {
+    if (!isSystemAdmin && !accessAllClinics && req.branchAccess.clinicIds.length === 0) {
       return next(
         new AuthorizationError(
           'No branch is assigned to your account. Contact your administrator.',
@@ -68,17 +71,22 @@ export const enterTenantContext = async (
       );
     }
 
-    const clinicIds: bigint[] | '*' = isSystemAdmin ? '*' : req.branchAccess.clinicIds;
+    const clinicIds: bigint[] | '*' = isSystemAdmin || accessAllClinics ? '*' : req.branchAccess.clinicIds;
 
     // Group is NOT widened to '*' for a non-admin, even when unresolvable.
     // null flows into the RLS GUC as '' and the policy denies, which is the
     // intended outcome: a user whose clinic belongs to no practice group
     // cannot read patients at all rather than reading all of them.
-    const patientGroupId: number | '*' | null = isSystemAdmin
+    const patientGroupId: number | '*' | null = isSystemAdmin || accessAllClinics
       ? '*'
       : req.branchAccess.groupId;
 
-    tenantContextStorage.run({ clinicIds, patientGroupId }, () => next());
+    tenantContextStorage.run({
+      clinicIds,
+      patientGroupId,
+      userId: req.userId,
+      sharing: req.access?.sharingSpec,
+    }, () => next());
   } catch (error) {
     next(error);
   }

@@ -4,6 +4,7 @@ import { treatmentPlanService } from '../services/treatment-plan.service';
 import { authenticate } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -15,7 +16,7 @@ import {
 } from '../validators/treatment-plan.validator';
 
 const router = Router();
-router.use(authenticate, resolveBranchAccess, enterTenantContext);
+router.use(authenticate, requirePhiAccess, resolveBranchAccess, enterTenantContext);
 
 /**
  * @swagger

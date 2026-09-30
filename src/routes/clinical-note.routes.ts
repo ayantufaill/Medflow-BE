@@ -4,6 +4,7 @@ import { clinicalNoteController } from '../controllers/clinical-note.controller'
 import { authenticate } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -51,6 +52,7 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.read'),
@@ -85,6 +87,7 @@ router.use('/patient/:patientId', auditCrossBranchRead('CLINICAL_NOTE'));
 router.get(
   '/patient/:patientId',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.read'),
@@ -112,6 +115,7 @@ router.get(
 router.get(
   '/patient/:patientId/medical-history',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.read'),
@@ -142,6 +146,7 @@ router.use('/appointment/:appointmentId', auditCrossBranchRead('CLINICAL_NOTE'))
 router.get(
   '/appointment/:appointmentId',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.read'),
@@ -169,6 +174,7 @@ router.get(
 router.get(
   '/unsigned/:providerId',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.read'),
@@ -198,6 +204,7 @@ router.get(
 router.get(
   '/:clinicalNoteId',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.read'),
@@ -242,6 +249,7 @@ router.get(
 router.post(
   '/',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.create'),
@@ -285,6 +293,7 @@ router.post(
 router.post(
   '/from-template/:templateId',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.create'),
@@ -329,6 +338,7 @@ router.post(
 router.put(
   '/:clinicalNoteId',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.update'),
@@ -365,6 +375,7 @@ router.put(
 router.put(
   '/:clinicalNoteId/draft',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.update'),
@@ -396,6 +407,7 @@ router.put(
 router.post(
   '/:clinicalNoteId/sign',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.sign'),
@@ -434,6 +446,7 @@ router.post(
 router.post(
   '/:clinicalNoteId/attachments',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.update'),
@@ -472,6 +485,7 @@ router.post(
 router.delete(
   '/:clinicalNoteId/attachments',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.update'),
@@ -501,6 +515,7 @@ router.delete(
 router.delete(
   '/:clinicalNoteId',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.delete'),

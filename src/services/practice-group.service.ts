@@ -134,17 +134,9 @@ export class PracticeGroupService {
       throw new NotFoundError('Branch not found in this practice group.');
     }
 
-    let groupAdminRole = await roleService.getRoleByName(GROUP_ADMIN_ROLE_NAME);
+    const groupAdminRole = await roleService.getRoleByName(GROUP_ADMIN_ROLE_NAME);
     if (!groupAdminRole) {
-      groupAdminRole = await roleService.createRole({
-        name: GROUP_ADMIN_ROLE_NAME,
-        description: 'Views/manages across all branches within their practice group.',
-        permissions: {
-          [GROUP_ADMIN_PERMISSIONS.VIEW_ANALYTICS]: true,
-          [GROUP_ADMIN_PERMISSIONS.MANAGE_USERS]: true,
-          [GROUP_ADMIN_PERMISSIONS.REASSIGN_PROVIDERS]: true,
-        },
-      });
+      throw new Error(`The '${GROUP_ADMIN_ROLE_NAME}' role does not exist. Please seed the database.`);
     }
 
     const result = await userService.createUser(

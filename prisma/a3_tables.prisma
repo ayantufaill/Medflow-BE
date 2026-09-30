@@ -1,0 +1,62 @@
+model permission_def {
+  key             String            @id @db.VarChar(255)
+  module          String            @db.VarChar(255)
+  description     String            @db.Text
+  is_sensitive    Boolean           @default(false)
+  lock_date_aware Boolean           @default(false)
+  role_permission role_permission[]
+}
+
+model role_permission {
+  role_id         BigInt
+  permission_key  String            @db.VarChar(255)
+  lock_days       Int?
+  lock_date       DateTime?         @db.Date
+  
+  permission_def  permission_def    @relation(fields: [permission_key], references: [key], onDelete: Cascade)
+  usergroup       usergroup         @relation(fields: [role_id], references: [UserGroupNum], onDelete: Cascade)
+  
+  @@id([role_id, permission_key])
+}
+
+model user_access_profile {
+  user_num           BigInt   @id
+  access_all_clinics Boolean  @default(false)
+  is_platform_admin  Boolean  @default(false)
+  access_version     Int      @default(0)
+  
+  userod             userod   @relation(fields: [user_num], references: [UserNum], onDelete: Cascade)
+}
+
+model security_lock {
+  group_id        Int
+  lock_date       DateTime? @db.Date
+  lock_days       Int?
+  includes_admins Boolean   @default(false)
+  
+  practicegroup   practicegroup @relation(fields: [group_id], references: [id], onDelete: Cascade)
+  
+  @@id([group_id])
+}
+
+model group_sharing_policy {
+  id         Int       @id @default(autoincrement())
+  group_id   Int
+  category   String    @db.VarChar(50)
+  mode       String    @db.VarChar(50)
+  clinic_id  BigInt?
+  updated_by BigInt?
+  updated_at DateTime  @default(now())
+  
+  @@unique([group_id, category, clinic_id])
+}
+
+model access_audit {
+  id         BigInt    @id @default(autoincrement())
+  user_num   BigInt?
+  pat_num    BigInt?
+  perm_type  Int
+  log_source Int
+  log_text   Json
+  created_at DateTime  @default(now())
+}

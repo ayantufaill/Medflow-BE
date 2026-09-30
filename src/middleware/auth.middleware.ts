@@ -4,6 +4,7 @@ import type { JWTPayload } from '../types/auth.types';
 import { AuthenticationError, AuthorizationError } from '../utils/error.util';
 import { prisma } from '../config/db';
 import { getUserMeta } from '../utils/opendental-auth.util';
+import { AccessContextService } from '../services/access-context.service';
 import {
   type UserGroup,
   USER_GROUPS,
@@ -62,6 +63,7 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
 
     req.user = decoded;
     req.userId = decoded.userId;
+    req.access = await AccessContextService.load(decoded.userId, Number(decoded.tokenVersion ?? 0));
 
     next();
   } catch (error) {
@@ -183,4 +185,14 @@ export const requireAllRoles = (...requiredRoles: string[]) => {
 
     next();
   };
+};
+
+export const requirePlatformAdmin = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.access) {
+    return next(new AuthenticationError('Authentication required'));
+  }
+  if (!req.access.isPlatformAdmin) {
+    return next(new AuthorizationError('Forbidden - Platform Admin required'));
+  }
+  next();
 };

@@ -32,6 +32,8 @@ export interface TenantContextValue {
    * every patient in the system.
    */
   patientGroupId: number | '*' | null;
+  userId?: string;
+  sharing?: string;
 }
 
 /**

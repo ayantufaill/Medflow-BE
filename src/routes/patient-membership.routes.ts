@@ -3,11 +3,12 @@ import { patientMembershipController } from '../controllers/patient-membership.c
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { patientIdValidator } from '../validators/patient.validator';
 
 const router = Router();
-router.use(authenticate, resolveBranchAccess, enterTenantContext);
+router.use(authenticate, requirePhiAccess, resolveBranchAccess, enterTenantContext);
 
 router.get(
   '/:patientId/memberships',

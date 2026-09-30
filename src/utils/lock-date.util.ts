@@ -26,22 +26,35 @@ export async function assertNotLocked(
 
   // 1. Group-level lock date
   if (access.groupId) {
-    const group = await prisma.practicegroup.findUnique({
-      where: { id: access.groupId },
-      select: { config: true }
+    const secLock = await prisma.security_lock.findUnique({
+      where: { group_id: access.groupId },
     });
-    if (group?.config) {
-      const config = group.config as any;
-      if (config.lockDate) {
-        const lockTime = new Date(config.lockDate).getTime();
-        if (itemTime <= lockTime) {
-          throw new LockedPeriodError(`Item date is before or on the group lock date (${config.lockDate})`);
-        }
+    
+    if (secLock) {
+      // Check if user is admin if includes_admins is false
+      let enforceGroupLock = true;
+      if (!secLock.includes_admins) {
+        const isAdmin = await prisma.usergroupattach.findFirst({
+          where: { 
+            UserNum: BigInt(userId),
+            usergroup: { Description: 'Admin' }
+          }
+        });
+        if (isAdmin) enforceGroupLock = false;
       }
-      if (config.lockDays) {
-        const lockTime = now - (config.lockDays * 24 * 60 * 60 * 1000);
-        if (itemTime <= lockTime) {
-          throw new LockedPeriodError(`Item date is older than the group lock days (${config.lockDays})`);
+
+      if (enforceGroupLock) {
+        if (secLock.lock_date) {
+          const lockTime = secLock.lock_date.getTime();
+          if (itemTime <= lockTime) {
+            throw new LockedPeriodError(`Item date is before or on the group lock date`);
+          }
+        }
+        if (secLock.lock_days && secLock.lock_days > 0) {
+          const lockTime = now - (secLock.lock_days * 24 * 60 * 60 * 1000);
+          if (itemTime <= lockTime) {
+            throw new LockedPeriodError(`Item date is older than the group lock days (${secLock.lock_days})`);
+          }
         }
       }
     }
@@ -70,42 +83,47 @@ export async function assertNotLocked(
   }
 
   // 3. Role-level per-permission lock
-  // We need to fetch the user's role metas to see if this permission has a lockDays override
   const userGroups = await prisma.usergroupattach.findMany({
     where: { UserNum: BigInt(userId) },
-    select: { usergroup: { select: { UserGroupNum: true } } }
+    select: { UserGroupNum: true }
   });
 
-  let roleLockDays: number | null = null;
-  const userGroupNums = userGroups.map(ug => ug.usergroup?.UserGroupNum).filter(Boolean) as bigint[];
-
-  for (const ugNum of userGroupNums) {
-    const pref = await prisma.preference.findFirst({
-      where: { PrefName: `usergroup_${ugNum.toString()}_meta` }
+  const userGroupNums = userGroups.map(ug => ug.UserGroupNum).filter((ug): ug is bigint => ug !== null);
+  
+  if (userGroupNums.length > 0) {
+    const rolePerms = await prisma.role_permission.findMany({
+      where: {
+        role_id: { in: userGroupNums },
+        permission_key: permissionKey
+      }
     });
-    if (pref?.ValueString) {
-      try {
-        const meta = JSON.parse(pref.ValueString);
-        const permValue = meta.permissions?.[permissionKey];
-        if (typeof permValue === 'object' && permValue !== null && typeof permValue.lockDays === 'number') {
-          // If multiple roles define lockDays for the same permission, we use the most lenient (smallest number)
-          // Wait, actually F3 says "stricter of group lock and role-level lock". 
-          // If a user has two roles, one says 14 days and one says 30 days, we should probably allow 30 days (most permissive of their roles).
-          // But compared to group lock, we use the stricter of (group lock, role lock).
-          if (roleLockDays === null || permValue.lockDays > roleLockDays) {
-            roleLockDays = permValue.lockDays;
-          }
+
+    let roleLockDays: number | null = null;
+    let roleLockDate: Date | null = null;
+
+    for (const perm of rolePerms) {
+      if (perm.lock_days !== null) {
+        if (roleLockDays === null || perm.lock_days > roleLockDays) {
+          roleLockDays = perm.lock_days;
         }
-      } catch (e) {
-        // Ignore JSON parse errors
+      }
+      if (perm.lock_date !== null) {
+        if (roleLockDate === null || perm.lock_date < roleLockDate) {
+          roleLockDate = perm.lock_date;
+        }
       }
     }
-  }
 
-  if (roleLockDays !== null && roleLockDays > 0) {
-    const lockTime = now - (roleLockDays * 24 * 60 * 60 * 1000);
-    if (itemTime <= lockTime) {
-      throw new LockedPeriodError(`Item date is locked by role permission (${roleLockDays} days)`);
+    if (roleLockDays !== null && roleLockDays > 0) {
+      const lockTime = now - (roleLockDays * 24 * 60 * 60 * 1000);
+      if (itemTime <= lockTime) {
+        throw new LockedPeriodError(`Item date is locked by role permission (${roleLockDays} days)`);
+      }
+    }
+    if (roleLockDate !== null) {
+      if (itemTime <= roleLockDate.getTime()) {
+        throw new LockedPeriodError(`Item date is locked by role permission date`);
+      }
     }
   }
 }

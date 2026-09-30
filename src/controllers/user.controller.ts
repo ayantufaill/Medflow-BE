@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { userService } from '../services/user.service';
+import { userClinicService } from '../services/user-clinic.service';
 import { logActivityFromRequest, getClientIp, getUserAgent } from '../utils/activity-logger.util';
 
 export class UserController {
@@ -339,6 +340,44 @@ export class UserController {
         success: true,
         data: result,
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getUserClinics(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId } = req.params;
+      if (!userId) {
+        return res.status(400).json({ success: false, error: { message: 'User ID is required' } });
+      }
+
+      const result = await userClinicService.getUserClinics(BigInt(userId));
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async setUserClinics(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId } = req.params;
+      const { defaultId, restrictedIds, accessAll } = req.body;
+      
+      if (!userId) {
+        return res.status(400).json({ success: false, error: { message: 'User ID is required' } });
+      }
+
+      await userClinicService.setUserClinics(
+        BigInt(userId),
+        { defaultId, restrictedIds: restrictedIds || [], accessAll: accessAll || false },
+        req.userId!,
+        req.access?.isPlatformAdmin || false,
+        req.access?.roles.includes('Security Admin') || false
+      );
+      
+      await logActivityFromRequest(req, 'updated', 'userclinic', userId, null, { defaultId, restrictedIds, accessAll });
+      res.status(200).json({ success: true, data: { message: 'Clinic assignments updated successfully' } });
     } catch (error) {
       next(error);
     }

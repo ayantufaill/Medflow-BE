@@ -3,6 +3,7 @@ import { patientImageController } from '../controllers/patient-image.controller'
 import { authenticate } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { upload } from '../config/multer.config';
 import { param } from 'express-validator';
@@ -66,6 +67,9 @@ const imageTypeValidator = [
 router.get(
   '/',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('patients.read'),
   validate(patientIdValidator),
   patientImageController.getImages
@@ -122,6 +126,9 @@ router.get(
 router.get(
   '/:imageType',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('patients.read'),
   validate([...patientIdValidator, ...imageTypeValidator]),
   patientImageController.getSingleImage
@@ -193,6 +200,9 @@ router.get(
 router.post(
   '/:imageType',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('patients.update'),
   validate([...patientIdValidator, ...imageTypeValidator]),
   upload.single('image'),
@@ -246,6 +256,9 @@ router.post(
 router.delete(
   '/:imageType',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('patients.update'),
   validate([...patientIdValidator, ...imageTypeValidator]),
   patientImageController.deleteImage

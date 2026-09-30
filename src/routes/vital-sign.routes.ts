@@ -3,6 +3,7 @@ import { vitalSignController } from '../controllers/vital-sign.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -330,6 +331,7 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('vital-signs.read'),
@@ -371,6 +373,7 @@ router.get(
 router.get(
   '/normal-ranges',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('vital-signs.read'),
@@ -427,6 +430,7 @@ router.get(
 router.get(
   '/patient/:patientId',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('vital-signs.read'),
@@ -465,6 +469,7 @@ router.get(
 router.get(
   '/patient/:patientId/latest',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('vital-signs.read'),
@@ -523,6 +528,7 @@ router.get(
 router.get(
   '/patient/:patientId/trend',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('vital-signs.read'),
@@ -561,6 +567,7 @@ router.get(
 router.get(
   '/appointment/:appointmentId',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('vital-signs.read'),
@@ -599,6 +606,7 @@ router.get(
 router.get(
   '/:vitalSignId',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('vital-signs.read'),
@@ -713,6 +721,7 @@ router.get(
 router.post(
   '/',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('vital-signs.create'),
@@ -799,6 +808,7 @@ router.post(
 router.put(
   '/:vitalSignId',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('vital-signs.update'),
@@ -844,6 +854,7 @@ router.put(
 router.delete(
   '/:vitalSignId',
   authenticate,
+  requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('vital-signs.delete'),

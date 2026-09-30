@@ -19,14 +19,14 @@ export class SecurityController {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 50;
       const filters = {
-        userNum: req.query.userNum,
+        userNum: req.query.userNum ?? req.query.user,
         patNum: req.query.patNum,
         permType: req.query.permType,
-        startDate: req.query.startDate,
-        endDate: req.query.endDate,
+        startDate: req.query.startDate ?? req.query.from,
+        endDate: req.query.endDate ?? req.query.to,
       };
 
-      const result = await getAuditLogs(page, limit, filters);
+      const result = await getAuditLogs(page, limit, filters, req.branchAccess?.clinicIds as string[] | undefined);
       res.status(200).json({
         success: true,
         data: result,

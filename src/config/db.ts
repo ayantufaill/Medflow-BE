@@ -52,12 +52,17 @@ const getExtendedPrisma = () => {
               ctx.patientGroupId === null ? '' : String(ctx.patientGroupId);
 
             return base.$transaction(async (tx) => {
-              await tx.$executeRawUnsafe(`SET LOCAL app.clinic_ids = '${clinicIdsLiteral}'`);
+              await tx.$executeRaw`
+                SELECT
+                  set_config('app.clinic_ids', ${clinicIdsLiteral}, true),
+                  set_config('app.patient_group_id', ${patientGroupIdLiteral}, true),
+                  set_config('app.user_id', ${ctx.userId ?? ''}, true),
+                  set_config('app.shared', ${ctx.sharing ?? ''}, true)
+              `;
               // Second GUC, consumed only by the patient table's read policy
               // (prisma/rls/04-patient-group-visibility.sql), compared
               // directly against the stored patient.GroupNum column — every
               // other RLS-protected table still enforces app.clinic_ids only.
-              await tx.$executeRawUnsafe(`SET LOCAL app.patient_group_id = '${patientGroupIdLiteral}'`);
               return (tx as any)[model][operation](args);
             }, {
               maxWait: 10000,

@@ -3,12 +3,14 @@ import { patientInsuranceController } from '../controllers/patient-insurance.con
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { patientIdValidator } from '../validators/patient.validator';
 import { createPatientInsuranceValidator, updatePatientInsuranceValidator, patientInsuranceIdValidator, reorderInsurancesValidator } from '../validators/insurance.validator';
 
 const router = Router();
 router.use(authenticate);
+router.use(requirePhiAccess);
 router.use(resolveBranchAccess);
 router.use(enterTenantContext);
 

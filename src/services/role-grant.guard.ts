@@ -53,8 +53,7 @@ async function isSuperAdmin(actorUserId: string): Promise<boolean> {
   const hasSuperAdminRole = await PermissionService.hasRole(actorUserId, SUPER_ADMIN_ROLE_NAME);
   if (hasSuperAdminRole) return true;
 
-  const permissions = await PermissionService.getUserPermissions(actorUserId);
-  return permissions.has('*');
+  return hasSuperAdminRole;
 }
 
 /**

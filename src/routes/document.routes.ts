@@ -4,6 +4,7 @@ import { documentController } from '../controllers/document.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { uploadDocument as uploadDocumentMiddleware } from '../middleware/upload.middleware';
@@ -67,6 +68,9 @@ router.get(
 router.get(
   '/',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('documents.read'),
   validate(documentQueryValidator),
   documentController.getAllDocuments
@@ -99,6 +103,9 @@ router.use('/patient/:patientId', auditCrossBranchRead('DOCUMENT_LIST'));
 router.get(
   '/patient/:patientId',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('documents.read'),
   validate([...patientIdParamValidator, ...paginationQueryValidator]),
   documentController.getDocumentsByPatient
@@ -124,6 +131,9 @@ router.get(
 router.get(
   '/appointment/:appointmentId',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('documents.read'),
   validate(appointmentIdParamValidator),
   documentController.getDocumentsByAppointment
@@ -149,6 +159,9 @@ router.get(
 router.get(
   '/authorization/:authorizationId',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('documents.read'),
   validate(authorizationIdParamValidator),
   documentController.getDocumentsByAuthorization
@@ -177,6 +190,9 @@ router.use('/:documentId', auditCrossBranchRead('DOCUMENT'));
 router.get(
   '/:documentId',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('documents.read'),
   validate(documentIdValidator),
   documentController.getDocumentById
@@ -215,6 +231,9 @@ router.get(
 router.post(
   '/upload',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('documents.create'),
   uploadDocumentMiddleware.any(),
   documentController.uploadDocument
@@ -253,6 +272,9 @@ router.post(
 router.post(
   '/',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('documents.create'),
   validate(createDocumentValidator),
   documentController.createDocument
@@ -291,6 +313,9 @@ router.post(
 router.put(
   '/:documentId',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('documents.update'),
   validate([...documentIdValidator, ...updateDocumentValidator]),
   documentController.updateDocument
@@ -329,6 +354,9 @@ router.put(
 router.post(
   '/:documentId/attach-to-note',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('documents.update'),
   validate([...documentIdValidator, ...attachToNoteValidator]),
   documentController.attachToNote
@@ -356,6 +384,9 @@ router.post(
 router.post(
   '/:documentId/unlink',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('documents.update'),
   validate(documentIdValidator),
   documentController.unlinkDocument
@@ -383,6 +414,9 @@ router.post(
 router.delete(
   '/:documentId',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('documents.delete'),
   validate(documentIdValidator),
   documentController.deleteDocument

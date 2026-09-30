@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { securityController } from '../controllers/security.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 
 const router = Router();
@@ -20,6 +22,8 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('security.audit.view'),
   securityController.getAuditLogs
 );
@@ -37,6 +41,8 @@ router.get(
 router.get(
   '/verify',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('security.audit.view'),
   securityController.verifyAudit
 );

@@ -872,6 +872,24 @@ export class PatientController {
       next(error);
     }
   }
+
+  async updateCrossBranchRestriction(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      const { restricted } = req.body;
+      
+      if (restricted === undefined) {
+        return res.status(400).json({ success: false, error: { message: 'restricted boolean is required' } });
+      }
+
+      await patientService.updateCrossBranchRestriction(BigInt(patientId), Boolean(restricted));
+      
+      await logActivityFromRequest(req, 'updated', 'patient', patientId, null, { cross_branch_restricted: restricted });
+      res.status(200).json({ success: true, data: { message: 'Patient cross-branch restriction updated successfully' } });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const patientController = new PatientController();

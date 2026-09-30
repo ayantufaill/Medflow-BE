@@ -56,6 +56,18 @@ export class PermissionService {
     const roleMetaMap = await getRolesMeta(roleNums);
 
     const permissions = new Set<string>();
+    
+    if (process.env.RBAC_READ_FROM_TABLES === 'true' && roleNums.length > 0) {
+      const rows = await (prisma as any).role_permission.findMany({
+        where: { role_id: { in: roleNums } },
+        select: { permission_key: true },
+      });
+      if (rows.length > 0) {
+        rows.forEach((row: any) => permissions.add(row.permission_key));
+        return permissions;
+      }
+    }
+
     const roles = await Promise.all(
       groups.map((ug) => mapRole(ug, roleMetaMap[ug.UserGroupNum.toString()] ?? {}))
     );

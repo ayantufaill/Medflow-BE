@@ -22,7 +22,16 @@ export const resolveBranchAccess = async (
   }
 
   try {
-    req.branchAccess = await PermissionService.getBranchAccess(req.userId);
+    if (req.access) {
+      req.branchAccess = {
+        clinicIds: req.access.clinicIds,
+        groupClinicIds: req.access.groupClinicIds,
+        groupId: req.access.groupId,
+        isGroupAdmin: req.access.isGroupAdmin,
+      };
+    } else {
+      req.branchAccess = await PermissionService.getBranchAccess(req.userId);
+    }
     next();
   } catch (error) {
     next(error);

@@ -156,7 +156,7 @@ export async function verifyAuditChain() {
   return { isValid: true };
 }
 
-export async function getAuditLogs(page: number = 1, limit: number = 50, filters: any = {}) {
+export async function getAuditLogs(page: number = 1, limit: number = 50, filters: any = {}, clinicIds?: string | string[]) {
   const skip = (page - 1) * limit;
   const where: any = {};
   
@@ -167,6 +167,15 @@ export async function getAuditLogs(page: number = 1, limit: number = 50, filters
     where.LogDateTime = {};
     if (filters.startDate) where.LogDateTime.gte = new Date(filters.startDate);
     if (filters.endDate) where.LogDateTime.lte = new Date(filters.endDate);
+  }
+
+  // Group-scoped audit queries: only show logs for patients or users in the allowed clinics
+  if (clinicIds && clinicIds !== '*' && Array.isArray(clinicIds) && clinicIds.length > 0) {
+    const cIds = clinicIds.map(BigInt);
+    where.OR = [
+      { patient: { ClinicNum: { in: cIds } } },
+      { userod: { userclinic: { some: { ClinicNum: { in: cIds } } } } }
+    ];
   }
 
   const [logs, total] = await Promise.all([

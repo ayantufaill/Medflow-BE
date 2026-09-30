@@ -4382,6 +4382,7 @@ model patfieldpickitem {
 }
 
 model patient {
+  cross_branch_restricted                         Boolean                  @default(false)
   PatNum                                          BigInt                   @id(map: "PK__patient__B32F7704D5070182")
   LName                                           String?                  @db.VarChar(100)
   FName                                           String?                  @db.VarChar(100)
@@ -7048,6 +7049,7 @@ model usergroup {
   usergroup        usergroup?        @relation("usergroupTousergroup", fields: [UserGroupNumCEMT], references: [UserGroupNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_usergroup_1_UserGroupNumCEMT")
   other_usergroup  usergroup[]       @relation("usergroupTousergroup")
   usergroupattach  usergroupattach[]
+  rolePermissions  role_permission[]
 }
 
 model usergroupattach {
@@ -7059,9 +7061,9 @@ model usergroupattach {
 }
 
 model userod {
-  UserNum                                           BigInt             @id(map: "PK__userod__2C17DA90424484E1")
-  UserName                                          String?            @db.VarChar(255)
-  Password                                          String?            @db.VarChar(255)
+  UserNum                                           BigInt                @id(map: "PK__userod__2C17DA90424484E1")
+  UserName                                          String?               @db.VarChar(255)
+  Password                                          String?               @db.VarChar(255)
   UserGroupNum                                      BigInt?
   EmployeeNum                                       BigInt?
   ClinicNum                                         BigInt?
@@ -7076,13 +7078,13 @@ model userod {
   UserNumCEMT                                       BigInt?
   DateTFail                                         DateTime?
   FailedAttempts                                    Int?
-  DomainUser                                        String?            @db.VarChar(255)
+  DomainUser                                        String?               @db.VarChar(255)
   IsPasswordResetRequired                           Int?
-  MobileWebPin                                      String?            @db.VarChar(255)
+  MobileWebPin                                      String?               @db.VarChar(255)
   MobileWebPinFailedAttempts                        Int?
   DateTLastLogin                                    DateTime?
-  EClipboardClinicalPin                             String?            @db.VarChar(128)
-  BadgeId                                           String?            @db.VarChar(255)
+  EClipboardClinicalPin                             String?               @db.VarChar(128)
+  BadgeId                                           String?               @db.VarChar(255)
   activeinstance                                    activeinstance[]
   adjustment                                        adjustment[]
   alertitem                                         alertitem[]
@@ -7111,8 +7113,8 @@ model userod {
   emailmessage                                      emailmessage[]
   entrylog                                          entrylog[]
   eroutingaction                                    eroutingaction[]
-  eroutingdef_eroutingdef_UserNumCreatedTouserod    eroutingdef[]      @relation("eroutingdef_UserNumCreatedTouserod")
-  eroutingdef_eroutingdef_UserNumModifiedTouserod   eroutingdef[]      @relation("eroutingdef_UserNumModifiedTouserod")
+  eroutingdef_eroutingdef_UserNumCreatedTouserod    eroutingdef[]         @relation("eroutingdef_UserNumCreatedTouserod")
+  eroutingdef_eroutingdef_UserNumModifiedTouserod   eroutingdef[]         @relation("eroutingdef_UserNumModifiedTouserod")
   erxlog                                            erxlog[]
   etrans                                            etrans[]
   fee                                               fee[]
@@ -7125,8 +7127,8 @@ model userod {
   inssub                                            inssub[]
   insverify                                         insverify[]
   insverifyhist                                     insverifyhist[]
-  journalentry_journalentry_SecUserNumEntryTouserod journalentry[]     @relation("journalentry_SecUserNumEntryTouserod")
-  journalentry_journalentry_SecUserNumEditTouserod  journalentry[]     @relation("journalentry_SecUserNumEditTouserod")
+  journalentry_journalentry_SecUserNumEntryTouserod journalentry[]        @relation("journalentry_SecUserNumEntryTouserod")
+  journalentry_journalentry_SecUserNumEditTouserod  journalentry[]        @relation("journalentry_SecUserNumEditTouserod")
   mobileappdevice                                   mobileappdevice[]
   notification                                      notification[]
   orthocase                                         orthocase[]
@@ -7137,7 +7139,7 @@ model userod {
   orthoproclink                                     orthoproclink[]
   patfield                                          patfield[]
   patient                                           patient[]
-  patientnote                                       patientnote[]      @ignore
+  patientnote                                       patientnote[]         @ignore
   payment                                           payment[]
   paysplit                                          paysplit[]
   popup                                             popup[]
@@ -7155,19 +7157,19 @@ model userod {
   tasksubscription                                  tasksubscription[]
   taskunread                                        taskunread[]
   timeadjust                                        timeadjust[]
-  transaction_transaction_UserNumTouserod           transaction[]      @relation("transaction_UserNumTouserod")
-  transaction_transaction_SecUserNumEditTouserod    transaction[]      @relation("transaction_SecUserNumEditTouserod")
-  treatplan_treatplan_SecUserNumEntryTouserod       treatplan[]        @relation("treatplan_SecUserNumEntryTouserod")
-  treatplan_treatplan_UserNumPresenterTouserod      treatplan[]        @relation("treatplan_UserNumPresenterTouserod")
+  transaction_transaction_UserNumTouserod           transaction[]         @relation("transaction_UserNumTouserod")
+  transaction_transaction_SecUserNumEditTouserod    transaction[]         @relation("transaction_SecUserNumEditTouserod")
+  treatplan_treatplan_SecUserNumEntryTouserod       treatplan[]           @relation("treatplan_SecUserNumEntryTouserod")
+  treatplan_treatplan_UserNumPresenterTouserod      treatplan[]           @relation("treatplan_UserNumPresenterTouserod")
   tsitranslog                                       tsitranslog[]
   userclinic                                        userclinic[]
   usergroupattach                                   usergroupattach[]
-  employee                                          employee?          @relation(fields: [EmployeeNum], references: [EmployeeNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_userod_1_EmployeeNum")
-  clinic                                            clinic?            @relation(fields: [ClinicNum], references: [ClinicNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_userod_2_ClinicNum")
-  provider                                          provider?          @relation(fields: [ProvNum], references: [ProvNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_userod_3_ProvNum")
-  tasklist                                          tasklist?          @relation(fields: [TaskListInBox], references: [TaskListNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_userod_4_TaskListInBox")
-  userod                                            userod?            @relation("userodTouserod", fields: [UserNumCEMT], references: [UserNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_userod_5_UserNumCEMT")
-  other_userod                                      userod[]           @relation("userodTouserod")
+  employee                                          employee?             @relation(fields: [EmployeeNum], references: [EmployeeNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_userod_1_EmployeeNum")
+  clinic                                            clinic?               @relation(fields: [ClinicNum], references: [ClinicNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_userod_2_ClinicNum")
+  provider                                          provider?             @relation(fields: [ProvNum], references: [ProvNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_userod_3_ProvNum")
+  tasklist                                          tasklist?             @relation(fields: [TaskListInBox], references: [TaskListNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_userod_4_TaskListInBox")
+  userod                                            userod?               @relation("userodTouserod", fields: [UserNumCEMT], references: [UserNum], onDelete: NoAction, onUpdate: NoAction, map: "fk_userod_5_UserNumCEMT")
+  other_userod                                      userod[]              @relation("userodTouserod")
   userodapptview                                    userodapptview[]
   userodpref                                        userodpref[]
   vaccinepat                                        vaccinepat[]
@@ -7175,6 +7177,7 @@ model userod {
   wikipage                                          wikipage[]
   wikipagehist                                      wikipagehist[]
   usertokens                                        usertoken[]
+  userAccessProfiles                                user_access_profile[]
 }
 
 model userodapptview {
@@ -7811,14 +7814,15 @@ model medflow_sequences {
 // already present across ~40 tables). Row-scoped by GroupNum/ClinicNum, not
 // physically isolated per branch.
 model practicegroup {
-  id        Int       @id @default(autoincrement())
-  name      String    @db.VarChar(255)
-  config    Json?
-  isActive  Boolean   @default(true)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  clinic    clinic[]
-  patient   patient[]
+  id            Int             @id @default(autoincrement())
+  name          String          @db.VarChar(255)
+  config        Json?
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  clinic        clinic[]
+  patient       patient[]
+  securityLocks security_lock[]
 }
 
 // ─── Patient Portal Form Templates: admin-editable intake/consent forms ────
@@ -7912,4 +7916,67 @@ model feeguideauditlog {
   feesched    feesched? @relation(fields: [FeeSchedNum], references: [FeeSchedNum], onDelete: Cascade, onUpdate: NoAction, map: "fk_feeguideauditlog_FeeSchedNum")
 
   @@index([FeeSchedNum, Timestamp(sort: Desc)])
+}
+
+model permission_def {
+  key             String            @id @db.VarChar(255)
+  module          String            @db.VarChar(255)
+  description     String            @db.Text
+  is_sensitive    Boolean           @default(false)
+  lock_date_aware Boolean           @default(false)
+  role_permission role_permission[]
+}
+
+model role_permission {
+  role_id        BigInt
+  permission_key String    @db.VarChar(255)
+  lock_days      Int?
+  lock_date      DateTime? @db.Date
+
+  permission_def permission_def @relation(fields: [permission_key], references: [key], onDelete: Cascade)
+  usergroup      usergroup      @relation(fields: [role_id], references: [UserGroupNum], onDelete: Cascade)
+
+  @@id([role_id, permission_key])
+}
+
+model user_access_profile {
+  user_num           BigInt  @id
+  access_all_clinics Boolean @default(false)
+  is_platform_admin  Boolean @default(false)
+  access_version     Int     @default(0)
+
+  userod userod @relation(fields: [user_num], references: [UserNum], onDelete: Cascade)
+}
+
+model security_lock {
+  group_id        Int
+  lock_date       DateTime? @db.Date
+  lock_days       Int?
+  includes_admins Boolean   @default(false)
+
+  practicegroup practicegroup @relation(fields: [group_id], references: [id], onDelete: Cascade)
+
+  @@id([group_id])
+}
+
+model group_sharing_policy {
+  id         Int      @id @default(autoincrement())
+  group_id   Int
+  category   String   @db.VarChar(50)
+  mode       String   @db.VarChar(50)
+  clinic_id  BigInt?
+  updated_by BigInt?
+  updated_at DateTime @default(now())
+
+  @@unique([group_id, category, clinic_id])
+}
+
+model access_audit {
+  id         BigInt   @id @default(autoincrement())
+  user_num   BigInt?
+  pat_num    BigInt?
+  perm_type  Int
+  log_source Int
+  log_text   Json
+  created_at DateTime @default(now())
 }

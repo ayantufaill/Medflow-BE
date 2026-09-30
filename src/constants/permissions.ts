@@ -239,41 +239,4 @@ export const getAllPermissions = (): string[] => {
   return Object.values(PERMISSIONS).flatMap((category) => Object.values(category));
 };
 
-/**
- * Permission categories for organization
- */
-export const PERMISSION_CATEGORIES = {
-  USER_MANAGEMENT: 'User Management',
-  ROLE_MANAGEMENT: 'Role Management',
-  PATIENT_MANAGEMENT: 'Patient Management',
-  APPOINTMENT_MANAGEMENT: 'Appointment Management',
-  CLINICAL: 'Clinical Operations',
-  BILLING: 'Billing & Financial',
-  LABORATORY: 'Laboratory',
-  DOCUMENTS: 'Documents',
-  REPORTS: 'Reports',
-  SYSTEM: 'System Administration',
-} as const;
 
-export const PERMISSION_CATALOG = Object.entries(PERMISSIONS).map(([moduleKey, actions]) => {
-  let moduleName = moduleKey.split('_').map((w) => w.charAt(0) + w.slice(1).toLowerCase()).join(' ');
-  for (const [catKey, catName] of Object.entries(PERMISSION_CATEGORIES)) {
-    if (catKey === moduleKey) moduleName = catName;
-  }
-
-  const permissionsList = Object.entries(actions).map(([action, key]) => {
-    const isSensitive = ['DELETE', 'MANAGE', 'VIEW_SSN'].includes(action) || ['ROLES', 'USERS'].includes(moduleKey);
-    const lockDateAware = ['PAYMENTS', 'INVOICES', 'CLAIMS', 'ADJUSTMENTS'].includes(moduleKey);
-    return {
-      key,
-      label: `${action.charAt(0) + action.slice(1).toLowerCase()} ${moduleName}`,
-      isSensitive,
-      lockDateAware
-    };
-  });
-
-  return {
-    module: moduleName,
-    permissions: permissionsList
-  };
-});

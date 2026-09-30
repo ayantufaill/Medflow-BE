@@ -8,6 +8,7 @@ import { allergyController } from '../controllers/allergy.controller';
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
   patientIdValidator, patientRequestIdValidator, createPatientValidator,
@@ -21,6 +22,7 @@ import { createPatientAllergyValidator, updateAllergyValidator, allergyIdParamVa
 
 const router = Router();
 router.use(authenticate);
+router.use(requirePhiAccess);
 router.use(resolveBranchAccess);
 router.use(enterTenantContext);
 
@@ -609,6 +611,8 @@ router.get('/:patientId', requireRoles(...STAFF_READ_ROLES), validate(patientIdV
  */
 
 router.patch('/:patientId', requireRoles(...BILLING_STAFF_ROLES, 'Provider', 'Doctor'), validate([...patientIdValidator, ...updatePatientValidator]), patientController.updatePatient.bind(patientController));
+
+router.patch('/:patientId/cross-branch-restricted', requireRoles('Admin', 'Group Admin', 'Branch Admin'), validate(patientIdValidator), patientController.updateCrossBranchRestriction.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}:

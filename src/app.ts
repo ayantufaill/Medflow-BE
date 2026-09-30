@@ -12,6 +12,7 @@ import swaggerOptions from './config/swagger';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { verifyUploadSignature } from './utils/signed-url.util';
 
 // Initialize Express app
 const app = express();
@@ -20,6 +21,18 @@ app.set('trust proxy', 1);
 // Security Middleware
 app.use(cors(corsOptions));
 app.use(helmet(helmetOptions));
+
+// Protect patient uploads with signed URLs
+app.use('/uploads/patients', (req: Request, res: Response, next: NextFunction) => {
+  const signature = req.query.signature as string;
+  const expires = req.query.expires as string;
+  const path = req.originalUrl.split('?')[0];
+
+  if (!signature || !expires || !verifyUploadSignature(path, expires, signature)) {
+    return res.status(403).json({ success: false, message: 'Forbidden: Invalid or expired signature' });
+  }
+  next();
+});
 
 // Serve static uploads with explicit CORS and Cross-Origin-Resource-Policy headers
 app.use('/uploads', (req: Request, res: Response, next: NextFunction) => {
