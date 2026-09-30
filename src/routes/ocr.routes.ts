@@ -1,12 +1,14 @@
 import { Router } from 'express';
 import { ocrController } from '../controllers/ocr.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { uploadOCRImage } from '../middleware/upload.middleware';
 
 const router = Router();
 
 // All OCR routes require authentication
-router.use(authenticate);
+router.use(authenticate, resolveBranchAccess, enterTenantContext);
 
 /**
  * @swagger

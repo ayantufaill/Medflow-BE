@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { patientService } from '../services/patient.service';
+import { PermissionService } from '../services/permission.service';
 import { patientWorkspaceService } from '../services/patient-workspace.service';
 import { recareService } from '../services/recare.service';
 import { logActivityFromRequest } from '../utils/activity-logger.util';
@@ -22,6 +23,11 @@ export class PatientController {
       // Read-visibility uses groupClinicIds, not clinicIds: a patient registered
       // at one branch should be visible from any sibling branch in the same group.
       const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder, req.branchAccess?.groupClinicIds, branchId);
+      
+      if (result?.patients) {
+        result.patients.forEach((p: any) => delete p.ssn);
+      }
+
       res.status(200).json({
         success: true,
         data: result,
@@ -75,6 +81,13 @@ export class PatientController {
       const patient = includeSSN
         ? await patientService.getPatientByIdWithSSN(patientId)
         : await patientService.getPatientById(patientId);
+
+      if (patient && patient.ssn) {
+        const hasSsnView = req.userId ? await PermissionService.hasPermission(req.userId, 'patient.ssn.view') : false;
+        if (!hasSsnView) {
+          patient.ssn = `***-**-${patient.ssn.slice(-4)}`;
+        }
+      }
 
       // Log activity
       if (req.userId) {
@@ -196,6 +209,11 @@ export class PatientController {
       // Read-visibility uses groupClinicIds, not clinicIds: a patient registered
       // at one branch should be visible from any sibling branch in the same group.
       const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder, req.branchAccess?.groupClinicIds, branchId);
+      
+      if (result?.patients) {
+        result.patients.forEach((p: any) => delete p.ssn);
+      }
+
       res.status(200).json({
         success: true,
         data: result,

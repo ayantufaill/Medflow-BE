@@ -39,13 +39,8 @@ export const registerValidator: ValidationChain[] = [
     .optional()
     .isIn(['en', 'es', 'fr', 'de'])
     .withMessage('Preferred language must be one of: en, es, fr, de'),
-  body('roleId')
-    .optional()
-    .isString()
-    .withMessage('Role ID must be a string')
-    .trim()
-    .notEmpty()
-    .withMessage('Role ID cannot be empty'),
+  // B1.1: roleId removed — server always assigns Patient role.
+  // Accepting roleId in the request body was a privilege escalation vector.
 ];
 
 export const loginValidator: ValidationChain[] = [

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { auditCrossBranchRead } from '../middleware/audit.middleware';
 import { body } from 'express-validator';
 import { appointmentController } from '../controllers/appointment.controller';
 import { patientController } from '../controllers/patient.controller';
@@ -539,6 +540,8 @@ router.post('/check-duplicates', requireRoles('Receptionist', 'Admin'), validate
  *         description: Patients deactivated successfully
  */
 router.post('/bulk-delete', requireRoles('Admin'), patientController.bulkDeletePatients.bind(patientController));
+
+router.use('/:patientId', auditCrossBranchRead('PATIENT_RECORD'));
 
 /**
  * @swagger

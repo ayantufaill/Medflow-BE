@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { patientMembershipController } from '../controllers/patient-membership.controller';
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { patientIdValidator } from '../validators/patient.validator';
 
 const router = Router();
-router.use(authenticate);
+router.use(authenticate, resolveBranchAccess, enterTenantContext);
 
 router.get(
   '/:patientId/memberships',

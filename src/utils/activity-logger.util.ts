@@ -20,23 +20,20 @@ export const getUserAgent = (req: Request): string => {
   return req.headers['user-agent'] || 'unknown';
 };
 
+import { writeAudit } from '../services/audit.service';
+
 const writeSecurityLog = async (userId: string | null, logText: string) => {
   try {
-    const logNum = await getNextId('securitylog', 'SecurityLogNum');
-    await prisma.securitylog.create({
-      data: {
-        SecurityLogNum: logNum,
-        UserNum: userId ? BigInt(userId) : null,
-        LogDateTime: new Date(),
-        LogText: logText,
-      },
+    await writeAudit({
+      userNum: userId ? BigInt(userId) : 0n,
+      permType: 0, // Fallback for legacy logs
+      text: logText,
     });
   } catch (error: any) {
     console.error(`Failed to write security log. LogText length: ${logText.length}. Error:`, error);
     throw error;
   }
 };
-
 
 export const logSecurityEvent = async (
   userId: string | null,

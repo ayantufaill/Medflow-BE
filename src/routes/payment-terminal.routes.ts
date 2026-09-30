@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { paymentTerminalController } from '../controllers/payment-terminal.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
   idParamValidator,
@@ -10,7 +12,7 @@ import {
 const router = Router();
 
 // Secure all endpoints with authentication middleware
-router.use(authenticate);
+router.use(authenticate, resolveBranchAccess, enterTenantContext);
 
 router.get(
   '/',

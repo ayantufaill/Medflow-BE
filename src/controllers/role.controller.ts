@@ -1,8 +1,20 @@
 import type { Request, Response, NextFunction } from 'express';
 import { roleService } from '../services/role.service';
 import { PermissionService } from '../services/permission.service';
-
+import { logActivityFromRequest } from '../utils/activity-logger.util';
+import { PERMISSION_CATALOG } from '../constants/permissions';
 export class RoleController {
+  async getPermissionCatalog(req: Request, res: Response, next: NextFunction) {
+    try {
+      res.status(200).json({
+        success: true,
+        data: { catalog: PERMISSION_CATALOG },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   /**
    * Get all roles
    */
@@ -74,6 +86,8 @@ export class RoleController {
 
       const role = await roleService.createRole(roleData);
 
+      await logActivityFromRequest(req, 'created', 'usergroup', role._id, null, role);
+
       res.status(201).json({
         success: true,
         data: { role },
@@ -109,6 +123,7 @@ export class RoleController {
       }
       
       const role = await roleService.updateRole(roleId, updates);
+      await logActivityFromRequest(req, 'updated', 'usergroup', roleId, null, updates);
       res.status(200).json({
         success: true,
         data: { role },
@@ -133,6 +148,7 @@ export class RoleController {
       }
       
       await roleService.deleteRole(roleId);
+      await logActivityFromRequest(req, 'deleted', 'usergroup', roleId);
       res.status(200).json({
         success: true,
         data: { message: 'Role deleted successfully' },

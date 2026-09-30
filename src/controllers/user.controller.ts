@@ -220,6 +220,7 @@ export class UserController {
       const assignedBy = req.userId || 'system';
 
       const user = await userService.assignRole(userId, roleId, assignedBy, req.branchAccess?.clinicIds);
+      await logActivityFromRequest(req, 'updated', 'usergroupattach', userId, null, { roleId });
       res.status(200).json({
         success: true,
         data: { user },
@@ -241,6 +242,7 @@ export class UserController {
       }
       
       const result = await userService.removeRole(userId, roleId, req.branchAccess?.clinicIds);
+      await logActivityFromRequest(req, 'updated', 'usergroupattach', userId, { roleId }, null);
       res.status(200).json({
         success: true,
         data: result,
@@ -283,6 +285,7 @@ export class UserController {
       }
       
       const result = await userService.activateUser(userId, req.branchAccess?.clinicIds);
+      await logActivityFromRequest(req, 'status_updated', 'user', userId, null, { status: 'active' });
       res.status(200).json({
         success: true,
         data: result,
@@ -304,6 +307,7 @@ export class UserController {
       }
       
       const result = await userService.deactivateUser(userId, req.branchAccess?.clinicIds);
+      await logActivityFromRequest(req, 'status_updated', 'user', userId, null, { status: 'inactive' });
       res.status(200).json({
         success: true,
         data: result,
@@ -330,6 +334,7 @@ export class UserController {
         Array.isArray(branchIds) ? branchIds.map((id: string) => id.toString()) : [],
         req.branchAccess?.clinicIds
       );
+      await logActivityFromRequest(req, 'updated', 'userclinic', userId, null, { branchIds });
       res.status(200).json({
         success: true,
         data: result,

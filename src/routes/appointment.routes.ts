@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { auditCrossBranchRead } from '../middleware/audit.middleware';
 import { appointmentController } from '../controllers/appointment.controller';
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
@@ -343,6 +344,7 @@ router.post('/', requireRoles('Receptionist', 'Admin'), validate(createAppointme
  *       404:
  *         description: Appointment not found
  */
+router.use('/:appointmentId', auditCrossBranchRead('APPOINTMENT'));
 router.get('/:appointmentId', requireRoles('Admin'), validate(appointmentIdValidator), appointmentController.getAppointmentById.bind(appointmentController));
 
 /**

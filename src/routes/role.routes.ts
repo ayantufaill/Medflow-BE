@@ -7,8 +7,10 @@ import { body, param, query } from 'express-validator';
 
 const router = Router();
 
-// All role routes require authentication
-// router.use(authenticate);
+// B1.2: All role routes require authentication.
+// Previously commented out to support the public RegisterPage role dropdown,
+// which has been removed (B1.1). No public roles endpoint is needed.
+router.use(authenticate);
 
 /**
  * @swagger
@@ -146,8 +148,9 @@ const router = Router();
  */
 router.get(
   '/',
-  // authenticate,
-  // requireAnyRole('Admin', 'Manager', 'Owner'),
+  // B1.2: authenticate is now applied via router.use above.
+  // Role listing requires an authenticated admin-type user.
+  requireAnyRole('Admin', 'Manager', 'Owner'),
   validate([
     query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
     query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100'),

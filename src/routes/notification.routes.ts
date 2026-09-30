@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { notificationController } from '../controllers/notification.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { notificationIdValidator, notificationQueryValidator } from '../validators/notification.validator';
 
 const router = Router();
-router.use(authenticate);
+router.use(authenticate, resolveBranchAccess, enterTenantContext);
 
 /**
  * @swagger

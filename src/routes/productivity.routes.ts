@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { productivityController } from '../controllers/productivity.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 
 const router = Router();
@@ -33,7 +35,7 @@ const router = Router();
  *       401:
  *         description: Unauthorized
  */
-router.get('/panel-summary', authenticate, requirePermission('reports.read'), productivityController.getPanelSummary);
+router.get('/panel-summary', authenticate, resolveBranchAccess, enterTenantContext, requirePermission('reports.read'), productivityController.getPanelSummary);
 
 /**
  * @swagger
@@ -58,7 +60,7 @@ router.get('/panel-summary', authenticate, requirePermission('reports.read'), pr
  *       200:
  *         description: Array of production data points
  */
-router.get('/production-over-time', authenticate, requirePermission('reports.read'), productivityController.getProductionOverTime);
+router.get('/production-over-time', authenticate, resolveBranchAccess, enterTenantContext, requirePermission('reports.read'), productivityController.getProductionOverTime);
 
 /**
  * @swagger
@@ -81,7 +83,7 @@ router.get('/production-over-time', authenticate, requirePermission('reports.rea
  *       200:
  *         description: Array of production by provider
  */
-router.get('/production-by-provider', authenticate, requirePermission('reports.read'), productivityController.getProductionByProvider);
+router.get('/production-by-provider', authenticate, resolveBranchAccess, enterTenantContext, requirePermission('reports.read'), productivityController.getProductionByProvider);
 
 /**
  * @swagger
@@ -104,6 +106,6 @@ router.get('/production-by-provider', authenticate, requirePermission('reports.r
  *       200:
  *         description: Array of production by operatory
  */
-router.get('/production-by-operatory', authenticate, requirePermission('reports.read'), productivityController.getProductionByOperatory);
+router.get('/production-by-operatory', authenticate, resolveBranchAccess, enterTenantContext, requirePermission('reports.read'), productivityController.getProductionByOperatory);
 
 export default router;

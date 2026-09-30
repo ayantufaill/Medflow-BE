@@ -1,0 +1,83 @@
+import { Request, Response, NextFunction } from 'express';
+import { prisma } from '../config/db';
+import { writeAudit } from '../services/audit.service';
+
+export const auditCrossBranchRead = (category: string) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    if (req.method !== 'GET') return next();
+    
+    try {
+      const patNumStr = req.params.patientId || req.query.patientId;
+      const aptNumStr = req.params.appointmentId || req.params.aptNum;
+      const procNumStr = req.params.procedureId || req.params.procNum;
+      const docNumStr = req.params.documentId || req.params.docNum;
+
+      let patNum: bigint | undefined;
+      let clinicNum: bigint | undefined;
+
+      try {
+        if (patNumStr && !isNaN(Number(patNumStr))) {
+          const patient = await prisma.patient.findUnique({
+            where: { PatNum: BigInt(patNumStr.toString()) },
+            select: { PatNum: true, ClinicNum: true }
+          });
+          if (patient) {
+            patNum = patient.PatNum;
+            clinicNum = patient.ClinicNum ?? undefined;
+          }
+        } else if (aptNumStr && !isNaN(Number(aptNumStr))) {
+        const apt = await prisma.appointment.findUnique({
+          where: { AptNum: BigInt(aptNumStr.toString()) },
+          select: { PatNum: true, ClinicNum: true }
+        });
+        if (apt) {
+          patNum = apt.PatNum ?? undefined;
+          clinicNum = apt.ClinicNum ?? undefined;
+        }
+      } else if (procNumStr && !isNaN(Number(procNumStr))) {
+        const proc = await prisma.procedurelog.findUnique({
+          where: { ProcNum: BigInt(procNumStr.toString()) },
+          select: { PatNum: true, ClinicNum: true }
+        });
+        if (proc) {
+          patNum = proc.PatNum ?? undefined;
+          clinicNum = proc.ClinicNum ?? undefined;
+        }
+      } else if (docNumStr && !isNaN(Number(docNumStr))) {
+        const doc = await prisma.document.findUnique({
+          where: { DocNum: BigInt(docNumStr.toString()) },
+          select: { PatNum: true }
+        });
+        if (doc && doc.PatNum) {
+          patNum = doc.PatNum;
+          const patient = await prisma.patient.findUnique({
+            where: { PatNum: doc.PatNum },
+            select: { ClinicNum: true }
+          });
+          if (patient) clinicNum = patient.ClinicNum ?? undefined;
+        }
+      }
+      } catch (parseError) {
+        // Ignored
+      }
+
+      if (clinicNum && req.branchAccess && req.branchAccess.clinicIds) {
+        const userClinics = req.branchAccess.clinicIds.map(id => id.toString());
+        if (!userClinics.includes(clinicNum.toString())) {
+          await writeAudit({
+            userNum: BigInt(req.userId || 0),
+            permType: 1050, // CROSS_BRANCH_READ
+            patNum,
+            clinicNum,
+            text: `Cross-branch read accessed in category: ${category}`,
+            req
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to audit cross branch read', err);
+    }
+    
+    next();
+  };
+};
