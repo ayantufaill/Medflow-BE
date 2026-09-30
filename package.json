@@ -31,6 +31,8 @@
     "seed:operatories": "tsx src/scripts/seedOperatories.ts",
     "seed:branches": "tsx src/scripts/seedBranches.ts",
     "backfill:branches": "tsx src/scripts/backfillBranches.ts",
+    "rls:apply": "tsx src/scripts/applyRls.ts",
+    "rls:backfill": "tsx src/scripts/backtestBranchPatients.ts",
     "seed:clinical": "tsx src/scripts/seedClinicalManagement.ts",
     "seed:form-templates": "tsx src/scripts/seedFormTemplates.ts",
     "docker:seed:patients": "docker exec medflow-be-api-1 npm run seed:patients",
