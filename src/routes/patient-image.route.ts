@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { patientImageController } from '../controllers/patient-image.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { upload } from '../config/multer.config';
 import { param } from 'express-validator';

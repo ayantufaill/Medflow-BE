@@ -1,13 +1,15 @@
 import { Router } from 'express';
 import { aiConversationController } from '../controllers/ai-conversation.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { body } from 'express-validator';
 import { validate } from '../middleware/validation.middleware';
 
 const router = Router();
 
 // Secure all endpoints with authentication middleware
-router.use(authenticate);
+router.use(authenticate, resolveBranchAccess, enterTenantContext);
 
 const aiMessageValidator = [
   body('message')

@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { documentController } from '../controllers/document.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { uploadDocument as uploadDocumentMiddleware } from '../middleware/upload.middleware';

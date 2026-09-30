@@ -60,37 +60,43 @@ export class AuthService {
       tokenVersion: 0,
     });
 
-    if (data.roleId) {
-      const role = await prisma.usergroup.findUnique({
-        where: { UserGroupNum: BigInt(data.roleId) },
-      });
-      if (!role) {
-        await prisma.userod.delete({ where: { UserNum: user.UserNum } });
-        throw new NotFoundError('Role not found or inactive');
-      }
-      const nextAttach = await getNextId('usergroupattach', 'UserGroupAttachNum');
-      await prisma.usergroupattach.create({
-        data: {
-          UserGroupAttachNum: nextAttach,
-          UserNum: user.UserNum,
-          UserGroupNum: role.UserGroupNum,
-        },
-      });
-    } else {
-      const patientRole = await prisma.usergroup.findFirst({
-        where: { Description: 'Patient' },
-      });
-      if (patientRole) {
-        const nextAttach = await getNextId('usergroupattach', 'UserGroupAttachNum');
-        await prisma.usergroupattach.create({
-          data: {
-            UserGroupAttachNum: nextAttach,
-            UserNum: user.UserNum,
-            UserGroupNum: patientRole.UserGroupNum,
-          },
-        });
-      }
+    // B1.1: ALWAYS assign the Patient role, regardless of what the client
+    // sends in data.roleId. The public registration endpoint must never allow
+    // callers to pick an arbitrary role (the old code attached whatever roleId
+    // was sent, enabling self-registration as Super Admin).
+    const patientRole = await prisma.usergroup.findFirst({
+      where: { Description: 'Patient' },
+    });
+    if (!patientRole) {
+      // If no Patient role exists in the database, registration cannot proceed
+      await prisma.userod.delete({ where: { UserNum: user.UserNum } });
+      throw new NotFoundError('Patient role is not configured. Contact an administrator.');
     }
+
+    // Verify the Patient role is active before assigning
+    const roleMeta = await parsePrefJson(
+      await prisma.userodpref.findFirst({
+        where: {
+          UserNum: 0n,
+          Fkey: patientRole.UserGroupNum,
+          FkeyType: 'usergroup',
+        },
+        select: { ValueString: true },
+      })
+    ) as Record<string, any>;
+    if (roleMeta?.isActive === false) {
+      await prisma.userod.delete({ where: { UserNum: user.UserNum } });
+      throw new NotFoundError('Patient role is inactive. Contact an administrator.');
+    }
+
+    const nextAttach = await getNextId('usergroupattach', 'UserGroupAttachNum');
+    await prisma.usergroupattach.create({
+      data: {
+        UserGroupAttachNum: nextAttach,
+        UserNum: user.UserNum,
+        UserGroupNum: patientRole.UserGroupNum,
+      },
+    });
 
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
