@@ -41,9 +41,15 @@ const getExtendedPrisma = () => {
             // ctx.clinicIds / ctx.patientGroupId are either our own resolved
             // values or the literal sentinel '*' — never raw user input —
             // safe to interpolate into SET LOCAL (Postgres has no parameter
-            // binding for SET LOCAL values).
+            // binding for SET LOCAL values). A4 replaces this with a single
+            // parameterized set_config() call.
             const clinicIdsLiteral = ctx.clinicIds === '*' ? '*' : ctx.clinicIds.map(String).join(',');
-            const patientGroupIdLiteral = ctx.patientGroupId === '*' ? '*' : String(ctx.patientGroupId);
+            // null means "group could not be resolved" and must serialise to
+            // the EMPTY STRING, not to the text "null": the RLS policies
+            // treat '' as deny, whereas 'null' would reach the ::int cast and
+            // raise instead of quietly denying.
+            const patientGroupIdLiteral =
+              ctx.patientGroupId === null ? '' : String(ctx.patientGroupId);
 
             return base.$transaction(async (tx) => {
               await tx.$executeRawUnsafe(`SET LOCAL app.clinic_ids = '${clinicIdsLiteral}'`);
