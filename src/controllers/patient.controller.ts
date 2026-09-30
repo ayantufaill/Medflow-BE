@@ -249,7 +249,9 @@ export class PatientController {
         req.body.lastVisitDate = new Date(req.body.lastVisitDate);
       }
 
-      if (req.body.branchId && req.branchAccess && req.branchAccess.clinicIds.length > 0) {
+      // A1.2: drop the `length > 0` guard. With no branch assignment the old
+      // condition was simply false, so the requested branch went unchecked.
+      if (req.body.branchId && req.branchAccess) {
         const requestedClinicNum = BigInt(req.body.branchId);
         if (!req.branchAccess.clinicIds.includes(requestedClinicNum)) {
           return res.status(403).json({
@@ -294,7 +296,9 @@ export class PatientController {
         req.body.lastVisitDate = new Date(req.body.lastVisitDate);
       }
 
-      if (req.body.branchId && req.branchAccess && req.branchAccess.clinicIds.length > 0) {
+      // A1.2: drop the `length > 0` guard. With no branch assignment the old
+      // condition was simply false, so the requested branch went unchecked.
+      if (req.body.branchId && req.branchAccess) {
         const requestedClinicNum = BigInt(req.body.branchId);
         if (!req.branchAccess.clinicIds.includes(requestedClinicNum)) {
           return res.status(403).json({

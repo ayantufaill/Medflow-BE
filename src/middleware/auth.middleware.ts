@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { verifyAccessToken } from '../utils/jwt.util';
+import type { JWTPayload } from '../types/auth.types';
 import { AuthenticationError, AuthorizationError } from '../utils/error.util';
 import { prisma } from '../config/db';
 import { getUserMeta } from '../utils/opendental-auth.util';
@@ -9,6 +10,42 @@ import {
   getUserGroups,
   isUserInAnyGroup,
 } from '../types/user-group.types';
+
+/**
+ * Verifies the session behind an already-decoded token is still active.
+ *
+ * Extracted in A1 so the socket.io handshake (sockets/socket.ts) can run the
+ * exact same checks as the HTTP path — previously the socket had no notion of
+ * a deactivated or revoked user, so deactivating an account left its live
+ * websocket connected.
+ *
+ * A1.3: these checks are now UNCONDITIONAL. They used to sit behind
+ * `if (decoded.tokenVersion !== undefined)`, which meant a token minted
+ * before the tokenVersion claim existed skipped the deactivation and
+ * revocation checks entirely and remained valid indefinitely. A token with
+ * no claim is now treated as version 0, so it is checked against the stored
+ * version like any other token; the only cost is that pre-claim tokens force
+ * a re-login, which is the correct trade for closing a revocation bypass.
+ */
+export const verifyActiveSession = async (decoded: JWTPayload): Promise<void> => {
+  const user = await prisma.userod.findUnique({
+    where: { UserNum: BigInt(decoded.userId) },
+  });
+  if (!user) {
+    throw new AuthenticationError('User not found');
+  }
+
+  const meta = await getUserMeta(user.UserNum);
+  if (meta.isActive === false || user.IsHidden) {
+    throw new AuthenticationError('Account is deactivated');
+  }
+
+  // Missing claim on the token is treated as version 0 rather than skipping
+  // the comparison — see the note above.
+  if (Number(meta.tokenVersion ?? 0) !== Number(decoded.tokenVersion ?? 0)) {
+    throw new AuthenticationError('Token has been invalidated. Please login again.');
+  }
+};
 
 export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -21,23 +58,7 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
     const token = authHeader.substring(7);
     const decoded = await verifyAccessToken(token);
 
-    if (decoded.tokenVersion !== undefined) {
-      const user = await prisma.userod.findUnique({
-        where: { UserNum: BigInt(decoded.userId) },
-      });
-      if (!user) {
-        throw new AuthenticationError('User not found');
-      }
-
-      const meta = await getUserMeta(user.UserNum);
-      if (meta.isActive === false || user.IsHidden) {
-        throw new AuthenticationError('Account is deactivated');
-      }
-
-      if (Number(meta.tokenVersion ?? 0) !== Number(decoded.tokenVersion ?? 0)) {
-        throw new AuthenticationError('Token has been invalidated. Please login again.');
-      }
-    }
+    await verifyActiveSession(decoded);
 
     req.user = decoded;
     req.userId = decoded.userId;

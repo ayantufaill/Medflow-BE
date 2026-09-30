@@ -119,10 +119,15 @@ export class PatientService {
     // this is patient read-visibility, not a write/authorization boundary.
     if (branchId) {
       const requestedClinicNum = BigInt(branchId);
-      const inScope = !clinicIds || clinicIds.length === 0 || clinicIds.includes(requestedClinicNum);
+      // A1.2: `clinicIds.length === 0` used to mean "unrestricted". It now
+      // means DENY — an undefined clinicIds is a trusted internal caller, but
+      // an empty array is an authenticated user with no branch, which
+      // enterTenantContext already rejects with NO_BRANCH_ASSIGNED. Guarding
+      // here as well keeps a direct service call from reintroducing the hole.
+      const inScope = clinicIds === undefined || clinicIds.includes(requestedClinicNum);
       where.ClinicNum = inScope ? requestedClinicNum : -1n;
-    } else if (clinicIds && clinicIds.length > 0) {
-      where.ClinicNum = { in: clinicIds };
+    } else if (clinicIds !== undefined) {
+      where.ClinicNum = clinicIds.length > 0 ? { in: clinicIds } : { in: [] };
     }
 
     // Filter by gender using mapGenderToDb
