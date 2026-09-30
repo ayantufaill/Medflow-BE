@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { claimService } from '../services/claim.service';
 import { edi837Service, isValidNPI } from '../services/edi837.service';
 import { prisma } from '../config/db';
+import { assertNotLocked } from '../utils/lock-date.util';
 
 const extractId = (value: unknown): string | undefined => {
   if (value === undefined || value === null) {
@@ -87,6 +88,12 @@ export class ClaimController {
   async createClaimFromInvoice(req: Request, res: Response, next: NextFunction) {
     try {
       const invoiceId = req.params.invoiceId as string;
+      if (!req.userId) {
+        return res.status(401).json({ success: false, error: { message: 'User not authenticated' } });
+      }
+
+      await assertNotLocked(req.userId, 'claims.create', new Date(), req.branchAccess!);
+
       const claim = await claimService.createClaimFromInvoice(
         invoiceId,
         {
@@ -112,6 +119,14 @@ export class ClaimController {
   async generateSecondaryClaim(req: Request, res: Response, next: NextFunction) {
     try {
       const primaryClaimId = req.params.primaryClaimId as string;
+      if (!req.userId) {
+        return res.status(401).json({ success: false, error: { message: 'User not authenticated' } });
+      }
+
+      const existing = await claimService.getClaimById(primaryClaimId);
+      const claimDate = existing.createdAt ? new Date(existing.createdAt as unknown as string) : new Date();
+      await assertNotLocked(req.userId, 'claims.create', claimDate, req.branchAccess!);
+
       const claim = await claimService.generateSecondaryClaim(primaryClaimId, req.userId);
 
       res.status(201).json({
@@ -128,6 +143,14 @@ export class ClaimController {
       const claimId = req.params.claimId as string;
       const insuranceCompanyId = extractId(req.body.insuranceCompanyId);
       const invoiceId = extractId(req.body.invoiceId);
+      
+      if (!req.userId) {
+        return res.status(401).json({ success: false, error: { message: 'User not authenticated' } });
+      }
+
+      const existing = await claimService.getClaimById(claimId);
+      const claimDate = existing.createdAt ? new Date(existing.createdAt as unknown as string) : new Date();
+      await assertNotLocked(req.userId, 'claims.update', claimDate, req.branchAccess!);
 
       const claim = await claimService.updateClaim(
         claimId,
@@ -646,6 +669,14 @@ export class ClaimController {
   async voidAndRecreate(req: Request, res: Response, next: NextFunction) {
     try {
       const claimId = req.params.claimId as string;
+      if (!req.userId) {
+        return res.status(401).json({ success: false, error: { message: 'User not authenticated' } });
+      }
+
+      const existing = await claimService.getClaimById(claimId);
+      const claimDate = existing.createdAt ? new Date(existing.createdAt as unknown as string) : new Date();
+      await assertNotLocked(req.userId, 'claims.update', claimDate, req.branchAccess!);
+
       const result = await claimService.voidAndRecreateClaim(
         claimId,
         req.body.note,
@@ -682,6 +713,8 @@ export class ClaimController {
         error: { message: 'User not authenticated' },
       });
     }
+
+    await assertNotLocked(userId, 'claims.create', new Date(), req.branchAccess!);
 
     const result = await claimService.createManualClaim(req.body, userId);
     res.status(201).json({

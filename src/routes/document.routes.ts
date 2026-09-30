@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { auditCrossBranchRead } from '../middleware/audit.middleware';
 import { documentController } from '../controllers/document.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
@@ -94,6 +95,7 @@ router.get(
  *       200:
  *         description: List of patient documents
  */
+router.use('/patient/:patientId', auditCrossBranchRead('DOCUMENT_LIST'));
 router.get(
   '/patient/:patientId',
   authenticate,
@@ -171,6 +173,7 @@ router.get(
  *       404:
  *         description: Document not found
  */
+router.use('/:documentId', auditCrossBranchRead('DOCUMENT'));
 router.get(
   '/:documentId',
   authenticate,

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { auditCrossBranchRead } from '../middleware/audit.middleware';
 import { clinicalNoteController } from '../controllers/clinical-note.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
@@ -80,6 +81,7 @@ router.get(
  *       200:
  *         description: List of patient clinical notes
  */
+router.use('/patient/:patientId', auditCrossBranchRead('CLINICAL_NOTE'));
 router.get(
   '/patient/:patientId',
   authenticate,
@@ -136,6 +138,7 @@ router.get(
  *       404:
  *         description: No note found for this appointment
  */
+router.use('/appointment/:appointmentId', auditCrossBranchRead('CLINICAL_NOTE'));
 router.get(
   '/appointment/:appointmentId',
   authenticate,

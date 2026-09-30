@@ -11,6 +11,7 @@ import {
   mapUser,
   setUserMeta,
   getUserMeta,
+  getRoleMeta,
   setVerification,
   findVerificationByToken,
   clearVerification,
@@ -74,16 +75,7 @@ export class AuthService {
     }
 
     // Verify the Patient role is active before assigning
-    const roleMeta = await parsePrefJson(
-      await prisma.userodpref.findFirst({
-        where: {
-          UserNum: 0n,
-          Fkey: patientRole.UserGroupNum,
-          FkeyType: 'usergroup',
-        },
-        select: { ValueString: true },
-      })
-    ) as Record<string, any>;
+    const roleMeta = await getRoleMeta(patientRole.UserGroupNum);
     if (roleMeta?.isActive === false) {
       await prisma.userod.delete({ where: { UserNum: user.UserNum } });
       throw new NotFoundError('Patient role is inactive. Contact an administrator.');

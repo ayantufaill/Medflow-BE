@@ -30,6 +30,15 @@ export const PERMISSIONS = {
     UPDATE: 'patients.update',
     DELETE: 'patients.delete',
     VIEW_ALL: 'patients.view_all',
+    VIEW_SSN: 'patient.ssn.view',
+  },
+
+  // Adjustments
+  ADJUSTMENTS: {
+    CREATE: 'adjustments.create',
+    READ: 'adjustments.read',
+    UPDATE: 'adjustments.update',
+    DELETE: 'adjustments.delete',
   },
 
   // Appointment Management
@@ -245,3 +254,26 @@ export const PERMISSION_CATEGORIES = {
   REPORTS: 'Reports',
   SYSTEM: 'System Administration',
 } as const;
+
+export const PERMISSION_CATALOG = Object.entries(PERMISSIONS).map(([moduleKey, actions]) => {
+  let moduleName = moduleKey.split('_').map((w) => w.charAt(0) + w.slice(1).toLowerCase()).join(' ');
+  for (const [catKey, catName] of Object.entries(PERMISSION_CATEGORIES)) {
+    if (catKey === moduleKey) moduleName = catName;
+  }
+
+  const permissionsList = Object.entries(actions).map(([action, key]) => {
+    const isSensitive = ['DELETE', 'MANAGE', 'VIEW_SSN'].includes(action) || ['ROLES', 'USERS'].includes(moduleKey);
+    const lockDateAware = ['PAYMENTS', 'INVOICES', 'CLAIMS', 'ADJUSTMENTS'].includes(moduleKey);
+    return {
+      key,
+      label: `${action.charAt(0) + action.slice(1).toLowerCase()} ${moduleName}`,
+      isSensitive,
+      lockDateAware
+    };
+  });
+
+  return {
+    module: moduleName,
+    permissions: permissionsList
+  };
+});
