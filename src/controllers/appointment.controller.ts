@@ -241,7 +241,8 @@ export class AppointmentController {
         status,
       } = req.body;
 
-      if (branchId && req.branchAccess && req.branchAccess.clinicIds.length > 0) {
+      // A1.2: drop the `length > 0` guard — see patient.controller.ts.
+      if (branchId && req.branchAccess) {
         const requestedClinicNum = BigInt(branchId);
         if (!req.branchAccess.clinicIds.includes(requestedClinicNum)) {
           return res.status(403).json({

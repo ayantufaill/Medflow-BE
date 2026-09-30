@@ -8,14 +8,27 @@
 -- DIRECT_DATABASE_URL — this role only needs DML rights, no DDL/ownership.
 --
 -- Idempotent — safe to re-run.
+--
+-- The password is NOT hard-coded here. `__APP_DB_PASSWORD__` is substituted by
+-- src/scripts/applyRls.ts from the APP_DB_PASSWORD env var before execution,
+-- wrapped and escaped as a SQL string literal by that script. Keep the
+-- placeholder BARE — no surrounding quotes — or the script's own quoting
+-- produces ''value'' and Postgres reads the password as empty.
+-- Keeping a literal password in a tracked file meant anyone with repo read
+-- access had the production DB credential.
+-- The ALTER ROLE below also re-syncs the password on every deploy, so rotating
+-- APP_DB_PASSWORD takes effect on the next deploy without a manual step.
 
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'medflow_app') THEN
-    CREATE ROLE medflow_app LOGIN PASSWORD 'MedflowApp!2026Secure' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+    CREATE ROLE medflow_app LOGIN PASSWORD __APP_DB_PASSWORD__ NOSUPERUSER NOCREATEDB NOCREATEROLE;
   END IF;
 END
 $$;
+
+-- Role already exists (every re-run): rotate the password to the current value.
+ALTER ROLE medflow_app WITH LOGIN PASSWORD __APP_DB_PASSWORD__ NOSUPERUSER NOCREATEDB NOCREATEROLE;
 
 GRANT CONNECT ON DATABASE medflow TO medflow_app;
 GRANT USAGE ON SCHEMA public TO medflow_app;

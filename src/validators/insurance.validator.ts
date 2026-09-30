@@ -1,5 +1,88 @@
 import { body, param, query, ValidationChain } from 'express-validator';
 
+/**
+ * Shared per-row schema for `deductiblesGrid`.
+ *
+ * Rows are deductible POOLS, so a bad `individual` / `family` / `metAmount`
+ * silently produces wrong patient balances downstream. Amounts accept the
+ * currency-formatted strings the UI sends ("$1,250.00"); the deductible engine
+ * normalizes them.
+ */
+const deductibleAmountField = (field: string, label: string): ValidationChain =>
+  body(`deductiblesGrid.*.${field}`)
+    .optional({ nullable: true })
+    .custom((value) => {
+      if (value === undefined || value === null || value === '') return true;
+      const num = parseFloat(String(value).replace(/[^0-9.-]+/g, ''));
+      if (Number.isNaN(num) || num < 0) {
+        throw new Error(`${label} must be a non-negative number`);
+      }
+      if (num > 1000000) {
+        throw new Error(`${label} must not exceed $1,000,000`);
+      }
+      const decimals = String(value).split('.')[1]?.length ?? 0;
+      if (decimals > 2) {
+        throw new Error(`${label} can have maximum 2 decimal places`);
+      }
+      return true;
+    });
+
+const deductiblesGridValidators: ValidationChain[] = [
+  body('deductiblesGrid')
+    .optional()
+    .isArray()
+    .withMessage('deductiblesGrid must be an array'),
+  body('deductiblesGrid.*.type')
+    .optional()
+    .isString()
+    .withMessage('Each deductible row requires a type'),
+  body('deductiblesGrid.*.typeKey')
+    .optional()
+    .isString()
+    .withMessage('typeKey must be a string when provided'),
+  deductibleAmountField('individual', 'Deductible individual amount'),
+  deductibleAmountField('family', 'Deductible family amount'),
+  deductibleAmountField('metAmount', 'Deductible met amount'),
+  body('deductiblesGrid.*.lifetime')
+    .optional()
+    .isBoolean()
+    .withMessage('lifetime must be a boolean'),
+  body('deductiblesGrid.*.standard')
+    .optional()
+    .isBoolean()
+    .withMessage('standard must be a boolean'),
+  body('deductiblesGrid.*.metDate')
+    .optional({ nullable: true })
+    .custom((value) => {
+      if (value === undefined || value === null || value === '') return true;
+      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        throw new Error('metDate must be an ISO date (YYYY-MM-DD)');
+      }
+      if (Number.isNaN(new Date(value).getTime())) {
+        throw new Error('metDate is not a valid date');
+      }
+      return true;
+    }),
+  body('deductiblesGrid')
+    .optional()
+    .custom((value) => {
+      if (!Array.isArray(value)) return true;
+      const seen = new Set<string>();
+      for (const row of value) {
+        const type = String(row?.type ?? '').trim();
+        if (!type) continue;
+        const key = /^D?\d{4,5}$/i.test(type)
+          ? `code:${type.toUpperCase().replace(/^D?(\d{4,5})$/, 'D$1')}`
+          : type.toLowerCase().replace(/[^a-z]/g, '');
+        if (seen.has(key)) {
+          throw new Error(`Duplicate deductible row: ${type}`);
+        }
+        seen.add(key);
+      }
+      return true;
+    }),
+];
+
 export const insuranceCompanyIdValidator: ValidationChain[] = [
   param('insuranceCompanyId')
     .notEmpty()
@@ -327,10 +410,7 @@ export const createPatientInsuranceValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 500 })
     .withMessage('Notes must be less than 500 characters'),
-  body('deductiblesGrid')
-    .optional()
-    .isArray()
-    .withMessage('deductiblesGrid must be an array'),
+  ...deductiblesGridValidators,
   body('coverageLimits')
     .optional()
     .isObject()
@@ -482,10 +562,7 @@ export const updatePatientInsuranceValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 500 })
     .withMessage('Notes must be less than 500 characters'),
-  body('deductiblesGrid')
-    .optional()
-    .isArray()
-    .withMessage('deductiblesGrid must be an array'),
+  ...deductiblesGridValidators,
   body('coverageLimits')
     .optional()
     .isObject()

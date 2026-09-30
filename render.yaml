@@ -11,9 +11,21 @@ services:
       npx prisma generate --schema prisma/schema.prisma
       npm run build
 
-    # db push is idempotent — safe to run on every deploy/restart.
-    # --accept-data-loss is safe here since we have no destructive schema changes.
-    startCommand: npx prisma db push --schema prisma/schema.prisma --skip-generate --accept-data-loss && node dist/server.js
+    # Startup order matters:
+    #   1. db push  — creates/updates tables AS THE OWNER (DIRECT_DATABASE_URL),
+    #                 before RLS, since the policies ALTER those tables.
+    #   2. applyRls — enables RLS + creates/rotates the medflow_app role.
+    #                 Without this, the app runs with zero policies and every
+    #                 SET LOCAL in src/config/db.ts is a no-op.
+    #   3. server   — connects as medflow_app (DATABASE_URL); its startup guard
+    #                 refuses to boot if RLS is not effective.
+    #
+    # --accept-data-loss is deliberately absent: it lets Prisma silently DROP
+    # columns/tables in a database holding patient records.
+    startCommand: >-
+      npx prisma db push --schema prisma/schema.prisma --skip-generate
+      && node dist/scripts/applyRls.js
+      && node dist/server.js
 
     healthCheckPath: /health
 
@@ -27,10 +39,15 @@ services:
         value: 5001
 
       # ── Set these in Render dashboard (sensitive values) ────────────────────
+      # DATABASE_URL must use the medflow_app role, NOT postgres. The app's
+      # startup guard exits non-zero in production if the connected user is a
+      # superuser, has BYPASSRLS, or if zero RLS policies exist.
       - key: DATABASE_URL
-        sync: false           # Will be set manually in Render dashboard
+        sync: false           # postgresql://medflow_app:<pw>@host/db
       - key: DIRECT_DATABASE_URL
-        sync: false           # Direct connection URL for Prisma migrations/push
+        sync: false           # Owner connection — db push + applyRls only
+      - key: APP_DB_PASSWORD
+        sync: false           # Password for medflow_app; rotate to invalidate
 
       - key: JWT_SECRET
         generateValue: true   # Render generates a secure random value automatically

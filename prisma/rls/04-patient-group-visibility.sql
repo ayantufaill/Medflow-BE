@@ -1,8 +1,9 @@
 -- Widens read-visibility on the `patient` table only: a patient registered
 -- at one branch should be visible from any sibling branch in the same
--- practicegroup, not just their own branch — "shared patient identity",
--- previously missing entirely (patients carried a branchId but nothing ever
--- widened visibility beyond it, even for staff at a sibling branch).
+-- practicegroup, not just their own branch — "shared patient identity".
+--
+-- Note: an untagged patient (GroupNum IS NULL) is now DENIED to everyone
+-- except a '*' caller. See the A0.5a note above patient_read_group.
 --
 -- Deliberately scoped to `patient` alone, not a blanket change to the
 -- shared tenant_isolation policy every other RLS table uses (see
@@ -26,20 +27,46 @@
 -- grant. A Branch B user can now see a Branch A patient, but still cannot
 -- create or edit one while scoped to Branch B.
 --
--- Safe to re-run: DROP POLICY IF EXISTS before each CREATE POLICY.
+-- Safe to re-run: DROP POLICY IF EXISTS before each CREATE POLICY. Note this
+-- file creates FIVE policies, not one — every one of them must be dropped
+-- first, or the second run aborts with
+-- `policy "patient_write_own" for table "patient" already exists`
+-- partway through and the remaining policies are never (re)created.
+-- Because the whole file is sent as one simple-query batch, a single failure
+-- rolls back the entire file, leaving the table with stale policies.
 
 DROP POLICY IF EXISTS tenant_isolation ON patient;
 DROP POLICY IF EXISTS patient_read_group ON patient;
+DROP POLICY IF EXISTS patient_write_own ON patient;
+DROP POLICY IF EXISTS patient_update_own ON patient;
+DROP POLICY IF EXISTS patient_delete_own ON patient;
 
+-- A0.5a: the "GroupNum" IS NULL escape hatch is REMOVED here.
+--
+-- It used to grant every caller read access to any patient with no group,
+-- which combined with sequential BigInt PatNum values to allow a by-ID read of
+-- another practice's records. The patient LIST was never affected (it filters
+-- on ClinicNum in the service layer), so this closes a real exposure without
+-- changing anything visible in the UI.
+--
+-- Scope note — this is deliberately the ONLY table changed. The same
+-- "ClinicNum IS NULL OR ..." escape hatch still exists in 02-policies.sql and
+-- 03-policies-remaining.sql and is intentionally left alone for now, because
+-- removing it there would hide large amounts of legitimate untagged data:
+--   appointment 1190/1337, procedurelog 388/388, paysplit 322/322,
+--   payment 315/315, claimpayment 135/135, operatory 105/106
+-- Notably 521 of those appointments belong to patients who ARE tagged, and
+-- operatory is the chairs/rooms table, which room.service.ts reads with no
+-- clinic filter. Attributing those tables is a separate workstream (A0.5b),
+-- not an edit to this file.
 CREATE POLICY patient_read_group ON patient FOR SELECT
 USING (
-  "GroupNum" IS NULL
-  OR CASE
-       WHEN current_setting('app.patient_group_id', true) = '*' THEN true
-       WHEN current_setting('app.patient_group_id', true) IS NULL
-            OR current_setting('app.patient_group_id', true) = '' THEN false
-       ELSE "GroupNum" = current_setting('app.patient_group_id', true)::int
-     END
+  CASE
+    WHEN current_setting('app.patient_group_id', true) = '*' THEN true
+    WHEN current_setting('app.patient_group_id', true) IS NULL
+         OR current_setting('app.patient_group_id', true) = '' THEN false
+    ELSE "GroupNum" = current_setting('app.patient_group_id', true)::int
+  END
 );
 
 CREATE POLICY patient_write_own ON patient FOR INSERT

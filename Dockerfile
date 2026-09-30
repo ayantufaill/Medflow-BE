@@ -69,8 +69,17 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
       process.exit(r.statusCode === 200 ? 0 : 1); \
     }).on('error', () => process.exit(1));"
 
-# Run schema sync then start the server.
-# db push is idempotent — safe to run on every container start.
-# --skip-generate because we already generated the client in the build stage.
-# --accept-data-loss is safe here since we have no destructive changes on fresh DBs.
-CMD ["sh", "-c", "node_modules/.bin/prisma db push --schema prisma/schema.prisma --skip-generate --accept-data-loss && node dist/server.js"]
+# Startup order matters:
+#   1. db push    — creates/updates tables AS THE OWNER (DIRECT_DATABASE_URL).
+#                   Must run before RLS, since the policies ALTER those tables.
+#   2. applyRls   — enables RLS + creates/rotates the medflow_app role.
+#                   Without this step the app connects with zero policies and
+#                   every SET LOCAL in src/config/db.ts is a no-op.
+#   3. server     — connects as medflow_app (DATABASE_URL) and its startup
+#                   guard in src/config/db.ts refuses to boot if RLS is not
+#                   effective.
+#
+# --accept-data-loss is deliberately absent: it lets Prisma silently DROP
+# columns and tables, which is unacceptable for a database holding patient
+# records. Local compose/CI seeding keeps it (throwaway databases only).
+CMD ["sh", "-c", "node_modules/.bin/prisma db push --schema prisma/schema.prisma --skip-generate && node dist/scripts/applyRls.js && node dist/server.js"]

@@ -470,7 +470,7 @@ export class PaymentService {
           }
         }
 
-        // 5. Update or create claimproc record for insurance payment tracking & update procedure BillingNote
+        // 5. Update or create claimproc record for insurance payment tracking
         if (data.paymentSource === 'insurance_company') {
           const wo = procItem.wo !== undefined ? Number(procItem.wo) : (procItem.writeoff !== undefined ? Number(procItem.writeoff) : ((procItem as any).writeOff !== undefined ? Number((procItem as any).writeOff) : undefined));
           const ded = procItem.ded !== undefined ? Number(procItem.ded) : ((procItem as any).deductible !== undefined ? Number((procItem as any).deductible) : undefined);

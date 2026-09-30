@@ -9,7 +9,14 @@ import { paymentService } from './payment.service';
 import { claimService } from './claim.service';
 import { patientInsuranceService } from './patient-insurance.service';
 import { agingService } from './aging.service';
-
+import {
+  DeductibleLedger,
+  applyDeductible,
+  mapCodeToCategory,
+  orderIndexesByDate,
+  resolveDeductibleTier,
+  splitSecondaryPortion,
+} from './deductible.service';
 const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 type StatementMeta = {
@@ -35,6 +42,15 @@ type StatementMeta = {
   dueDate?: string;
   voidReason?: string;
   claimId?: string; // Added to store generated claim ID
+  /**
+   * Set when the invoice's deductible has been made permanent, i.e. when the
+   * fully patient-responsible portion was folded into the plan's `metAmount`.
+   * Absent means "not yet posted", which is what lets `finalizeInvoice` stay
+   * exactly-once: `recalculateInvoice` runs on every edit and must never repost.
+   */
+  deductiblePostedAt?: string;
+  /** Row key -> amount permanently posted, so a void can reverse exactly. */
+  deductiblePostedByRow?: Record<string, number>;
 };
 
 type ItemMeta = {
@@ -43,23 +59,6 @@ type ItemMeta = {
   quantity?: number;
   cptCode?: string;
   serviceId?: string;
-};
-
-const buildBillingNote = (data: any) => {
-  const payload: Record<string, any> = {};
-  if (data.cptCode) payload.cptCode = data.cptCode;
-  if (data.writeoff && Number(data.writeoff) > 0) payload.writeoff = Number(data.writeoff);
-  if (data.estimatedWriteOff && Number(data.estimatedWriteOff) > 0) payload.estimatedWriteOff = Number(data.estimatedWriteOff);
-  if (data.allowedFee && Number(data.allowedFee) > 0) payload.allowedFee = Number(data.allowedFee);
-  if (data.ptPortion && Number(data.ptPortion) > 0) payload.ptPortion = Number(data.ptPortion);
-  if (data.insPortion && Number(data.insPortion) > 0) payload.insPortion = Number(data.insPortion);
-  if (data.secondaryInsPortion && Number(data.secondaryInsPortion) > 0) payload.secondaryInsPortion = Number(data.secondaryInsPortion);
-  if (data.dbi !== undefined && data.dbi !== null) payload.dbi = Boolean(data.dbi);
-  if (data.paidAmount && Number(data.paidAmount) > 0) payload.paidAmount = Number(data.paidAmount);
-  if (data.description) payload.description = data.description.substring(0, 100);
-  if (data.unitPrice !== undefined) payload.unitPrice = Number(data.unitPrice);
-  if (data.quantity !== undefined) payload.quantity = Number(data.quantity);
-  return JSON.stringify(payload);
 };
 
 const parseJson = <T>(value?: string | null): T => {
@@ -181,7 +180,11 @@ export class InvoiceService {
   /**
    * Calculate estimated insurance and patient portions for a list of items based on the primary patplan
    */
-  public async calculateInsuranceEstimates(patientId: bigint, items: any[]) {
+  public async calculateInsuranceEstimates(
+    patientId: bigint,
+    items: any[],
+    options: { excludeInvoiceId?: bigint | string } = {},
+  ) {
     try {
       const patPlan = await prisma.patplan.findFirst({
         where: { PatNum: patientId, OR: [{ IsPending: 0 }, { IsPending: null }] },
@@ -254,6 +257,47 @@ export class InvoiceService {
 
       const meta: any = await getPatientInsuranceMeta(patPlan.PatPlanNum);
       const coverageCategoryTable = meta?.coverageCategoryTable || [];
+
+      // Deductible pools are independent per grid row and drained in
+      // date-of-service order across the whole claim, so the loop below walks a
+      // date-sorted index list rather than the input array.
+const deductibleTier = resolveDeductibleTier({
+        relationship: (patPlan as any).Relationship,
+        patientsCovered: meta?.patientsCovered,
+      });
+      const deductibleLedger = new DeductibleLedger(meta?.deductiblesGrid, deductibleTier);
+
+      // Claims that have not reserved yet (deductibleHeld !== true) still own their
+      // `deductibleReservedByRow` estimate — reservation happens on the claim's status
+      // change, not on creation. Those pools are already spoken for, so a new invoice
+      // must not re-spend them or the same deductible is quoted twice across invoices.
+      //
+      // The invoice being priced is excluded: it is re-pricing lines its own claim
+      // already reserved, and counting that reservation would zero it out.
+      const excludedInvoiceId =
+        options.excludeInvoiceId != null ? String(options.excludeInvoiceId) : null;
+      const claimsHoldingPools = await prisma.claim.findMany({
+        where: {
+          PatNum: patientId,
+          InsSubNum: patPlan.InsSubNum ?? undefined,
+          Narrative: { not: null },
+        },
+        select: { Narrative: true },
+      });
+      for (const held of claimsHoldingPools) {
+        const heldMeta = parseJson<any>(held.Narrative || '{}');
+        if (excludedInvoiceId !== null && String(heldMeta.invoiceId ?? '') === excludedInvoiceId) {
+          continue;
+        }
+        if (heldMeta.deductibleHeld === true) continue;
+        const reserved = heldMeta.deductibleReservedByRow;
+        if (!reserved || typeof reserved !== 'object') continue;
+        for (const [rowKey, amount] of Object.entries(reserved)) {
+          deductibleLedger.reduceBalance(rowKey, roundCurrency(Number(amount) || 0));
+        }
+      }
+
+      const pricedOrder = orderIndexesByDate(items);
 
       // Build quick lookup maps from the UI meta payload
       const procCodePercentages = new Map<string, number>();
@@ -387,13 +431,15 @@ export class InvoiceService {
           .map((p) => [p.CodeNum!.toString(), p.ProcCode])
       );
 
-      for (const item of items) {
+      for (const itemIndex of pricedOrder) {
+        const item = items[itemIndex];
         const charge = Number(item.totalPrice ?? item.charge ?? item.ProcFee ?? item.unitPrice ?? 0);
         if (item.dbi) {
           item.insPortion = 0;
           item.ptPortion = charge;
           item.writeoff = 0;
           item.estimatedWriteOff = 0;
+          item.deductibleApplied = 0;
           item.balance = charge;
           continue;
         }
@@ -407,6 +453,7 @@ export class InvoiceService {
           item.writeoff = 0;
           item.estimatedWriteOff = 0;
           item.coveragePct = 0;
+          item.deductibleApplied = 0;
           item.balance = charge;
           continue;
         }
@@ -430,39 +477,17 @@ export class InvoiceService {
         }
 
         // 2. CDT Code Range Category Mapping (12 standard categories)
+        // Shared with the deductible engine so the two can never disagree —
+        // if they diverge, every estimate silently mis-deducts.
         if (percent === undefined && isCdtCode) {
-          const numMatch = cleanCode.match(/\d+/);
-          const num = numMatch ? parseInt(numMatch[0], 10) : null;
-          const numStr = numMatch ? numMatch[0] : '';
-          let catKey = '';
+          const catKey = mapCodeToCategory(cleanCode);
+          const perioBase = catKey?.replace(/basic$|major$/, '');
 
-          if (num !== null) {
-            if (num < 1000) catKey = 'diagnostic';
-            else if (num < 2000) catKey = 'preventative';
-            else if (num < 3000) catKey = 'restorative';
-            else if (num < 4000) catKey = 'endodontics';
-            else if (num < 5000) catKey = 'periodontics';
-            else if (num < 5900) catKey = 'prosthodonticsremovable';
-            else if (num < 6000) catKey = 'maxillofacialprosthetics';
-            else if (num < 6200) catKey = 'implantservices';
-            else if (num < 7000) catKey = 'prosthodonticsfixed';
-            else if (num < 8000) catKey = 'oralsurgery';
-            else if (num < 9000) catKey = 'orthodontics';
-            else catKey = 'adjunctgeneral';
-          }
-
-          // Special subcategory handling for Periodontics (Basic vs Major)
-          if (catKey === 'periodontics') {
-            const isBasicPerio = ['4341', '4342', '4346', '4355', '4910', '4920', '4921'].includes(numStr);
-            if (isBasicPerio) {
-              percent = categoryPercentages.get('periodonticsbasic')
-                ?? categoryPercentages.get('periodontics')
-                ?? categoryPercentages.get('basic');
-            } else {
-              percent = categoryPercentages.get('periodonticsmajor')
-                ?? categoryPercentages.get('periodontics')
-                ?? categoryPercentages.get('major');
-            }
+          // Periodontics splits Basic vs Major and falls back to the base key.
+          if (perioBase === 'periodontics') {
+            percent = categoryPercentages.get(catKey!)
+              ?? categoryPercentages.get(perioBase)
+              ?? categoryPercentages.get(catKey === 'periodonticsbasic' ? 'basic' : 'major');
           } else if (catKey && categoryPercentages.has(catKey)) {
             percent = categoryPercentages.get(catKey);
           }
@@ -548,14 +573,19 @@ export class InvoiceService {
           }
         }
 
+        // Price the line against its resolved deductible pool. The deductible is
+        // applied to `basisFee` (the ALLOWED fee) BEFORE coinsurance, so it is
+        // never capped by the initial patient coinsurance. The write-off above
+        // stays entirely outside this calculation.
+        const priced = applyDeductible(deductibleLedger, cleanCode, basisFee, percent);
+
+        item.insPortion = priced.insurancePortion;
+        item.ptPortion = priced.patientPortion;
+        item.coinsurance = priced.coinsurance;
+        item.deductibleApplied = priced.deductibleApplied;
+        item.deductibleRowKey = priced.rowKey;
         if (percent !== undefined) {
-          const insPortion = roundCurrency((basisFee * percent) / 100);
-          item.insPortion = insPortion;
-          item.ptPortion = roundCurrency(Math.max(0, basisFee - insPortion));
           item.coveragePct = percent;
-        } else {
-          item.insPortion = 0;
-          item.ptPortion = basisFee;
         }
         item.secondaryInsPortion = 0;
         item.balance = charge;
@@ -576,9 +606,13 @@ export class InvoiceService {
             continue;
           }
           item.primaryInsPortion = item.insPortion;
+          // Only coinsurance is secondary-claimable. The deductible the patient
+          // already satisfied must stay with them, otherwise the secondary
+          // carrier is over-paid and the patient balance is understated.
           if (item.ptPortion > 0) {
-            item.secondaryInsPortion = item.ptPortion;
-            item.ptPortion = 0;
+            const split = splitSecondaryPortion(item.ptPortion, item.deductibleApplied ?? 0);
+            item.secondaryInsPortion = split.secondaryPortion;
+            item.ptPortion = split.patientPortion;
           }
           item.totalInsPortion = roundCurrency(Number(item.primaryInsPortion || 0) + Number(item.secondaryInsPortion || 0));
           item.insPortion = item.totalInsPortion;
@@ -1529,11 +1563,20 @@ export class InvoiceService {
         return {
           ...itemMeta,
           ProcFee: item.ProcFee,
+          // Required: the deductible is a running balance consumed in
+          // date-of-service order, so ProcDate must reach the estimator.
+          ProcDate: item.ProcDate,
           serviceId: item.CodeNum?.toString(),
           noBillIns: item.NoBillIns === 1 || isPatientPenaltyOrNonIns(itemMeta) || isPatientPenaltyOrNonIns(item),
         };
       });
-      const enrichedSimulatedItems = await this.calculateInsuranceEstimates(invoice.PatNum, simulatedItems);
+      // Exclude this invoice's own claim: it is re-pricing lines it already reserved.
+      // Other invoices' claims are what must reduce the remaining pools.
+      const enrichedSimulatedItems = await this.calculateInsuranceEstimates(
+        invoice.PatNum,
+        simulatedItems,
+        { excludeInvoiceId: invoice.StatementNum },
+      );
       
       for (let i = 0; i < enrichedSimulatedItems.length; i++) {
         const originalItem = items[i];
@@ -1669,12 +1712,19 @@ export class InvoiceService {
           originalMeta.estimatedWriteOff !== enrichedItem.estimatedWriteOff ||
           originalMeta.allowedFee !== enrichedItem.allowedFee;
 
+        // `deductibleApplied` is the number finalizeInvoice turns into permanent
+        // `metAmount`, so it has to be persisted here alongside the portions.
+        // Without this, BillingNote keeps a creation-time value while ptPortion
+        // reflects the current deductible, and the invoice posts a stale amount.
+        const deductibleChanged = Number(originalMeta.deductibleApplied || 0) !== Number(enrichedItem.deductibleApplied || 0);
+
         if (
           originalMeta.primaryInsPortion !== enrichedPrim ||
           originalMeta.insPortion !== enrichedPrim ||
           originalMeta.secondaryInsPortion !== enrichedItem.secondaryInsPortion ||
           originalMeta.ptPortion !== enrichedItem.ptPortion ||
-          writeoffChanged
+          writeoffChanged ||
+          deductibleChanged
         ) {
           originalMeta.insPortion = enrichedPrim;
           originalMeta.primaryInsPortion = enrichedPrim;
@@ -1687,6 +1737,8 @@ export class InvoiceService {
           originalMeta.writeoff = enrichedItem.writeoff ?? originalMeta.writeoff ?? 0;
           originalMeta.estimatedWriteOff = enrichedItem.estimatedWriteOff ?? originalMeta.estimatedWriteOff ?? 0;
           originalMeta.allowedFee = enrichedItem.allowedFee ?? originalMeta.allowedFee ?? null;
+          originalMeta.deductibleApplied = roundCurrency(Number(enrichedItem.deductibleApplied || 0));
+          if (enrichedItem.deductibleRowKey) originalMeta.deductibleRowKey = enrichedItem.deductibleRowKey;
           originalItem.BillingNote = buildJson(originalMeta);
           await prisma.procedurelog.update({
             where: { ProcNum: originalItem.ProcNum },
@@ -1763,8 +1815,10 @@ export class InvoiceService {
       return sum + Math.abs(Number(adj.AdjAmt) || 0);
     }, 0);
 
-    // Balance due subtracts totalPaid AND formally posted adjustments (e.g. posted write-offs/discounts)
-    const balanceDue = roundCurrency(Math.max(0, subtotal - totalPaid - totalAdjustments));
+    // Balance due is the gross charge (subtotal) minus payments only.
+    // Write-offs/adjustments are tracked separately and shown as a separate payable line item.
+    // This shows the gross charge as the balance, with write-offs tracked as a separate payable amount.
+    const balanceDue = roundCurrency(Math.max(0, subtotal - totalPaid));
     const nextMeta: StatementMeta = {
       ...meta,
       totalAmount: roundCurrency(totalAmount),
@@ -1813,15 +1867,79 @@ export class InvoiceService {
     return { patientId, totalBalance: roundCurrency(totalBalance), openInvoices };
   }
 
+  /**
+  /**
+   * Sum `deductibleApplied` for all procedures, grouped by deductible row.
+   *
+   * By posting the deductible to `metAmount` immediately upon invoice finalization,
+   * subsequent invoices generated for the patient will correctly see the deductible
+   * as met, even if the insurance claim for this invoice hasn't been generated
+   * or submitted yet.
+   * 
+   * When a claim is later generated, it will store these estimated amounts in
+   * its own `deductibleReservedByRow` for the ERA to reconcile, but the claim
+   * lifecycle itself no longer advances `metAmount` (to prevent double-counting).
+   */
+  private async collectUncoveredDeductibleByRow(
+    statementNum: bigint,
+  ): Promise<Record<string, number>> {
+    const items = await prisma.procedurelog.findMany({
+      where: { StatementNum: statementNum },
+      select: { BillingNote: true, NoBillIns: true },
+    });
+
+    const byRow: Record<string, number> = {};
+    for (const item of items) {
+      const bn = parseJson<any>(item.BillingNote);
+      const applied = roundCurrency(Number(bn.deductibleApplied || 0));
+      if (applied <= 0) continue;
+
+      if (isPatientPenaltyOrNonIns(bn) || isPatientPenaltyOrNonIns(item)) continue;
+
+      const key = String(bn.deductibleRowKey || '');
+      if (!key) continue;
+
+      byRow[key] = roundCurrency((byRow[key] ?? 0) + applied);
+    }
+    return byRow;
+  }
+
   async finalizeInvoice(invoiceId: string, userId: string) {
     const invoice = await this.getStatementById(invoiceId);
     if (!invoice) throw new NotFoundError('Invoice not found');
 
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
-    if (String(meta.status) !== 'draft') throw new BadRequestError('Only draft invoices can be finalized');
+    const status = String(meta.status);
+    const isDraft = status === 'draft';
+    const isUnpostedFinal = status === 'pending' && !meta.deductiblePostedAt;
+    if (!isDraft && !isUnpostedFinal) throw new BadRequestError('Only draft invoices can be finalized');
 
     await this.recalculateInvoice(invoiceId);
-    const nextMeta: StatementMeta = { ...meta, status: 'pending' };
+
+    const patPlan = invoice.PatNum ? await prisma.patplan.findFirst({
+      where: { PatNum: invoice.PatNum, OR: [{ IsPending: 0 }, { IsPending: null }] },
+      orderBy: { Ordinal: 'asc' },
+      select: { PatPlanNum: true },
+    }) : null;
+
+    let byRow: Record<string, number> = {};
+    if (patPlan?.PatPlanNum) {
+      byRow = await this.collectUncoveredDeductibleByRow(invoice.StatementNum);
+      if (Object.keys(byRow).length > 0) {
+        await patientInsuranceService.applyDeductibleMetAmountDelta(
+          patPlan.PatPlanNum,
+          byRow,
+          invoice.DateSent ?? new Date(),
+        );
+      }
+    }
+
+    const nextMeta: StatementMeta = {
+      ...meta,
+      status: 'pending',
+      deductiblePostedAt: new Date().toISOString(),
+      deductiblePostedByRow: byRow,
+    };
 
     const updated = await prisma.statement.update({
       where: { StatementNum: invoice.StatementNum },
@@ -1840,7 +1958,31 @@ export class InvoiceService {
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
     if (String(meta.status) === 'void') throw new BadRequestError('Invoice is already void');
 
-    const nextMeta: StatementMeta = { ...meta, status: 'void', voidReason: reason ?? meta.voidReason };
+    let nextMeta: StatementMeta = { ...meta, status: 'void', voidReason: reason ?? meta.voidReason };
+
+    if (meta.deductiblePostedAt && meta.deductiblePostedByRow && Object.keys(meta.deductiblePostedByRow).length > 0) {
+      const patPlan = invoice.PatNum ? await prisma.patplan.findFirst({
+        where: { PatNum: invoice.PatNum, OR: [{ IsPending: 0 }, { IsPending: null }] },
+        orderBy: { Ordinal: 'asc' },
+        select: { PatPlanNum: true },
+      }) : null;
+
+      if (patPlan?.PatPlanNum) {
+        const reversed = Object.fromEntries(
+          Object.entries(meta.deductiblePostedByRow).map(([key, amount]) => [key, roundCurrency(-amount)])
+        );
+        await patientInsuranceService.applyDeductibleMetAmountDelta(
+          patPlan.PatPlanNum,
+          reversed,
+          invoice.DateSent ?? new Date(),
+        );
+      }
+      const { deductiblePostedAt: _at, deductiblePostedByRow: _byRow, ...rest } = nextMeta;
+      nextMeta = rest;
+    } else if (meta.deductiblePostedAt) {
+      const { deductiblePostedAt: _at, deductiblePostedByRow: _byRow, ...rest } = nextMeta;
+      nextMeta = rest;
+    }
 
     const updated = await prisma.statement.update({
       where: { StatementNum: invoice.StatementNum },
