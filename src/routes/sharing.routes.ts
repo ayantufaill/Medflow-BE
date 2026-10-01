@@ -2,11 +2,13 @@ import { Router } from 'express';
 import { sharingController } from '../controllers/sharing.controller';
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 
 const router = Router();
 
 router.use(authenticate);
 router.use(resolveBranchAccess);
+router.use(enterTenantContext);
 
 // According to plan: Only Group Admins and Platform Admins can hit this
 router.get('/policy', requireRoles('Admin', 'Group Admin'), sharingController.getPolicy.bind(sharingController));

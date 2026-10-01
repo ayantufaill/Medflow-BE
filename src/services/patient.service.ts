@@ -812,34 +812,95 @@ async getPatientLastVisit(patientId: string) {
   /**
    * Search for duplicate patients based on name, DOB, phone, email
    */
-  async findDuplicatePatients(data: {
-    firstName: string;
-    lastName: string;
-    dateOfBirth: Date;
-    phonePrimary?: string;
-    email?: string;
-  }) {
-    const where: any = {
+  /**
+   * Same-branch matches use today's name+DOB check, unchanged — no new
+   * exposure since they're already within the caller's own RLS-visible scope.
+   *
+   * Cross-branch matches (a different branch in the caller's own group) are
+   * ONLY surfaced on a STRONG match — name + DOB AND phone or email also
+   * matching — to avoid exposing a "someone with this name exists at another
+   * branch" hint off a coincidental name+birthdate collision. Surfacing them
+   * at all requires temporarily widening just the IDENTITY sharing category
+   * for this one query (see prisma/rls/04-patient-group-visibility.sql's
+   * patient_read_group policy, arm 2) — scoped to the caller's own real
+   * groupId, never '*', so this still can't see other groups' patients, and
+   * every other sharing category stays OWN_BRANCH so this doesn't widen
+   * financial/clinical/imaging visibility as a side effect.
+   */
+  async findDuplicatePatients(
+    data: {
+      firstName: string;
+      lastName: string;
+      dateOfBirth: Date;
+      phonePrimary?: string;
+      email?: string;
+    },
+    callerUserId?: string
+  ) {
+    const nameAndDobWhere: any = {
       FName: { equals: data.firstName },
       LName: { equals: data.lastName },
       Birthdate: data.dateOfBirth,
     };
 
-    if (data.phonePrimary || data.email) {
-      where.OR = [];
-      if (data.phonePrimary) {
-        where.OR.push({ WirelessPhone: data.phonePrimary });
-        where.OR.push({ HmPhone: data.phonePrimary });
-        where.OR.push({ WkPhone: data.phonePrimary });
-      }
-      if (data.email) {
-        where.OR.push({ Email: data.email.toLowerCase() });
-      }
+    const sameBranchMatches = await prisma.patient.findMany({ where: nameAndDobWhere });
+    const ownPatNums = new Set(sameBranchMatches.map((p) => p.PatNum.toString()));
+
+    const sameBranchMapped = sameBranchMatches.map((patient) => ({
+      ...mapPatientToApi(patient),
+      isCrossBranch: false,
+    }));
+
+    if (!callerUserId || (!data.phonePrimary && !data.email)) {
+      return sameBranchMapped;
     }
 
-    const duplicates = await prisma.patient.findMany({ where });
+    const strongMatchOr: any[] = [];
+    if (data.phonePrimary) {
+      strongMatchOr.push({ WirelessPhone: data.phonePrimary });
+      strongMatchOr.push({ HmPhone: data.phonePrimary });
+      strongMatchOr.push({ WkPhone: data.phonePrimary });
+    }
+    if (data.email) {
+      strongMatchOr.push({ Email: data.email.toLowerCase() });
+    }
+    const strongMatchWhere: any = { ...nameAndDobWhere, OR: strongMatchOr };
 
-    return duplicates.map((patient) => mapPatientToApi(patient));
+    const { PermissionService } = await import('./permission.service');
+    const branchAccess = await PermissionService.getBranchAccess(callerUserId);
+    if (branchAccess.groupId === null) {
+      return sameBranchMapped;
+    }
+
+    const { tenantContextStorage } = await import('../config/tenant-context');
+    const groupWide = await tenantContextStorage.run(
+      {
+        clinicIds: branchAccess.clinicIds,
+        patientGroupId: branchAccess.groupId,
+        userId: callerUserId,
+        sharing: 'IDENTITY:GROUP_READ,CLINICAL:OWN_BRANCH,IMAGING:OWN_BRANCH,APPOINTMENTS:OWN_BRANCH,FINANCIAL:OWN_BRANCH,INSURANCE:OWN_BRANCH',
+      },
+      () => prisma.patient.findMany({ where: strongMatchWhere })
+    );
+
+    const crossBranchOnly = groupWide.filter((p) => !ownPatNums.has(p.PatNum.toString()));
+    if (crossBranchOnly.length === 0) {
+      return sameBranchMapped;
+    }
+
+    const clinicNums = [...new Set(crossBranchOnly.map((p) => p.ClinicNum).filter((c): c is bigint => c !== null))];
+    const clinics = clinicNums.length > 0
+      ? await prisma.clinic.findMany({ where: { ClinicNum: { in: clinicNums } }, select: { ClinicNum: true, Description: true } })
+      : [];
+    const clinicNameByNum = new Map(clinics.map((c) => [c.ClinicNum.toString(), c.Description]));
+
+    const crossBranchMapped = crossBranchOnly.map((patient) => ({
+      ...mapPatientToApi(patient),
+      isCrossBranch: true,
+      branchName: patient.ClinicNum ? clinicNameByNum.get(patient.ClinicNum.toString()) ?? null : null,
+    }));
+
+    return [...sameBranchMapped, ...crossBranchMapped];
   }
 
   /**
@@ -2146,6 +2207,33 @@ async getPatientHistoryAggregate(patientId: string) {
     await prisma.patient.update({
       where: { PatNum: patientId },
       data: { cross_branch_restricted: restricted }
+    });
+  }
+
+  /**
+   * Grants one additional branch read access to one patient — the "use this
+   * existing patient instead of creating a duplicate" action. Read-only and
+   * permanent until revoked (no revoke endpoint yet — see
+   * patient_branch_grant's doc comment in schema.prisma). Does not touch
+   * ClinicNum/GroupNum or any write policy; the patient's home branch and
+   * edit rights are unaffected.
+   */
+  async createPatientBranchGrant(
+    patientId: bigint,
+    grantedClinicNum: bigint,
+    grantedByUserId?: string
+  ): Promise<void> {
+    const patient = await prisma.patient.findUnique({ where: { PatNum: patientId }, select: { PatNum: true } });
+    if (!patient) throw new NotFoundError('Patient not found');
+
+    await prisma.patient_branch_grant.upsert({
+      where: { pat_num_granted_clinic_num: { pat_num: patientId, granted_clinic_num: grantedClinicNum } },
+      update: {},
+      create: {
+        pat_num: patientId,
+        granted_clinic_num: grantedClinicNum,
+        granted_by: grantedByUserId ? BigInt(grantedByUserId) : null,
+      },
     });
   }
 }

@@ -34,6 +34,9 @@ const getExtendedPrisma = () => {
         $allModels: {
           async $allOperations({ model, operation, args, query }) {
             const ctx = tenantContextStorage.getStore();
+            if (process.env.TENANT_DEBUG === 'true') {
+              console.log('[tenant-debug]', { model, operation, ctx });
+            }
             if (!ctx || !model) {
               return query(args);
             }

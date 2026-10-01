@@ -161,6 +161,21 @@ USING (
     WHEN mf.shared_mode('IDENTITY') != 'GROUP_READ' THEN false
     ELSE "GroupNum" = current_setting('app.patient_group_id', true)::int
   END
+  OR
+  -- 3. Additive: a one-off, per-patient exception recorded in
+  --    patient_branch_grant — read-only, independent of the group's general
+  --    IDENTITY sharing setting. Created when Front Desk resolves a
+  --    cross-branch duplicate-check match by choosing to use the existing
+  --    patient instead of creating a new one (src/services/patient.service.ts's
+  --    createPatientBranchGrant). Deliberately NOT mirrored into the write
+  --    policies below — this only ever grants read access; editing still
+  --    requires being assigned to the patient's own ClinicNum.
+  EXISTS (
+    SELECT 1 FROM patient_branch_grant g
+    WHERE g.pat_num = "PatNum"
+      AND current_setting('app.clinic_ids', true) NOT IN ('', '*')
+      AND g.granted_clinic_num = ANY(string_to_array(current_setting('app.clinic_ids', true), ',')::bigint[])
+  )
 );
 
 CREATE POLICY patient_write_own ON patient FOR INSERT

@@ -7976,6 +7976,25 @@ model group_sharing_policy {
   @@unique([group_id, category, clinic_id])
 }
 
+/// An explicit, per-patient exception to the group's general IDENTITY sharing
+/// setting: lets one specific confirmed-duplicate patient be read from one
+/// additional branch, independent of whether the group has sharing on or off.
+/// Created when Front Desk resolves a cross-branch duplicate-check match by
+/// choosing to use the existing patient instead of creating a new one (see
+/// patient.controller.ts's createBranchGrant / patient-insurance's sibling
+/// cross_branch_restricted flag for the closest existing precedent). Read-only
+/// grant — deliberately not consulted by the patient write policies, so
+/// editing a patient still requires being assigned to its own ClinicNum.
+model patient_branch_grant {
+  id                 Int      @id @default(autoincrement())
+  pat_num            BigInt
+  granted_clinic_num BigInt
+  granted_by         BigInt?
+  created_at         DateTime @default(now())
+
+  @@unique([pat_num, granted_clinic_num])
+}
+
 model access_audit {
   id         BigInt   @id @default(autoincrement())
   user_num   BigInt?

@@ -6,6 +6,7 @@ import { patientController } from '../controllers/patient.controller';
 import { insurancePlanController } from '../controllers/insurance-plan.controller';
 import { allergyController } from '../controllers/allergy.controller';
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
+import { requirePermission } from '../middleware/permission.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePhiAccess } from '../middleware/phi.middleware';
@@ -621,6 +622,33 @@ router.get('/:patientId', requireRoles(...STAFF_READ_ROLES), validate(patientIdV
 router.patch('/:patientId', requireRoles(...BILLING_STAFF_ROLES, 'Provider', 'Doctor'), validate([...patientIdValidator, ...updatePatientValidator]), patientController.updatePatient.bind(patientController));
 
 router.patch('/:patientId/cross-branch-restricted', requireRoles('Admin', 'Group Admin', 'Branch Admin'), validate(patientIdValidator), patientController.updateCrossBranchRestriction.bind(patientController));
+
+/**
+ * @swagger
+ * /patients/{patientId}/branch-grant:
+ *   post:
+ *     summary: Grant the caller's branch read access to an existing patient (resolves a cross-branch duplicate-check match instead of creating a new chart)
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               clinicId:
+ *                 type: integer
+ *                 description: Defaults to the caller's own branch if omitted
+ *     responses:
+ *       200:
+ *         description: Grant created
+ *       403:
+ *         description: Forbidden — clinicId outside the caller's assigned branches
+ *       404:
+ *         description: Patient not found
+ */
+router.post('/:patientId/branch-grant', requirePermission('patients.create'), validate(patientIdValidator), patientController.createBranchGrant.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}:
