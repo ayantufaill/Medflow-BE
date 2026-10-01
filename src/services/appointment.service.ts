@@ -2586,6 +2586,23 @@ async getPatientAppointments(patientId: string, limit = 10) {
       return null;
     }
 
+    // Re-read the status immediately before writing. This runs fire-and-forget
+    // from the read path (see resolveStatus above), so the snapshot it was
+    // handed can be minutes old by the time it lands — long enough for someone
+    // to have checked the appointment out in between. Writing blindly would
+    // revert that manual status back to no_show.
+    const fresh = await prisma.appointment.findUnique({
+      where: { AptNum: appointment.AptNum },
+      select: { AptStatus: true },
+    });
+    if (!fresh) return null;
+
+    const freshMeta = await getAppointmentMeta(appointment.AptNum);
+    const freshStatus = (freshMeta?.status ?? mapAppointmentStatusFromDb(fresh.AptStatus)).toLowerCase();
+    if (!AUTO_NO_SHOW_ELIGIBLE_STATUSES.includes(freshStatus)) {
+      return null;
+    }
+
     // Past 60 minutes after end time -> Auto transition to 'no_show'
     await prisma.appointment.update({
       where: { AptNum: appointment.AptNum },
@@ -2603,9 +2620,9 @@ async getPatientAppointments(patientId: string, limit = 10) {
     };
 
     await setAppointmentMeta(appointment.AptNum, {
-      ...aptMeta,
+      ...freshMeta,
       status: 'no_show',
-      systemEvents: [...(aptMeta?.systemEvents ?? []), newEvent],
+      systemEvents: [...(freshMeta?.systemEvents ?? []), newEvent],
     });
 
     if (appointment.ProvNum && appointment.AptDateTime) {

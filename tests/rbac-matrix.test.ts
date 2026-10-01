@@ -85,8 +85,13 @@ describe('Pure 4-Group Role-Based Access Control (RBAC) Matrix & Permission Gati
       expect(matrix['Biller']['reports.read']).toBe(true);
       expect(matrix['Biller']['clinical-notes.sign']).toBeUndefined();
 
+      // Lab is deliberately the narrowest role in this group — "lab cases and
+      // basic patient identification only" (LAB_GROUP_PERMISSIONS in
+      // src/scripts/seedRoles.ts). It is NOT granted practice reporting.
       expect(matrix['Lab']).toBeDefined();
-      expect(matrix['Lab']['reports.read']).toBe(true);
+      expect(matrix['Lab']['lab-results.create']).toBe(true);
+      expect(matrix['Lab']['patients.read_basic']).toBe(true);
+      expect(matrix['Lab']['reports.read']).toBeUndefined();
       expect(matrix['Lab']['clinical-notes.sign']).toBeUndefined();
     });
   });

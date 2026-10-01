@@ -24,6 +24,8 @@ describe('TreatmentPlanService', () => {
     expect(plan.items).toHaveLength(1);
     
     // cleanup
+    // proctp rows hang off the plan (fk_proctp_1_TreatPlanNum) and have to go first.
+    await prisma.proctp.deleteMany({ where: { TreatPlanNum: BigInt(plan._id) } });
     await prisma.treatplan.delete({ where: { TreatPlanNum: BigInt(plan._id) } });
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
@@ -51,6 +53,8 @@ describe('TreatmentPlanService', () => {
     expect(updatedPlan.status).toBe('Accepted');
     
     // cleanup
+    // proctp rows hang off the plan (fk_proctp_1_TreatPlanNum) and have to go first.
+    await prisma.proctp.deleteMany({ where: { TreatPlanNum: BigInt(plan._id) } });
     await prisma.treatplan.delete({ where: { TreatPlanNum: BigInt(plan._id) } });
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });
@@ -71,6 +75,8 @@ describe('TreatmentPlanService', () => {
     await expect(treatmentPlanService.generateClaimFromTreatmentPlan(plan._id)).rejects.toThrow('No accepted items in treatment plan');
     
     // cleanup
+    // proctp rows hang off the plan (fk_proctp_1_TreatPlanNum) and have to go first.
+    await prisma.proctp.deleteMany({ where: { TreatPlanNum: BigInt(plan._id) } });
     await prisma.treatplan.delete({ where: { TreatPlanNum: BigInt(plan._id) } });
     await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
   });

@@ -49,7 +49,21 @@ const ensureClinicAttached = async (userNum: bigint, clinicNum: bigint = 1n) => 
   }
 };
 
-const sampleAccounts = [
+// Legacy admin accounts keep the SEED_ADMIN_PASSWORD / 'Admin123!' contract
+// that src/server.ts's seedIfEmpty and tests/helpers/auth.ts both read. Seeding
+// them with the roster-wide SEED_PASSWORD instead locks those callers out.
+const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'Admin123!';
+
+type SampleAccount = {
+  email: string;
+  firstName: string;
+  lastName: string;
+  roleName: string;
+  /** Overrides SEED_PASSWORD for this account only. */
+  password?: string;
+};
+
+const sampleAccounts: SampleAccount[] = [
   // ─── 10 Canonical Roles ───────────────────────────────────────────────
   {
     email: 'superadmin@medflow.com',
@@ -117,28 +131,43 @@ const sampleAccounts = [
     firstName: process.env.SEED_ADMIN_FIRST_NAME || 'Admin',
     lastName: process.env.SEED_ADMIN_LAST_NAME || 'Medflow',
     roleName: 'Admin',
+    password: adminPassword,
   },
   {
     email: 'admin@example.com',
     firstName: 'Admin',
     lastName: 'User',
     roleName: 'Admin',
+    password: adminPassword,
   },
   {
     email: 'jessica.wong@medflow.com',
     firstName: 'Jessica',
     lastName: 'Wong',
     roleName: 'Admin',
+    password: adminPassword,
   },
 ];
 
 const seedUsers = async () => {
   try {
     const defaultPassword = process.env.SEED_PASSWORD || 'Password123!';
-    const passwordHash = await hashPassword(defaultPassword);
+
+    // bcrypt at 12 rounds is deliberately slow — hash each distinct password
+    // once rather than per account.
+    const hashCache = new Map<string, string>();
+    const hashFor = async (plain: string) => {
+      let hash = hashCache.get(plain);
+      if (!hash) {
+        hash = await hashPassword(plain);
+        hashCache.set(plain, hash);
+      }
+      return hash;
+    };
 
     for (const acc of sampleAccounts) {
       const emailLower = acc.email.toLowerCase();
+      const passwordHash = await hashFor(acc.password || defaultPassword);
       let user = await prisma.userod.findFirst({
         where: { UserName: emailLower },
       });
@@ -200,8 +229,14 @@ const seedUsers = async () => {
     }
 
     console.log(`\nAll sample users seeded successfully with password: "${defaultPassword}"!`);
+    console.log(`Legacy admin accounts use: "${adminPassword}" (SEED_ADMIN_PASSWORD)`);
   } catch (error) {
+    // Exit non-zero so seedAll.ts stops and surfaces the output. This used to
+    // return normally, so a failure here (e.g. the ClinicNum 1 foreign key)
+    // left the database with no users while `npm run seed:all` still reported
+    // success — every login-based test then failed with an unexplained 401.
     console.error('Error seeding users:', error);
+    process.exitCode = 1;
   } finally {
     await prisma.$disconnect();
   }

@@ -2304,11 +2304,17 @@ export class ClaimService {
 
     if (!patPlanNum) return {};
 
-    // Note: We no longer call applyDeductibleMetAmountDelta here because the invoice
-    // finalized state now immediately posts the deductible to the patient's metAmount
-    // for all procedures. We just track `deductibleHeld` here for completeness.
-
-    return { patPlanNum, deductibleHeld: shouldHold };
+    // Posting the deductible to the plan's metAmount is the finalized invoice's
+    // job now (invoiceService.finalizeInvoice -> applyDeductibleMetAmountDelta),
+    // so this path moves no money.
+    //
+    // `deductibleHeld` therefore stays false: it means "this claim's estimate is
+    // currently applied to the plan's metAmount", and era835 subtracts it from
+    // the payer's actual. Setting it true here while posting nothing made the
+    // ERA subtract an amount the plan never received, pushing metAmount
+    // negative by the size of the estimate. Only a path that actually posts may
+    // set this flag.
+    return { patPlanNum };
   }
 
   async updateClaim(

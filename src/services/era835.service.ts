@@ -5,6 +5,81 @@ import { agingService } from './aging.service.js';
 
 const roundCurrency = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100;
 
+const parseJsonSafe = (value: unknown): Record<string, any> => {
+  if (typeof value !== 'string' || value.trim() === '') return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+/**
+ * The deductible this claim's procedures have ALREADY put into the plan's
+ * metAmount, grouped by deductible row.
+ *
+ * Posting is the finalized invoice's job (invoiceService.finalizeInvoice), not
+ * the claim's, so the claim's own estimate is not evidence that anything was
+ * posted. Only procedures sitting on a statement that actually posted
+ * (`deductiblePostedAt` on the statement meta) count here.
+ *
+ * era835 subtracts this from the payer's actual, so getting it wrong in either
+ * direction is a real money bug: too high and the correction goes negative,
+ * too low and a finalized invoice's deductible is counted twice.
+ */
+const collectPostedDeductibleByRow = async (
+  claimNum: bigint,
+): Promise<Record<string, number>> => {
+  const claimProcs = await prisma.claimproc.findMany({
+    where: { ClaimNum: claimNum, ProcNum: { not: null } },
+    select: { ProcNum: true },
+  });
+
+  const procNums = claimProcs
+    .map((cp) => cp.ProcNum)
+    .filter((procNum): procNum is bigint => procNum !== null);
+  if (procNums.length === 0) return {};
+
+  const procs = await prisma.procedurelog.findMany({
+    where: { ProcNum: { in: procNums }, StatementNum: { not: null } },
+    select: { StatementNum: true, BillingNote: true },
+  });
+  if (procs.length === 0) return {};
+
+  const statementNums = [
+    ...new Set(
+      procs
+        .map((proc) => proc.StatementNum)
+        .filter((statementNum): statementNum is bigint => statementNum !== null)
+        .map((statementNum) => statementNum.toString()),
+    ),
+  ].map((statementNum) => BigInt(statementNum));
+
+  const statements = await prisma.statement.findMany({
+    where: { StatementNum: { in: statementNums } },
+    select: { StatementNum: true, NoteBold: true },
+  });
+
+  const posted = new Set(
+    statements
+      .filter((statement) => Boolean(parseJsonSafe(statement.NoteBold).deductiblePostedAt))
+      .map((statement) => statement.StatementNum.toString()),
+  );
+  if (posted.size === 0) return {};
+
+  const byRow: Record<string, number> = {};
+  for (const proc of procs) {
+    if (!proc.StatementNum || !posted.has(proc.StatementNum.toString())) continue;
+    const billingNote = parseJsonSafe(proc.BillingNote);
+    const applied = roundCurrency(Number(billingNote.deductibleApplied || 0));
+    if (applied <= 0) continue;
+    const key = String(billingNote.deductibleRowKey || 'unassigned');
+    byRow[key] = roundCurrency((byRow[key] ?? 0) + applied);
+  }
+  return byRow;
+};
+
 export type Parsed835Adjustment = {
   groupCode: string; // CO, PR, OA, PI, CR
   reasonCode: string; // 1, 2, 45, 96, etc.
@@ -360,12 +435,26 @@ export class Era835Service {
       try {
         const narrative = (claim as any).Narrative;
         reconciledNarrative = narrative ? JSON.parse(narrative) : null;
-        if (reconciledNarrative && typeof reconciledNarrative.deductibleReservedByRow === 'object' && reconciledNarrative.deductibleReservedByRow) {
+        if (
+          reconciledNarrative
+          && reconciledNarrative.deductibleHeld === true
+          && typeof reconciledNarrative.deductibleReservedByRow === 'object'
+          && reconciledNarrative.deductibleReservedByRow
+        ) {
+          // Something actually posted this estimate (today: a re-posted ERA).
           heldByRow = reconciledNarrative.deductibleReservedByRow as Record<string, number>;
         }
       } catch {
         reconciledNarrative = null;
         heldByRow = {};
+      }
+
+      // Nothing on the claim is holding the deductible, so fall back to what the
+      // finalized invoice posted for these procedures. Submitting a claim does
+      // not post any more (see reconcileDeductibleReservation), so the claim's
+      // bare estimate must never be treated as money already in metAmount.
+      if (Object.keys(heldByRow).length === 0) {
+        heldByRow = await collectPostedDeductibleByRow(claimNum);
       }
 
       await prisma.$transaction(async (tx) => {

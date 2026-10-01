@@ -202,29 +202,48 @@ describe('Deductible lifecycle: configure -> estimate -> submit -> ERA', () => {
     expect(await readMet('standard')).toBe(0);
   });
 
-  it('step 7: readyForSubmission reserves $500', async () => {
+  // Steps 7-9b: submitting a claim posts NOTHING to the plan's metAmount.
+  //
+  // Posting moved to invoice finalization (invoiceService.finalizeInvoice ->
+  // applyDeductibleMetAmountDelta, covered by
+  // deductible-invoice-posting.integration.test.ts). The claim still carries its
+  // per-row ESTIMATE in its Narrative so the 837 and the ERA correction have
+  // something to work from, but an estimate is not money in the plan — these
+  // steps used to assert the old claim-driven posting and would now have the
+  // plan crediting a deductible twice, once here and once at finalization.
+  it('step 7: readyForSubmission does not post the estimate to the plan', async () => {
     await claimService.updateClaim(claimNum.toString(), { status: 'readyForSubmission' } as any);
-    expect(await readMet('standard')).toBe(STANDARD_LIMIT);
+    expect(await readMet('standard')).toBe(0);
   });
 
-  it('step 8: re-submitting an already-held claim stays $500 (idempotent)', async () => {
+  it('step 8: re-submitting an already-submitted claim still posts nothing', async () => {
     for (let i = 0; i < 3; i++) {
       await claimService.updateClaim(claimNum.toString(), { status: 'readyForSubmission' } as any);
     }
-    expect(await readMet('standard')).toBe(STANDARD_LIMIT);
+    expect(await readMet('standard')).toBe(0);
   });
 
-  it('step 9: reverting to draft releases the reservation back to $0', async () => {
+  it('step 9: reverting to draft leaves the plan untouched', async () => {
     await claimService.updateClaim(claimNum.toString(), { status: 'draft' } as any);
     expect(await readMet('standard')).toBe(0);
   });
 
-  it('step 9b: re-submitting after a release reserves again', async () => {
+  it('step 9b: re-submitting after a revert still posts nothing', async () => {
     await claimService.updateClaim(claimNum.toString(), { status: 'readyForSubmission' } as any);
-    expect(await readMet('standard')).toBe(STANDARD_LIMIT);
+    expect(await readMet('standard')).toBe(0);
   });
 
-  it('step 10: ERA with a $400 actual reconciles $500 -> $400', async () => {
+  it('step 9c: the claim still carries the $500 estimate for the payer', async () => {
+    const claim = await prisma.claim.findUnique({ where: { ClaimNum: claimNum } });
+    const narrative = JSON.parse(claim!.Narrative!);
+    expect(narrative.deductibleReservedByRow.standard).toBe(STANDARD_LIMIT);
+    // Not held: nothing of this estimate is sitting in the plan's metAmount.
+    expect(narrative.deductibleHeld).not.toBe(true);
+  });
+
+  // With nothing posted yet, the payer's $400 is the first real movement on the
+  // row, so this lands the full actual rather than a $500 -> $400 correction.
+  it('step 10: ERA with a $400 actual posts the payer\'s actual', async () => {
     const raw835 = [
       `ISA*00*          *00*          *ZZ*DELTA          *ZZ*MEDFLOW        *${YYYYMMDD}*1500*U*00501*000000001*0*P*:~`,
       `GS*HP*DELTA*MEDFLOW*${YYYYMMDD}*1500*1*X*005010X221A1~`,

@@ -149,13 +149,18 @@ export async function createSuperAdminAuthHeader(): Promise<{ Authorization: str
 }
 
 /**
- * Creates a plain member user (default role 'Staff') assigned via userclinic to
- * the given tenant's clinic — a target for cross-tenant user-management tests,
- * not a caller (no login needed, so no password/verification setup here).
+ * Creates a plain member user (default role 'Front Desk') assigned via
+ * userclinic to the given tenant's clinic — a target for cross-tenant
+ * user-management tests, not a caller (no login needed, so no password/
+ * verification setup here).
+ *
+ * The default used to be 'Staff', which no seed creates (see
+ * src/scripts/seedRoles.ts), so the findFirstOrThrow below threw before the
+ * test could run. 'Front Desk' is the seeded non-admin staff role.
  */
 export async function createTenantMember(
   tenant: Tenant,
-  roleName = 'Staff'
+  roleName = 'Front Desk'
 ): Promise<{ userId: string; email: string }> {
   const token = uniqueToken('member');
   const role = await prisma.usergroup.findFirstOrThrow({ where: { Description: roleName } });

@@ -18,6 +18,8 @@ vi.mock('../src/config/db', () => ({
     },
     laboratory: {
       findMany: vi.fn(),
+      findFirst: vi.fn(),
+      findUnique: vi.fn(),
       count: vi.fn(),
       create: vi.fn(),
     },
@@ -304,6 +306,10 @@ describe('LabCaseService.createLabCase', () => {
     vi.mocked(getNextId).mockResolvedValue(BigInt(99));
     vi.mocked(prisma.labcase.create).mockResolvedValue({ LabCaseNum: BigInt(99) } as any);
     vi.mocked(prisma.labcase.findUnique).mockResolvedValue(makeLabCase({ LabCaseNum: BigInt(99) }) as any);
+    // createLabCase resolves the requested laboratoryId before using it, and
+    // falls back to the first laboratory on the books when that lookup misses.
+    vi.mocked(prisma.laboratory.findUnique).mockResolvedValue({ LaboratoryNum: BigInt(5) } as any);
+    vi.mocked(prisma.laboratory.findFirst).mockResolvedValue({ LaboratoryNum: BigInt(5) } as any);
   });
 
   it('calls getNextId with correct table and column', async () => {
