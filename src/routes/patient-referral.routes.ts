@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { patientReferralController } from '../controllers/patient-referral.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -35,7 +38,10 @@ const router = Router();
 router.get(
   '/',
   authenticate,
-  requirePermission('clinical-notes.read'),
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('referrals.read'),
   validate(getPatientReferralsValidator),
   patientReferralController.getPatientReferrals
 );
@@ -70,7 +76,10 @@ router.get(
 router.post(
   '/',
   authenticate,
-  requirePermission('clinical-notes.update'),
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('referrals.create'),
   validate(createPatientReferralValidator),
   patientReferralController.createPatientReferral
 );

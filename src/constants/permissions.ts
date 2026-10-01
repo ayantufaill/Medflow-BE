@@ -27,9 +27,19 @@ export const PERMISSIONS = {
   PATIENTS: {
     CREATE: 'patients.create',
     READ: 'patients.read',
+    READ_BASIC: 'patients.read_basic',
     UPDATE: 'patients.update',
     DELETE: 'patients.delete',
     VIEW_ALL: 'patients.view_all',
+    VIEW_SSN: 'patient.ssn.view',
+  },
+
+  // Adjustments
+  ADJUSTMENTS: {
+    CREATE: 'adjustments.create',
+    READ: 'adjustments.read',
+    UPDATE: 'adjustments.update',
+    DELETE: 'adjustments.delete',
   },
 
   // Appointment Management
@@ -230,18 +240,3 @@ export const getAllPermissions = (): string[] => {
   return Object.values(PERMISSIONS).flatMap((category) => Object.values(category));
 };
 
-/**
- * Permission categories for organization
- */
-export const PERMISSION_CATEGORIES = {
-  USER_MANAGEMENT: 'User Management',
-  ROLE_MANAGEMENT: 'Role Management',
-  PATIENT_MANAGEMENT: 'Patient Management',
-  APPOINTMENT_MANAGEMENT: 'Appointment Management',
-  CLINICAL: 'Clinical Operations',
-  BILLING: 'Billing & Financial',
-  LABORATORY: 'Laboratory',
-  DOCUMENTS: 'Documents',
-  REPORTS: 'Reports',
-  SYSTEM: 'System Administration',
-} as const;

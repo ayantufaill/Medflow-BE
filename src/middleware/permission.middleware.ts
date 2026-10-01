@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { AuthenticationError, AuthorizationError } from '../utils/error.util';
 import { PermissionService } from '../services/permission.service';
+import { hasAllPermissions, hasAnyPermission, hasPermission } from '../types/access.types';
 
 /**
  * Middleware to require a specific permission
@@ -12,9 +13,11 @@ export const requirePermission = (permission: string) => {
     }
 
     try {
-      const hasPermission = await PermissionService.hasPermission(req.userId, permission);
+      const allowed = req.access
+        ? hasPermission(req.access, permission)
+        : await PermissionService.hasPermission(req.userId, permission);
 
-      if (!hasPermission) {
+      if (!allowed) {
         return next(
           new AuthorizationError(`Required permission: ${permission}`)
         );
@@ -37,9 +40,11 @@ export const requireAnyPermission = (...permissions: string[]) => {
     }
 
     try {
-      const hasPermission = await PermissionService.hasAnyPermission(req.userId, permissions);
+      const allowed = req.access
+        ? hasAnyPermission(req.access, permissions)
+        : await PermissionService.hasAnyPermission(req.userId, permissions);
 
-      if (!hasPermission) {
+      if (!allowed) {
         return next(
           new AuthorizationError(`Required one of permissions: ${permissions.join(', ')}`)
         );
@@ -62,9 +67,11 @@ export const requireAllPermissions = (...permissions: string[]) => {
     }
 
     try {
-      const hasPermission = await PermissionService.hasAllPermissions(req.userId, permissions);
+      const allowed = req.access
+        ? hasAllPermissions(req.access, permissions)
+        : await PermissionService.hasAllPermissions(req.userId, permissions);
 
-      if (!hasPermission) {
+      if (!allowed) {
         return next(
           new AuthorizationError(`Required all permissions: ${permissions.join(', ')}`)
         );

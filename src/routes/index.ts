@@ -69,8 +69,11 @@ import publicBookingRoutes from './public-booking.routes';
 import taskRoutes from './task.routes';
 import timeclockRoutes from './timeclock.routes';
 import patientReportRoutes from './patient-report.routes';
+import securityRoutes from './security.routes';
+import sharingRoutes from './sharing.routes';
 
 const router = Router();
+router.use('/sharing', sharingRoutes);
 router.use('/coverage-groups', coverageGroupRoutes);
 router.use('/timeclock', timeclockRoutes);
 
@@ -81,6 +84,7 @@ router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
 router.use('/roles', roleRoutes);
 router.use('/permissions', permissionRoutes);
+router.use('/security/audit', securityRoutes);
 router.use('/practice-info', practiceInfoRoutes);
 router.use('/patients', patientInsuranceRoutes);
 router.use('/patients', patientRoutes);

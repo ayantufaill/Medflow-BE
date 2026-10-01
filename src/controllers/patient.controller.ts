@@ -1,10 +1,41 @@
 import type { Request, Response, NextFunction } from 'express';
 import { patientService } from '../services/patient.service';
+import { PermissionService } from '../services/permission.service';
 import { patientWorkspaceService } from '../services/patient-workspace.service';
 import { recareService } from '../services/recare.service';
 import { logActivityFromRequest } from '../utils/activity-logger.util';
 
 export class PatientController {
+  async getBasicPatients(req: Request, res: Response, next: NextFunction) {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const search = req.query.search as string | undefined;
+      const status = req.query.status as string | undefined;
+      const sortBy = req.query.sortBy as string | undefined;
+      const sortOrder = req.query.sortOrder as string | undefined;
+      const branchId = req.query.branchId as string | undefined;
+
+      const result = await patientService.getBasicPatientsForLab(
+        page,
+        limit,
+        search,
+        status,
+        sortBy,
+        sortOrder,
+        req.branchAccess?.groupClinicIds,
+        branchId
+      );
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getAllPatients(req: Request, res: Response, next: NextFunction) {
     try {
       const page = parseInt(req.query.page as string) || 1;
@@ -22,6 +53,11 @@ export class PatientController {
       // Read-visibility uses groupClinicIds, not clinicIds: a patient registered
       // at one branch should be visible from any sibling branch in the same group.
       const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder, req.branchAccess?.groupClinicIds, branchId);
+      
+      if (result?.patients) {
+        result.patients.forEach((p: any) => delete p.ssn);
+      }
+
       res.status(200).json({
         success: true,
         data: result,
@@ -75,6 +111,13 @@ export class PatientController {
       const patient = includeSSN
         ? await patientService.getPatientByIdWithSSN(patientId)
         : await patientService.getPatientById(patientId);
+
+      if (patient && patient.ssn) {
+        const hasSsnView = req.userId ? await PermissionService.hasPermission(req.userId, 'patient.ssn.view') : false;
+        if (!hasSsnView) {
+          patient.ssn = `***-**-${patient.ssn.slice(-4)}`;
+        }
+      }
 
       // Log activity
       if (req.userId) {
@@ -196,6 +239,11 @@ export class PatientController {
       // Read-visibility uses groupClinicIds, not clinicIds: a patient registered
       // at one branch should be visible from any sibling branch in the same group.
       const result = await patientService.getAllPatients(page, limit, search, status, dobStart, dobEnd, gender, providerId, sortBy, sortOrder, req.branchAccess?.groupClinicIds, branchId);
+      
+      if (result?.patients) {
+        result.patients.forEach((p: any) => delete p.ssn);
+      }
+
       res.status(200).json({
         success: true,
         data: result,
@@ -216,13 +264,16 @@ export class PatientController {
         });
       }
 
-      const duplicates = await patientService.findDuplicatePatients({
-        firstName,
-        lastName,
-        dateOfBirth: new Date(dateOfBirth),
-        phonePrimary,
-        email,
-      });
+      const duplicates = await patientService.findDuplicatePatients(
+        {
+          firstName,
+          lastName,
+          dateOfBirth: new Date(dateOfBirth),
+          phonePrimary,
+          email,
+        },
+        req.userId
+      );
 
       res.status(200).json({
         success: true,
@@ -249,7 +300,9 @@ export class PatientController {
         req.body.lastVisitDate = new Date(req.body.lastVisitDate);
       }
 
-      if (req.body.branchId && req.branchAccess && req.branchAccess.clinicIds.length > 0) {
+      // A1.2: drop the `length > 0` guard. With no branch assignment the old
+      // condition was simply false, so the requested branch went unchecked.
+      if (req.body.branchId && req.branchAccess) {
         const requestedClinicNum = BigInt(req.body.branchId);
         if (!req.branchAccess.clinicIds.includes(requestedClinicNum)) {
           return res.status(403).json({
@@ -294,7 +347,9 @@ export class PatientController {
         req.body.lastVisitDate = new Date(req.body.lastVisitDate);
       }
 
-      if (req.body.branchId && req.branchAccess && req.branchAccess.clinicIds.length > 0) {
+      // A1.2: drop the `length > 0` guard. With no branch assignment the old
+      // condition was simply false, so the requested branch went unchecked.
+      if (req.body.branchId && req.branchAccess) {
         const requestedClinicNum = BigInt(req.body.branchId);
         if (!req.branchAccess.clinicIds.includes(requestedClinicNum)) {
           return res.status(403).json({
@@ -846,6 +901,64 @@ export class PatientController {
         success: true,
         data: { products },
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateCrossBranchRestriction(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      const { restricted } = req.body;
+      
+      if (restricted === undefined) {
+        return res.status(400).json({ success: false, error: { message: 'restricted boolean is required' } });
+      }
+
+      await patientService.updateCrossBranchRestriction(BigInt(patientId), Boolean(restricted));
+
+      await logActivityFromRequest(req, 'updated', 'patient', patientId, null, { cross_branch_restricted: restricted });
+      res.status(200).json({ success: true, data: { message: 'Patient cross-branch restriction updated successfully' } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * "Use this existing patient instead" — resolves a cross-branch
+   * duplicate-check match by granting the caller's own branch read access to
+   * the existing patient, instead of creating a new, duplicate chart.
+   */
+  async createBranchGrant(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      const clinicIds = req.branchAccess?.clinicIds ?? [];
+      const { clinicId } = req.body;
+
+      // Accept the frontend's current-branch context explicitly (it already
+      // tracks this via useBranch()) rather than assuming clinicIds[0] — a
+      // user assigned to more than one branch should grant access to the
+      // branch they're actually working in, not an arbitrary one. Falls back
+      // to clinicIds[0] only for the common single-branch case.
+      let grantedClinicNum: bigint | undefined;
+      if (clinicId !== undefined && clinicId !== null) {
+        const requested = BigInt(clinicId);
+        if (!clinicIds.some((id) => id === requested)) {
+          return res.status(403).json({ success: false, error: { message: 'That branch is outside your assigned branches.' } });
+        }
+        grantedClinicNum = requested;
+      } else {
+        grantedClinicNum = clinicIds[0];
+      }
+
+      if (!grantedClinicNum) {
+        return res.status(400).json({ success: false, error: { message: 'No branch assigned to this account.' } });
+      }
+
+      await patientService.createPatientBranchGrant(BigInt(patientId), grantedClinicNum, req.userId);
+
+      await logActivityFromRequest(req, 'updated', 'patient', patientId, null, { grantedClinicNum: grantedClinicNum.toString() });
+      res.status(200).json({ success: true, data: { message: 'Patient is now accessible from your branch.' } });
     } catch (error) {
       next(error);
     }

@@ -3,9 +3,12 @@ import { AsyncLocalStorage } from 'async_hooks';
 export interface TenantContextValue {
   /**
    * ClinicNums the current request may access, or '*' for unrestricted.
-   * '*' is used both for a true system Admin and for callers with no
-   * resolved clinic scope at all (mirrors the app-layer's existing
-   * "empty scope = unrestricted" convention — see branch.service.ts).
+   *
+   * As of A1, '*' means EXACTLY ONE thing: a platform Super Admin (later,
+   * isPlatformAdmin || accessAllClinics). It is never used as a fallback for
+   * an empty or unresolved scope — that fallback granted a user with no
+   * clinic assignment access to every practice's data. An empty array is a
+   * DENY, answered upstream with 403 NO_BRANCH_ASSIGNED.
    */
   clinicIds: bigint[] | '*';
   /**
@@ -18,13 +21,21 @@ export interface TenantContextValue {
    * Writes to patient still enforce clinicIds (own branch only) —
    * deliberately not widened, this is read-visibility, not a write grant.
    *
-   * '*' here covers both a true system Admin and any caller with no
-   * resolvable group (no clinic assignment at all, or assigned to a clinic
-   * not yet linked to a practicegroup) — same "empty scope = unrestricted"
-   * convention clinicIds uses for practices not yet onboarded onto
-   * branches/groups.
+   * '*' here covers ONLY a platform Super Admin (later, isPlatformAdmin ||
+   * accessAllClinics).
+   *
+   * `null` is distinct from both '*' and 0: it means the caller's clinic
+   * could not be resolved to a practicegroup. It is serialised to the '0'
+   * sentinel in the RLS GUC (src/config/db.ts), and
+   * prisma/rls/04-patient-group-visibility.sql denies the group-wide arm on
+   * '0' same as on '' (as of A0.5a it also denies when the patient's own
+   * GroupNum is null). A caller in that state still reads their own
+   * branch's patients via the ClinicNum arm of that same policy — this GUC
+   * alone no longer decides "reads nothing" vs. "reads everything".
    */
-  patientGroupId: number | '*';
+  patientGroupId: number | '*' | null;
+  userId?: string;
+  sharing?: string;
 }
 
 /**

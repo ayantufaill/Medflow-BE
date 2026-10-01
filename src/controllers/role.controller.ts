@@ -1,8 +1,20 @@
 import type { Request, Response, NextFunction } from 'express';
 import { roleService } from '../services/role.service';
 import { PermissionService } from '../services/permission.service';
-
+import { logActivityFromRequest } from '../utils/activity-logger.util';
+import { PERMISSION_MODULES } from '../constants/permission-catalog';
 export class RoleController {
+  async getPermissionCatalog(req: Request, res: Response, next: NextFunction) {
+    try {
+      res.status(200).json({
+        success: true,
+        data: { catalog: PERMISSION_MODULES, modules: PERMISSION_MODULES },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   /**
    * Get all roles
    */
@@ -11,8 +23,9 @@ export class RoleController {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 100;
       const search = req.query.search as string | undefined;
+      const scope = req.query.scope === 'assignable' ? 'assignable' : undefined;
 
-      const result = await roleService.getAllRoles(page, limit, search);
+      const result = await roleService.getAllRoles(page, limit, search, scope);
       res.status(200).json({
         success: true,
         data: result,
@@ -74,6 +87,8 @@ export class RoleController {
 
       const role = await roleService.createRole(roleData);
 
+      await logActivityFromRequest(req, 'created', 'usergroup', role._id, null, role);
+
       res.status(201).json({
         success: true,
         data: { role },
@@ -109,6 +124,7 @@ export class RoleController {
       }
       
       const role = await roleService.updateRole(roleId, updates);
+      await logActivityFromRequest(req, 'updated', 'usergroup', roleId, null, updates);
       res.status(200).json({
         success: true,
         data: { role },
@@ -133,6 +149,7 @@ export class RoleController {
       }
       
       await roleService.deleteRole(roleId);
+      await logActivityFromRequest(req, 'deleted', 'usergroup', roleId);
       res.status(200).json({
         success: true,
         data: { message: 'Role deleted successfully' },

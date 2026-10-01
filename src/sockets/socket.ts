@@ -1,13 +1,21 @@
 import type { Server as HTTPServer } from 'http';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 import { verifyAccessToken } from '../utils/jwt.util';
+import { isAllowedOrigin } from '../config/security';
+import { verifyActiveSession } from '../middleware/auth.middleware';
 
 let io: SocketIOServer | null = null;
 
 export const initSocket = (httpServer: HTTPServer): SocketIOServer => {
   io = new SocketIOServer(httpServer, {
     cors: {
-      origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map((o) => o.trim()) : '*',
+      origin(origin, callback) {
+        if (isAllowedOrigin(origin)) {
+          callback(null, true);
+          return;
+        }
+        callback(new Error('Origin not allowed by CORS'));
+      },
       methods: ['GET', 'POST'],
     },
   });
@@ -19,6 +27,7 @@ export const initSocket = (httpServer: HTTPServer): SocketIOServer => {
         return next(new Error('No token provided'));
       }
       const decoded = await verifyAccessToken(token);
+      await verifyActiveSession(decoded);
       (socket.data as { userId: string }).userId = decoded.userId;
       next();
     } catch (error) {

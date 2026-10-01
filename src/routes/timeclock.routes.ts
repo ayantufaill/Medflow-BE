@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { timeClockController } from '../controllers/timeclock.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 
 const router = Router();
 
 // Protect all time clock endpoints
-router.use(authenticate);
+router.use(authenticate, resolveBranchAccess, enterTenantContext);
 
 /**
  * @swagger

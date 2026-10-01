@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../config/db';
 import { BadRequestError, NotFoundError, AuthorizationError } from '../utils/error.util';
 
@@ -93,15 +94,40 @@ function bucketIndexFor(date: Date, buckets: MonthBucket[]): number {
 
 export class BranchService {
   /**
+   * Merge-patches clinic.features (does not overwrite the whole JSON blob,
+   * so toggling one flag never clobbers others). No session invalidation is
+   * needed here — rbac.service.ts's resolveEffectivePermissions() reads this
+   * column live on every call, so a toggle takes effect on the next request.
+   */
+  async updateFeatures(clinicId: bigint, features: Record<string, boolean>): Promise<Record<string, unknown>> {
+    const clinic = await prisma.clinic.findUnique({ where: { ClinicNum: clinicId }, select: { features: true } });
+    if (!clinic) {
+      throw new NotFoundError('Branch not found.');
+    }
+    const merged = { ...((clinic.features as Record<string, unknown>) ?? {}), ...features };
+    const updated = await prisma.clinic.update({
+      where: { ClinicNum: clinicId },
+      data: { features: merged as Prisma.InputJsonValue },
+      select: { features: true },
+    });
+    return (updated.features as Record<string, unknown>) ?? {};
+  }
+
+
+  /**
    * Branches the caller may access. When `clinicIds` is empty (no `userclinic`
    * assignments resolved for this caller — branches not configured for them
    * yet), falls back to every non-hidden clinic, matching the same
    * backward-compatible convention used for patient list scoping.
    */
   async getBranches(clinicIds: bigint[]): Promise<BranchSummary[]> {
+    // A1.2: an empty scope denies rather than returning every branch. The
+    // old behaviour listed all non-hidden clinics for a branch-less caller.
     const where: any = { ...NOT_HIDDEN_FILTER };
     if (clinicIds.length > 0) {
       where.ClinicNum = { in: clinicIds };
+    } else {
+      where.ClinicNum = { in: [] };
     }
 
     const clinics = await prisma.clinic.findMany({
@@ -130,7 +156,8 @@ export class BranchService {
       if (!clinic || clinic.IsHidden === 1) {
         throw new NotFoundError('Branch not found.');
       }
-      if (clinicIds.length > 0 && !clinicIds.includes(requestedClinicNum)) {
+      // A1.2: an empty scope is a deny, not a bypass.
+      if (!clinicIds.includes(requestedClinicNum)) {
         throw new AuthorizationError('You do not have access to this branch.');
       }
 
@@ -139,7 +166,8 @@ export class BranchService {
 
     // Aggregate across every clinic the caller may access (or all, if unscoped).
     const clinicWhere: any = { ...NOT_HIDDEN_FILTER };
-    if (clinicIds.length > 0) clinicWhere.ClinicNum = { in: clinicIds };
+    // A1.2: empty scope aggregates over nothing rather than everything.
+    clinicWhere.ClinicNum = clinicIds.length > 0 ? { in: clinicIds } : { in: [] };
     const targetClinics = await prisma.clinic.findMany({
       where: clinicWhere,
       select: { ClinicNum: true, Description: true },

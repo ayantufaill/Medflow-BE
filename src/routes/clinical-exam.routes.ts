@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { clinicalExamController } from '../controllers/clinical-exam.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -16,6 +19,9 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.read'),
   (req, res) => {
     res.json({ success: true, message: 'Clinical exams endpoint' });
@@ -84,6 +90,9 @@ router.get(
 router.get(
   '/:examType/:appointmentId',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.read'),
   validate([...examTypeParamValidator, ...appointmentIdParamValidator]),
   clinicalExamController.getExamByAppointment
@@ -206,6 +215,9 @@ router.get(
 router.put(
   '/:examType/:appointmentId',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.update'),
   validate([...examTypeParamValidator, ...appointmentIdParamValidator, ...upsertExamValidator]),
   clinicalExamController.upsertExam
@@ -274,6 +286,9 @@ router.put(
 router.post(
   '/:examType/:appointmentId/sign',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.sign'),
   validate([...examTypeParamValidator, ...appointmentIdParamValidator]),
   clinicalExamController.signExam
@@ -320,6 +335,9 @@ router.post(
 router.delete(
   '/:examType/:appointmentId',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.delete'),
   validate([...examTypeParamValidator, ...appointmentIdParamValidator]),
   clinicalExamController.deleteExam
@@ -386,6 +404,9 @@ router.delete(
 router.get(
   '/history/:examType/patient/:patientId',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.read'),
   validate([...examTypeParamValidator, ...patientIdParamValidator]),
   clinicalExamController.getExamHistoryDates

@@ -2,6 +2,9 @@ import { Router } from 'express';
 import { treatmentPlanController } from '../controllers/treatment-plan.controller';
 import { treatmentPlanService } from '../services/treatment-plan.service';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -13,7 +16,7 @@ import {
 } from '../validators/treatment-plan.validator';
 
 const router = Router();
-router.use(authenticate);
+router.use(authenticate, requirePhiAccess, resolveBranchAccess, enterTenantContext);
 
 /**
  * @swagger
@@ -75,12 +78,12 @@ router.use(authenticate);
  *       401:
  *         description: Unauthorized — missing or invalid token
  *       403:
- *         description: Forbidden — missing clinical-notes.read permission
+ *         description: Forbidden — missing treatment-plans.read permission
  */
 router.get(
   '/',
   
-  requirePermission('clinical-notes.read'),
+  requirePermission('treatment-plans.read'),
   validate(getTreatmentPlansValidator),
   treatmentPlanController.getAllTreatmentPlans
 );
@@ -129,14 +132,14 @@ router.get(
  *       401:
  *         description: Unauthorized — missing or invalid token
  *       403:
- *         description: Forbidden — missing clinical-notes.read permission
+ *         description: Forbidden — missing treatment-plans.read permission
  *       404:
  *         description: Treatment plan not found
  */
 router.get(
   '/:id',
   
-  requirePermission('clinical-notes.read'),
+  requirePermission('treatment-plans.read'),
   validate(treatmentPlanIdValidator),
   treatmentPlanController.getTreatmentPlanById
 );
@@ -214,12 +217,12 @@ router.get(
  *       401:
  *         description: Unauthorized — missing or invalid token
  *       403:
- *         description: Forbidden — missing clinical-notes.update permission
+ *         description: Forbidden — missing treatment-plans.update permission
  */
 router.post(
   '/',
   
-  requirePermission('clinical-notes.update'),
+  requirePermission('treatment-plans.update'),
   validate(createTreatmentPlanValidator),
   treatmentPlanController.createTreatmentPlan
 );
@@ -299,14 +302,14 @@ router.post(
  *       401:
  *         description: Unauthorized — missing or invalid token
  *       403:
- *         description: Forbidden — missing clinical-notes.update permission
+ *         description: Forbidden — missing treatment-plans.update permission
  *       404:
  *         description: Treatment plan not found
  */
 router.patch(
   '/:id',
   
-  requirePermission('clinical-notes.update'),
+  requirePermission('treatment-plans.update'),
   validate([...treatmentPlanIdValidator, ...updateTreatmentPlanValidator]),
   treatmentPlanController.updateTreatmentPlan
 );
@@ -343,14 +346,14 @@ router.patch(
  *       401:
  *         description: Unauthorized — missing or invalid token
  *       403:
- *         description: Forbidden — missing clinical-notes.delete permission
+ *         description: Forbidden — missing treatment-plans.delete permission
  *       404:
  *         description: Treatment plan not found
  */
 router.delete(
   '/:id',
   
-  requirePermission('clinical-notes.delete'),
+  requirePermission('treatment-plans.delete'),
   validate(treatmentPlanIdValidator),
   treatmentPlanController.deleteTreatmentPlan
 );
@@ -397,7 +400,7 @@ router.delete(
 router.patch(
   '/:id/reorder',
   
-  requirePermission('clinical-notes.update'),
+  requirePermission('treatment-plans.update'),
   validate([...treatmentPlanIdValidator, ...reorderTreatmentPlanValidator]),
   treatmentPlanController.reorderTreatmentPlanItems
 );
@@ -431,7 +434,7 @@ router.patch(
 router.get(
   '/:id/print',
   
-  requirePermission('clinical-notes.read'),
+  requirePermission('treatment-plans.read'),
   validate(treatmentPlanIdValidator),
   treatmentPlanController.printTreatmentPlan
 );

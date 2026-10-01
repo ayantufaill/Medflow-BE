@@ -3,6 +3,8 @@ import { BadRequestError, NotFoundError } from '../utils/error.util.js';
 import { getNextId } from '../utils/opendental-ids.util.js';
 import { agingService } from './aging.service.js';
 
+const roundCurrency = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100;
+
 export type Parsed835Adjustment = {
   groupCode: string; // CO, PR, OA, PI, CR
   reasonCode: string; // 1, 2, 45, 96, etc.
@@ -343,10 +345,35 @@ export class Era835Service {
         continue;
       }
 
+      // Declared outside the transaction so the reconciliation below can read them.
+      let totalDedOnClaim = 0;
+      const actualByRow: Record<string, number> = {};
+      const isSecondaryClaim = String((claim as any).ClaimType ?? '').toLowerCase() === 'secondary';
+
+      // What this claim currently holds against the plan's metAmount, read from
+      // the claim's own Narrative. This - not `claimproc.DedApplied` - is the
+      // authority for "already reserved": a claim that never reached
+      // `readyForSubmission` holds nothing, while one that was reserved there
+      // holds its estimate. Re-posting the same ERA therefore nets to zero.
+      let heldByRow: Record<string, number> = {};
+      let reconciledNarrative: Record<string, unknown> | null = null;
+      try {
+        const narrative = (claim as any).Narrative;
+        reconciledNarrative = narrative ? JSON.parse(narrative) : null;
+        if (reconciledNarrative && typeof reconciledNarrative.deductibleReservedByRow === 'object' && reconciledNarrative.deductibleReservedByRow) {
+          heldByRow = reconciledNarrative.deductibleReservedByRow as Record<string, number>;
+        }
+      } catch {
+        reconciledNarrative = null;
+        heldByRow = {};
+      }
+
       await prisma.$transaction(async (tx) => {
         let totalPaidOnClaim = 0;
         let totalWriteOffOnClaim = 0;
-        let totalDedOnClaim = 0;
+        // Deductible this claim had already reserved against the plan's
+        // metAmount. Captured before the rows are overwritten with the payer's
+        // actual amounts, so the delta below reconciles rather than double-counts.
 
         // Post line items
         if (claim.claimproc && claim.claimproc.length > 0) {
@@ -370,6 +397,24 @@ export class Era835Service {
             totalPaidOnClaim += linePaid;
             totalWriteOffOnClaim += lineWriteOff;
             totalDedOnClaim += lineDed;
+
+            // Key the payer's actual deductible by the same `deductibleRowKey`
+            // the estimator wrote into BillingNote, so the delta below lands on
+            // the right pool instead of a claim-level lump sum.
+            const rowKey = (() => {
+              try {
+                return cp.procedurelog?.BillingNote
+                  ? JSON.parse(cp.procedurelog.BillingNote).deductibleRowKey
+                  : undefined;
+              } catch {
+                return undefined;
+              }
+            })();
+            if (lineDed !== 0) {
+              const key = rowKey || 'unassigned';
+              actualByRow[key] = (actualByRow[key] ?? 0) + lineDed;
+            }
+
 
             const rawReasons = matchedLine?.adjustments
               .map((a) => `${a.groupCode}-${a.reasonCode}: $${a.amount}`)
@@ -427,6 +472,63 @@ export class Era835Service {
           });
         }
       });
+
+      // Reconcile the deductible against what the payer actually applied.
+      // Without this the estimate is never corrected: a payer applying less than
+      // we reserved would leave metAmount overstated and suppress the deductible
+      // on the patient's next claim.
+      if (claim.InsSubNum && !isSecondaryClaim) {
+        // Union of keys so a row held but not applied (or vice versa) still nets
+        // out to a real signed change rather than being dropped.
+        const keys = new Set([...Object.keys(heldByRow), ...Object.keys(actualByRow)]);
+        const deltaByRow: Record<string, number> = {};
+        for (const key of keys) {
+          // `unassigned` is a marker for "this line had no deductibleRowKey".
+          // It is not a real pool, so route it to the documented Standard
+          // fallback instead of letting it silently vanish.
+          const pool = key === 'unassigned' ? 'standard' : key;
+          const delta = roundCurrency((actualByRow[key] ?? 0) - (heldByRow[key] ?? 0));
+          if (delta === 0) continue;
+          deltaByRow[pool] = roundCurrency((deltaByRow[pool] ?? 0) + delta);
+        }
+        // No row keys anywhere: the payer reported a lump deductible. Attribute
+        // it to Standard, the documented fallback pool.
+        if (keys.size === 0 && totalDedOnClaim !== 0) {
+          deltaByRow.standard = roundCurrency(totalDedOnClaim);
+        }
+
+        if (Object.keys(deltaByRow).length > 0) {
+          try {
+            const patPlan = await prisma.patplan.findFirst({
+              where: { InsSubNum: claim.InsSubNum },
+              orderBy: { Ordinal: 'asc' },
+            });
+            if (patPlan?.PatPlanNum) {
+              const { patientInsuranceService } = await import('./patient-insurance.service');
+              await patientInsuranceService.applyDeductibleMetAmountDelta(
+                patPlan.PatPlanNum,
+                deltaByRow,
+                checkDate,
+              );
+              // Record what the claim now holds so re-posting this ERA is a no-op
+              // and a later status change cannot release the payer's actual.
+              await prisma.claim.update({
+                where: { ClaimNum: claimNum },
+                data: {
+                  Narrative: JSON.stringify({
+                    ...(reconciledNarrative ?? {}),
+                    patPlanNum: patPlan.PatPlanNum.toString(),
+                    deductibleReservedByRow: actualByRow,
+                    deductibleHeld: true,
+                  }),
+                },
+              });
+            }
+          } catch (err) {
+            console.error('Failed to reconcile deductible metAmount from ERA:', err);
+          }
+        }
+      }
 
       // Update patient aging outside the transaction
       if (claim.PatNum) {

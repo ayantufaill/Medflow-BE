@@ -2,6 +2,9 @@ import { Router } from 'express';
 import { param, query } from 'express-validator';
 import { patientReportController } from '../controllers/patient-report.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 
@@ -91,6 +94,9 @@ const router = Router();
 router.get(
   '/:patientId/report',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.read'),
   validate([
     param('patientId').isString().notEmpty().withMessage('patientId is required'),

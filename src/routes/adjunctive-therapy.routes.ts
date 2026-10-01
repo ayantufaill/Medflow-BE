@@ -3,6 +3,7 @@ import { adjunctiveTherapyController } from '../controllers/adjunctive-therapy.c
 import { authenticate } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { patientIdParamValidator, saveAdjunctiveTherapyValidator } from '../validators/adjunctive-therapy.validator';
 
@@ -10,6 +11,7 @@ const router = Router();
 
 // Secure all endpoints with authentication middleware
 router.use(authenticate);
+router.use(requirePhiAccess);
 router.use(resolveBranchAccess);
 router.use(enterTenantContext);
 

@@ -1,29 +1,39 @@
 import cors from 'cors';
 import helmet from 'helmet';
 
-// Default allowed origins for development
 const defaultDevOrigins = [
-  '*'
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
 ];
 
-// Get allowed origins from environment or use defaults
-const getAllowedOrigins = (): string[] | string => {
+export const getAllowedOrigins = (): string[] => {
   if (process.env.CORS_ORIGIN) {
-    return process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim());
+    return process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean);
   }
 
   if (process.env.NODE_ENV === 'production') {
-    return defaultDevOrigins;
+    return [];
   }
 
   return defaultDevOrigins;
 };
 
+export const isAllowedOrigin = (origin: string | undefined): boolean => {
+  if (!origin) return true;
+  return getAllowedOrigins().includes(origin);
+};
+
 export const corsOptions: cors.CorsOptions = {
-  origin: '*',
+  origin(origin, callback) {
+    if (isAllowedOrigin(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error('Origin not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'ngrok-skip-browser-warning'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Branch-Id', 'ngrok-skip-browser-warning'],
   optionsSuccessStatus: 200
 };
 

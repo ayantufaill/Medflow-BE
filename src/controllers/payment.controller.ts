@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { paymentService } from '../services/payment.service';
 import { logActivityFromRequest } from '../utils/activity-logger.util';
+import { assertNotLocked } from '../utils/lock-date.util';
 
 export class PaymentController {
   async getPaymentMethodsConfig(req: Request, res: Response, next: NextFunction) {
@@ -93,6 +94,9 @@ export class PaymentController {
         });
       }
 
+      const paymentDate = req.body.paymentDate ? new Date(req.body.paymentDate) : new Date();
+      await assertNotLocked(req.userId, 'payments.create', paymentDate, req.branchAccess!);
+
       const payment = await paymentService.createPayment(
         {
           ...req.body,
@@ -182,6 +186,11 @@ export class PaymentController {
 
       const paymentId = req.params.paymentId as string;
       const reason = req.body.reason as string | undefined;
+
+      const existingPayment = await paymentService.getPaymentById(paymentId);
+      const paidAt = existingPayment.paidAt ? new Date(existingPayment.paidAt as unknown as string) : new Date();
+      await assertNotLocked(req.userId, 'payments.update', paidAt, req.branchAccess!);
+
       const payment = await paymentService.voidPayment(paymentId, reason, req.userId);
 
       res.status(200).json({

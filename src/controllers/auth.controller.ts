@@ -101,11 +101,20 @@ export class AuthController {
 
   async getProfile(req: Request, res: Response, next: NextFunction) {
     try {
-      if (!req.userId) {
+      if (!req.userId || !req.access) {
         throw new AuthenticationError('User not authenticated');
       }
 
-      const user = await authService.getUserWithRoles(req.userId);
+      const baseUser = await authService.getUserWithRoles(req.userId);
+      const user = {
+        ...baseUser,
+        permissions: Array.from(req.access.permissions),
+        clinics: req.access.clinicIds.map(String),
+        sharing: req.access.sharing,
+        accessVersion: req.access.tokenVersion,
+        isPlatformAdmin: req.access.isPlatformAdmin,
+      };
+
       res.status(200).json({ success: true, data: { user } });
     } catch (error) {
       next(error);

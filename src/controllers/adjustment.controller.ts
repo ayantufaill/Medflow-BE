@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { adjustmentService } from '../services/adjustment.service';
 import { logActivityFromRequest } from '../utils/activity-logger.util';
+import { assertNotLocked } from '../utils/lock-date.util';
 
 export class AdjustmentController {
   async getAllAdjustments(req: Request, res: Response, next: NextFunction) {
@@ -56,6 +57,9 @@ export class AdjustmentController {
         });
       }
 
+      const adjDate = req.body.date ? new Date(req.body.date) : new Date();
+      await assertNotLocked(req.userId, 'adjustments.create', adjDate, req.branchAccess!);
+
       const adjustment = await adjustmentService.createAdjustment(
         {
           patientId: req.body.patientId,
@@ -89,9 +93,17 @@ export class AdjustmentController {
 
       const adjustmentId = req.params.adjustmentId as string;
       
+      const existing = await adjustmentService.getAdjustmentById(adjustmentId);
+      const existingDate = existing.date ? new Date(existing.date as unknown as string) : new Date();
+      await assertNotLocked(req.userId, 'adjustments.update', existingDate, req.branchAccess!);
+
       const updates: any = {};
       if (req.body.amount !== undefined) updates.amount = req.body.amount;
-      if (req.body.date) updates.date = new Date(req.body.date);
+      if (req.body.date) {
+         const newDate = new Date(req.body.date);
+         await assertNotLocked(req.userId, 'adjustments.update', newDate, req.branchAccess!);
+         updates.date = newDate;
+      }
       if (req.body.type) updates.type = req.body.type;
       if (req.body.providerId) updates.providerId = req.body.providerId;
       if (req.body.notes !== undefined) updates.notes = req.body.notes;
@@ -118,6 +130,10 @@ export class AdjustmentController {
       }
 
       const adjustmentId = req.params.adjustmentId as string;
+      const existing = await adjustmentService.getAdjustmentById(adjustmentId);
+      const existingDate = existing.date ? new Date(existing.date as unknown as string) : new Date();
+      await assertNotLocked(req.userId, 'adjustments.delete', existingDate, req.branchAccess!);
+
       const result = await adjustmentService.deleteAdjustment(adjustmentId, req.userId);
 
       res.status(200).json({

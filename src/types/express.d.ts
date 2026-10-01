@@ -1,4 +1,5 @@
 import type { JWTPayload, BranchAccess } from './auth.types';
+import type { AccessContext } from './access.types';
 
 // Tenant context attached by resolveTenant middleware
 export interface TenantContext {
@@ -21,6 +22,7 @@ declare global {
       tenant?: TenantContext;
       /** Resolved by resolveBranchAccess middleware — present on clinic-scoped routes */
       branchAccess?: BranchAccess;
+      access?: AccessContext;
     }
   }
 }

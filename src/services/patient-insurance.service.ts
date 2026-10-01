@@ -11,6 +11,7 @@ import {
 } from '../utils/opendental-mappers.util';
 import { getPatientInsuranceMeta, setPatientInsuranceMeta, getPatientInsurancesMeta } from '../utils/opendental-auth.util';
 import { claimService } from './claim.service';
+import { normalizeDeductibleRows, normalizeDeductibleGrid, deriveDeductibleAmount, resolveDeductibleTier } from './deductible.service';
 
 const safeBigInt = (val: any): bigint => {
   if (typeof val === 'bigint') return val;
@@ -87,7 +88,93 @@ function resolveFeeSchedFields(
   return { FeeSched: feeSchedVal, AllowedFeeSched: null, PlanType: '' };
 }
 
+/**
+ * Plan-year index for a date, anchored on the plan's renewal month.
+ * With a July renewal, Jan-Jun 2026 still belongs to plan year 2025.
+ */
+const planYearOf = (date: Date, renewalMonth: number): number =>
+  date.getFullYear() - (date.getMonth() + 1 < renewalMonth ? 1 : 0);
+
+const parseMetaDate = (value: unknown): Date | null => {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
 export class PatientInsuranceService {
+  /**
+   * Apply a signed delta to each deductible row's `metAmount`.
+   *
+   * `metAmount` is what carries deductible state between separate claims, so
+   * without this a second claim re-applies a deductible the patient already
+   * satisfied. Deltas are signed: claim finalization reserves the estimated
+   * amount, ERA posting reconciles it to the payer's actual amount, and
+   * write-off reversal backs it out.
+   *
+   * Non-lifetime rows roll over when the date falls in a new plan year.
+   */
+  async applyDeductibleMetAmountDelta(
+    patPlanNum: bigint,
+    deltaByRow: Record<string, number>,
+    appliedOn?: string | Date,
+  ): Promise<void> {
+    if (!patPlanNum || !deltaByRow || Object.keys(deltaByRow).length === 0) return;
+
+    const meta: any = (await getPatientInsuranceMeta(patPlanNum)) || {};
+    const grid = meta.deductiblesGrid;
+    if (!Array.isArray(grid) || grid.length === 0) return;
+
+    const rows = normalizeDeductibleRows(grid);
+    if (rows.length === 0) return;
+
+    const onDate = appliedOn ? parseMetaDate(appliedOn) ?? new Date() : new Date();
+    const renewalMonth = Number(meta.renewalMonth) || 1;
+    const onPlanYear = planYearOf(onDate, renewalMonth);
+    const isoDate = onDate.toISOString().split('T')[0];
+
+    const byKey = new Map(rows.map((row) => [row.typeKey, row]));
+    let changed = false;
+
+    for (const [key, rawDelta] of Object.entries(deltaByRow)) {
+      const row = byKey.get(key);
+      if (!row) continue;
+
+      // Annual rows start fresh once the date lands in a new plan year.
+      let metAmount = row.metAmount;
+      if (!row.lifetime) {
+        const metDate = parseMetaDate(row.metDate);
+        if (metDate && planYearOf(metDate, renewalMonth) !== onPlanYear) {
+          metAmount = 0;
+        }
+      }
+
+      const limit = Math.max(row.individual, row.family);
+      const next = limit > 0
+        ? Math.min(limit, Math.max(0, metAmount + rawDelta))
+        : Math.max(0, metAmount + rawDelta);
+
+      if (next !== row.metAmount) changed = true;
+      row.metAmount = next;
+      if (next > 0 && !row.metDate) row.metDate = isoDate;
+    }
+
+    if (!changed) return;
+
+    await setPatientInsuranceMeta(patPlanNum, {
+      ...meta,
+      deductiblesGrid: rows.map((row) => ({
+        type: row.type,
+        typeKey: row.typeKey,
+        lifetime: row.lifetime,
+        standard: row.standard,
+        individual: row.individual,
+        family: row.family,
+        metAmount: row.metAmount,
+        metDate: row.metDate,
+      })),
+    });
+  }
+
   /**
    * Get all insurances for a patient
    */
@@ -620,17 +707,27 @@ export class PatientInsuranceService {
       },
     });
 
+    // Normalize the grid server-side: derive `typeKey` so the deductible engine
+    // can resolve rows without trusting the client-only `isCodeRow` flag, and
+    // derive the legacy scalar from the Standard row rather than row[0]
+    // (which silently became 0 whenever the first row was blank).
+    const normalizedGrid = normalizeDeductibleGrid(data.deductiblesGrid);
+    const deductibleTier = resolveDeductibleTier({
+      relationship: data.relationshipToPatient,
+      patientsCovered: (data as any).patientsCovered,
+    });
+
     await setPatientInsuranceMeta(patPlanNum, {
       subscriberName: data.subscriberName ?? null,
       subscriberDateOfBirth: formatDateOnly(data.subscriberDateOfBirth),
       copayAmount: data.copayAmount ?? null,
-      deductibleAmount: data.deductibleAmount ?? null,
+      deductibleAmount: deriveDeductibleAmount(normalizedGrid, deductibleTier),
       autoVerify: data.autoVerify ?? true,
       verificationStatus: data.verificationStatus ?? 'pending',
       verificationDate: data.verificationDate ?? null,
 
       // Advanced Dentistry Fields
-      deductiblesGrid: data.deductiblesGrid ?? [],
+      deductiblesGrid: normalizedGrid,
       coverageLimits: data.coverageLimits ?? null,
       coverageCategoryTable: data.coverageCategoryTable ?? [],
       coverageBookData: data.coverageBookData ?? [],
@@ -850,6 +947,26 @@ export class PatientInsuranceService {
       await this.resequenceActiveInsurances(patientId);
     }
 
+    // Derive typeKey / amounts server-side and recompute the legacy scalar from
+    // the Standard row. Preserves `metAmount` for rows the client did not send.
+    const updatedGrid = normalizeDeductibleGrid(
+      updates.deductiblesGrid ?? currentMeta.deductiblesGrid ?? [],
+    );
+    const preservedMet = new Map(
+      normalizeDeductibleRows(currentMeta.deductiblesGrid).map((r) => [r.typeKey, r]),
+    );
+    for (const row of updatedGrid) {
+      const prev = preservedMet.get(row.typeKey);
+      if (prev && (row.metAmount ?? 0) === 0 && (prev.metAmount ?? 0) > 0) {
+        row.metAmount = prev.metAmount;
+        row.metDate = prev.metDate;
+      }
+    }
+    const updateTier = resolveDeductibleTier({
+      relationship: updates.relationshipToPatient,
+      patientsCovered: (updates as any).patientsCovered,
+    });
+
     await setPatientInsuranceMeta(patplan.PatPlanNum, {
       subscriberName: updates.subscriberName ?? currentMeta.subscriberName ?? null,
       subscriberDateOfBirth:
@@ -857,15 +974,14 @@ export class PatientInsuranceService {
           ? formatDateOnly(updates.subscriberDateOfBirth)
           : formatDateOnly(currentMeta.subscriberDateOfBirth),
       copayAmount: updates.copayAmount ?? currentMeta.copayAmount ?? null,
-      deductibleAmount:
-        updates.deductibleAmount ?? currentMeta.deductibleAmount ?? null,
+      deductibleAmount: deriveDeductibleAmount(updatedGrid, updateTier),
       autoVerify: updates.autoVerify ?? currentMeta.autoVerify ?? true,
       verificationStatus:
         updates.verificationStatus ?? currentMeta.verificationStatus ?? 'pending',
       verificationDate: updates.verificationDate ?? currentMeta.verificationDate ?? null,
 
       // Advanced Dentistry Fields
-      deductiblesGrid: updates.deductiblesGrid ?? currentMeta.deductiblesGrid ?? [],
+      deductiblesGrid: updatedGrid,
       coverageLimits: updates.coverageLimits ?? currentMeta.coverageLimits ?? null,
       coverageCategoryTable: updates.coverageCategoryTable ?? currentMeta.coverageCategoryTable ?? [],
       coverageBookData: updates.coverageBookData ?? currentMeta.coverageBookData ?? [],

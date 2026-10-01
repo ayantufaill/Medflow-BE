@@ -1,12 +1,16 @@
 import { Router } from 'express';
+import { auditCrossBranchRead } from '../middleware/audit.middleware';
 import { body } from 'express-validator';
 import { appointmentController } from '../controllers/appointment.controller';
 import { patientController } from '../controllers/patient.controller';
 import { insurancePlanController } from '../controllers/insurance-plan.controller';
 import { allergyController } from '../controllers/allergy.controller';
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
+import { requirePermission } from '../middleware/permission.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
+import { requireAnyPermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
   patientIdValidator, patientRequestIdValidator, createPatientValidator,
@@ -20,13 +24,16 @@ import { createPatientAllergyValidator, updateAllergyValidator, allergyIdParamVa
 
 const router = Router();
 router.use(authenticate);
+router.use(requirePhiAccess);
 router.use(resolveBranchAccess);
 router.use(enterTenantContext);
 
+// Role gates keep the existing operational route surface; permission middleware
+// and branch access middleware enforce the effective permissions and
+// group/branch scope for each caller.
 const STAFF_READ_ROLES = [
   'Admin',
   'Super Admin',
-  'Group Admin',
   'Branch Admin',
   'Provider',
   'Doctor',
@@ -43,7 +50,6 @@ const STAFF_READ_ROLES = [
 const BILLING_STAFF_ROLES = [
   'Admin',
   'Super Admin',
-  'Group Admin',
   'Branch Admin',
   'Biller',
   'Billing Staff',
@@ -54,7 +60,6 @@ const BILLING_STAFF_ROLES = [
 const CLINICAL_STAFF_ROLES = [
   'Admin',
   'Super Admin',
-  'Group Admin',
   'Branch Admin',
   'Provider',
   'Doctor',
@@ -128,6 +133,13 @@ router.post(
  *       200:
  *         description: List of unbilled products
  */
+router.get(
+  '/basic',
+  requireAnyPermission('patients.read', 'patients.read_basic'),
+  validate(patientSearchValidator),
+  patientController.getBasicPatients.bind(patientController)
+);
+
 router.get(
   '/:patientId/unbilled-products',
   requireRoles(...STAFF_READ_ROLES),
@@ -540,6 +552,8 @@ router.post('/check-duplicates', requireRoles('Receptionist', 'Admin'), validate
  */
 router.post('/bulk-delete', requireRoles('Admin'), patientController.bulkDeletePatients.bind(patientController));
 
+router.use('/:patientId', auditCrossBranchRead('PATIENT_RECORD'));
+
 /**
  * @swagger
  * /patients/{patientId}:
@@ -606,6 +620,35 @@ router.get('/:patientId', requireRoles(...STAFF_READ_ROLES), validate(patientIdV
  */
 
 router.patch('/:patientId', requireRoles(...BILLING_STAFF_ROLES, 'Provider', 'Doctor'), validate([...patientIdValidator, ...updatePatientValidator]), patientController.updatePatient.bind(patientController));
+
+router.patch('/:patientId/cross-branch-restricted', requireRoles('Admin', 'Group Admin', 'Branch Admin'), validate(patientIdValidator), patientController.updateCrossBranchRestriction.bind(patientController));
+
+/**
+ * @swagger
+ * /patients/{patientId}/branch-grant:
+ *   post:
+ *     summary: Grant the caller's branch read access to an existing patient (resolves a cross-branch duplicate-check match instead of creating a new chart)
+ *     tags: [Patients]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               clinicId:
+ *                 type: integer
+ *                 description: Defaults to the caller's own branch if omitted
+ *     responses:
+ *       200:
+ *         description: Grant created
+ *       403:
+ *         description: Forbidden — clinicId outside the caller's assigned branches
+ *       404:
+ *         description: Patient not found
+ */
+router.post('/:patientId/branch-grant', requirePermission('patients.create'), validate(patientIdValidator), patientController.createBranchGrant.bind(patientController));
 /**
  * @swagger
  * /patients/{patientId}:

@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { labCaseController } from '../controllers/lab-case.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -42,7 +45,10 @@ const router = Router();
 router.get(
   '/laboratories',
   authenticate,
-  requirePermission('clinical-notes.read'),
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('lab-orders.read'),
   validate(getLabsValidator),
   labCaseController.getAllLaboratories
 );
@@ -83,7 +89,10 @@ router.get(
 router.post(
   '/laboratories',
   authenticate,
-  requirePermission('clinical-notes.update'),
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('lab-orders.create'),
   validate(createLabValidator),
   labCaseController.createLaboratory
 );
@@ -140,7 +149,10 @@ router.post(
 router.get(
   '/',
   authenticate,
-  requirePermission('clinical-notes.read'),
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('lab-orders.read'),
   validate(getLabCasesValidator),
   labCaseController.getAllLabCases
 );
@@ -166,7 +178,10 @@ router.get(
 router.get(
   '/:id',
   authenticate,
-  requirePermission('clinical-notes.read'),
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('lab-orders.read'),
   validate(labCaseIdValidator),
   labCaseController.getLabCaseById
 );
@@ -211,7 +226,10 @@ router.get(
 router.post(
   '/',
   authenticate,
-  requirePermission('clinical-notes.update'),
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('lab-orders.create'),
   validate(createLabCaseValidator),
   labCaseController.createLabCase
 );
@@ -266,7 +284,10 @@ router.post(
 router.patch(
   '/:id',
   authenticate,
-  requirePermission('clinical-notes.update'),
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('lab-orders.update'),
   (req, res, next) => {
     console.log('🔥 PATCH /lab-cases/:id reached!');
     next();
@@ -305,7 +326,10 @@ router.patch(
 router.patch(
   '/:id/status',
   authenticate,
-  requirePermission('clinical-notes.update'),
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('lab-orders.update'),
   (req, res, next) => {
     console.log('🔥 PATCH /lab-cases/:id/status reached!');
     next();
@@ -335,7 +359,10 @@ router.patch(
 router.delete(
   '/:id',
   authenticate,
-  requirePermission('clinical-notes.delete'),
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('lab-orders.delete'),
   (req, res, next) => {
     console.log('🔥 DELETE /lab-cases/:id reached!');
     next();

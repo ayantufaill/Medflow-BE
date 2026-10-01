@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { progressNoteController } from '../controllers/progress-note.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -88,6 +91,9 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.read'),
   validate(getProgressNotesValidator),
   progressNoteController.getProgressNotes
@@ -163,6 +169,9 @@ router.get(
 router.post(
   '/',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.update'),
   validate(createProgressNoteValidator),
   progressNoteController.createProgressNote
@@ -238,6 +247,9 @@ router.post(
 router.post(
   '/:id/procedures',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.update'),
   validate(addProcedureValidator),
   progressNoteController.addProcedure
@@ -325,6 +337,9 @@ router.post(
 router.put(
   '/:id',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.update'),
   progressNoteController.updateProgressNote
 );
@@ -383,6 +398,9 @@ router.put(
 router.patch(
   '/:id/archive',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.update'),
   progressNoteController.archiveProgressNote
 );
@@ -441,6 +459,9 @@ router.patch(
 router.patch(
   '/:id/unarchive',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.update'),
   progressNoteController.unarchiveProgressNote
 );
@@ -511,6 +532,9 @@ router.patch(
 router.patch(
   '/:id/sign',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.update'),
   progressNoteController.signProgressNote
 );
@@ -561,6 +585,9 @@ router.patch(
 router.get(
   '/:id/export',
   authenticate,
+  requirePhiAccess,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('clinical-notes.read'),
   progressNoteController.exportProgressNote
 );

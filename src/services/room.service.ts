@@ -26,9 +26,10 @@ export class RoomService {
       where.IsHidden = isActive ? 0 : 1;
     }
 
-    // Scope to the caller's accessible clinics (branch/group scoping)
-    if (clinicIds && clinicIds.length > 0) {
-      where.ClinicNum = { in: clinicIds };
+    // A1.2: empty scope denies. Previously an empty clinicIds meant every
+    // operatory in the practice was returned.
+    if (clinicIds !== undefined) {
+      where.ClinicNum = clinicIds.length > 0 ? { in: clinicIds } : { in: [] };
     }
 
     const [rows, total] = await Promise.all([

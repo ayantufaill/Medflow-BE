@@ -86,6 +86,158 @@ export async function getFamilyMembers(guarantorId: bigint, currentPatNum: bigin
 }
 
 export class PatientService {
+  private deriveLabCaseStatus(labcase: any): string {
+    if (labcase.DateTimeChecked) return 'Quality Checked';
+    if (labcase.DateTimeRecd) return 'Received';
+    if (labcase.DateTimeSent) return 'Sent';
+    return 'New';
+  }
+
+  async getBasicPatientsForLab(
+    page = 1,
+    limit = 10,
+    search?: string,
+    status?: string,
+    sortBy?: string,
+    sortOrder?: string,
+    clinicIds?: bigint[],
+    branchId?: string
+  ) {
+    const skip = (page - 1) * limit;
+    const patientWhere: any = {};
+
+    if (branchId) {
+      const requestedClinicNum = BigInt(branchId);
+      const inScope = clinicIds === undefined || clinicIds.includes(requestedClinicNum);
+      patientWhere.ClinicNum = inScope ? requestedClinicNum : -1n;
+    } else if (clinicIds !== undefined) {
+      patientWhere.ClinicNum = clinicIds.length > 0 ? { in: clinicIds } : { in: [] };
+    }
+
+    if (search) {
+      patientWhere.OR = [
+        { ChartNumber: { contains: search, mode: 'insensitive' } },
+        { FName: { contains: search, mode: 'insensitive' } },
+        { LName: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const where: any = {
+      patient: patientWhere,
+    };
+
+    if (status === 'Active') {
+      where.DateTimeChecked = null;
+    } else if (status === 'Completed' || status === 'Quality Checked') {
+      where.DateTimeChecked = { not: null };
+    } else if (status === 'Sent') {
+      where.DateTimeSent = { not: null };
+      where.DateTimeRecd = null;
+      where.DateTimeChecked = null;
+    } else if (status === 'Received') {
+      where.DateTimeRecd = { not: null };
+      where.DateTimeChecked = null;
+    } else if (status === 'New') {
+      where.DateTimeSent = null;
+      where.DateTimeRecd = null;
+      where.DateTimeChecked = null;
+    }
+
+    const orderBy = sortBy === 'dueDate'
+      ? { DateTimeDue: sortOrder === 'desc' ? 'desc' as const : 'asc' as const }
+      : { DateTimeCreated: 'desc' as const };
+
+    const [rows, total] = await Promise.all([
+      prisma.labcase.findMany({
+        where,
+        orderBy,
+        skip,
+        take: limit,
+        include: {
+          patient: {
+            select: {
+              PatNum: true,
+              FName: true,
+              LName: true,
+              Preferred: true,
+              ChartNumber: true,
+              Birthdate: true,
+              ClinicNum: true,
+              clinic: {
+                select: {
+                  ClinicNum: true,
+                  Description: true,
+                },
+              },
+            },
+          },
+          provider: {
+            select: {
+              ProvNum: true,
+              FName: true,
+              LName: true,
+            },
+          },
+          laboratory: {
+            select: {
+              LaboratoryNum: true,
+              Description: true,
+            },
+          },
+        },
+      }),
+      prisma.labcase.count({ where }),
+    ]);
+
+    return {
+      patients: rows
+        .filter((lc: any) => lc.patient)
+        .map((lc: any) => ({
+          id: lc.patient.PatNum.toString(),
+          patientId: lc.patient.PatNum.toString(),
+          chartNumber: lc.patient.ChartNumber || null,
+          firstName: lc.patient.FName || '',
+          lastName: lc.patient.LName || '',
+          preferredName: lc.patient.Preferred || null,
+          name: `${lc.patient.FName || ''} ${lc.patient.LName || ''}`.trim(),
+          dateOfBirth: lc.patient.Birthdate || null,
+          branch: lc.patient.clinic
+            ? {
+                id: lc.patient.clinic.ClinicNum.toString(),
+                name: lc.patient.clinic.Description || '',
+              }
+            : lc.patient.ClinicNum
+              ? { id: lc.patient.ClinicNum.toString(), name: '' }
+              : null,
+          orderingProvider: lc.provider
+            ? {
+                id: lc.provider.ProvNum.toString(),
+                name: `${lc.provider.FName || ''} ${lc.provider.LName || ''}`.trim(),
+              }
+            : null,
+          relatedLabCase: {
+            id: lc.LabCaseNum.toString(),
+            laboratory: lc.laboratory
+              ? {
+                  id: lc.laboratory.LaboratoryNum.toString(),
+                  name: lc.laboratory.Description || '',
+                }
+              : null,
+            status: this.deriveLabCaseStatus(lc),
+            dueDate: lc.DateTimeDue || null,
+          },
+          labCaseStatus: this.deriveLabCaseStatus(lc),
+          dueDate: lc.DateTimeDue || null,
+        })),
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    };
+  }
+
   /**
    * Get all patients with pagination, search, status, and DOB range filters
    */
@@ -119,10 +271,15 @@ export class PatientService {
     // this is patient read-visibility, not a write/authorization boundary.
     if (branchId) {
       const requestedClinicNum = BigInt(branchId);
-      const inScope = !clinicIds || clinicIds.length === 0 || clinicIds.includes(requestedClinicNum);
+      // A1.2: `clinicIds.length === 0` used to mean "unrestricted". It now
+      // means DENY — an undefined clinicIds is a trusted internal caller, but
+      // an empty array is an authenticated user with no branch, which
+      // enterTenantContext already rejects with NO_BRANCH_ASSIGNED. Guarding
+      // here as well keeps a direct service call from reintroducing the hole.
+      const inScope = clinicIds === undefined || clinicIds.includes(requestedClinicNum);
       where.ClinicNum = inScope ? requestedClinicNum : -1n;
-    } else if (clinicIds && clinicIds.length > 0) {
-      where.ClinicNum = { in: clinicIds };
+    } else if (clinicIds !== undefined) {
+      where.ClinicNum = clinicIds.length > 0 ? { in: clinicIds } : { in: [] };
     }
 
     // Filter by gender using mapGenderToDb
@@ -655,34 +812,95 @@ async getPatientLastVisit(patientId: string) {
   /**
    * Search for duplicate patients based on name, DOB, phone, email
    */
-  async findDuplicatePatients(data: {
-    firstName: string;
-    lastName: string;
-    dateOfBirth: Date;
-    phonePrimary?: string;
-    email?: string;
-  }) {
-    const where: any = {
+  /**
+   * Same-branch matches use today's name+DOB check, unchanged — no new
+   * exposure since they're already within the caller's own RLS-visible scope.
+   *
+   * Cross-branch matches (a different branch in the caller's own group) are
+   * ONLY surfaced on a STRONG match — name + DOB AND phone or email also
+   * matching — to avoid exposing a "someone with this name exists at another
+   * branch" hint off a coincidental name+birthdate collision. Surfacing them
+   * at all requires temporarily widening just the IDENTITY sharing category
+   * for this one query (see prisma/rls/04-patient-group-visibility.sql's
+   * patient_read_group policy, arm 2) — scoped to the caller's own real
+   * groupId, never '*', so this still can't see other groups' patients, and
+   * every other sharing category stays OWN_BRANCH so this doesn't widen
+   * financial/clinical/imaging visibility as a side effect.
+   */
+  async findDuplicatePatients(
+    data: {
+      firstName: string;
+      lastName: string;
+      dateOfBirth: Date;
+      phonePrimary?: string;
+      email?: string;
+    },
+    callerUserId?: string
+  ) {
+    const nameAndDobWhere: any = {
       FName: { equals: data.firstName },
       LName: { equals: data.lastName },
       Birthdate: data.dateOfBirth,
     };
 
-    if (data.phonePrimary || data.email) {
-      where.OR = [];
-      if (data.phonePrimary) {
-        where.OR.push({ WirelessPhone: data.phonePrimary });
-        where.OR.push({ HmPhone: data.phonePrimary });
-        where.OR.push({ WkPhone: data.phonePrimary });
-      }
-      if (data.email) {
-        where.OR.push({ Email: data.email.toLowerCase() });
-      }
+    const sameBranchMatches = await prisma.patient.findMany({ where: nameAndDobWhere });
+    const ownPatNums = new Set(sameBranchMatches.map((p) => p.PatNum.toString()));
+
+    const sameBranchMapped = sameBranchMatches.map((patient) => ({
+      ...mapPatientToApi(patient),
+      isCrossBranch: false,
+    }));
+
+    if (!callerUserId || (!data.phonePrimary && !data.email)) {
+      return sameBranchMapped;
     }
 
-    const duplicates = await prisma.patient.findMany({ where });
+    const strongMatchOr: any[] = [];
+    if (data.phonePrimary) {
+      strongMatchOr.push({ WirelessPhone: data.phonePrimary });
+      strongMatchOr.push({ HmPhone: data.phonePrimary });
+      strongMatchOr.push({ WkPhone: data.phonePrimary });
+    }
+    if (data.email) {
+      strongMatchOr.push({ Email: data.email.toLowerCase() });
+    }
+    const strongMatchWhere: any = { ...nameAndDobWhere, OR: strongMatchOr };
 
-    return duplicates.map((patient) => mapPatientToApi(patient));
+    const { PermissionService } = await import('./permission.service');
+    const branchAccess = await PermissionService.getBranchAccess(callerUserId);
+    if (branchAccess.groupId === null) {
+      return sameBranchMapped;
+    }
+
+    const { tenantContextStorage } = await import('../config/tenant-context');
+    const groupWide = await tenantContextStorage.run(
+      {
+        clinicIds: branchAccess.clinicIds,
+        patientGroupId: branchAccess.groupId,
+        userId: callerUserId,
+        sharing: 'IDENTITY:GROUP_READ,CLINICAL:OWN_BRANCH,IMAGING:OWN_BRANCH,APPOINTMENTS:OWN_BRANCH,FINANCIAL:OWN_BRANCH,INSURANCE:OWN_BRANCH',
+      },
+      () => prisma.patient.findMany({ where: strongMatchWhere })
+    );
+
+    const crossBranchOnly = groupWide.filter((p) => !ownPatNums.has(p.PatNum.toString()));
+    if (crossBranchOnly.length === 0) {
+      return sameBranchMapped;
+    }
+
+    const clinicNums = [...new Set(crossBranchOnly.map((p) => p.ClinicNum).filter((c): c is bigint => c !== null))];
+    const clinics = clinicNums.length > 0
+      ? await prisma.clinic.findMany({ where: { ClinicNum: { in: clinicNums } }, select: { ClinicNum: true, Description: true } })
+      : [];
+    const clinicNameByNum = new Map(clinics.map((c) => [c.ClinicNum.toString(), c.Description]));
+
+    const crossBranchMapped = crossBranchOnly.map((patient) => ({
+      ...mapPatientToApi(patient),
+      isCrossBranch: true,
+      branchName: patient.ClinicNum ? clinicNameByNum.get(patient.ClinicNum.toString()) ?? null : null,
+    }));
+
+    return [...sameBranchMapped, ...crossBranchMapped];
   }
 
   /**
@@ -1978,6 +2196,44 @@ async getPatientHistoryAggregate(patientId: string) {
         aptNum: proc.AptNum?.toString() || null,
         statementNum: proc.StatementNum?.toString() || null,
       };
+    });
+  }
+  async updateCrossBranchRestriction(patientId: bigint, restricted: boolean): Promise<void> {
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: patientId }
+    });
+    if (!patient) throw new Error('Patient not found');
+
+    await prisma.patient.update({
+      where: { PatNum: patientId },
+      data: { cross_branch_restricted: restricted }
+    });
+  }
+
+  /**
+   * Grants one additional branch read access to one patient — the "use this
+   * existing patient instead of creating a duplicate" action. Read-only and
+   * permanent until revoked (no revoke endpoint yet — see
+   * patient_branch_grant's doc comment in schema.prisma). Does not touch
+   * ClinicNum/GroupNum or any write policy; the patient's home branch and
+   * edit rights are unaffected.
+   */
+  async createPatientBranchGrant(
+    patientId: bigint,
+    grantedClinicNum: bigint,
+    grantedByUserId?: string
+  ): Promise<void> {
+    const patient = await prisma.patient.findUnique({ where: { PatNum: patientId }, select: { PatNum: true } });
+    if (!patient) throw new NotFoundError('Patient not found');
+
+    await prisma.patient_branch_grant.upsert({
+      where: { pat_num_granted_clinic_num: { pat_num: patientId, granted_clinic_num: grantedClinicNum } },
+      update: {},
+      create: {
+        pat_num: patientId,
+        granted_clinic_num: grantedClinicNum,
+        granted_by: grantedByUserId ? BigInt(grantedByUserId) : null,
+      },
     });
   }
 }

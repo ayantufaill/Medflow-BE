@@ -11,6 +11,20 @@ router.use(authenticate);
 
 /**
  * @swagger
+ * /permissions/catalog:
+ *   get:
+ *     summary: Get permissions catalog
+ *     tags: [Permissions]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: OK
+ */
+router.get('/catalog', roleController.getPermissionCatalog);
+
+/**
+ * @swagger
  * /permissions/check:
  *   post:
  *     summary: Check if user has a specific permission

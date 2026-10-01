@@ -5,12 +5,42 @@ import { getRoleMeta, mapRole, mapUser, setRoleMeta, getRolesMeta, getUsersMeta 
 import { getNextId } from '../utils/opendental-ids.util';
 
 export class RoleService {
-  async getAllRoles(page = 1, limit = 100, search?: string) {
+  /**
+   * `scope: 'assignable'` is additive — the default (omitted) behavior is
+   * completely unchanged, since ~16 existing frontend call sites depend on
+   * today's full role list. 'assignable' narrows to the new 8(+1)-role model
+   * only (meta.isNewModel === true), which also naturally excludes platform
+   * roles and the external Patient role without needing a separate
+   * "is this a platform role" judgment call on every legacy row.
+   */
+  async getAllRoles(page = 1, limit = 100, search?: string, scope?: 'assignable') {
     const skip = (page - 1) * limit;
     const where: any = {};
 
     if (search) {
       where.Description = { contains: search };
+    }
+
+    // 'assignable' scope needs every matching row to compute meta-based
+    // filtering, then paginates the filtered set in memory — the legacy
+    // default path below stays untouched and still paginates in the DB.
+    if (scope === 'assignable') {
+      const allRows = await prisma.usergroup.findMany({ where, orderBy: { Description: 'asc' } });
+      const roleNums = allRows.map((r) => r.UserGroupNum);
+      const roleMetaMap = await getRolesMeta(roleNums);
+      const allRoles = await Promise.all(
+        allRows.map((row) => mapRole(row, roleMetaMap[row.UserGroupNum.toString()]))
+      );
+      const assignableRoles = allRoles.filter(
+        (role) => role.isActive !== false && role.isNewModel === true && role.isPlatformRole !== true
+      );
+      const total = assignableRoles.length;
+      const paged = assignableRoles.slice(skip, skip + limit);
+
+      return {
+        roles: paged,
+        pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+      };
     }
 
     const [rows, total] = await Promise.all([

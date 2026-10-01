@@ -10,6 +10,7 @@ const bin = path.join(
 
 const scripts = [
   'src/scripts/seedRoles.ts',
+  'src/scripts/seedNewModelRoles.ts',
   'src/scripts/seedUsers.ts',
   'src/scripts/seedSpecialties.ts',
   'src/scripts/seedProviderSpecialties.ts',
@@ -42,4 +43,24 @@ for (const script of scripts) {
     console.error(result.stdout?.toString());
     process.exit(result.status ?? 1);
   }
+}
+
+// Post-seed step: tag the patients that CAN be attributed to a branch, so the
+// RLS policies (which key off patient.ClinicNum / GroupNum) can actually
+// enforce branch isolation on freshly seeded data. Patients with no usable
+// signal are left untagged — the backfill only ever assigns a branch that
+// already appears on one of the patient's own appointments, never a guess.
+//
+// Runs last so it sees the full seeded dataset. Tolerates failure: an
+// untagged patient degrades to "hidden behind the group boundary", which is
+// the safe direction, whereas a hard failure would block the whole seed.
+console.log('Running post-seed step: branch attribution for patients...');
+const attribution = spawnSync(
+  bin,
+  ['src/scripts/backtestBranchPatients.ts', '--backfill-resolved', '--confirm'],
+  { stdio: ['inherit', 'pipe', 'pipe'], shell: true }
+);
+if (attribution.status !== 0) {
+  console.warn('⚠️  Branch attribution step did not complete; continuing.');
+  console.warn(attribution.stderr?.toString());
 }

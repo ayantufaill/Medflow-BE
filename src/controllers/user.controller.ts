@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { userService } from '../services/user.service';
+import { userClinicService } from '../services/user-clinic.service';
 import { logActivityFromRequest, getClientIp, getUserAgent } from '../utils/activity-logger.util';
 
 export class UserController {
@@ -220,6 +221,7 @@ export class UserController {
       const assignedBy = req.userId || 'system';
 
       const user = await userService.assignRole(userId, roleId, assignedBy, req.branchAccess?.clinicIds);
+      await logActivityFromRequest(req, 'updated', 'usergroupattach', userId, null, { roleId });
       res.status(200).json({
         success: true,
         data: { user },
@@ -241,6 +243,7 @@ export class UserController {
       }
       
       const result = await userService.removeRole(userId, roleId, req.branchAccess?.clinicIds);
+      await logActivityFromRequest(req, 'updated', 'usergroupattach', userId, { roleId }, null);
       res.status(200).json({
         success: true,
         data: result,
@@ -283,6 +286,7 @@ export class UserController {
       }
       
       const result = await userService.activateUser(userId, req.branchAccess?.clinicIds);
+      await logActivityFromRequest(req, 'status_updated', 'user', userId, null, { status: 'active' });
       res.status(200).json({
         success: true,
         data: result,
@@ -304,6 +308,7 @@ export class UserController {
       }
       
       const result = await userService.deactivateUser(userId, req.branchAccess?.clinicIds);
+      await logActivityFromRequest(req, 'status_updated', 'user', userId, null, { status: 'inactive' });
       res.status(200).json({
         success: true,
         data: result,
@@ -330,10 +335,49 @@ export class UserController {
         Array.isArray(branchIds) ? branchIds.map((id: string) => id.toString()) : [],
         req.branchAccess?.clinicIds
       );
+      await logActivityFromRequest(req, 'updated', 'userclinic', userId, null, { branchIds });
       res.status(200).json({
         success: true,
         data: result,
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getUserClinics(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId } = req.params;
+      if (!userId) {
+        return res.status(400).json({ success: false, error: { message: 'User ID is required' } });
+      }
+
+      const result = await userClinicService.getUserClinics(BigInt(userId));
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async setUserClinics(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId } = req.params;
+      const { defaultId, restrictedIds, accessAll } = req.body;
+      
+      if (!userId) {
+        return res.status(400).json({ success: false, error: { message: 'User ID is required' } });
+      }
+
+      await userClinicService.setUserClinics(
+        BigInt(userId),
+        { defaultId, restrictedIds: restrictedIds || [], accessAll: accessAll || false },
+        req.userId!,
+        req.access?.isPlatformAdmin || false,
+        req.access?.roles.includes('Security Admin') || false
+      );
+      
+      await logActivityFromRequest(req, 'updated', 'userclinic', userId, null, { defaultId, restrictedIds, accessAll });
+      res.status(200).json({ success: true, data: { message: 'Clinic assignments updated successfully' } });
     } catch (error) {
       next(error);
     }
@@ -476,6 +520,53 @@ export class UserController {
       res.status(200).json({
         success: true,
         data: { message: 'User roles updated successfully' },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * New 8(+1)-role model elevation — PATCH /users/:userId/role.
+   * Deliberately separate from assignUserRoles above (which full-replaces
+   * every legacy role a user holds) — see role-elevation.service.ts.
+   */
+  async elevateRole(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId } = req.params;
+      const { roleSlug, branchId } = req.body;
+
+      if (!req.userId) {
+        return res.status(401).json({ success: false, error: { message: 'Authentication required' } });
+      }
+      if (!userId || typeof roleSlug !== 'string' || !roleSlug.trim()) {
+        return res.status(400).json({ success: false, error: { message: 'userId and roleSlug are required' } });
+      }
+
+      const { elevateUserRole } = await import('../services/role-elevation.service');
+      const result = await elevateUserRole({
+        actorUserId: req.userId,
+        targetUserId: userId,
+        roleKey: roleSlug,
+        clinicId: branchId !== undefined && branchId !== null ? BigInt(branchId) : undefined,
+      });
+
+      await logActivityFromRequest(
+        req,
+        'updated',
+        'usergroupattach',
+        userId,
+        { roleKey: result.oldRoleKey },
+        { roleKey: result.newRoleKey }
+      );
+
+      res.status(200).json({
+        success: true,
+        data: {
+          message: `Role changed to "${result.newRoleKey}". The user will be signed out of all active sessions.`,
+          oldRole: result.oldRoleKey,
+          newRole: result.newRoleKey,
+        },
       });
     } catch (error) {
       next(error);

@@ -1,6 +1,8 @@
 import type { Request, Response, NextFunction } from 'express';
 import { tenantContextStorage } from '../config/tenant-context';
 import { PermissionService } from '../services/permission.service';
+import { AuthorizationError } from '../utils/error.util';
+import { ERR_NO_BRANCH_ASSIGNED } from '../types/access.types';
 
 /**
  * Enters the AsyncLocalStorage-scoped tenant context for the rest of this
@@ -19,14 +21,32 @@ import { PermissionService } from '../services/permission.service';
  *   so any caller in a group sees every patient in that group, not just
  *   their own branch.
  *
- * '*' (unrestricted) is used for exactly two cases in each: a true system
- * Admin role (mirrors PermissionService.canAccessResource's Admin bypass),
- * and callers with no resolved scope at all — mirroring the same "empty
- * scope = unrestricted" convention already used at the app layer (see
- * branch.service.ts/patient.service.ts) for practices not yet onboarded onto
- * branches/groups. Anyone with an actual resolved scope — including Group
- * Admins, whose clinicIds is already expanded to their whole group by
- * getBranchAccess — is passed through as that literal, bounded value.
+ * ── Fail-closed (A1) ───────────────────────────────────────────────────────
+ * Previously BOTH scopes fell back to the '*' sentinel when the caller had no
+ * resolved scope:
+ *
+ *   isSystemAdmin || clinicIds.length === 0 ? '*' : clinicIds
+ *   isSystemAdmin || groupId === null        ? '*' : groupId
+ *
+ * Since every RLS policy treats '*' as "see everything", a user with a role
+ * but no clinic assignment was handed unrestricted access — the single
+ * biggest hole in the access model, and the reason a missed WHERE clause was
+ * the only thing between two practices and each other's data.
+ *
+ * The rule now:
+ *
+ *   '*'  → ONLY a Super Admin (later: isPlatformAdmin || accessAllClinics)
+ *   []   → DENY, answered with 403 NO_BRANCH_ASSIGNED
+ *   null → no group resolved (e.g. clinic not yet assigned to a
+ *          practicegroup), passed through as null; the RLS policy treats
+ *          this as "no group-wide visibility", not "no visibility at all" —
+ *          the caller still reads their own branch's patients via
+ *          clinicIds, unaffected by this being null
+ *
+ * NO_BRANCH_ASSIGNED is an onboarding state, not an attack, so it gets its
+ * own error code: the frontend renders "no branch is assigned to your
+ * account, contact your administrator" rather than a generic permission
+ * error. See 00-SHARED-CONTRACTS.md §8.
  */
 export const enterTenantContext = async (
   req: Request,
@@ -38,13 +58,38 @@ export const enterTenantContext = async (
   }
 
   try {
-    const isSystemAdmin = await PermissionService.hasRole(req.userId, 'Super Admin');
-    const clinicIds: bigint[] | '*' =
-      isSystemAdmin || req.branchAccess.clinicIds.length === 0 ? '*' : req.branchAccess.clinicIds;
-    const patientGroupId: number | '*' =
-      isSystemAdmin || req.branchAccess.groupId === null ? '*' : req.branchAccess.groupId;
+    const isSystemAdmin = req.access
+      ? req.access.isPlatformAdmin || req.access.roles.includes('Super Admin')
+      : await PermissionService.hasRole(req.userId, 'Super Admin');
+    const accessAllClinics = req.access?.accessAllClinics === true;
 
-    tenantContextStorage.run({ clinicIds, patientGroupId }, () => next());
+    // Deny rather than widen. A caller with no branch assignment gets a 403
+    // with an actionable code instead of a silently unrestricted session.
+    if (!isSystemAdmin && !accessAllClinics && req.branchAccess.clinicIds.length === 0) {
+      return next(
+        new AuthorizationError(
+          'No branch is assigned to your account. Contact your administrator.',
+          ERR_NO_BRANCH_ASSIGNED
+        )
+      );
+    }
+
+    const clinicIds: bigint[] | '*' = isSystemAdmin || accessAllClinics ? '*' : req.branchAccess.clinicIds;
+
+    // Group is NOT widened to '*' for a non-admin, even when unresolvable.
+    // null flows into the RLS GUC as '' and the policy denies, which is the
+    // intended outcome: a user whose clinic belongs to no practice group
+    // cannot read patients at all rather than reading all of them.
+    const patientGroupId: number | '*' | null = isSystemAdmin || accessAllClinics
+      ? '*'
+      : req.branchAccess.groupId;
+
+    tenantContextStorage.run({
+      clinicIds,
+      patientGroupId,
+      userId: req.userId,
+      sharing: req.access?.sharingSpec,
+    }, () => next());
   } catch (error) {
     next(error);
   }

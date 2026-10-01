@@ -1,6 +1,7 @@
 import { prisma } from '../config/db';
 import type { AppRole, BranchAccess } from '../types/auth.types';
 import { GROUP_ADMIN_PERMISSIONS } from '../types/auth.types';
+import { WILDCARD_ROLE_NAMES } from '../types/access.types';
 import { getRolesMeta, mapRole } from '../utils/opendental-auth.util';
 
 // Resource types scoped by clinic.ClinicNum, and how to look up their clinic.
@@ -56,6 +57,18 @@ export class PermissionService {
     const roleMetaMap = await getRolesMeta(roleNums);
 
     const permissions = new Set<string>();
+    
+    if (process.env.RBAC_READ_FROM_TABLES === 'true' && roleNums.length > 0) {
+      const rows = await (prisma as any).role_permission.findMany({
+        where: { role_id: { in: roleNums } },
+        select: { permission_key: true },
+      });
+      if (rows.length > 0) {
+        rows.forEach((row: any) => permissions.add(row.permission_key));
+        return permissions;
+      }
+    }
+
     const roles = await Promise.all(
       groups.map((ug) => mapRole(ug, roleMetaMap[ug.UserGroupNum.toString()] ?? {}))
     );
@@ -71,20 +84,33 @@ export class PermissionService {
     return permissions;
   }
 
+  /**
+   * A bare '*' in the permission set is only a real bypass when it came from
+   * a recognised wildcard-honoured role (see access.types.ts's wildcardHonoured,
+   * which this mirrors). Without this, a custom role someone pasted '*' into
+   * would be silently equivalent to root — the same bug class as the one
+   * fixed in requirePhiAccess.
+   */
+  private static async wildcardHonoured(userId: string): Promise<boolean> {
+    const roles = await this.getUserRoles(userId);
+    return roles.some((r) => (WILDCARD_ROLE_NAMES as readonly string[]).includes(r));
+  }
+
   static async hasPermission(userId: string, permission: string): Promise<boolean> {
     const permissions = await this.getUserPermissions(userId);
-    return permissions.has('*') || permissions.has(permission);
+    if (permissions.has('*') && (await this.wildcardHonoured(userId))) return true;
+    return permissions.has(permission);
   }
 
   static async hasAnyPermission(userId: string, permissions: string[]): Promise<boolean> {
     const userPermissions = await this.getUserPermissions(userId);
-    if (userPermissions.has('*')) return true;
+    if (userPermissions.has('*') && (await this.wildcardHonoured(userId))) return true;
     return permissions.some((perm) => userPermissions.has(perm));
   }
 
   static async hasAllPermissions(userId: string, permissions: string[]): Promise<boolean> {
     const userPermissions = await this.getUserPermissions(userId);
-    if (userPermissions.has('*')) return true;
+    if (userPermissions.has('*') && (await this.wildcardHonoured(userId))) return true;
     return permissions.every((perm) => userPermissions.has(perm));
   }
 
@@ -153,10 +179,16 @@ export class PermissionService {
     }
 
     const roles = await this.getUserRoles(userId);
-    const isBranchAdminOnly = roles.includes('Branch Admin') && !roles.includes('Group Admin') && !roles.includes('Super Admin');
+    // 'group_admin'/'branch_admin' (lowercase) are the new 8-role-model's
+    // role names, seeded by seedNewModelRoles.ts alongside the legacy
+    // 'Group Admin'/'Branch Admin' rows — see rbac.service.ts.
+    const isBranchAdminOnly = (roles.includes('Branch Admin') || roles.includes('branch_admin'))
+      && !roles.includes('Group Admin') && !roles.includes('group_admin')
+      && !roles.includes('Super Admin');
     const permissions = await this.getUserPermissions(userId);
     const isGroupAdmin = !isBranchAdminOnly && (
       roles.includes('Group Admin') ||
+      roles.includes('group_admin') ||
       roles.includes('Super Admin') ||
       roles.includes('Admin') ||
       permissions.has('*') ||
@@ -198,7 +230,8 @@ export class PermissionService {
     resourceId: string,
     _action: string
   ): Promise<boolean> {
-    if (await this.hasRole(userId, 'Admin')) {
+    const permissions = await this.getUserPermissions(userId);
+    if (permissions.has('*') && (await this.wildcardHonoured(userId))) {
       return true;
     }
 

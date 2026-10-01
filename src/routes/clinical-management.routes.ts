@@ -1,11 +1,14 @@
 import { Router } from 'express';
 import { clinicalManagementController } from '../controllers/clinical-management.controller';
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
+import { requirePhiAccess } from '../middleware/phi.middleware';
 
 const router = Router();
 
 // Secure all endpoints with authentication middleware
-router.use(authenticate);
+router.use(authenticate, requirePhiAccess, resolveBranchAccess, enterTenantContext);
 
 // ✅ ADD THIS ROOT GET TO FIX THE 404 TEST
 router.get(

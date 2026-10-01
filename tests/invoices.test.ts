@@ -150,7 +150,7 @@ describe('Invoices', () => {
     expect(res.body.data).toHaveProperty('claims');
   });
 
-  it('subtracts formally posted adjustments from backend balanceDue', async () => {
+  it('keeps formally posted adjustments separate from backend balanceDue', async () => {
     const token = uniqueToken('adj-inv');
     const patient = await createPatientRecord(token);
 
@@ -194,7 +194,7 @@ describe('Invoices', () => {
 
     expect(adjRes.status).toBe(201);
 
-    // Fetch the invoice and verify balanceDue is now reduced by the posted adjustment
+    // Fetch the invoice and verify balanceDue is NOT reduced by the posted adjustment
     const getRes = await request(app)
       .get(`/api/invoices/${invoiceId}`)
       .set(authHeader);
@@ -203,6 +203,51 @@ describe('Invoices', () => {
     expect(getRes.body.data.invoice.totalAmount).toBe(160);
     expect(getRes.body.data.invoice.writeoffAmount).toBe(25);
     expect(getRes.body.data.invoice.adjustmentAmount).toBe(25);
-    expect(getRes.body.data.invoice.balanceDue).toBe(135);
+    expect(getRes.body.data.invoice.balanceDue).toBe(160);
+  });
+
+  it('keeps writeoffs separate from balanceDue for a single procedure', async () => {
+    const token = uniqueToken('writeoff-inv');
+    const patient = await createPatientRecord(token);
+
+    const payload = {
+      patientId: patient.PatNum.toString(),
+      items: [
+        {
+          code: 'D2391',
+          description: 'Resin-based composite - one surface, posterior',
+          date: new Date().toISOString(),
+          writeoff: 35,
+          ptPortion: 456,
+          insPortion: 0,
+          charge: 491,
+          balance: 491,
+          completed: true,
+        },
+      ],
+    };
+
+    const invRes = await request(app)
+      .post('/api/invoices')
+      .set(authHeader)
+      .send(payload);
+
+    expect(invRes.status).toBe(201);
+    
+    // Verify response immediately shows balanceDue = 491, writeoffAmount = 35
+    expect(invRes.body.data.invoice.totalAmount).toBe(491);
+    expect(invRes.body.data.invoice.writeoffAmount).toBe(35);
+    expect(invRes.body.data.invoice.balanceDue).toBe(491);
+
+    // Fetch the invoice from DB to ensure it was saved correctly
+    const invoiceId = invRes.body.data.invoice._id;
+    const getRes = await request(app)
+      .get(`/api/invoices/${invoiceId}`)
+      .set(authHeader);
+
+    expect(getRes.status).toBe(200);
+    expect(getRes.body.data.invoice.totalAmount).toBe(491);
+    expect(getRes.body.data.invoice.writeoffAmount).toBe(35);
+    expect(getRes.body.data.invoice.balanceDue).toBe(491);
   });
 });

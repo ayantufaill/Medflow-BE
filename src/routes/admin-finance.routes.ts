@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { adminFinanceController } from '../controllers/admin-finance.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
   categoryParamValidator,
@@ -13,7 +15,7 @@ import {
 const router = Router();
 
 // Secure all endpoints with authentication middleware
-router.use(authenticate);
+router.use(authenticate, resolveBranchAccess, enterTenantContext);
 
 /**
  * @swagger
