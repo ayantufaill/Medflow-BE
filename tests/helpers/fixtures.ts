@@ -1,5 +1,30 @@
 import { prisma } from '../../src/config/db';
 
+/**
+ * The seeded Default Clinic (src/scripts/seedDefaultClinic.ts), which every
+ * seeded staff account — including the admin the tests log in as — belongs to.
+ *
+ * Fixtures have to be tagged with it: the branch-scoped services filter on
+ * `ClinicNum: { in: callerClinicIds }` (see src/services/patient.service.ts and
+ * room.service.ts), so a record created with no clinic is invisible to every
+ * caller and the "create it, then find it in the list" tests never see it.
+ */
+export const DEFAULT_TEST_CLINIC_NUM = 1n;
+
+let defaultClinicGroupNum: number | null | undefined;
+
+/** clinic 1's practicegroup, for patient.GroupNum (group-read visibility). */
+const getDefaultClinicGroupNum = async (): Promise<number | null> => {
+  if (defaultClinicGroupNum === undefined) {
+    const clinic = await prisma.clinic.findUnique({
+      where: { ClinicNum: DEFAULT_TEST_CLINIC_NUM },
+      select: { GroupNum: true },
+    });
+    defaultClinicGroupNum = clinic?.GroupNum ?? null;
+  }
+  return defaultClinicGroupNum;
+};
+
 const isUniqueConstraintError = (error: unknown) =>
   Boolean(error && typeof error === 'object' && (error as any).code === 'P2002');
 
@@ -39,6 +64,8 @@ export const createPatientRecord = async (token: string) =>
         LName: 'User',
         Birthdate: new Date('1990-01-01'),
         PatStatus: 0,
+        ClinicNum: DEFAULT_TEST_CLINIC_NUM,
+        GroupNum: await getDefaultClinicGroupNum(),
       },
     });
   });
@@ -100,6 +127,7 @@ export const createRoomRecord = async (token: string) =>
         OpName: `AAA Room ${token}`,
         Abbrev: `AR${token.replace(/[^A-Za-z0-9]/g, '').slice(-4)}`,
         IsHidden: 0,
+        ClinicNum: DEFAULT_TEST_CLINIC_NUM,
       },
     });
   });
