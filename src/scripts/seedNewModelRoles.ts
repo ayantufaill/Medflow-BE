@@ -25,6 +25,11 @@ import { getNextId } from '../utils/opendental-ids.util';
 import { setRoleMeta } from '../utils/opendental-auth.util';
 
 const DENTIST_PERMISSIONS = {
+  // Without this, requirePhiAccess rejects every patient/clinical route —
+  // same bug class fixed on the legacy roles earlier; the new-model roles
+  // need the same grant since own-branch access depends on it too, not just
+  // cross-branch sharing.
+  'clinical.cross_branch.view': true,
   'patients.read': true,
   'appointments.read': true,
   'appointments.update': true,
@@ -66,6 +71,7 @@ const HYGIENIST_PERMISSIONS: Record<string, boolean> = { ...DENTIST_PERMISSIONS 
 delete HYGIENIST_PERMISSIONS['treatment-plans.sign'];
 
 const DENTAL_ASSISTANT_PERMISSIONS = {
+  'clinical.cross_branch.view': true,
   'patients.read': true,
   'appointments.read': true,
   'clinical-notes.read': true,
@@ -83,6 +89,7 @@ const DENTAL_ASSISTANT_PERMISSIONS = {
 };
 
 const FRONT_DESK_PERMISSIONS = {
+  'clinical.cross_branch.view': true,
   'patients.read': true,
   'patients.create': true,
   'patients.update': true,
@@ -98,6 +105,7 @@ const FRONT_DESK_PERMISSIONS = {
 };
 
 const BILLING_PERMISSIONS = {
+  'clinical.cross_branch.view': true,
   'patients.read': true,
   'invoices.read': true,
   'invoices.create': true,

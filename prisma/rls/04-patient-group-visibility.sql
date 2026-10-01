@@ -35,6 +35,51 @@
 -- Because the whole file is sent as one simple-query batch, a single failure
 -- rolls back the entire file, leaving the table with stale policies.
 
+-- Defensive, idempotent copy of 05-mf-helpers.sql's mf.shared_mode() —
+-- applyRls.ts runs files in alphabetical order, and "04-" runs before "05-",
+-- but this file's patient_read_group policy (below) now calls
+-- mf.shared_mode('IDENTITY'). CREATE POLICY validates the referenced
+-- function exists at creation time, not just at query time, so without this
+-- the whole file would fail to apply whenever it runs before 05. Not moving
+-- or renaming either file — 05-mf-helpers.sql stays the canonical owner of
+-- this function; CREATE OR REPLACE here is a no-op once 05 runs right after
+-- and redefines the identical body. Keep these two copies in sync if the
+-- parsing logic ever changes.
+CREATE SCHEMA IF NOT EXISTS mf;
+
+CREATE OR REPLACE FUNCTION mf.shared_mode(category text) RETURNS text
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  shared_str text;
+  idx integer;
+  end_idx integer;
+  cat_search text;
+  result text;
+BEGIN
+  shared_str := current_setting('app.shared', true);
+  IF shared_str IS NULL OR shared_str = '' THEN
+    RETURN 'OWN_BRANCH';
+  END IF;
+
+  cat_search := category || ':';
+  idx := strpos(shared_str, cat_search);
+  IF idx = 0 THEN
+    RETURN 'OWN_BRANCH';
+  END IF;
+
+  idx := idx + length(cat_search);
+  end_idx := strpos(substr(shared_str, idx), ',');
+
+  IF end_idx = 0 THEN
+    result := substr(shared_str, idx);
+  ELSE
+    result := substr(shared_str, idx, end_idx - 1);
+  END IF;
+
+  RETURN result;
+END;
+$$;
+
 DROP POLICY IF EXISTS tenant_isolation ON patient;
 DROP POLICY IF EXISTS patient_read_group ON patient;
 DROP POLICY IF EXISTS patient_write_own ON patient;
@@ -59,6 +104,22 @@ DROP POLICY IF EXISTS patient_delete_own ON patient;
 -- operatory is the chairs/rooms table, which room.service.ts reads with no
 -- clinic filter. Attributing those tables is a separate workstream (A0.5b),
 -- not an edit to this file.
+--
+-- Sharing-gate fix: arm 2 (group-wide visibility) used to be unconditional —
+-- any caller whose clinic resolved to a group could read every patient in
+-- that group, with no way to turn it off. That contradicts the 8-role
+-- model's own design: only group_admin is meant to be cross-branch,
+-- everything else (branch_admin, dentist, hygienist, dental_assistant,
+-- front_desk, billing, lab) is scoped to its own branch, and this policy
+-- didn't check role at all, so all of them got group-wide patient reads
+-- regardless. It's also a HIPAA minimum-necessary-access gap, not just an
+-- inconsistency — this whole role model was built off a HIPAA compliance
+-- review, and an always-on cross-branch patient read undermines that.
+-- Gated on mf.shared_mode('IDENTITY') now, same mechanism 06-shared-read.sql
+-- already uses for FINANCIAL/IMAGING — defaults OFF (DEFAULT_SHARING_POLICY,
+-- access.types.ts), opt-in per practice group. group_admin's own cross-branch
+-- reach is unaffected: that comes from clinicIds covering every branch in
+-- their group (see PermissionService.getBranchAccess), not from this arm.
 --
 -- P0 fix: this policy used to be GroupNum-only, with no own-branch fallback.
 -- clinic.GroupNum is nullable — any clinic not yet assigned to a
@@ -86,15 +147,18 @@ USING (
     ELSE "ClinicNum" = ANY(string_to_array(current_setting('app.clinic_ids', true), ',')::bigint[])
   END
   OR
-  -- 2. Additive: group-wide visibility, only when a real group is resolved.
-  --    Guards '' and '0' explicitly rather than relying on NULLIF — both are
-  --    live "no group" values depending on which layer produced them (see
-  --    src/config/db.ts), and casting either straight to ::int is wrong:
-  --    '' raises, and an unguarded '0' would match a literal GroupNum = 0.
+  -- 2. Additive: group-wide visibility, only when a real group is resolved
+  --    AND the group has opted into IDENTITY sharing (see note above this
+  --    policy). Guards '' and '0' explicitly rather than relying on NULLIF —
+  --    both are live "no group" values depending on which layer produced
+  --    them (see src/config/db.ts), and casting either straight to ::int is
+  --    wrong: '' raises, and an unguarded '0' would match a literal
+  --    GroupNum = 0.
   CASE
     WHEN current_setting('app.patient_group_id', true) = '*' THEN true
     WHEN current_setting('app.patient_group_id', true) IS NULL
          OR current_setting('app.patient_group_id', true) IN ('', '0') THEN false
+    WHEN mf.shared_mode('IDENTITY') != 'GROUP_READ' THEN false
     ELSE "GroupNum" = current_setting('app.patient_group_id', true)::int
   END
 );
