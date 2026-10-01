@@ -56,4 +56,30 @@ router.get(
   branchController.getBranchAnalytics.bind(branchController)
 );
 
+/**
+ * @swagger
+ * /branches/{branchId}/features:
+ *   patch:
+ *     summary: Toggle a per-branch feature flag (group_admin only)
+ *     tags: [Branches]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [treatment_coordinator]
+ *             properties:
+ *               treatment_coordinator:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Updated feature flags
+ *       403:
+ *         description: Forbidden — group_admin only, or branch outside caller's group
+ */
+router.patch('/:branchId/features', branchController.updateFeatures.bind(branchController));
+
 export default router;

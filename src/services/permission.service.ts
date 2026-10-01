@@ -179,10 +179,16 @@ export class PermissionService {
     }
 
     const roles = await this.getUserRoles(userId);
-    const isBranchAdminOnly = roles.includes('Branch Admin') && !roles.includes('Group Admin') && !roles.includes('Super Admin');
+    // 'group_admin'/'branch_admin' (lowercase) are the new 8-role-model's
+    // role names, seeded by seedNewModelRoles.ts alongside the legacy
+    // 'Group Admin'/'Branch Admin' rows — see rbac.service.ts.
+    const isBranchAdminOnly = (roles.includes('Branch Admin') || roles.includes('branch_admin'))
+      && !roles.includes('Group Admin') && !roles.includes('group_admin')
+      && !roles.includes('Super Admin');
     const permissions = await this.getUserPermissions(userId);
     const isGroupAdmin = !isBranchAdminOnly && (
       roles.includes('Group Admin') ||
+      roles.includes('group_admin') ||
       roles.includes('Super Admin') ||
       roles.includes('Admin') ||
       permissions.has('*') ||

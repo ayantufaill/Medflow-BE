@@ -343,6 +343,40 @@ router.post(
 
 /**
  * @swagger
+ * /users/{userId}/role:
+ *   patch:
+ *     summary: Elevate a user's role under the new 8-role model (group_admin or branch_admin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [roleSlug]
+ *             properties:
+ *               roleSlug:
+ *                 type: string
+ *                 example: dentist
+ *               branchId:
+ *                 type: integer
+ *                 description: Required when the actor is a branch_admin
+ *     responses:
+ *       200:
+ *         description: Role changed; target user's sessions are invalidated
+ *       403:
+ *         description: Forbidden — actor lacks authority to assign this role, or it's out of their branch scope
+ */
+router.patch(
+  '/:userId/role',
+  validate(userIdValidator),
+  userController.elevateRole.bind(userController)
+);
+
+/**
+ * @swagger
  * /users/{userId}/roles/{roleId}:
  *   delete:
  *     summary: Remove role from user (Admin only)

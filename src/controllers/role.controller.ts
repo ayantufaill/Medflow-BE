@@ -23,8 +23,9 @@ export class RoleController {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 100;
       const search = req.query.search as string | undefined;
+      const scope = req.query.scope === 'assignable' ? 'assignable' : undefined;
 
-      const result = await roleService.getAllRoles(page, limit, search);
+      const result = await roleService.getAllRoles(page, limit, search, scope);
       res.status(200).json({
         success: true,
         data: result,

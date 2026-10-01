@@ -74,6 +74,23 @@ export class AccessContextService {
 
     const permissions = await this.loadPermissions(roleIds, roles);
 
+    // New 8-role-model's group_admin inherits branch_admin's permissions
+    // LIVE (looked up fresh, not copied at seed time), folded directly into
+    // the cached permission set so every existing requirePermission(...)
+    // call site across the app recognizes group_admin automatically, without
+    // each route needing to switch to rbac.service.ts's
+    // resolveEffectivePermissions() helper. Deliberately keyed off the
+    // literal new-model role name, not the broader isGroupAdmin flag below —
+    // that flag is also true for Super Admin/legacy Group Admin/'*' holders,
+    // none of whom should gain this specific role's bounded permission set.
+    if (roleNames.includes('group_admin')) {
+      const { getNewModelRoleByKey } = await import('./rbac.service');
+      const branchAdmin = await getNewModelRoleByKey('branch_admin');
+      for (const [perm, allowed] of Object.entries(branchAdmin?.permissions ?? {})) {
+        if (allowed) permissions.add(perm);
+      }
+    }
+
     const ownClinicIds = new Set<bigint>();
     for (const assignment of assignments) {
       if (assignment.ClinicNum !== null) ownClinicIds.add(assignment.ClinicNum);
@@ -96,10 +113,17 @@ export class AccessContextService {
       groupClinicIds = groupClinics.map((clinic) => clinic.ClinicNum);
     }
 
+    // 'group_admin'/'branch_admin' (lowercase) are the new 8-role-model's
+    // role names, seeded alongside the legacy 'Group Admin'/'Branch Admin'
+    // rows — see rbac.service.ts. Mirrors the same check in
+    // PermissionService.getBranchAccess().
     const isBranchAdminOnly =
-      roleNames.includes('Branch Admin') && !roleNames.includes('Group Admin') && !roleNames.includes('Super Admin');
+      (roleNames.includes('Branch Admin') || roleNames.includes('branch_admin'))
+      && !roleNames.includes('Group Admin') && !roleNames.includes('group_admin')
+      && !roleNames.includes('Super Admin');
     const isGroupAdmin = !isBranchAdminOnly && (
       roleNames.includes('Group Admin') ||
+      roleNames.includes('group_admin') ||
       roleNames.includes('Super Admin') ||
       roleNames.includes('Admin') ||
       permissions.has('*') ||

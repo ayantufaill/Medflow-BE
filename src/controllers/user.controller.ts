@@ -525,6 +525,53 @@ export class UserController {
       next(error);
     }
   }
+
+  /**
+   * New 8(+1)-role model elevation — PATCH /users/:userId/role.
+   * Deliberately separate from assignUserRoles above (which full-replaces
+   * every legacy role a user holds) — see role-elevation.service.ts.
+   */
+  async elevateRole(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId } = req.params;
+      const { roleSlug, branchId } = req.body;
+
+      if (!req.userId) {
+        return res.status(401).json({ success: false, error: { message: 'Authentication required' } });
+      }
+      if (!userId || typeof roleSlug !== 'string' || !roleSlug.trim()) {
+        return res.status(400).json({ success: false, error: { message: 'userId and roleSlug are required' } });
+      }
+
+      const { elevateUserRole } = await import('../services/role-elevation.service');
+      const result = await elevateUserRole({
+        actorUserId: req.userId,
+        targetUserId: userId,
+        roleKey: roleSlug,
+        clinicId: branchId !== undefined && branchId !== null ? BigInt(branchId) : undefined,
+      });
+
+      await logActivityFromRequest(
+        req,
+        'updated',
+        'usergroupattach',
+        userId,
+        { roleKey: result.oldRoleKey },
+        { roleKey: result.newRoleKey }
+      );
+
+      res.status(200).json({
+        success: true,
+        data: {
+          message: `Role changed to "${result.newRoleKey}". The user will be signed out of all active sessions.`,
+          oldRole: result.oldRoleKey,
+          newRole: result.newRoleKey,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const userController = new UserController();

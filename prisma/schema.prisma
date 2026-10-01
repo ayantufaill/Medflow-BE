@@ -1161,6 +1161,11 @@ model clinic {
   ClinicNum                                BigInt                      @id(map: "PK__clinic__AE228314D2A96BE3")
   GroupNum                                 Int?
   practicegroup                            practicegroup?              @relation(fields: [GroupNum], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  /// Per-branch feature flags (e.g. { "treatment_coordinator": true }). Added
+  /// directly via ALTER TABLE rather than `prisma migrate` — this DB has no
+  /// _prisma_migrations history (schema drift from prior db-push/manual DDL),
+  /// so the normal migration CLI risks trying to reconcile unrelated drift.
+  features                                 Json?
   Description                              String?                     @db.VarChar(255)
   Address                                  String?                     @db.VarChar(255)
   Address2                                 String?                     @db.VarChar(255)

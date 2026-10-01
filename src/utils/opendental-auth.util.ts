@@ -442,6 +442,9 @@ export const mapRole = async (row: any, preloadedMeta?: Record<string, any>): Pr
     permissions: meta.permissions ?? {},
     isSystemRole: meta.isSystemRole ?? false,
     isActive: meta.isActive ?? true,
+    isNewModel: meta.isNewModel ?? false,
+    roleKey: meta.roleKey ?? undefined,
+    isPlatformRole: meta.isPlatformRole ?? false,
   } as AppRole;
 };
 
