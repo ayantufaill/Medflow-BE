@@ -49,12 +49,31 @@ const upsertUserOdPref = async (identity: UserOdPrefIdentity, valueString: strin
   const where = buildUserOdPrefWhere(identity);
 
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    const existing = await prisma.userodpref.findFirst({ where });
+    // There is no unique index on (UserNum, Fkey, FkeyType), so two concurrent
+    // writers can both miss the lookup below and both insert — e.g. a
+    // fire-and-forget auto-no-show write racing a request handler. Once two
+    // rows exist, the unordered `findFirst` in the readers and the one here can
+    // land on different rows, and a write silently disappears: the appointment
+    // row updates while its meta keeps the old status.
+    //
+    // Reading every match ordered by id makes both sides agree on which row
+    // wins, and deleting the extras heals rows duplicated before this fix.
+    const matches = await prisma.userodpref.findMany({
+      where,
+      orderBy: { UserOdPrefNum: 'asc' },
+    });
+
+    const [existing, ...duplicates] = matches;
     if (existing) {
       await prisma.userodpref.update({
         where: { UserOdPrefNum: existing.UserOdPrefNum },
         data: { ValueString: valueString },
       });
+      if (duplicates.length > 0) {
+        await prisma.userodpref.deleteMany({
+          where: { UserOdPrefNum: { in: duplicates.map((d) => d.UserOdPrefNum) } },
+        });
+      }
       return existing.UserOdPrefNum;
     }
 

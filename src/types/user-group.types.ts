@@ -1,10 +1,24 @@
 export type UserGroup = 'ADMIN_GROUP' | 'CLINICAL_GROUP' | 'OPERATIONS_GROUP' | 'PATIENT_GROUP';
 
+// Each group lists BOTH the legacy display names ('Group Admin') and the
+// new-model role keys seeded by src/scripts/seedNewModelRoles.ts
+// ('group_admin'), because usergroup.Description stores whichever the account
+// was created with. Without the new-model keys here a group_admin resolves to
+// no group at all, and every requireRoles / requireGroups gate answers 403.
 export const USER_GROUPS: Record<UserGroup, string[]> = {
-  ADMIN_GROUP: ['Super Admin', 'Group Admin', 'Branch Admin', 'Admin'],
-  CLINICAL_GROUP: ['Provider', 'Doctor', 'Hygienist', 'Assistant', 'Dental Assistant', 'Clinical Staff'],
-  OPERATIONS_GROUP: ['Front Desk', 'Receptionist', 'Biller', 'Billing Staff', 'Lab', 'Lab Technician'],
-  PATIENT_GROUP: ['Patient'],
+  ADMIN_GROUP: [
+    'Super Admin', 'Group Admin', 'Branch Admin', 'Admin',
+    'group_admin', 'branch_admin',
+  ],
+  CLINICAL_GROUP: [
+    'Provider', 'Doctor', 'Hygienist', 'Assistant', 'Dental Assistant', 'Clinical Staff',
+    'dentist', 'hygienist', 'dental_assistant',
+  ],
+  OPERATIONS_GROUP: [
+    'Front Desk', 'Receptionist', 'Biller', 'Billing Staff', 'Lab', 'Lab Technician',
+    'front_desk', 'billing', 'lab',
+  ],
+  PATIENT_GROUP: ['Patient', 'patient'],
 };
 
 export const ROLE_TO_GROUP_MAP: Record<string, UserGroup> = Object.entries(USER_GROUPS).reduce(
