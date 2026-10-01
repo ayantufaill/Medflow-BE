@@ -6,6 +6,36 @@ import { recareService } from '../services/recare.service';
 import { logActivityFromRequest } from '../utils/activity-logger.util';
 
 export class PatientController {
+  async getBasicPatients(req: Request, res: Response, next: NextFunction) {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const search = req.query.search as string | undefined;
+      const status = req.query.status as string | undefined;
+      const sortBy = req.query.sortBy as string | undefined;
+      const sortOrder = req.query.sortOrder as string | undefined;
+      const branchId = req.query.branchId as string | undefined;
+
+      const result = await patientService.getBasicPatientsForLab(
+        page,
+        limit,
+        search,
+        status,
+        sortBy,
+        sortOrder,
+        req.branchAccess?.groupClinicIds,
+        branchId
+      );
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getAllPatients(req: Request, res: Response, next: NextFunction) {
     try {
       const page = parseInt(req.query.page as string) || 1;

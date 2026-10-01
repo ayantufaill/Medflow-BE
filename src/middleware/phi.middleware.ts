@@ -4,10 +4,9 @@ import { AuthenticationError, AuthorizationError } from '../utils/error.util';
 import { ERR_PHI_ACCESS_NOT_GRANTED, hasPermission, type AccessContext } from '../types/access.types';
 
 /**
- * The permission that grants cross-branch access to protected health
- * information. A Group Admin holds group/financial/operational rights but
- * NOT this, which is the point: managing a group of practices is not the same
- * authority as reading its patients' clinical records.
+ * The permission that grants access to protected health information. Roles may
+ * hold it explicitly or inherit it through a honoured wildcard; branch/group
+ * visibility is still enforced by the access context.
  */
 export const PHI_PERMISSION = 'clinical.cross_branch.view';
 

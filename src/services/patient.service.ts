@@ -86,6 +86,158 @@ export async function getFamilyMembers(guarantorId: bigint, currentPatNum: bigin
 }
 
 export class PatientService {
+  private deriveLabCaseStatus(labcase: any): string {
+    if (labcase.DateTimeChecked) return 'Quality Checked';
+    if (labcase.DateTimeRecd) return 'Received';
+    if (labcase.DateTimeSent) return 'Sent';
+    return 'New';
+  }
+
+  async getBasicPatientsForLab(
+    page = 1,
+    limit = 10,
+    search?: string,
+    status?: string,
+    sortBy?: string,
+    sortOrder?: string,
+    clinicIds?: bigint[],
+    branchId?: string
+  ) {
+    const skip = (page - 1) * limit;
+    const patientWhere: any = {};
+
+    if (branchId) {
+      const requestedClinicNum = BigInt(branchId);
+      const inScope = clinicIds === undefined || clinicIds.includes(requestedClinicNum);
+      patientWhere.ClinicNum = inScope ? requestedClinicNum : -1n;
+    } else if (clinicIds !== undefined) {
+      patientWhere.ClinicNum = clinicIds.length > 0 ? { in: clinicIds } : { in: [] };
+    }
+
+    if (search) {
+      patientWhere.OR = [
+        { ChartNumber: { contains: search, mode: 'insensitive' } },
+        { FName: { contains: search, mode: 'insensitive' } },
+        { LName: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const where: any = {
+      patient: patientWhere,
+    };
+
+    if (status === 'Active') {
+      where.DateTimeChecked = null;
+    } else if (status === 'Completed' || status === 'Quality Checked') {
+      where.DateTimeChecked = { not: null };
+    } else if (status === 'Sent') {
+      where.DateTimeSent = { not: null };
+      where.DateTimeRecd = null;
+      where.DateTimeChecked = null;
+    } else if (status === 'Received') {
+      where.DateTimeRecd = { not: null };
+      where.DateTimeChecked = null;
+    } else if (status === 'New') {
+      where.DateTimeSent = null;
+      where.DateTimeRecd = null;
+      where.DateTimeChecked = null;
+    }
+
+    const orderBy = sortBy === 'dueDate'
+      ? { DateTimeDue: sortOrder === 'desc' ? 'desc' as const : 'asc' as const }
+      : { DateTimeCreated: 'desc' as const };
+
+    const [rows, total] = await Promise.all([
+      prisma.labcase.findMany({
+        where,
+        orderBy,
+        skip,
+        take: limit,
+        include: {
+          patient: {
+            select: {
+              PatNum: true,
+              FName: true,
+              LName: true,
+              Preferred: true,
+              ChartNumber: true,
+              Birthdate: true,
+              ClinicNum: true,
+              clinic: {
+                select: {
+                  ClinicNum: true,
+                  Description: true,
+                },
+              },
+            },
+          },
+          provider: {
+            select: {
+              ProvNum: true,
+              FName: true,
+              LName: true,
+            },
+          },
+          laboratory: {
+            select: {
+              LaboratoryNum: true,
+              Description: true,
+            },
+          },
+        },
+      }),
+      prisma.labcase.count({ where }),
+    ]);
+
+    return {
+      patients: rows
+        .filter((lc: any) => lc.patient)
+        .map((lc: any) => ({
+          id: lc.patient.PatNum.toString(),
+          patientId: lc.patient.PatNum.toString(),
+          chartNumber: lc.patient.ChartNumber || null,
+          firstName: lc.patient.FName || '',
+          lastName: lc.patient.LName || '',
+          preferredName: lc.patient.Preferred || null,
+          name: `${lc.patient.FName || ''} ${lc.patient.LName || ''}`.trim(),
+          dateOfBirth: lc.patient.Birthdate || null,
+          branch: lc.patient.clinic
+            ? {
+                id: lc.patient.clinic.ClinicNum.toString(),
+                name: lc.patient.clinic.Description || '',
+              }
+            : lc.patient.ClinicNum
+              ? { id: lc.patient.ClinicNum.toString(), name: '' }
+              : null,
+          orderingProvider: lc.provider
+            ? {
+                id: lc.provider.ProvNum.toString(),
+                name: `${lc.provider.FName || ''} ${lc.provider.LName || ''}`.trim(),
+              }
+            : null,
+          relatedLabCase: {
+            id: lc.LabCaseNum.toString(),
+            laboratory: lc.laboratory
+              ? {
+                  id: lc.laboratory.LaboratoryNum.toString(),
+                  name: lc.laboratory.Description || '',
+                }
+              : null,
+            status: this.deriveLabCaseStatus(lc),
+            dueDate: lc.DateTimeDue || null,
+          },
+          labCaseStatus: this.deriveLabCaseStatus(lc),
+          dueDate: lc.DateTimeDue || null,
+        })),
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    };
+  }
+
   /**
    * Get all patients with pagination, search, status, and DOB range filters
    */
