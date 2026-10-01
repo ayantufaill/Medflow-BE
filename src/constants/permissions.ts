@@ -27,6 +27,7 @@ export const PERMISSIONS = {
   PATIENTS: {
     CREATE: 'patients.create',
     READ: 'patients.read',
+    READ_BASIC: 'patients.read_basic',
     UPDATE: 'patients.update',
     DELETE: 'patients.delete',
     VIEW_ALL: 'patients.view_all',
@@ -238,5 +239,4 @@ export const PERMISSIONS = {
 export const getAllPermissions = (): string[] => {
   return Object.values(PERMISSIONS).flatMap((category) => Object.values(category));
 };
-
 

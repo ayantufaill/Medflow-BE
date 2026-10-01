@@ -87,9 +87,9 @@ export interface UserWithRoles extends Omit<AppUser, 'passwordHash'> {
 
 // ─── Group Admin Permission Keys ──────────────────────────────────────────────
 //
-// These are the allowed permission keys for the Group Admin role.
-// Group Admins have access strictly to operational and financial rollups.
-// They do NOT have access to raw clinical PHI across branches.
+// These are group-administration permission keys. Group Admin also receives
+// explicit operational permissions in the role seed, but never receives the
+// platform/global wildcard.
 
 export const PLATFORM_ADMIN_PERMISSIONS = {
   MANAGE_PRACTICE_GROUPS: 'platform:manage_practice_groups',

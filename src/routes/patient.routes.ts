@@ -9,6 +9,7 @@ import { authenticate, requireRoles } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePhiAccess } from '../middleware/phi.middleware';
+import { requireAnyPermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
   patientIdValidator, patientRequestIdValidator, createPatientValidator,
@@ -26,15 +27,9 @@ router.use(requirePhiAccess);
 router.use(resolveBranchAccess);
 router.use(enterTenantContext);
 
-// Group Admin is deliberately absent from all three lists below. This whole
-// router sits behind `router.use(requirePhiAccess)`, and Group Admin's
-// permission set intentionally excludes `clinical.cross_branch.view` (see
-// phi.middleware.ts) — managing a group of practices isn't the same
-// authority as reading its patients' records. Listing 'Group Admin' here
-// used to be dead code (requirePhiAccess rejected them before any of these
-// lists were ever checked), which misleadingly suggested they had access
-// they don't. Removed rather than granted, since excluding Group Admin from
-// patient data is the stated intent, not an oversight.
+// Role gates keep the existing operational route surface; permission middleware
+// and branch access middleware enforce the effective permissions and
+// group/branch scope for each caller.
 const STAFF_READ_ROLES = [
   'Admin',
   'Super Admin',
@@ -137,6 +132,13 @@ router.post(
  *       200:
  *         description: List of unbilled products
  */
+router.get(
+  '/basic',
+  requireAnyPermission('patients.read', 'patients.read_basic'),
+  validate(patientSearchValidator),
+  patientController.getBasicPatients.bind(patientController)
+);
+
 router.get(
   '/:patientId/unbilled-products',
   requireRoles(...STAFF_READ_ROLES),
