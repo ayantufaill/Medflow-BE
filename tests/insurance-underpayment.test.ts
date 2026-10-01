@@ -348,7 +348,7 @@ describe('Insurance Underpayment Balance Transfer', () => {
       data: {
         CarrierNum: carrierNum1,
         CarrierName: `Carrier-Primary-${alphanumericToken}`,
-        ElectID: `P1${alphanumericToken.substring(0, 3)}`,
+        ElectID: `P1${alphanumericToken}`,
       },
     });
 
@@ -357,7 +357,7 @@ describe('Insurance Underpayment Balance Transfer', () => {
       data: {
         CarrierNum: carrierNum2,
         CarrierName: `Carrier-Secondary-${alphanumericToken}`,
-        ElectID: `S2${alphanumericToken.substring(0, 3)}`,
+        ElectID: `S2${alphanumericToken}`,
       },
     });
 
@@ -410,7 +410,10 @@ describe('Insurance Underpayment Balance Transfer', () => {
       });
 
     expect(invRes.status).toBe(201);
-    const invoiceId = invRes.body.data.id || invRes.body.data._id;
+    // POST /api/invoices answers with `data: { invoice }` (invoice.controller.ts),
+    // the same shape tests/invoices.test.ts reads.
+    const invoice = invRes.body.data.invoice;
+    const invoiceId = invoice._id || invoice.id;
     cleanupStatementNums.push(BigInt(invoiceId));
 
     // Verify: Because patient has secondary insurance:
@@ -418,7 +421,10 @@ describe('Insurance Underpayment Balance Transfer', () => {
     // - ptPortion is 0
     // - Statement InsEst is 100 (80 primary + 20 secondary)
     // - Patient portion is 0
-    const invData = invRes.body.data;
+    const invData = invoice;
+    console.log('PROBE invoice:', JSON.stringify({ patientPortion: invData.patientPortion, secondaryInsPortion: invData.secondaryInsPortion, insurancePortion: invData.insurancePortion }));
+    const probeProcs = await prisma.procedurelog.findMany({ where: { StatementNum: BigInt(invoiceId) } });
+    console.log('PROBE procMeta:', probeProcs[0]?.BillingNote);
     expect(invData.patientPortion).toBe(0);
     expect(invData.secondaryInsPortion).toBe(20);
     expect(invData.insurancePortion).toBe(80);

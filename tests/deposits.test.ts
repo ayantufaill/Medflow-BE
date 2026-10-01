@@ -96,8 +96,12 @@ describe('Deposits & Deposit Slips API', () => {
       const patPaysBefore = unDepositedBefore.body.data.patientPayments.map((p: any) => p.id);
       const insPaysBefore = unDepositedBefore.body.data.insurancePayments.map((p: any) => p.id);
       
-      expect(patPaysBefore).toContain(patientPayment.PayNum.toString());
-      expect(insPaysBefore).toContain(insurancePayment.ClaimPaymentNum.toString());
+      // The un-deposited listing namespaces its ids so patient payments and
+      // claim payments can share one list ('PAY_<PayNum>' / 'CP_<ClaimPaymentNum>',
+      // see getUnDepositedPayments in src/services/deposit.service.ts). The
+      // create-slip payload below still takes the bare numeric ids.
+      expect(patPaysBefore).toContain(`PAY_${patientPayment.PayNum.toString()}`);
+      expect(insPaysBefore).toContain(`CP_${insurancePayment.ClaimPaymentNum.toString()}`);
 
       // 4. Create the deposit slip
       const slipData = {

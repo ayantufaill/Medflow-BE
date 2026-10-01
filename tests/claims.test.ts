@@ -1002,7 +1002,9 @@ describe('Claims Procedures Fallback', () => {
       const claimNum = BigInt(Date.now() + Math.floor(Math.random() * 100000));
       const docNum = BigInt(Date.now() + Math.floor(Math.random() * 100000) + 1);
 
-      const testProcCode = 'D' + Math.floor(1000 + Math.random() * 9000).toString();
+      // Must not collide with the real ADA codes seeded by seedProcedureCodes.ts
+      // (D0120, D1110, ...), so this is deliberately outside the D-code space.
+      const testProcCode = `ZT${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 1000)}`;
       const testCodeNum = BigInt(Date.now() + Math.floor(Math.random() * 10000) + 100);
       await prisma.procedurecode.create({
         data: {
