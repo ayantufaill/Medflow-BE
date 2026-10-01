@@ -44,12 +44,16 @@ const getExtendedPrisma = () => {
             // binding for SET LOCAL values). A4 replaces this with a single
             // parameterized set_config() call.
             const clinicIdsLiteral = ctx.clinicIds === '*' ? '*' : ctx.clinicIds.map(String).join(',');
-            // null means "group could not be resolved" and must serialise to
-            // the EMPTY STRING, not to the text "null": the RLS policies
-            // treat '' as deny, whereas 'null' would reach the ::int cast and
-            // raise instead of quietly denying.
+            // null means "group could not be resolved" (e.g. the caller's
+            // clinic has no practicegroup — GroupNum is nullable) and must
+            // never serialise to the text "null": that would reach the
+            // ::int cast in prisma/rls/04-patient-group-visibility.sql and
+            // raise instead of quietly denying. '0' is the sentinel for "no
+            // group" — chosen (over empty string) so it can never collide
+            // with a real GroupNum, and the read policy explicitly guards
+            // against both '' and '0' before casting.
             const patientGroupIdLiteral =
-              ctx.patientGroupId === null ? '' : String(ctx.patientGroupId);
+              ctx.patientGroupId === null ? '0' : String(ctx.patientGroupId);
 
             return base.$transaction(async (tx) => {
               await tx.$executeRaw`

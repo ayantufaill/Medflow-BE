@@ -6,9 +6,17 @@ import { setRoleMeta } from '../utils/opendental-auth.util';
 
 const ADMIN_GROUP_PERMISSIONS = {
   '*': true,
+  // requirePhiAccess (src/middleware/phi.middleware.ts) does not treat a bare
+  // '*' as sufficient on its own for non-'Super Admin' roles — its wildcard
+  // bypass checks the literal role name, not the permission set. Branch Admin
+  // and legacy Admin both hold '*' here but are not named 'Super Admin', so
+  // without this explicit key they were rejected on every PHI-gated route
+  // (including patient creation) despite the wildcard.
+  'clinical.cross_branch.view': true,
 };
 
 const CLINICAL_GROUP_PERMISSIONS = {
+  'clinical.cross_branch.view': true,
   'patients.read': true,
   'appointments.read': true,
   'appointments.update': true,
@@ -27,7 +35,7 @@ const CLINICAL_GROUP_PERMISSIONS = {
   'treatment-plans.create': true,
   'treatment-plans.update': true,
   'documents.read': true,
-  'documents.upload': true,
+  'documents.create': true,
   'lab-orders.read': true,
   'lab-orders.create': true,
   'lab-orders.update': true,
@@ -39,9 +47,11 @@ const CLINICAL_GROUP_PERMISSIONS = {
   'authorizations.create': true,
   'services.read': true,
   'insurance.read': true,
+  'invoices.read': true,
 };
 
 const OPERATIONS_GROUP_PERMISSIONS = {
+  'clinical.cross_branch.view': true,
   'patients.read': true,
   'patients.create': true,
   'patients.update': true,
@@ -81,7 +91,7 @@ const OPERATIONS_GROUP_PERMISSIONS = {
   'authorizations.create': true,
   'authorizations.update': true,
   'documents.read': true,
-  'documents.upload': true,
+  'documents.create': true,
   'lab-orders.read': true,
   'lab-orders.create': true,
   'lab-orders.update': true,

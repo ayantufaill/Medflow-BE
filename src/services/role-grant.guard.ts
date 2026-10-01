@@ -18,6 +18,7 @@ import { prisma } from '../config/db';
 import { AuthorizationError } from '../utils/error.util';
 import { getRoleMeta } from '../utils/opendental-auth.util';
 import { PermissionService } from './permission.service';
+import { WILDCARD_ROLE_NAMES } from '../types/access.types';
 
 const SUPER_ADMIN_ROLE_NAME = 'Super Admin';
 
@@ -104,8 +105,16 @@ export async function assertCanGrant(
   // Check 2: Actor must hold every permission in the target role
   const actorPermissions = await getActorPermissions(actorUserId);
 
-  // If actor has wildcard, they can grant any non-platform role
-  if (actorPermissions.has('*')) return;
+  // If actor has a wildcard FROM A RECOGNISED ADMIN ROLE, they can grant any
+  // non-platform role. A bare '*' alone isn't enough — same reasoning as
+  // access.types.ts's wildcardHonoured(): a custom role someone pasted '*'
+  // into shouldn't silently inherit grant authority.
+  if (actorPermissions.has('*')) {
+    const actorRoles = await PermissionService.getUserRoles(actorUserId);
+    if (actorRoles.some((r) => (WILDCARD_ROLE_NAMES as readonly string[]).includes(r))) {
+      return;
+    }
+  }
 
   const missingPermissions: string[] = [];
   for (const [key, value] of Object.entries(rolePermissions)) {

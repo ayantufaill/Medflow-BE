@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { insurancePlanController } from '../controllers/insurance-plan.controller';
-import { authenticate, requireRoles } from '../middleware/auth.middleware';
+import { authenticate } from '../middleware/auth.middleware';
+import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
   coverageTemplatePayloadValidator,
@@ -46,7 +47,7 @@ router.use(authenticate);
  */
 router.get(
   '/',
-  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  requirePermission('insurance.read'),
   validate(insurancePlanQueryValidator),
   insurancePlanController.getInsurancePlans.bind(insurancePlanController)
 );
@@ -84,7 +85,7 @@ router.get(
  */
 router.post(
   '/',
-  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  requirePermission('insurance.create'),
   validate(insurancePlanPayloadValidator),
   insurancePlanController.createInsurancePlan.bind(insurancePlanController)
 );
@@ -103,7 +104,7 @@ router.post(
  */
 router.get(
   '/coverage-templates',
-  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  requirePermission('insurance.read'),
   insurancePlanController.getCoverageTemplates.bind(insurancePlanController)
 );
 
@@ -134,7 +135,7 @@ router.get(
  */
 router.post(
   '/coverage-templates',
-  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  requirePermission('insurance.create'),
   validate(coverageTemplatePayloadValidator),
   insurancePlanController.createCoverageTemplate.bind(insurancePlanController)
 );
@@ -160,7 +161,7 @@ router.post(
  */
 router.get(
   '/:planId',
-  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  requirePermission('insurance.read'),
   validate(insurancePlanIdValidator),
   insurancePlanController.getInsurancePlanById.bind(insurancePlanController)
 );
@@ -199,14 +200,14 @@ router.get(
  */
 router.patch(
   '/:planId',
-  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  requirePermission('insurance.update'),
   validate([...insurancePlanIdValidator, ...insurancePlanUpdateValidator]),
   insurancePlanController.updateInsurancePlan.bind(insurancePlanController)
 );
 
 router.delete(
   '/:planId',
-  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  requirePermission('insurance.delete'),
   validate(insurancePlanIdValidator),
   insurancePlanController.deleteInsurancePlan.bind(insurancePlanController)
 );
@@ -230,7 +231,7 @@ router.delete(
  */
 router.post(
   '/:planId/benefits',
-  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  requirePermission('insurance.update'),
   validate(insurancePlanIdValidator),
   insurancePlanController.createBenefit.bind(insurancePlanController)
 );
@@ -258,7 +259,7 @@ router.post(
  */
 router.put(
   '/:planId/benefits/:benefitId',
-  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  requirePermission('insurance.update'),
   validate(insurancePlanIdValidator),
   insurancePlanController.updateBenefit.bind(insurancePlanController)
 );
@@ -286,7 +287,7 @@ router.put(
  */
 router.delete(
   '/:planId/benefits/:benefitId',
-  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  requirePermission('insurance.update'),
   validate(insurancePlanIdValidator),
   insurancePlanController.deleteBenefit.bind(insurancePlanController)
 );
@@ -310,7 +311,7 @@ router.delete(
  */
 router.get(
   '/patients/:patientId/coverages',
-  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  requirePermission('insurance.read'),
   validate(patientIdValidator),
   insurancePlanController.getPatientCoverages.bind(insurancePlanController)
 );
@@ -350,7 +351,7 @@ router.get(
  */
 router.post(
   '/patients/:patientId/coverages',
-  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  requirePermission('insurance.create'),
   validate([...patientIdValidator, ...createPatientInsuranceValidator]),
   insurancePlanController.createPatientCoverage.bind(insurancePlanController)
 );

@@ -25,11 +25,13 @@ export interface TenantContextValue {
    * accessAllClinics).
    *
    * `null` is distinct from both '*' and 0: it means the caller's clinic
-   * could not be resolved to a practicegroup. It is serialised to '' in the
-   * RLS GUC, and prisma/rls/04-patient-group-visibility.sql denies on ''
-   * (as of A0.5a it also denies when the patient's own GroupNum is null).
-   * A caller in that state therefore reads no patients at all, rather than
-   * every patient in the system.
+   * could not be resolved to a practicegroup. It is serialised to the '0'
+   * sentinel in the RLS GUC (src/config/db.ts), and
+   * prisma/rls/04-patient-group-visibility.sql denies the group-wide arm on
+   * '0' same as on '' (as of A0.5a it also denies when the patient's own
+   * GroupNum is null). A caller in that state still reads their own
+   * branch's patients via the ClinicNum arm of that same policy — this GUC
+   * alone no longer decides "reads nothing" vs. "reads everything".
    */
   patientGroupId: number | '*' | null;
   userId?: string;

@@ -48,7 +48,7 @@ router.get(
   requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
-  requirePermission('clinical-notes.read'),
+  requirePermission('lab-orders.read'),
   validate(getLabsValidator),
   labCaseController.getAllLaboratories
 );
@@ -92,7 +92,7 @@ router.post(
   requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
-  requirePermission('clinical-notes.update'),
+  requirePermission('lab-orders.create'),
   validate(createLabValidator),
   labCaseController.createLaboratory
 );
@@ -152,7 +152,7 @@ router.get(
   requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
-  requirePermission('clinical-notes.read'),
+  requirePermission('lab-orders.read'),
   validate(getLabCasesValidator),
   labCaseController.getAllLabCases
 );
@@ -181,7 +181,7 @@ router.get(
   requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
-  requirePermission('clinical-notes.read'),
+  requirePermission('lab-orders.read'),
   validate(labCaseIdValidator),
   labCaseController.getLabCaseById
 );
@@ -229,7 +229,7 @@ router.post(
   requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
-  requirePermission('clinical-notes.update'),
+  requirePermission('lab-orders.create'),
   validate(createLabCaseValidator),
   labCaseController.createLabCase
 );
@@ -287,7 +287,7 @@ router.patch(
   requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
-  requirePermission('clinical-notes.update'),
+  requirePermission('lab-orders.update'),
   (req, res, next) => {
     console.log('🔥 PATCH /lab-cases/:id reached!');
     next();
@@ -329,7 +329,7 @@ router.patch(
   requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
-  requirePermission('clinical-notes.update'),
+  requirePermission('lab-orders.update'),
   (req, res, next) => {
     console.log('🔥 PATCH /lab-cases/:id/status reached!');
     next();
@@ -362,7 +362,7 @@ router.delete(
   requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
-  requirePermission('clinical-notes.delete'),
+  requirePermission('lab-orders.delete'),
   (req, res, next) => {
     console.log('🔥 DELETE /lab-cases/:id reached!');
     next();

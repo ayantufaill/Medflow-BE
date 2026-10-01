@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { insurancePlanController } from '../controllers/insurance-plan.controller';
-import { authenticate, requireRoles } from '../middleware/auth.middleware';
+import { authenticate } from '../middleware/auth.middleware';
+import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { coverageTemplatePayloadValidator } from '../validators/insurance-plan.validator';
 
@@ -42,7 +43,7 @@ router.use(authenticate);
  */
 router.get(
   '/',
-  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  requirePermission('insurance.read'),
   insurancePlanController.getCoverageTemplates.bind(insurancePlanController)
 );
 
@@ -76,7 +77,7 @@ router.get(
  */
 router.post(
   '/',
-  requireRoles('Receptionist', 'Admin', 'Billing Staff'),
+  requirePermission('insurance.create'),
   validate(coverageTemplatePayloadValidator),
   insurancePlanController.createCoverageTemplate.bind(insurancePlanController)
 );

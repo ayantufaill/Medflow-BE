@@ -1,7 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { PermissionService } from '../services/permission.service';
 import { AuthenticationError, AuthorizationError } from '../utils/error.util';
-import { ERR_PHI_ACCESS_NOT_GRANTED, type AccessContext } from '../types/access.types';
+import { ERR_PHI_ACCESS_NOT_GRANTED, hasPermission, type AccessContext } from '../types/access.types';
 
 /**
  * The permission that grants cross-branch access to protected health
@@ -29,14 +29,18 @@ export const PHI_PERMISSION = 'clinical.cross_branch.view';
  *
  * Two access paths are accepted:
  *   - holds PHI_PERMISSION explicitly, or
- *   - holds '*' (platform admin / one of the still-wildcard admin roles).
+ *   - holds '*' AND is one of the recognised wildcard-honoured roles (Super
+ *     Admin / Admin / Branch Admin) or a flagged platform admin.
  *
- * A '*' holder is accepted because Super Admin and Branch Admin are seeded
- * with '*' today (A3.5) and narrowing them is separate work. Note this is
- * intentionally looser than the permission-layer check in A4, which also
- * requires the role to be a recognised wildcard role — so a custom role that
- * someone pasted '*' into is NOT treated as platform admin here. That check
- * is tightened in A4; this is the pre-A4 approximation.
+ * This now delegates to the canonical `hasPermission()` in access.types.ts —
+ * the same check `requirePermission()` uses — instead of re-implementing its
+ * own narrower version. The previous version only honoured '*' for a role
+ * literally named 'Super Admin', silently excluding Branch Admin and Admin
+ * despite both holding '*' in the seed (see the explicit
+ * 'clinical.cross_branch.view' grant added to ADMIN_GROUP_PERMISSIONS as a
+ * workaround for that bug). That key is now redundant but harmless to leave
+ * in place: this middleware would pass Admin/Branch Admin via the wildcard
+ * path alone.
  */
 export const requirePhiAccess = async (
   req: Request,
@@ -52,16 +56,12 @@ export const requirePhiAccess = async (
 
     let allowed: boolean;
     if (access) {
-      // A4 path: in-memory, no query.
-      allowed =
-        access.permissions.has(PHI_PERMISSION) ||
-        (access.isPlatformAdmin && access.permissions.has('*')) ||
-        (access.permissions.has('*') && access.roles.some((r) => r === 'Super Admin'));
+      // A4 path: in-memory, no query. Same canonical check requirePermission() uses.
+      allowed = hasPermission(access, PHI_PERMISSION);
     } else {
-      // Pre-A4 path. getUserPermissions() already folds '*' into the returned
-      // set, so a single call covers both the explicit key and the wildcard.
-      const permissions = await PermissionService.getUserPermissions(req.userId);
-      allowed = permissions.has(PHI_PERMISSION) || permissions.has('*');
+      // Pre-A4 path (no req.access resolved yet). PermissionService.hasPermission()
+      // applies the same wildcard-honoured gate as hasPermission() above.
+      allowed = await PermissionService.hasPermission(req.userId, PHI_PERMISSION);
     }
 
     if (!allowed) {

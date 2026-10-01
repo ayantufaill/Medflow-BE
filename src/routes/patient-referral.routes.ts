@@ -41,7 +41,7 @@ router.get(
   requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
-  requirePermission('clinical-notes.read'),
+  requirePermission('referrals.read'),
   validate(getPatientReferralsValidator),
   patientReferralController.getPatientReferrals
 );
@@ -79,7 +79,7 @@ router.post(
   requirePhiAccess,
   resolveBranchAccess,
   enterTenantContext,
-  requirePermission('clinical-notes.update'),
+  requirePermission('referrals.create'),
   validate(createPatientReferralValidator),
   patientReferralController.createPatientReferral
 );

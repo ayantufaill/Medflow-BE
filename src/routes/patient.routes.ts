@@ -26,10 +26,18 @@ router.use(requirePhiAccess);
 router.use(resolveBranchAccess);
 router.use(enterTenantContext);
 
+// Group Admin is deliberately absent from all three lists below. This whole
+// router sits behind `router.use(requirePhiAccess)`, and Group Admin's
+// permission set intentionally excludes `clinical.cross_branch.view` (see
+// phi.middleware.ts) — managing a group of practices isn't the same
+// authority as reading its patients' records. Listing 'Group Admin' here
+// used to be dead code (requirePhiAccess rejected them before any of these
+// lists were ever checked), which misleadingly suggested they had access
+// they don't. Removed rather than granted, since excluding Group Admin from
+// patient data is the stated intent, not an oversight.
 const STAFF_READ_ROLES = [
   'Admin',
   'Super Admin',
-  'Group Admin',
   'Branch Admin',
   'Provider',
   'Doctor',
@@ -46,7 +54,6 @@ const STAFF_READ_ROLES = [
 const BILLING_STAFF_ROLES = [
   'Admin',
   'Super Admin',
-  'Group Admin',
   'Branch Admin',
   'Biller',
   'Billing Staff',
@@ -57,7 +64,6 @@ const BILLING_STAFF_ROLES = [
 const CLINICAL_STAFF_ROLES = [
   'Admin',
   'Super Admin',
-  'Group Admin',
   'Branch Admin',
   'Provider',
   'Doctor',

@@ -1,6 +1,7 @@
 import { prisma } from '../config/db';
 import type { AppRole, BranchAccess } from '../types/auth.types';
 import { GROUP_ADMIN_PERMISSIONS } from '../types/auth.types';
+import { WILDCARD_ROLE_NAMES } from '../types/access.types';
 import { getRolesMeta, mapRole } from '../utils/opendental-auth.util';
 
 // Resource types scoped by clinic.ClinicNum, and how to look up their clinic.
@@ -83,20 +84,33 @@ export class PermissionService {
     return permissions;
   }
 
+  /**
+   * A bare '*' in the permission set is only a real bypass when it came from
+   * a recognised wildcard-honoured role (see access.types.ts's wildcardHonoured,
+   * which this mirrors). Without this, a custom role someone pasted '*' into
+   * would be silently equivalent to root — the same bug class as the one
+   * fixed in requirePhiAccess.
+   */
+  private static async wildcardHonoured(userId: string): Promise<boolean> {
+    const roles = await this.getUserRoles(userId);
+    return roles.some((r) => (WILDCARD_ROLE_NAMES as readonly string[]).includes(r));
+  }
+
   static async hasPermission(userId: string, permission: string): Promise<boolean> {
     const permissions = await this.getUserPermissions(userId);
-    return permissions.has('*') || permissions.has(permission);
+    if (permissions.has('*') && (await this.wildcardHonoured(userId))) return true;
+    return permissions.has(permission);
   }
 
   static async hasAnyPermission(userId: string, permissions: string[]): Promise<boolean> {
     const userPermissions = await this.getUserPermissions(userId);
-    if (userPermissions.has('*')) return true;
+    if (userPermissions.has('*') && (await this.wildcardHonoured(userId))) return true;
     return permissions.some((perm) => userPermissions.has(perm));
   }
 
   static async hasAllPermissions(userId: string, permissions: string[]): Promise<boolean> {
     const userPermissions = await this.getUserPermissions(userId);
-    if (userPermissions.has('*')) return true;
+    if (userPermissions.has('*') && (await this.wildcardHonoured(userId))) return true;
     return permissions.every((perm) => userPermissions.has(perm));
   }
 
@@ -210,7 +224,8 @@ export class PermissionService {
     resourceId: string,
     _action: string
   ): Promise<boolean> {
-    if (await this.hasRole(userId, 'Admin')) {
+    const permissions = await this.getUserPermissions(userId);
+    if (permissions.has('*') && (await this.wildcardHonoured(userId))) {
       return true;
     }
 

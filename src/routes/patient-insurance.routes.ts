@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { patientInsuranceController } from '../controllers/patient-insurance.controller';
-import { authenticate, requireRoles } from '../middleware/auth.middleware';
+import { authenticate } from '../middleware/auth.middleware';
+import { requirePermission } from '../middleware/permission.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePhiAccess } from '../middleware/phi.middleware';
@@ -37,7 +38,7 @@ router.use(enterTenantContext);
  *                   items:
  *                     $ref: '#/components/schemas/PatientInsurance'
  */
-router.get('/all/coverages', requireRoles('Receptionist', 'Admin'), patientInsuranceController.getAllPatientInsurances.bind(patientInsuranceController));
+router.get('/all/coverages', requirePermission('insurance.read'), patientInsuranceController.getAllPatientInsurances.bind(patientInsuranceController));
 
 /**
  * @swagger
@@ -165,7 +166,7 @@ router.get('/all/coverages', requireRoles('Receptionist', 'Admin'), patientInsur
  *       404:
  *         description: Patient or Insurance company not found
  */
-router.get('/:patientId/insurance', requireRoles('Receptionist', 'Admin'), validate(patientIdValidator), patientInsuranceController.getPatientInsurances.bind(patientInsuranceController));
+router.get('/:patientId/insurance', requirePermission('insurance.read'), validate(patientIdValidator), patientInsuranceController.getPatientInsurances.bind(patientInsuranceController));
 /**
  * @swagger
  * /patients/{patientId}/insurance:
@@ -201,7 +202,7 @@ router.get('/:patientId/insurance', requireRoles('Receptionist', 'Admin'), valid
  *         description: Not found
  */
 
-router.post('/:patientId/insurance', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...createPatientInsuranceValidator]), patientInsuranceController.createPatientInsurance.bind(patientInsuranceController));
+router.post('/:patientId/insurance', requirePermission('insurance.create'), validate([...patientIdValidator, ...createPatientInsuranceValidator]), patientInsuranceController.createPatientInsurance.bind(patientInsuranceController));
 
 /**
  * @swagger
@@ -356,7 +357,7 @@ router.post('/:patientId/insurance', requireRoles('Receptionist', 'Admin'), vali
  *       404: 
  *         description: Insurance not found
  */
-router.get('/:patientId/insurance/:patientInsuranceId', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...patientInsuranceIdValidator]), patientInsuranceController.getPatientInsuranceById.bind(patientInsuranceController));
+router.get('/:patientId/insurance/:patientInsuranceId', requirePermission('insurance.read'), validate([...patientIdValidator, ...patientInsuranceIdValidator]), patientInsuranceController.getPatientInsuranceById.bind(patientInsuranceController));
 /**
  * @swagger
  * /patients/{patientId}/insurance/{patientInsuranceId}:
@@ -396,7 +397,7 @@ router.get('/:patientId/insurance/:patientInsuranceId', requireRoles('Receptioni
  *         description: Not found
  */
 
-router.put('/:patientId/insurance/:patientInsuranceId', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...patientInsuranceIdValidator, ...updatePatientInsuranceValidator]), patientInsuranceController.updatePatientInsurance.bind(patientInsuranceController));
+router.put('/:patientId/insurance/:patientInsuranceId', requirePermission('insurance.update'), validate([...patientIdValidator, ...patientInsuranceIdValidator, ...updatePatientInsuranceValidator]), patientInsuranceController.updatePatientInsurance.bind(patientInsuranceController));
 /**
  * @swagger
  * /patients/{patientId}/insurance/{patientInsuranceId}:
@@ -430,7 +431,7 @@ router.put('/:patientId/insurance/:patientInsuranceId', requireRoles('Receptioni
  *         description: Not found
  */
 
-router.delete('/:patientId/insurance/:patientInsuranceId', requireRoles('Receptionist', 'Admin'), validate([...patientIdValidator, ...patientInsuranceIdValidator]), patientInsuranceController.deletePatientInsurance.bind(patientInsuranceController));
+router.delete('/:patientId/insurance/:patientInsuranceId', requirePermission('insurance.delete'), validate([...patientIdValidator, ...patientInsuranceIdValidator]), patientInsuranceController.deletePatientInsurance.bind(patientInsuranceController));
 
 /**
  * @swagger
@@ -459,14 +460,14 @@ router.delete('/:patientId/insurance/:patientInsuranceId', requireRoles('Recepti
  */
 router.patch(
   '/:patientId/insurance/:patientInsuranceId/primary',
-  requireRoles('Receptionist', 'Admin'),
+  requirePermission('insurance.update'),
   validate([...patientIdValidator, ...patientInsuranceIdValidator]),
   patientInsuranceController.setPrimaryInsurance.bind(patientInsuranceController)
 );
 
 router.post(
   '/:patientId/insurance/reorder',
-  requireRoles('Receptionist', 'Admin'),
+  requirePermission('insurance.update'),
   validate([...patientIdValidator, ...reorderInsurancesValidator]),
   patientInsuranceController.reorderPatientInsurances.bind(patientInsuranceController)
 );

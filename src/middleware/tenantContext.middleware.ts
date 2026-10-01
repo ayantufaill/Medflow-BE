@@ -37,8 +37,11 @@ import { ERR_NO_BRANCH_ASSIGNED } from '../types/access.types';
  *
  *   '*'  → ONLY a Super Admin (later: isPlatformAdmin || accessAllClinics)
  *   []   → DENY, answered with 403 NO_BRANCH_ASSIGNED
- *   null → no group resolved, passed through as null; the RLS policy already
- *          treats null/'' as deny
+ *   null → no group resolved (e.g. clinic not yet assigned to a
+ *          practicegroup), passed through as null; the RLS policy treats
+ *          this as "no group-wide visibility", not "no visibility at all" —
+ *          the caller still reads their own branch's patients via
+ *          clinicIds, unaffected by this being null
  *
  * NO_BRANCH_ASSIGNED is an onboarding state, not an attack, so it gets its
  * own error code: the frontend renders "no branch is assigned to your

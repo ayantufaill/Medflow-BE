@@ -59,12 +59,42 @@ DROP POLICY IF EXISTS patient_delete_own ON patient;
 -- operatory is the chairs/rooms table, which room.service.ts reads with no
 -- clinic filter. Attributing those tables is a separate workstream (A0.5b),
 -- not an edit to this file.
+--
+-- P0 fix: this policy used to be GroupNum-only, with no own-branch fallback.
+-- clinic.GroupNum is nullable — any clinic not yet assigned to a
+-- practicegroup has GroupNum = NULL, so app.patient_group_id resolves to ''
+-- (see src/config/db.ts) for every one of its users, and the GroupNum match
+-- always failed. Every patient read for a standalone/ungrouped clinic came
+-- back empty. Own-branch visibility (arm 1, ClinicNum against
+-- app.clinic_ids) is now unconditional and matches every other RLS table;
+-- group-wide visibility (arm 2, GroupNum against app.patient_group_id) is
+-- strictly additive on top of it, exactly like 02/03-policies use ClinicNum.
+-- '' and '0' are both treated as "no group" — '' is what
+-- src/config/db.ts has always serialised a NULL GroupNum to, '0' is the
+-- explicit sentinel it now also writes defensively (see comment there) —
+-- neither may reach the ::int cast, which would otherwise throw on '' or
+-- silently match a real GroupNum of 0.
 CREATE POLICY patient_read_group ON patient FOR SELECT
 USING (
+  -- 1. Always: own-branch visibility. Identical shape to the ClinicNum
+  --    check the write policies below (and 02/03-policies.sql) already use —
+  --    this alone makes standalone clinics with no group work correctly.
+  CASE
+    WHEN current_setting('app.clinic_ids', true) = '*' THEN true
+    WHEN current_setting('app.clinic_ids', true) IS NULL
+         OR current_setting('app.clinic_ids', true) = '' THEN false
+    ELSE "ClinicNum" = ANY(string_to_array(current_setting('app.clinic_ids', true), ',')::bigint[])
+  END
+  OR
+  -- 2. Additive: group-wide visibility, only when a real group is resolved.
+  --    Guards '' and '0' explicitly rather than relying on NULLIF — both are
+  --    live "no group" values depending on which layer produced them (see
+  --    src/config/db.ts), and casting either straight to ::int is wrong:
+  --    '' raises, and an unguarded '0' would match a literal GroupNum = 0.
   CASE
     WHEN current_setting('app.patient_group_id', true) = '*' THEN true
     WHEN current_setting('app.patient_group_id', true) IS NULL
-         OR current_setting('app.patient_group_id', true) = '' THEN false
+         OR current_setting('app.patient_group_id', true) IN ('', '0') THEN false
     ELSE "GroupNum" = current_setting('app.patient_group_id', true)::int
   END
 );
