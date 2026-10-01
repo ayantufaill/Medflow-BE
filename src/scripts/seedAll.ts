@@ -9,6 +9,9 @@ const bin = path.join(
 );
 
 const scripts = [
+  // Must come first: seedUsers attaches every account to ClinicNum 1 and
+  // seedBranches links it, but nothing else creates it.
+  'src/scripts/seedDefaultClinic.ts',
   'src/scripts/seedRoles.ts',
   'src/scripts/seedNewModelRoles.ts',
   'src/scripts/seedUsers.ts',
@@ -32,6 +35,11 @@ const scripts = [
   'src/scripts/seedFees.ts',
   'src/scripts/seedFormTemplates.ts',
   'src/scripts/seedRecareTypes.ts',
+  // Two independent practice groups (Metro Dental Partners / Pacific Coast
+  // Dental Care) with their own branches, staff and patients. Runs last so it
+  // builds on the seeded roles; tests/client-demo-multitenant.test.ts asserts
+  // directly against these fixtures.
+  'src/scripts/seedClientDemoScenario.ts',
 ];
 
 for (const script of scripts) {

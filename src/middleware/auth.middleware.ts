@@ -75,6 +75,19 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
   }
 };
 
+/**
+ * The caller's role names, preferring the access context that `authenticate`
+ * loads from the database over the names embedded in the JWT.
+ *
+ * The token carries `roles` only when it was minted with them, and they go
+ * stale the moment an administrator changes someone's role. `req.access.roles`
+ * is read per request and spells new-model roles with their machine keys
+ * ('group_admin'), which is what usergroup.Description actually stores — so
+ * reading the token alone left every new-model account with no roles at all
+ * and answered 403 on routes they are entitled to.
+ */
+const rolesOf = (req: Request): string[] => req.access?.roles ?? req.user?.roles ?? [];
+
 const ROLE_ALIASES: Record<string, string[]> = {
   'Admin': ['Super Admin', 'Group Admin', 'Branch Admin'],
   'Super Admin': ['Admin'],
@@ -101,7 +114,7 @@ export const requireGroups = (...allowedGroups: UserGroup[]) => {
       return next(new AuthenticationError('Authentication required'));
     }
 
-    const userRoles = req.user.roles || [];
+    const userRoles = rolesOf(req);
     const userGroups = getUserGroups(userRoles);
 
     // Administrative Group (Super Admin, Group Admin, Branch Admin) has universal platform authority
@@ -128,7 +141,7 @@ export const requireRoles = (...allowedRoles: string[]) => {
       return next(new AuthenticationError('Authentication required'));
     }
 
-    const userRoles = req.user.roles || [];
+    const userRoles = rolesOf(req);
     const userGroups = getUserGroups(userRoles);
 
     // Administrative Group has universal platform authority
@@ -169,7 +182,7 @@ export const requireAllRoles = (...requiredRoles: string[]) => {
       return next(new AuthenticationError('Authentication required'));
     }
 
-    const userRoles = req.user.roles || [];
+    const userRoles = rolesOf(req);
     const userGroups = getUserGroups(userRoles);
 
     // Administrative Group has universal platform authority
