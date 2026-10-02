@@ -10,6 +10,24 @@ LANGUAGE sql STABLE AS $$
   SELECT NULLIF(current_setting('app.user_id', true), '')::bigint;
 $$;
 
+-- app.clinic_ids parsed to bigint[]; '*' (bypass), '' and NULL all collapse to
+-- NULL ("matches nothing") rather than reaching the cast, which raises 22P02
+-- on '*'. MUST stay plpgsql — a LANGUAGE sql body would be inlined by the
+-- planner and the cast would escape its guard. See the long note in
+-- 04-patient-group-visibility.sql, which keeps a defensive copy of this.
+CREATE OR REPLACE FUNCTION mf.clinic_ids() RETURNS bigint[]
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  raw text;
+BEGIN
+  raw := current_setting('app.clinic_ids', true);
+  IF raw IS NULL OR raw = '' OR raw = '*' THEN
+    RETURN NULL;
+  END IF;
+  RETURN string_to_array(raw, ',')::bigint[];
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION mf.shared_mode(category text) RETURNS text
 LANGUAGE plpgsql STABLE AS $$
 DECLARE
