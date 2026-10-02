@@ -25,7 +25,7 @@ export class RoleController {
       const search = req.query.search as string | undefined;
       const scope = req.query.scope === 'assignable' ? 'assignable' : undefined;
 
-      const result = await roleService.getAllRoles(page, limit, search, scope);
+      const result = await roleService.getAllRoles(page, limit, search, scope, req.userId);
       res.status(200).json({
         success: true,
         data: result,

@@ -16,6 +16,10 @@ import { PermissionService } from './permission.service';
 import { bumpAccessVersion } from './access-version.service';
 
 const PLATFORM_ROLE_KEYS = new Set(['platform_admin', 'super_admin', 'system_admin']);
+/** Granted only through the practice-group provisioning flow, never via role elevation. */
+const NOT_ELEVATABLE_ROLE_KEYS = new Set(['group_admin']);
+/** Roles a branch_admin (without group authority) may not hand out. */
+const BRANCH_ADMIN_CANNOT_ASSIGN = new Set(['branch_admin', 'billing']);
 
 export interface ElevateRoleParams {
   actorUserId: string;
@@ -49,6 +53,25 @@ async function resolveActorAuthority(actorUserId: string): Promise<{
   };
 }
 
+/**
+ * Which role keys this actor may hand out through elevateUserRole(), so the
+ * role picker offers exactly what the endpoint will accept. `canAssign` is
+ * false for actors who may not change roles at all.
+ */
+export async function getAssignableRoleRules(
+  actorUserId: string
+): Promise<{ canAssign: boolean; blockedRoleKeys: Set<string> }> {
+  const actor = await resolveActorAuthority(actorUserId);
+  const actingAsGroupAdmin = actor.newModelRoleKey === 'group_admin' || actor.isLegacyWildcardAdmin;
+  const actingAsBranchAdminOnly = actor.newModelRoleKey === 'branch_admin' && !actingAsGroupAdmin;
+
+  const blockedRoleKeys = new Set([...PLATFORM_ROLE_KEYS, ...NOT_ELEVATABLE_ROLE_KEYS]);
+  if (actingAsBranchAdminOnly) {
+    for (const key of BRANCH_ADMIN_CANNOT_ASSIGN) blockedRoleKeys.add(key);
+  }
+  return { canAssign: actingAsGroupAdmin || actingAsBranchAdminOnly, blockedRoleKeys };
+}
+
 export async function elevateUserRole({
   actorUserId,
   targetUserId,
@@ -58,7 +81,7 @@ export async function elevateUserRole({
   if (PLATFORM_ROLE_KEYS.has(roleKey)) {
     throw new AuthorizationError('Platform roles cannot be assigned from the clinical app.');
   }
-  if (roleKey === 'group_admin') {
+  if (NOT_ELEVATABLE_ROLE_KEYS.has(roleKey)) {
     throw new AuthorizationError('group_admin can only be granted by another group_admin through the practice-group provisioning flow, not this endpoint.');
   }
 
@@ -81,7 +104,7 @@ export async function elevateUserRole({
   }
 
   if (actingAsBranchAdminOnly) {
-    if (roleKey === 'branch_admin' || roleKey === 'billing') {
+    if (BRANCH_ADMIN_CANNOT_ASSIGN.has(roleKey)) {
       throw new AuthorizationError(`branch_admin cannot assign the "${roleKey}" role.`);
     }
     if (!clinicId) {

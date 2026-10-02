@@ -3,6 +3,7 @@ import { NotFoundError, ConflictError } from '../utils/error.util';
 import type { AppRole } from '../types/auth.types';
 import { getRoleMeta, mapRole, mapUser, setRoleMeta, getRolesMeta, getUsersMeta } from '../utils/opendental-auth.util';
 import { getNextId } from '../utils/opendental-ids.util';
+import { getAssignableRoleRules } from './role-elevation.service';
 
 export class RoleService {
   /**
@@ -13,7 +14,7 @@ export class RoleService {
    * roles and the external Patient role without needing a separate
    * "is this a platform role" judgment call on every legacy row.
    */
-  async getAllRoles(page = 1, limit = 100, search?: string, scope?: 'assignable') {
+  async getAllRoles(page = 1, limit = 100, search?: string, scope?: 'assignable', actorUserId?: string) {
     const skip = (page - 1) * limit;
     const where: any = {};
 
@@ -31,8 +32,15 @@ export class RoleService {
       const allRoles = await Promise.all(
         allRows.map((row) => mapRole(row, roleMetaMap[row.UserGroupNum.toString()]))
       );
+      // Narrow further to what this actor can actually grant via role elevation,
+      // so the picker never offers a role the endpoint would refuse.
+      const rules = actorUserId ? await getAssignableRoleRules(actorUserId) : null;
       const assignableRoles = allRoles.filter(
-        (role) => role.isActive !== false && role.isNewModel === true && role.isPlatformRole !== true
+        (role) =>
+          role.isActive !== false &&
+          role.isNewModel === true &&
+          role.isPlatformRole !== true &&
+          (!rules || (rules.canAssign && !rules.blockedRoleKeys.has(role.roleKey ?? '')))
       );
       const total = assignableRoles.length;
       const paged = assignableRoles.slice(skip, skip + limit);
