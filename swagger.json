@@ -581,6 +581,103 @@
           }
         }
       },
+      "AutomationTiming": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "event"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "event"
+                ]
+              },
+              "event": {
+                "type": "string",
+                "example": "When Appointment Created"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "type",
+              "amount",
+              "unit",
+              "direction",
+              "anchor"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "offset"
+                ]
+              },
+              "amount": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 365,
+                "example": 7
+              },
+              "unit": {
+                "type": "string",
+                "enum": [
+                  "Hours",
+                  "Days",
+                  "Weeks"
+                ]
+              },
+              "direction": {
+                "type": "string",
+                "enum": [
+                  "Before",
+                  "After"
+                ]
+              },
+              "anchor": {
+                "type": "string",
+                "example": "Confirmed Appointment"
+              }
+            }
+          }
+        ]
+      },
+      "AutomationInput": {
+        "type": "object",
+        "required": [
+          "timing",
+          "channel",
+          "body"
+        ],
+        "properties": {
+          "timing": {
+            "$ref": "#/components/schemas/AutomationTiming"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "Preferred",
+              "SMS",
+              "Email",
+              "Email, SMS"
+            ]
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject (ignored for SMS)"
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 1000,
+            "example": "Hi {Patient: First Name}, see you tomorrow at {Appointment: Time}."
+          }
+        }
+      },
       "Role": {
         "type": "object",
         "properties": {
@@ -4934,6 +5031,45 @@
         "responses": {
           "200": {
             "description": "Appointment analytics"
+          }
+        }
+      }
+    },
+    "/branches/{branchId}/features": {
+      "patch": {
+        "summary": "Toggle a per-branch feature flag (group_admin only)",
+        "tags": [
+          "Branches"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "treatment_coordinator"
+                ],
+                "properties": {
+                  "treatment_coordinator": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated feature flags"
+          },
+          "403": {
+            "description": "Forbidden — group_admin only, or branch outside caller's group"
           }
         }
       }
@@ -10111,6 +10247,534 @@
           },
           "400": {
             "description": "Invalid input"
+          }
+        }
+      }
+    },
+    "/communication/email-domain": {
+      "get": {
+        "summary": "Get the practice's email sending domain, its DNS records and verification status",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Email domain state (status is \"not_configured\" when no domain is set)"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      },
+      "put": {
+        "summary": "Set or change the email sending domain and generate new DNS records",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "domain"
+                ],
+                "properties": {
+                  "domain": {
+                    "type": "string",
+                    "example": "yourpractice.com"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Domain saved with status \"pending\" and fresh DNS records"
+          },
+          "400": {
+            "description": "Invalid domain, or the domain is already the current one"
+          }
+        }
+      }
+    },
+    "/communication/email-domain/verify": {
+      "post": {
+        "summary": "Check the domain's DNS records against live DNS and update the verification status",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated state; each record carries \"found\" and status is verified, pending or failed"
+          },
+          "400": {
+            "description": "No email domain has been set up yet"
+          }
+        }
+      }
+    },
+    "/communication/email-preferences": {
+      "get": {
+        "summary": "Get the 'Sent From' and 'Reply To' addresses for patient emails",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Saved addresses, or defaults derived from the email domain and practice email"
+          }
+        }
+      },
+      "put": {
+        "summary": "Update the 'Sent From' and 'Reply To' addresses",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "sentFromEmail",
+                  "replyToEmail"
+                ],
+                "properties": {
+                  "sentFromEmail": {
+                    "type": "string",
+                    "example": "noreply@yourpractice.com"
+                  },
+                  "replyToEmail": {
+                    "type": "string",
+                    "example": "info@yourpractice.com"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Preferences saved"
+          },
+          "400": {
+            "description": "Invalid email, or 'Sent From' does not use the verified email domain"
+          }
+        }
+      }
+    },
+    "/communication/messaging-service": {
+      "get": {
+        "summary": "Get the practice's two-way SMS number and its status (active, pending or inactive)",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Messaging service state"
+          }
+        }
+      }
+    },
+    "/communication/messaging-service/practice-details": {
+      "get": {
+        "summary": "Number Selection step 1 - business details carriers register the number against",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Saved details, or defaults from Practice Info. Only the EIN's last 4 digits are returned."
+          }
+        }
+      },
+      "put": {
+        "summary": "Confirm practice details for number registration",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "legalBusinessName": {
+                    "type": "string"
+                  },
+                  "doingBusinessAs": {
+                    "type": "string"
+                  },
+                  "ein": {
+                    "type": "string",
+                    "description": "Full EIN",
+                    "only when changing it. Only the last 4 digits are stored.": null
+                  },
+                  "businessType": {
+                    "type": "string",
+                    "example": "Limited liability company"
+                  },
+                  "phoneNumber": {
+                    "type": "string",
+                    "example": "2015006314"
+                  },
+                  "website": {
+                    "type": "string"
+                  },
+                  "address": {
+                    "type": "string"
+                  },
+                  "address2": {
+                    "type": "string"
+                  },
+                  "city": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "string",
+                    "example": "NJ"
+                  },
+                  "zip": {
+                    "type": "string",
+                    "example": "07446-1926"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Details saved"
+          },
+          "400": {
+            "description": "Per-field errors in error.details.fields"
+          }
+        }
+      }
+    },
+    "/communication/messaging-service/available-numbers": {
+      "get": {
+        "summary": "Number Selection step 2 - SMS-capable numbers available in an area code",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "areaCode",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "201"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of 10-digit numbers (Twilio inventory when configured)"
+          },
+          "400": {
+            "description": "Invalid area code"
+          }
+        }
+      }
+    },
+    "/communication/messaging-service/number": {
+      "post": {
+        "summary": "Select a messaging number (saved as pending carrier registration; not purchased)",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "phoneNumber"
+                ],
+                "properties": {
+                  "phoneNumber": {
+                    "type": "string",
+                    "example": "2015550142"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Messaging service with status \"pending\""
+          },
+          "400": {
+            "description": "Invalid number, practice details not confirmed, or already the current number"
+          }
+        }
+      }
+    },
+    "/communication/automations": {
+      "get": {
+        "summary": "List a category's automated messages with overview counts",
+        "description": "The first call seeds starter messages for every category.",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pre-appointment",
+                "post-appointment",
+                "recall-reminders",
+                "incomplete-forms",
+                "payment-reminders"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ category, messages, overview: { actions, totalSent, recipients } }"
+          },
+          "400": {
+            "description": "Unknown category"
+          }
+        }
+      },
+      "post": {
+        "summary": "Create an automated message in a category",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/AutomationInput"
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "category"
+                    ],
+                    "properties": {
+                      "category": {
+                        "type": "string",
+                        "example": "recall-reminders"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created message (active)"
+          },
+          "400": {
+            "description": "Timing not valid for the category, bad channel, or empty message"
+          }
+        }
+      }
+    },
+    "/communication/automations/{id}": {
+      "put": {
+        "summary": "Update an automated message's timing, channel and content",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutomationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated message"
+          },
+          "400": {
+            "description": "Invalid input for the message's category"
+          },
+          "404": {
+            "description": "Message not found"
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete an automated message",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted"
+          },
+          "404": {
+            "description": "Message not found"
+          }
+        }
+      }
+    },
+    "/communication/automations/{id}/active": {
+      "patch": {
+        "summary": "Turn an automated message on or off",
+        "tags": [
+          "Communication"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "active"
+                ],
+                "properties": {
+                  "active": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated message"
+          },
+          "404": {
+            "description": "Message not found"
           }
         }
       }
@@ -19242,6 +19906,45 @@
         }
       }
     },
+    "/patients/{patientId}/branch-grant": {
+      "post": {
+        "summary": "Grant the caller's branch read access to an existing patient (resolves a cross-branch duplicate-check match instead of creating a new chart)",
+        "tags": [
+          "Patients"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "clinicId": {
+                    "type": "integer",
+                    "description": "Defaults to the caller's own branch if omitted"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Grant created"
+          },
+          "403": {
+            "description": "Forbidden — clinicId outside the caller's assigned branches"
+          },
+          "404": {
+            "description": "Patient not found"
+          }
+        }
+      }
+    },
     "/patients/{patientId}/family-members": {
       "post": {
         "summary": "Add a family member",
@@ -22217,6 +22920,24 @@
         }
       }
     },
+    "/permissions/catalog": {
+      "get": {
+        "summary": "Get permissions catalog",
+        "tags": [
+          "Permissions"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/permissions/check": {
       "post": {
         "summary": "Check if user has a specific permission",
@@ -23194,6 +23915,37 @@
         "responses": {
           "200": {
             "description": "Practice group detail"
+          },
+          "404": {
+            "description": "Practice group not found"
+          }
+        }
+      }
+    },
+    "/practice-groups/{groupId}/users": {
+      "get": {
+        "summary": "List every user in the practice group with their branch assignments",
+        "tags": [
+          "Practice Groups"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "groupId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Group users (any role) with current branchIds"
           },
           "404": {
             "description": "Practice group not found"
@@ -28636,6 +29388,32 @@
         }
       }
     },
+    "/api/security/audit": {
+      "get": {
+        "tags": [
+          "Security"
+        ],
+        "summary": "Query audit logs",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/security/audit/verify": {
+      "get": {
+        "tags": [
+          "Security"
+        ],
+        "summary": "Verify audit log chain",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/services": {
       "get": {
         "summary": "Get all services",
@@ -29398,7 +30176,7 @@
             "description": "Unauthorized — missing or invalid token"
           },
           "403": {
-            "description": "Forbidden — missing clinical-notes.read permission"
+            "description": "Forbidden — missing treatment-plans.read permission"
           }
         }
       },
@@ -29545,7 +30323,7 @@
             "description": "Unauthorized — missing or invalid token"
           },
           "403": {
-            "description": "Forbidden — missing clinical-notes.update permission"
+            "description": "Forbidden — missing treatment-plans.update permission"
           }
         }
       }
@@ -29643,7 +30421,7 @@
             "description": "Unauthorized — missing or invalid token"
           },
           "403": {
-            "description": "Forbidden — missing clinical-notes.read permission"
+            "description": "Forbidden — missing treatment-plans.read permission"
           },
           "404": {
             "description": "Treatment plan not found"
@@ -29796,7 +30574,7 @@
             "description": "Unauthorized — missing or invalid token"
           },
           "403": {
-            "description": "Forbidden — missing clinical-notes.update permission"
+            "description": "Forbidden — missing treatment-plans.update permission"
           },
           "404": {
             "description": "Treatment plan not found"
@@ -29856,7 +30634,7 @@
             "description": "Unauthorized — missing or invalid token"
           },
           "403": {
-            "description": "Forbidden — missing clinical-notes.delete permission"
+            "description": "Forbidden — missing treatment-plans.delete permission"
           },
           "404": {
             "description": "Treatment plan not found"
@@ -30530,6 +31308,50 @@
         }
       }
     },
+    "/users/{userId}/role": {
+      "patch": {
+        "summary": "Elevate a user's role under the new 8-role model (group_admin or branch_admin only)",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "roleSlug"
+                ],
+                "properties": {
+                  "roleSlug": {
+                    "type": "string",
+                    "example": "dentist"
+                  },
+                  "branchId": {
+                    "type": "integer",
+                    "description": "Required when the actor is a branch_admin"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Role changed; target user's sessions are invalidated"
+          },
+          "403": {
+            "description": "Forbidden — actor lacks authority to assign this role, or it's out of their branch scope"
+          }
+        }
+      }
+    },
     "/users/{userId}/roles/{roleId}": {
       "delete": {
         "summary": "Remove role from user (Admin only)",
@@ -30627,6 +31449,58 @@
           },
           "403": {
             "description": "Admin only"
+          }
+        }
+      }
+    },
+    "/users/{userId}/branches": {
+      "patch": {
+        "summary": "Replace a user's branch access (Admin / Group Admin)",
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "branchIds"
+                ],
+                "properties": {
+                  "branchIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "User branches updated"
+          },
+          "403": {
+            "description": "Admin / Group Admin role required"
           }
         }
       }
