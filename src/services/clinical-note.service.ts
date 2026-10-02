@@ -261,6 +261,13 @@ export class ClinicalNoteService {
   async getClinicalNotesByPatient(patientId: string, page = 1, limit = 10) {
     const skip = (page - 1) * limit;
 
+    // patient is under RLS: a patient outside the caller's scope reads as
+    // missing. Answer 404 (as GET /patients/:id does) instead of an empty list.
+    const patient = await prisma.patient.findFirst({ where: { PatNum: BigInt(patientId) }, select: { PatNum: true } });
+    if (!patient) {
+      throw new NotFoundError('Patient not found');
+    }
+
     const rows = await prisma.commlog.findMany({
       where: { PatNum: BigInt(patientId) },
       orderBy: { CommDateTime: 'desc' },
