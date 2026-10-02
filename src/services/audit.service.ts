@@ -193,13 +193,11 @@ export async function getAuditLogs(page: number = 1, limit: number = 50, filters
   ]);
 
   return {
-    logs: logs.map(l => ({
-      ...l,
-      SecurityLogNum: l.SecurityLogNum.toString(),
-      UserNum: l.UserNum?.toString(),
-      PatNum: l.PatNum?.toString(),
-      hash: l.securityloghash?.[0]?.LogHash || null,
-      hashNum: l.securityloghash?.[0]?.SecurityLogHashNum?.toString() || null,
+    logs: logs.map(({ securityloghash, ...l }) => ({
+      // Every BigInt column (FKey, DefNum, ...) as a string; JSON cannot serialise BigInt.
+      ...Object.fromEntries(Object.entries(l).map(([k, v]) => [k, typeof v === 'bigint' ? v.toString() : v])),
+      hash: securityloghash?.[0]?.LogHash || null,
+      hashNum: securityloghash?.[0]?.SecurityLogHashNum?.toString() || null,
     })),
     meta: {
       total,
