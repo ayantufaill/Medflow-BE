@@ -39,7 +39,8 @@ export interface WriteAuditParams {
  * LogSource) that the existing code ignores, plus the JSON blob in LogText.
  * No hash chain yet — that arrives in B2.
  */
-export async function writeAudit(params: WriteAuditParams): Promise<void> {
+/** Resolves true when the row was written; failures are logged, never thrown. */
+export async function writeAudit(params: WriteAuditParams): Promise<boolean> {
   const { userNum, permType, patNum, clinicNum, text, source, req } = params;
 
   try {
@@ -98,7 +99,9 @@ export async function writeAudit(params: WriteAuditParams): Promise<void> {
     );
     // Audit failures should not break the caller's request
     // but we log loudly so they are noticed in monitoring.
+    return false;
   }
+  return true;
 }
 
 export async function verifyAuditChain() {
