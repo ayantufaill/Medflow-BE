@@ -176,6 +176,20 @@ const BRANCH_ADMIN_PERMISSIONS = {
   'documents.read': true,
   'documents.create': true,
   'services.read': true,
+  // Read-only view of clinical and billing work in the branch (and, via
+  // inheritance, across the group for group_admin). Writes stay with the
+  // clinical and billing roles. Without these the Clinical and Billing pages
+  // open but every data call returns 403.
+  'clinical-notes.read': true,
+  'treatment-plans.read': true,
+  'claims.read': true,
+  'era.read': true,
+  'payments.read': true,
+  'adjustments.read': true,
+  'authorizations.read': true,
+  // Admin console → Patient Communication settings.
+  'settings.read': true,
+  'settings.update': true,
   // Without this, requirePhiAccess rejects branch_admin on every patient
   // route — same bug class fixed on the legacy Admin/Branch Admin roles
   // earlier this session.
