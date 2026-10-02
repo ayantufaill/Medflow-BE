@@ -83,6 +83,24 @@ export class TreatmentPlanController {
     }
   };
 
+  updateItemFees = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await treatmentPlanService.updateItemFees(req.params.id, req.params.itemId, req.body);
+      res.status(200).json({ success: true, data: result, message: 'Procedure fees updated successfully' });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  reestimateItemFees = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await treatmentPlanService.reestimateItemFees(req.params.id, req.params.itemId);
+      res.status(200).json({ success: true, data: result, message: 'Procedure estimates recalculated' });
+    } catch (error) {
+      next(error);
+    }
+  };
+
   deleteTreatmentPlan = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const planId = req.params.id;
