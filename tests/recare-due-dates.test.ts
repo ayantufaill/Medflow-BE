@@ -29,9 +29,25 @@ describe('Recare (Recall) Due Dates - Per-CDT Oryx Logic', () => {
       await prisma.recall.deleteMany({
         where: { PatNum: testPatient.PatNum },
       });
-      await prisma.patient.deleteMany({
-        where: { PatNum: testPatient.PatNum },
-      });
+      // Reading the patient over HTTP writes audit rows that reference it
+      // (securityloghash -> securitylog -> patient). writeAudit runs after the
+      // response, so one can land after the first purge — hence the retry.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          await prisma.securityloghash.deleteMany({
+            where: { securitylog: { PatNum: testPatient.PatNum } },
+          });
+          await prisma.securitylog.deleteMany({ where: { PatNum: testPatient.PatNum } });
+          await prisma.patient.deleteMany({
+            where: { PatNum: testPatient.PatNum },
+          });
+          break;
+        } catch (error) {
+          if (attempt === 2) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+      }
     }
   });
 

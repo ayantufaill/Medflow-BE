@@ -119,6 +119,14 @@ async function deleteTestPatients() {
         where: { PatNum: patNum },
       });
 
+      // 14d. Delete audit rows that reference the patient (hash rows first)
+      await prisma.securityloghash.deleteMany({
+        where: { securitylog: { PatNum: patNum } },
+      });
+      await prisma.securitylog.deleteMany({
+        where: { PatNum: patNum },
+      });
+
       // 15. Finally, delete the patient record itself
       await prisma.patient.delete({
         where: { PatNum: patNum },
