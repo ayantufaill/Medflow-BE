@@ -2619,6 +2619,126 @@ const deductibleTier = resolveDeductibleTier({
       invoice: this.mapStatementToInvoice(updatedInvoice, updatedMeta),
     };
   }
+  /**
+   * Reverse of transferOutstandingToPatient: shift what the patient still owes on a
+   * line item back onto the insurance estimate. Mirrors the forward calculation so
+   * the two directions stay symmetric - the amount moved is always capped by what is
+   * genuinely still outstanding after write-offs and payments.
+   */
+  async transferOutstandingToInsurance(invoiceId: string, itemId: string, performedBy: string) {
+    const invoice = await this.getStatementById(invoiceId);
+    if (!invoice) throw new NotFoundError('Invoice not found');
+
+    const meta = parseJson<StatementMeta>(invoice.NoteBold);
+    if (String(meta.status) === 'void') throw new BadRequestError('Cannot transfer on a voided invoice');
+
+    const procNum = toBigInt(itemId);
+    if (!procNum) throw new NotFoundError('Invoice item not found');
+
+    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
+    if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
+
+    const itemMeta = parseJson<any>(item.BillingNote);
+
+    const initialPt   = roundCurrency(Number(itemMeta.ptPortion || 0));
+    const totalFee    = roundCurrency(Number(item.ProcFee || 0));
+    const writeoff    = roundCurrency(Number(itemMeta.writeoff || itemMeta.estimatedWriteOff || 0));
+    const paidAmount  = roundCurrency(Number(itemMeta.paidAmount || 0));
+    const netOwed     = roundCurrency(Math.max(0, totalFee - writeoff));
+    const remaining   = roundCurrency(Math.max(0, netOwed - paidAmount));
+    const outstandingPatient = roundCurrency(Math.min(initialPt, remaining));
+
+    if (outstandingPatient <= 0) {
+      throw new BadRequestError('No outstanding patient balance to transfer for this item');
+    }
+
+    // Shift the amount from patient portion to insurance portion
+    const newInsPortion = roundCurrency((Number(itemMeta.insPortion) || 0) + outstandingPatient);
+    const updatedItemMeta = {
+      ...itemMeta,
+      insPortion: newInsPortion,
+      ptPortion: 0,
+      isManuallyAdjusted: true,
+    };
+
+    await prisma.procedurelog.update({
+      where: { ProcNum: procNum },
+      data: { BillingNote: buildJson(updatedItemMeta) },
+    });
+
+    // Give the amount back to the linked claim's estimate (mirror image of the
+    // forward transfer, which moved it onto DedApplied).
+    const claimId = meta.claimId;
+    if (claimId && /^\d+$/.test(claimId)) {
+      const claim = await prisma.claim.findUnique({ where: { ClaimNum: BigInt(claimId) } });
+      if (claim) {
+        const currentInsPayEst = roundCurrency(Number(claim.InsPayEst) || 0);
+        const currentDedApplied = roundCurrency(Number(claim.DedApplied) || 0);
+        const addBack = Math.min(outstandingPatient, currentDedApplied);
+
+        await prisma.claim.update({
+          where: { ClaimNum: BigInt(claimId) },
+          data: {
+            InsPayEst: roundCurrency(currentInsPayEst + outstandingPatient),
+            DedApplied: roundCurrency(Math.max(0, currentDedApplied - addBack)),
+          },
+        });
+      }
+    }
+
+    // Net-zero audit record, matching the forward transfer
+    if (invoice.PatNum) {
+      const adjNum = await getNextId('adjustment', 'AdjNum');
+      const invoiceNumber = invoice.StatementNum.toString();
+      const adjNote = `Invoice #${invoiceNumber} - Income Transfer: $${outstandingPatient.toFixed(2)} shifted from Patient to Insurance`;
+      const userNum = toBigInt(performedBy);
+
+      await prisma.adjustment.create({
+        data: {
+          AdjNum: adjNum,
+          PatNum: invoice.PatNum,
+          ProvNum: item.ProvNum ?? undefined,
+          ProcNum: procNum,
+          StatementNum: invoice.StatementNum,
+          AdjAmt: 0,
+          AdjDate: new Date(),
+          ProcDate: item.ProcDate ?? new Date(),
+          DateEntry: new Date(),
+          AdjNote: adjNote,
+          SecUserNumEntry: userNum ?? undefined,
+        },
+      });
+    }
+
+    await this.recalculateInvoice(invoiceId);
+
+    if (invoice.PatNum) {
+      await agingService.updatePatientAging(invoice.PatNum);
+    }
+
+    const updatedInvoice = await this.getStatementById(invoiceId);
+    const updatedMeta = parseJson<StatementMeta>(updatedInvoice?.NoteBold);
+
+    await logActivity(
+      performedBy,
+      'updated',
+      'invoices',
+      invoiceId,
+      undefined,
+      { action: 'transfer_outstanding_to_insurance', itemId, transferredAmount: outstandingPatient },
+      undefined,
+      undefined,
+      'medium'
+    );
+
+    return {
+      success: true,
+      message: `$${outstandingPatient.toFixed(2)} transferred from patient balance to insurance estimate`,
+      transferredAmount: outstandingPatient,
+      invoice: this.mapStatementToInvoice(updatedInvoice, updatedMeta),
+    };
+  }
+
   async transferRejectedClaim(invoiceId: string | undefined, claimId: string) {
     const claimNum = toBigInt(claimId);
     if (!claimNum) throw new BadRequestError('Invalid claim ID');
