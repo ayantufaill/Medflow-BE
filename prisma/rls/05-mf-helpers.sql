@@ -1,5 +1,13 @@
 CREATE SCHEMA IF NOT EXISTS mf;
 
+-- Policy expressions are evaluated with the privileges of the *querying* role,
+-- not the policy owner, so medflow_app must be able to reach these helpers.
+-- A freshly created schema grants nothing to PUBLIC, and 01-app-role.sql only
+-- covers schema `public` — without this, every policy calling mf.* fails with
+-- "permission denied for schema mf". Idempotent; repeated in 04 and 05 because
+-- either may run first against a database that has neither.
+GRANT USAGE ON SCHEMA mf TO medflow_app;
+
 CREATE OR REPLACE FUNCTION mf.group_id() RETURNS integer
 LANGUAGE sql STABLE AS $$
   SELECT NULLIF(current_setting('app.patient_group_id', true), '')::integer;

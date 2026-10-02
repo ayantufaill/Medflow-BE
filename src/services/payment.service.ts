@@ -580,7 +580,20 @@ export class PaymentService {
               primaryInsPortion: newPrimaryInsPortion,
               secondaryInsPortion: newSecondaryInsPortion,
               totalInsPortion: newTotalInsPortion,
-              insPortion: newTotalInsPortion,
+              // PRIMARY portion, not the total. `insPortion` is read back by
+              // invoice.service.ts's recalculateInvoice, whose isManuallyAdjusted
+              // branch (set just below) does
+              //   insurancePortion          += meta.insPortion
+              //   secondaryInsurancePortion += meta.secondaryInsPortion
+              // and then totals the two. Writing the combined figure here counted
+              // the secondary estimate twice: on a $100 procedure with primary
+              // paying $70 of an $80 estimate and $20 left for the secondary, the
+              // statement's InsEst came out as $40 instead of $20, because
+              // totalExpectedIns was 90 + 20 = 110 rather than 90. The invoice
+              // path has always written the primary portion here
+              // (`originalMeta.insPortion = enrichedPrim`); this makes the two
+              // paths agree. The combined figure remains on totalInsPortion.
+              insPortion: newPrimaryInsPortion,
               writeoff: validWo,
               ptPortion: newPtPortion,
               isManuallyAdjusted: true,
