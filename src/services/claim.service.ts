@@ -273,10 +273,10 @@ export class ClaimService {
   private async generateClaimNumber() {
     const recent = await prisma.claim.findMany({
       where: {
-        ClaimType: { not: 'PreAuth' },
         OR: [
           { PreAuthString: { startsWith: 'CLM' } },
           { PriorAuthorizationNumber: { startsWith: 'CLM' } },
+          { ClaimIdentifier: { startsWith: 'CLM' } },
         ],
       },
       orderBy: { ClaimNum: 'desc' },
@@ -285,7 +285,7 @@ export class ClaimService {
 
     let maxNumber = 0;
     for (const row of recent) {
-      const value = row.PreAuthString ?? row.PriorAuthorizationNumber ?? '';
+      const value = row.ClaimIdentifier ?? row.PreAuthString ?? row.PriorAuthorizationNumber ?? '';
       const match = value.match(/(\d+)$/);
       const numeric = match?.[1] ? parseInt(match[1], 10) : 0;
       if (numeric > maxNumber) {

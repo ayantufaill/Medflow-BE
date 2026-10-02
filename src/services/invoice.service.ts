@@ -17,6 +17,12 @@ import {
   resolveDeductibleTier,
   splitSecondaryPortion,
 } from './deductible.service';
+import {
+  applyDowngradeSplit,
+  buildDowngradeMap,
+  parseTeethRange,
+  resolveDowngrade,
+} from './downgrade.service';
 const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 type StatementMeta = {
@@ -267,6 +273,12 @@ const deductibleTier = resolveDeductibleTier({
       });
       const deductibleLedger = new DeductibleLedger(meta?.deductiblesGrid, deductibleTier);
 
+      // Alternate-benefit (downgrade) rules configured per procedure in the
+      // plan's coverage book. Opt-in per row via `hasDowngrade` — there is no
+      // plan-level switch, because the row flag is already the user saying
+      // "apply this". An empty map means pricing is unchanged.
+      const downgradeMap = buildDowngradeMap(meta?.coverageBookData);
+
       // Claims that have not reserved yet (deductibleHeld !== true) still own their
       // `deductibleReservedByRow` estimate — reservation happens on the claim's status
       // change, not on creation. Those pools are already spoken for, so a new invoice
@@ -469,6 +481,33 @@ const deductibleTier = resolveDeductibleTier({
         const isCdtCode = /^D\d{4}/i.test(cleanCode) || /^\d{4}$/.test(cleanCode);
         let percent: number | undefined;
 
+        // Alternate benefit (downgrade): the plan may substitute a cheaper
+        // procedure for this one, so insurance is priced on the SUBSTITUTE's
+        // allowed fee. The billed code is never rewritten — the payer applies
+        // the alternate benefit itself at adjudication.
+        //
+        // The rule is resolved before any fee work so that a rule limited to
+        // certain teeth (e.g. posterior-only composite -> amalgam) is honoured
+        // for exactly those teeth. A toothless line cannot prove it qualifies,
+        // so a tooth-limited rule does not apply to it — and that exclusion is
+        // reported distinctly from "this plan has no rule for this code".
+        const { rule, skipped: toothSkipped } = resolveDowngrade(
+          cleanCode,
+          downgradeMap,
+          parseTeethRange(item.site)
+        );
+
+        // These MUST be assigned unconditionally, not only when a rule matches.
+        // `recalculateInvoice` re-prices by spreading the item's existing
+        // BillingNote into the estimator input, so a previous run's
+        // `downgraded: true` is inherited onto the item and would otherwise
+        // survive a re-estimate after the rule was removed — leaving a stale
+        // "downgraded" badge on a line that is no longer downgraded.
+        item.downgraded = !!rule;
+        item.downgradedFrom = rule ? cleanCode : null;
+        item.effectiveCode = rule ? rule.downgradeCode : null;
+        item.downgradeSkipped = rule ? null : toothSkipped ?? null;
+
         // 1. Specific Procedure Code Override (e.g. "D2140" or "2140")
         if (procCodePercentages.has(cleanCode)) {
           percent = procCodePercentages.get(cleanCode);
@@ -573,22 +612,95 @@ const deductibleTier = resolveDeductibleTier({
           }
         }
 
+        // The insurance basis is the downgrade code's allowed fee when this
+        // procedure has an alternate-benefit rule; otherwise the billed code's
+        // own allowed fee resolved above.
+        //
+        // The write-off above is deliberately NOT recomputed: it stays derived
+        // from the BILLED code's contracted fee, because that discount is owed
+        // on the procedure actually performed.
+        let insuranceBasis = basisFee;
+        let downgradeRule = rule;
+        if (downgradeRule) {
+          const downgradeKey = downgradeRule.downgradeCode.toUpperCase().trim();
+          const downgradeFee =
+            allowedFeeMap.get(downgradeKey) ??
+            planFeeMap.get(downgradeKey) ??
+            downgradeRule.maxAllowed;
+
+          if (downgradeFee !== undefined && downgradeFee > 0) {
+            insuranceBasis = downgradeFee;
+          } else {
+            // No fee anywhere for the substitute. Skip the downgrade entirely
+            // rather than pricing the line against $0, and flag it so the UI
+            // can tell the user the rule is unpriced.
+            downgradeRule = null;
+            item.downgradeSkipped = 'no-fee';
+            item.downgraded = false;
+            delete item.downgradedFrom;
+            delete item.effectiveCode;
+          }
+        }
+
         // Price the line against its resolved deductible pool. The deductible is
         // applied to `basisFee` (the ALLOWED fee) BEFORE coinsurance, so it is
         // never capped by the initial patient coinsurance. The write-off above
         // stays entirely outside this calculation.
-        const priced = applyDeductible(deductibleLedger, cleanCode, basisFee, percent);
+        //
+        // Called exactly ONCE: every invocation drains the shared ledger, so a
+        // second call would charge the deductible twice against the same pool.
+        // `cleanCode` — the BILLED code — selects the pool, which is the safe
+        // default: downgrades almost always stay within one category.
+        const priced = applyDeductible(deductibleLedger, cleanCode, insuranceBasis, percent);
 
         item.insPortion = priced.insurancePortion;
-        item.ptPortion = priced.patientPortion;
-        item.coinsurance = priced.coinsurance;
         item.deductibleApplied = priced.deductibleApplied;
         item.deductibleRowKey = priced.rowKey;
         if (percent !== undefined) {
           item.coveragePct = percent;
         }
-        item.secondaryInsPortion = 0;
+
+        if (downgradeRule) {
+          // `applyDeductible` derives the patient share from the basis it was
+          // given, and that basis was the downgrade fee. The patient received
+          // the real procedure, so their share must be recomputed from the
+          // billed charge — otherwise they are silently under-billed by the
+          // difference between the two procedures.
+          //
+          // Write-off double-count trace (verified against the downstream
+          // totals, so this is not re-derived on every future change):
+          //   - this loop sets item.writeoff ONCE, above, from the BILLED code's
+          //     contracted fee; the downgrade never recomputes it.
+          //   - the statement's `writeoffAmount` sums BillingNote.writeoff, and
+          //     `totalPtPortion` sums BillingNote.ptPortion — two SEPARATE
+          //     rollups, so the write-off is not added to the patient share
+          //     twice (invoice totals, ~line 1847 and ~line 2187).
+          //   - `balanceDue = subtotal - totalPaid` uses the GROSS charge and
+          //     deliberately excludes write-offs, which post as their own
+          //     payable line (see the comment at ~line 1910).
+          //   - therefore ptPortion already excludes the contractual discount,
+          //     and `charge - writeoff - insPortion` is the correct patient
+          //     share with no further adjustment. Deductible is folded into
+          //     ptPortion, and downstream secondary splitting treats
+          //     `deductibleApplied` as patient-only.
+          const split = applyDowngradeSplit({
+            charge,
+            contractualWriteOff: Number(item.writeoff ?? 0),
+            insurancePortion: priced.insurancePortion,
+          });
+          item.ptPortion = split.patientPortion;
+          item.coinsurance = split.coinsurance;
+        } else {
+          item.ptPortion = priced.patientPortion;
+          item.coinsurance = priced.coinsurance;
+        }
+        // `balance` is the GROSS charge — what the patient was actually billed
+        // for — and is deliberately independent of how the line ends up funded.
+        // Deriving it from the downgrade split would report the substitute
+        // procedure's share instead of the one performed, which understates
+        // the line by the whole downgrade gap.
         item.balance = charge;
+        item.secondaryInsPortion = 0;
       }
 
       // Check for secondary insurance
@@ -609,10 +721,43 @@ const deductibleTier = resolveDeductibleTier({
           // Only coinsurance is secondary-claimable. The deductible the patient
           // already satisfied must stay with them, otherwise the secondary
           // carrier is over-paid and the patient balance is understated.
-          if (item.ptPortion > 0) {
-            const split = splitSecondaryPortion(item.ptPortion, item.deductibleApplied ?? 0);
-            item.secondaryInsPortion = split.secondaryPortion;
-            item.ptPortion = split.patientPortion;
+          if (item.downgraded) {
+            // STOPGAP — the secondary is deliberately NOT estimated here.
+            //
+            // A downgraded line leaves the patient owing the gap between the
+            // procedure performed and the cheaper substitute the primary
+            // priced. Neither available shortcut is correct, and both fail
+            // silently:
+            //
+            //   a) Feeding that gap to `splitSecondaryPortion` hands the WHOLE
+            //      gap to the secondary, which is only right when the
+            //      secondary happens to downgrade identically.
+            //   b) Capping the secondary at the primary's downgraded basis
+            //      (`downgradeBasis - primary - deductible`) under-pays a
+            //      secondary that has no downgrade of its own, and under-bills
+            //      the patient.
+            //
+            // The secondary prices the line against its OWN fee schedule,
+            // coverage %, deductible and downgrade rule — it must never inherit
+            // the primary's basis. Until it can be priced that way, $0 is the
+            // conservative answer: the patient sees the full gap, and the flag
+            // below records that this line is short an estimate instead of
+            // posting a confidently wrong number to a second payer.
+            //
+            // Proper fix: load the secondary patplan's meta and fees, price it
+            // on its own rules, then take the lesser of its benefit and the
+            // balance remaining after the primary. This loop only reads `meta`
+            // from the primary patplan (see the patplan lookup above), so that
+            // needs loading first.
+            item.secondaryInsPortion = 0;
+            item.secondaryNotEstimated = true;
+          } else {
+            item.secondaryNotEstimated = false;
+            if (item.ptPortion > 0) {
+              const split = splitSecondaryPortion(item.ptPortion, item.deductibleApplied ?? 0);
+              item.secondaryInsPortion = split.secondaryPortion;
+              item.ptPortion = split.patientPortion;
+            }
           }
           item.totalInsPortion = roundCurrency(Number(item.primaryInsPortion || 0) + Number(item.secondaryInsPortion || 0));
           item.insPortion = item.totalInsPortion;
@@ -1718,13 +1863,24 @@ const deductibleTier = resolveDeductibleTier({
         // reflects the current deductible, and the invoice posts a stale amount.
         const deductibleChanged = Number(originalMeta.deductibleApplied || 0) !== Number(enrichedItem.deductibleApplied || 0);
 
+        // A rule can be added or removed without moving any money — e.g. a plan
+        // edits only its teeth limit, or the substitute's fee is identical. The
+        // guard must notice the audit fields on their own, otherwise the change
+        // is silently never persisted.
+        const downgradeChanged =
+          Boolean(originalMeta.downgraded) !== Boolean(enrichedItem.downgraded) ||
+          (originalMeta.downgradedFrom ?? null) !== (enrichedItem.downgradedFrom ?? null) ||
+          (originalMeta.effectiveCode ?? null) !== (enrichedItem.effectiveCode ?? null) ||
+          (originalMeta.downgradeSkipped ?? null) !== (enrichedItem.downgradeSkipped ?? null);
+
         if (
           originalMeta.primaryInsPortion !== enrichedPrim ||
           originalMeta.insPortion !== enrichedPrim ||
           originalMeta.secondaryInsPortion !== enrichedItem.secondaryInsPortion ||
           originalMeta.ptPortion !== enrichedItem.ptPortion ||
           writeoffChanged ||
-          deductibleChanged
+          deductibleChanged ||
+          downgradeChanged
         ) {
           originalMeta.insPortion = enrichedPrim;
           originalMeta.primaryInsPortion = enrichedPrim;
@@ -1739,6 +1895,13 @@ const deductibleTier = resolveDeductibleTier({
           originalMeta.allowedFee = enrichedItem.allowedFee ?? originalMeta.allowedFee ?? null;
           originalMeta.deductibleApplied = roundCurrency(Number(enrichedItem.deductibleApplied || 0));
           if (enrichedItem.deductibleRowKey) originalMeta.deductibleRowKey = enrichedItem.deductibleRowKey;
+          // Persist the downgrade audit fields on re-price. Guarded so a line
+          // that no longer has a rule (rule removed, or a tooth fell outside the
+          // limit) clears the stale values instead of keeping them forever.
+          originalMeta.downgraded = Boolean(enrichedItem.downgraded);
+          originalMeta.downgradedFrom = enrichedItem.downgradedFrom ?? null;
+          originalMeta.effectiveCode = enrichedItem.effectiveCode ?? null;
+          originalMeta.downgradeSkipped = enrichedItem.downgradeSkipped ?? null;
           originalItem.BillingNote = buildJson(originalMeta);
           await prisma.procedurelog.update({
             where: { ProcNum: originalItem.ProcNum },
@@ -2014,6 +2177,16 @@ const deductibleTier = resolveDeductibleTier({
         balance?: number;
         dbi?: boolean;
         completed?: boolean;
+        // Alternate-benefit (downgrade) audit trail, set by the pricing loop.
+        downgraded?: boolean;
+        downgradedFrom?: string;
+        effectiveCode?: string;
+        downgradeSkipped?: string | null;
+        // Set when a line carries a downgrade and the secondary payer is
+        // deliberately left unestimated. The $0 is a stopgap, not a
+        // determination — the UI must not present it as a real secondary
+        // benefit of zero.
+        secondaryNotEstimated?: boolean;
       }>;
       addClaim?: boolean;
       branchId?: string;
@@ -2162,11 +2335,20 @@ const deductibleTier = resolveDeductibleTier({
         insPortion: isPenalty ? 0 : Number(item.insPortion ?? 0),
         primaryInsPortion: isPenalty ? 0 : Number(item.primaryInsPortion ?? item.insPortion ?? 0),
         secondaryInsPortion: isPenalty ? 0 : Number(item.secondaryInsPortion ?? 0),
+        secondaryNotEstimated: Boolean(item.secondaryNotEstimated),
         totalInsPortion: isPenalty ? 0 : Number(item.totalInsPortion ?? (Number(item.insPortion ?? 0) + Number(item.secondaryInsPortion ?? 0))),
         charge: Number(item.charge ?? 0),
         balance: Number(item.balance ?? 0),
         dbi: Boolean(item.dbi),
         completed: Boolean(item.completed),
+        // Alternate-benefit (downgrade) audit trail. The billed code above is
+        // unchanged — `effectiveCode` is only the procedure the plan may
+        // substitute, and `downgradeSkipped` records a rule that matched but
+        // could not be priced.
+        downgraded: Boolean(item.downgraded),
+        downgradedFrom: item.downgradedFrom ?? null,
+        effectiveCode: item.effectiveCode ?? null,
+        downgradeSkipped: item.downgradeSkipped ?? null,
         isPatientPenalty: isPenalty,
         patientOnly: isPenalty || Boolean((item as any).patientOnly),
         isAccountPenalty: isPenalty || Boolean((item as any).isAccountPenalty),
