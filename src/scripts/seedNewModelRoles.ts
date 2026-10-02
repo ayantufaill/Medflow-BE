@@ -157,6 +157,8 @@ const BRANCH_ADMIN_PERMISSIONS = {
   'users.create': true,
   'users.update': true,
   'reports.access': true,
+  // Report and KPI routes check reports.read; without it admins get 403 on /kpi.
+  'reports.read': true,
   'reports.financial': true,
   'reports.administrative': true,
   'branches.read': true,
