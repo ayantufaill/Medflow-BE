@@ -25,19 +25,22 @@ type PlanMeta = {
   totalAmount?: number;
   insurancePortion?: number;
   patientPortion?: number;
+  preAuthByItemId?: Record<string, { status?: string; preAuthId?: string }>;
 };
 
 export class TreatmentPlanService {
-  private mapProctpToItem(row: any, idx = 0) {
+  private mapProctpToItem(row: any, idx = 0, meta: PlanMeta = {}) {
     const fee = Number(row.FeeAmt || 0);
     const insPortion = Number(row.PriInsAmt || 0);
     const ptPortion = Number(row.PatAmt || 0);
     const providerAbbr = row.provider?.Abbr || (row.ProvNum ? row.ProvNum.toString() : '');
+    const itemId = row.ProcTPNum.toString();
+    const preAuthMeta = meta.preAuthByItemId?.[itemId] || {};
 
     return {
-      id: row.ProcTPNum.toString(),
-      _id: row.ProcTPNum.toString(),
-      procTPNum: row.ProcTPNum.toString(),
+      id: itemId,
+      _id: itemId,
+      procTPNum: itemId,
       procNumOrig: row.ProcNumOrig ? row.ProcNumOrig.toString() : null,
       itemOrder: row.ItemOrder ?? idx + 1,
       priority: row.Priority ? row.Priority.toString() : '- -',
@@ -61,7 +64,49 @@ export class TreatmentPlanService {
       providerId: row.ProvNum ? row.ProvNum.toString() : null,
       dateTP: row.DateTP ?? null,
       clinicId: row.ClinicNum ? row.ClinicNum.toString() : null,
+      preAuth: preAuthMeta.status || '-',
+      preAuthId: preAuthMeta.preAuthId || null,
     };
+  }
+
+  /**
+   * Fold one item's pre-auth fields into the plan's `preAuthByItemId` map.
+   *
+   * Reconciliation is deliberately partial, because the UI sends back only
+   * what the user actually touched: a status alone keeps the stored id, an id
+   * alone keeps the stored status, and sending neither — including the API's
+   * '-' placeholder for "no status" — removes the entry. Dropping the stored
+   * counterpart would lose an approval the payer already issued, while keeping
+   * the entry on a clear would let a stale authorisation outlive the value the
+   * user removed.
+   *
+   * `isNew` only matters for the id-only branch: a row that has just been
+   * inserted cannot have a previously stored id to inherit.
+   */
+  private static applyPreAuth(
+    map: Record<string, { status?: string; preAuthId?: string }>,
+    itemId: string,
+    item: any,
+    isNew: boolean,
+  ) {
+    const existing = map[itemId];
+    if (item.preAuth && item.preAuth !== '-') {
+      map[itemId] = {
+        status: String(item.preAuth),
+        preAuthId: item.preAuthId
+          ? String(item.preAuthId)
+          : isNew
+            ? undefined
+            : existing?.preAuthId,
+      };
+    } else if (item.preAuthId) {
+      map[itemId] = {
+        status: existing?.status || 'Requested',
+        preAuthId: String(item.preAuthId),
+      };
+    } else {
+      delete map[itemId];
+    }
   }
 
   private async enrichItemsWithInsurance(patientId: bigint, items: any[]) {
@@ -150,7 +195,7 @@ export class TreatmentPlanService {
         // Fallback: If no proctp rows exist yet, read from Note JSON (compatibility reader)
         const items =
           planProctp && planProctp.length > 0
-            ? planProctp.map((r, idx) => this.mapProctpToItem(r, idx))
+            ? planProctp.map((r, idx) => this.mapProctpToItem(r, idx, meta))
             : meta.items ?? [];
 
         return {
@@ -188,7 +233,7 @@ export class TreatmentPlanService {
     // Fallback: If no proctp rows exist yet, read from Note JSON (compatibility reader)
     const items =
       proctpRows && proctpRows.length > 0
-        ? proctpRows.map((r, idx) => this.mapProctpToItem(r, idx))
+        ? proctpRows.map((r, idx) => this.mapProctpToItem(r, idx, meta))
         : meta.items ?? [];
 
     return {
@@ -242,6 +287,13 @@ export class TreatmentPlanService {
 
     // Insert relational proctp rows
     const createdProctpRows = [];
+
+    // Pre-auth is keyed by ProcTPNum, which only exists once the rows below are
+    // inserted — so the map cannot be part of the Note written above, and is
+    // written back once the ids are known. Without this a plan created WITH
+    // pre-auth would silently lose it and come back reading '-' on every item.
+    const preAuthByItemId: Record<string, { status?: string; preAuthId?: string }> = {};
+
     if (enrichedItems.length > 0) {
       for (let i = 0; i < enrichedItems.length; i++) {
         const item = enrichedItems[i];
@@ -288,10 +340,19 @@ export class TreatmentPlanService {
           include: { provider: true },
         });
         createdProctpRows.push(row);
+        TreatmentPlanService.applyPreAuth(preAuthByItemId, procTPNum.toString(), item, true);
       }
     }
 
-    const items = createdProctpRows.map((r, idx) => this.mapProctpToItem(r, idx));
+    if (Object.keys(preAuthByItemId).length > 0) {
+      payload.preAuthByItemId = preAuthByItemId;
+      await prisma.treatplan.update({
+        where: { TreatPlanNum: plan.TreatPlanNum },
+        data: { Note: buildJson(payload) },
+      });
+    }
+
+    const items = createdProctpRows.map((r, idx) => this.mapProctpToItem(r, idx, payload));
 
     return {
       _id: plan.TreatPlanNum.toString(),
@@ -338,6 +399,8 @@ export class TreatmentPlanService {
       ptPortion = enrichment.ptPortion;
       calcTotal = enrichment.calcTotal;
     }
+
+    const preAuthByItemId = { ...(meta.preAuthByItemId || {}) };
 
     // Process items if provided
     if (nextItems && Array.isArray(nextItems)) {
@@ -435,6 +498,9 @@ export class TreatmentPlanService {
             },
           });
           keepProcTPNums.push(existingRow.ProcTPNum);
+
+          const itemId = existingRow.ProcTPNum.toString();
+          TreatmentPlanService.applyPreAuth(preAuthByItemId, itemId, item, false);
         } else {
           const newProcTPNum = await getNextId('proctp', 'ProcTPNum');
           await prisma.proctp.create({
@@ -458,12 +524,18 @@ export class TreatmentPlanService {
             },
           });
           keepProcTPNums.push(newProcTPNum);
+
+          const itemId = newProcTPNum.toString();
+          TreatmentPlanService.applyPreAuth(preAuthByItemId, itemId, item, true);
         }
       }
 
       // Delete removed proctp rows
       const toDelete = existingProctpRows.filter((r) => !keepProcTPNums.includes(r.ProcTPNum));
       if (toDelete.length > 0) {
+        toDelete.forEach((row) => {
+          delete preAuthByItemId[row.ProcTPNum.toString()];
+        });
         await prisma.proctp.deleteMany({
           where: { ProcTPNum: { in: toDelete.map((r) => r.ProcTPNum) } },
         });
@@ -477,6 +549,7 @@ export class TreatmentPlanService {
       totalAmount: updates.items ? calcTotal : (updates.totalAmount ?? meta.totalAmount),
       insurancePortion: insPortion,
       patientPortion: ptPortion,
+      preAuthByItemId,
     };
 
     const updated = await prisma.treatplan.update({
@@ -494,7 +567,7 @@ export class TreatmentPlanService {
     });
 
     const items = refreshedProctpRows.length > 0
-      ? refreshedProctpRows.map((r, idx) => this.mapProctpToItem(r, idx))
+      ? refreshedProctpRows.map((r, idx) => this.mapProctpToItem(r, idx, nextMeta))
       : (meta.items ?? []);
 
     return {
@@ -573,7 +646,7 @@ export class TreatmentPlanService {
     });
 
     const hydratedItems = refreshedProctpRows.length > 0
-      ? refreshedProctpRows.map((r, idx) => this.mapProctpToItem(r, idx))
+      ? refreshedProctpRows.map((r, idx) => this.mapProctpToItem(r, idx, meta))
       : (meta.items ?? items);
 
     return {
@@ -611,7 +684,7 @@ export class TreatmentPlanService {
     });
 
     const items = proctpRows.length > 0
-      ? proctpRows.map((r, idx) => this.mapProctpToItem(r, idx))
+      ? proctpRows.map((r, idx) => this.mapProctpToItem(r, idx, meta))
       : (meta.items ?? []);
 
     return {
