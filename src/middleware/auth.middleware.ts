@@ -10,6 +10,7 @@ import {
   USER_GROUPS,
   getUserGroups,
   isUserInAnyGroup,
+  withLegacyRoleNames,
 } from '../types/user-group.types';
 
 /**
@@ -85,8 +86,11 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
  * ('group_admin'), which is what usergroup.Description actually stores — so
  * reading the token alone left every new-model account with no roles at all
  * and answered 403 on routes they are entitled to.
+ *
+ * New-model keys are expanded with the legacy names they answer to
+ * (withLegacyRoleNames), so routes that still list legacy names accept them.
  */
-const rolesOf = (req: Request): string[] => req.access?.roles ?? req.user?.roles ?? [];
+const rolesOf = (req: Request): string[] => withLegacyRoleNames(req.access?.roles ?? req.user?.roles ?? []);
 
 const ROLE_ALIASES: Record<string, string[]> = {
   'Admin': ['Super Admin', 'Group Admin', 'Branch Admin'],

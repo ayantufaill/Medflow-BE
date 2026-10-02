@@ -21,6 +21,34 @@ export const USER_GROUPS: Record<UserGroup, string[]> = {
   PATIENT_GROUP: ['Patient', 'patient'],
 };
 
+/**
+ * Legacy role names each new-model role key answers to. Many routes still gate
+ * on specific legacy names (e.g. requireRoles('Provider', 'Front Desk', ...)),
+ * so without this a 'dentist' or 'front_desk' account was refused by them
+ * despite holding the right permissions. Name checks only — what a role can
+ * actually do still comes from its own permission set.
+ */
+export const NEW_MODEL_ROLE_EQUIVALENTS: Record<string, string[]> = {
+  group_admin: ['Group Admin'],
+  branch_admin: ['Branch Admin'],
+  dentist: ['Provider', 'Doctor'],
+  hygienist: ['Hygienist'],
+  dental_assistant: ['Dental Assistant', 'Assistant'],
+  front_desk: ['Front Desk', 'Receptionist'],
+  billing: ['Biller', 'Billing Staff'],
+  lab: ['Lab', 'Lab Technician'],
+};
+
+/** The user's role names plus the legacy names their new-model roles answer to. */
+export const withLegacyRoleNames = (roles: string[]): string[] => {
+  if (!Array.isArray(roles)) return [];
+  const expanded = new Set(roles);
+  for (const role of roles) {
+    for (const legacy of NEW_MODEL_ROLE_EQUIVALENTS[role] ?? []) expanded.add(legacy);
+  }
+  return Array.from(expanded);
+};
+
 export const ROLE_TO_GROUP_MAP: Record<string, UserGroup> = Object.entries(USER_GROUPS).reduce(
   (acc, [group, roles]) => {
     for (const role of roles) {
