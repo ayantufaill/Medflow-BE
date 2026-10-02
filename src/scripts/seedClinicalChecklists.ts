@@ -1,3 +1,5 @@
+// Unrestricted tenant context for RLS — must be imported before any query.
+import '../config/seed-context';
 import fs from 'fs';
 import path from 'path';
 import { prisma } from '../config/db';

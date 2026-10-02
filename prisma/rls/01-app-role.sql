@@ -30,7 +30,6 @@ $$;
 -- Role already exists (every re-run): rotate the password to the current value.
 ALTER ROLE medflow_app WITH LOGIN PASSWORD __APP_DB_PASSWORD__ NOSUPERUSER NOCREATEDB NOCREATEROLE;
 
-GRANT CONNECT ON DATABASE medflow_db TO medflow_app;
 GRANT USAGE ON SCHEMA public TO medflow_app;
 
 -- medflow_app deliberately has no CREATE on schema public (DML only, no
@@ -41,10 +40,29 @@ GRANT USAGE ON SCHEMA public TO medflow_app;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO medflow_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO medflow_app;
 
--- So future schema changes (new tables/sequences from `prisma db push`,
--- always run as `postgres`) don't silently leave medflow_app without access.
--- Explicit `FOR ROLE postgres` since default-privilege scope is otherwise
--- tied to whichever role executes this statement, which happens to also be
--- postgres here — spelled out so that isn't left implicit.
-ALTER DEFAULT PRIVILEGES FOR ROLE medflow IN SCHEMA public GRANT ALL ON TABLES TO medflow_app;
-ALTER DEFAULT PRIVILEGES FOR ROLE medflow IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO medflow_app;
+-- The database name and the owning role are deliberately NOT hard-coded. The
+-- same file is applied against the Docker/production database (`medflow_db`,
+-- owned by `medflow`) and against the CI database (`medflow_test`, owned by
+-- `postgres`) — the previous hard-coded `medflow_db` / `FOR ROLE medflow`
+-- aborted the whole file anywhere else, which is why CI had no medflow_app
+-- role at all and the RLS suite ended up connecting as a superuser.
+--
+-- `current_database()` / `current_user` are exactly right in both: applyRls.ts
+-- always connects through DIRECT_DATABASE_URL, i.e. as the same role that ran
+-- `prisma db push` and therefore owns the tables whose default privileges the
+-- ALTERs below extend. Default-privilege scope is tied to a specific role, so
+-- `FOR ROLE` must name that owner — without it, future tables from
+-- `prisma db push` would silently leave medflow_app without access.
+DO $$
+BEGIN
+  EXECUTE format('GRANT CONNECT ON DATABASE %I TO medflow_app', current_database());
+  EXECUTE format(
+    'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public GRANT ALL ON TABLES TO medflow_app',
+    current_user
+  );
+  EXECUTE format(
+    'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO medflow_app',
+    current_user
+  );
+END
+$$;

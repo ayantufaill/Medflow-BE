@@ -47,6 +47,8 @@
  *   - Refuses to run without --confirm when the row count is large.
  */
 
+// Unrestricted tenant context for RLS — must be imported before any query.
+import '../config/seed-context';
 import { prisma } from '../config/db';
 
 type Args = {
