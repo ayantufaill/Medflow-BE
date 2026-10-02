@@ -47,6 +47,14 @@
 -- parsing logic ever changes.
 CREATE SCHEMA IF NOT EXISTS mf;
 
+-- Policy expressions are evaluated with the privileges of the *querying* role,
+-- not the policy owner, so medflow_app must be able to reach these helpers.
+-- A freshly created schema grants nothing to PUBLIC, and 01-app-role.sql only
+-- covers schema `public` — without this, every policy calling mf.* fails with
+-- "permission denied for schema mf". Idempotent; repeated in 04 and 05 because
+-- either may run first against a database that has neither.
+GRANT USAGE ON SCHEMA mf TO medflow_app;
+
 CREATE OR REPLACE FUNCTION mf.shared_mode(category text) RETURNS text
 LANGUAGE plpgsql STABLE AS $$
 DECLARE
@@ -77,6 +85,43 @@ BEGIN
   END IF;
 
   RETURN result;
+END;
+$$;
+
+-- mf.clinic_ids(): app.clinic_ids parsed to bigint[], with '*'/''/NULL
+-- collapsed to NULL instead of being cast.
+--
+-- WHY A FUNCTION AND NOT AN INLINE CASE
+-- -------------------------------------
+-- Everywhere else (arms 1 below, 02/03-policies.sql) a CASE around the cast is
+-- enough, because those quals are evaluated per-row against the scanned table
+-- and CASE really does skip its unused arms. That is NOT enough inside the
+-- EXISTS subquery of arm 3: the array expression there is uncorrelated, so it
+-- is evaluated once when the SubPlan is set up rather than per row, and the
+-- enclosing CASE never gets to guard it. The observed symptom was
+-- `invalid input syntax for type bigint: "*"` on EVERY select from patient
+-- under a '*' scope — i.e. every seed script (seedBranches.ts was the first to
+-- die, which then aborted `npm run seed:all`, failed the compose `seed`
+-- service, and tore the whole stack down via api's
+-- depends_on: service_completed_successfully) and every superadmin request.
+--
+-- MUST stay LANGUAGE plpgsql, not sql: a SQL-language function would be
+-- inlined by the planner, putting the raw cast straight back into the
+-- subquery and reinstating the bug. plpgsql is a black box to the planner.
+-- 05-mf-helpers.sql is the canonical owner; this copy exists for the same
+-- file-ordering reason as mf.shared_mode above.
+CREATE OR REPLACE FUNCTION mf.clinic_ids() RETURNS bigint[]
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  raw text;
+BEGIN
+  raw := current_setting('app.clinic_ids', true);
+  -- '*' (superadmin/seed bypass), '' and NULL are all "no id list". They must
+  -- never reach the ::bigint[] cast — '*' raises 22P02 and kills the query.
+  IF raw IS NULL OR raw = '' OR raw = '*' THEN
+    RETURN NULL;  -- = ANY(NULL) is NULL, i.e. "matches nothing", never an error
+  END IF;
+  RETURN string_to_array(raw, ',')::bigint[];
 END;
 $$;
 
@@ -170,11 +215,19 @@ USING (
   --    createPatientBranchGrant). Deliberately NOT mirrored into the write
   --    policies below — this only ever grants read access; editing still
   --    requires being assigned to the patient's own ClinicNum.
+  --
+  --    Wrapped in CASE for the same reason arms 1 and 2 are: AND does NOT
+  --    guarantee left-to-right evaluation in Postgres, so the plain
+  --    `NOT IN ('', '*') AND ... ::bigint[]` form this used to have still
+  --    attempted the cast for a '*' caller and raised
+  --    `invalid input syntax for type bigint: "*"` on every SELECT from
+  --    patient — which is every seed script and every superadmin request.
+  --    A '*' caller is already allowed by arm 1, and an unset/empty scope
+  --    can match no grant, so returning false here loses nothing.
   EXISTS (
     SELECT 1 FROM patient_branch_grant g
     WHERE g.pat_num = "PatNum"
-      AND current_setting('app.clinic_ids', true) NOT IN ('', '*')
-      AND g.granted_clinic_num = ANY(string_to_array(current_setting('app.clinic_ids', true), ',')::bigint[])
+      AND g.granted_clinic_num = ANY(mf.clinic_ids())
   )
 );
 

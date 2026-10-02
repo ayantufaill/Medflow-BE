@@ -3,19 +3,52 @@ import { PrismaClient } from '@prisma/client';
 import { getNextId } from '../../src/utils/opendental-ids.util';
 
 // The owner connection (bypasses RLS) is used only to seed the fixtures.
+const ownerUrl = process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL || '';
+
 const ownerPrisma = new PrismaClient({
   datasources: {
-    db: { url: process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL },
+    db: { url: ownerUrl },
   },
 });
 
-// The app connection (subject to RLS) is used for the tests themselves.
-const rlsUrl = process.env.RLS_TEST_DATABASE_URL || 
-  (process.env.DATABASE_URL ? process.env.DATABASE_URL.replace('medflow:', 'medflow_app:').replace('MedflowPass123!', process.env.APP_DB_PASSWORD || 'MedflowAppPass123!') : '');
+// The app connection (subject to RLS) is used for the tests themselves. It MUST
+// resolve to the restricted medflow_app role — a superuser bypasses RLS
+// unconditionally and every assertion below would pass vacuously.
+//
+// Deriving it from DATABASE_URL only works where that URL names the `medflow`
+// owner (the Docker compose setup). Anywhere else — CI connects as `postgres` —
+// the string replacements are a no-op and the derived URL is the *owner* URL,
+// which used to sail through to the superuser probe in beforeAll and fail there
+// with no hint of why. Detect that here instead and name the variable to set.
+function resolveRlsUrl(): string {
+  if (process.env.RLS_TEST_DATABASE_URL) return process.env.RLS_TEST_DATABASE_URL;
+  if (!process.env.DATABASE_URL) {
+    throw new Error(
+      'RLS tests need a database: set RLS_TEST_DATABASE_URL (medflow_app role) or DATABASE_URL.'
+    );
+  }
+  const derived = process.env.DATABASE_URL
+    .replace('medflow:', 'medflow_app:')
+    .replace('MedflowPass123!', process.env.APP_DB_PASSWORD || 'MedflowAppPass123!');
+  if (derived === process.env.DATABASE_URL) {
+    throw new Error(
+      [
+        'Cannot derive an RLS (medflow_app) connection from DATABASE_URL —',
+        'it does not name the `medflow` owner role, so the derived URL would be',
+        'the owner connection and the tests would silently bypass RLS.',
+        '',
+        'Set RLS_TEST_DATABASE_URL to the medflow_app connection string, e.g.',
+        '  postgresql://medflow_app:<APP_DB_PASSWORD>@localhost:5432/<db>',
+        'and make sure `npm run rls:apply` has run against that database.',
+      ].join('\n')
+    );
+  }
+  return derived;
+}
 
 const appPrisma = new PrismaClient({
   datasources: {
-    db: { url: rlsUrl },
+    db: { url: resolveRlsUrl() },
   },
 });
 
@@ -91,14 +124,38 @@ describe('Row Level Security (RLS)', () => {
   });
 
   afterAll(async () => {
-    // Cleanup with owner connection
-    const allPatNums = [patA, patB, patD, patARestricted, patC, ...writeScopePatNums];
-    await ownerPrisma.payment.deleteMany({ where: { PatNum: { in: allPatNums } } });
-    await ownerPrisma.patient.deleteMany({ where: { PatNum: { in: allPatNums } } });
-    await ownerPrisma.clinic.deleteMany({ where: { ClinicNum: { in: [branchANum, branchBNum, branchDNum, branchCNum] } } });
-    await ownerPrisma.practicegroup.deleteMany({ where: { id: { in: [group1Id, group2Id] } } });
-    await ownerPrisma.$disconnect();
-    await appPrisma.$disconnect();
+    // Every id here is `let`-declared and only assigned in beforeAll, so if
+    // beforeAll threw part-way (or before its first insert) some are still
+    // undefined. Passing those straight to `in:` raises a
+    // PrismaClientValidationError that vitest reports *alongside* the real
+    // beforeAll failure, which is how a plain "connection is a superuser"
+    // turned into a confusing two-error build failure. Drop the blanks and
+    // skip the delete entirely when there is nothing to clean up.
+    const defined = <T>(ids: (T | undefined)[]): T[] => ids.filter((id): id is T => id !== undefined);
+
+    const allPatNums = defined([patA, patB, patD, patARestricted, patC, ...writeScopePatNums]);
+    const allClinicNums = defined([branchANum, branchBNum, branchDNum, branchCNum]);
+    const allGroupIds = defined([group1Id, group2Id]);
+
+    try {
+      // Cleanup with owner connection. Ordered child-first: payments reference
+      // patients, patients reference clinics, clinics reference practicegroups.
+      if (allPatNums.length > 0) {
+        await ownerPrisma.payment.deleteMany({ where: { PatNum: { in: allPatNums } } });
+        await ownerPrisma.patient.deleteMany({ where: { PatNum: { in: allPatNums } } });
+      }
+      if (allClinicNums.length > 0) {
+        await ownerPrisma.clinic.deleteMany({ where: { ClinicNum: { in: allClinicNums } } });
+      }
+      if (allGroupIds.length > 0) {
+        await ownerPrisma.practicegroup.deleteMany({ where: { id: { in: allGroupIds } } });
+      }
+    } finally {
+      // Always release both pools, even if cleanup failed — a leaked pool keeps
+      // the vitest process alive after the run.
+      await ownerPrisma.$disconnect();
+      await appPrisma.$disconnect();
+    }
   });
 
   const withRls = async (clinicIds: string, groupId: string, sharing: string, fn: (tx: any) => Promise<void>) => {
@@ -149,20 +206,47 @@ describe('Row Level Security (RLS)', () => {
     });
   });
 
-  it('FINANCIAL:GROUP_READ widens reads but not writes', async () => {
+  // KNOWN COUPLING — FINANCIAL:GROUP_READ is NOT independent of IDENTITY:GROUP_READ.
+  //
+  // 06-shared-read.sql's shared_read policy resolves the patient's group with
+  // `EXISTS (SELECT 1 FROM patient p WHERE p."PatNum" = payment."PatNum" ...)`.
+  // Postgres applies `patient`'s OWN row-level security inside that subquery, so
+  // a caller who cannot see the patient row cannot see their payments either.
+  // Once 04-patient-group-visibility.sql gated group-wide patient reads behind
+  // mf.shared_mode('IDENTITY') = 'GROUP_READ', FINANCIAL:GROUP_READ stopped
+  // widening anything on its own — the same applies to IMAGING:GROUP_READ.
+  //
+  // These tests pin the behaviour that is actually enforced today, not the
+  // intent 06-shared-read.sql documents. Making the two switches independent
+  // again needs a SECURITY DEFINER helper for the group check (so it is not
+  // subject to patient RLS), which would WIDEN access and is a deliberate
+  // decision, not a test fix.
+  it('FINANCIAL + IDENTITY GROUP_READ widens reads but not writes', async () => {
     // Branch A user
-    await withRls(branchANum.toString(), group1Id.toString(), 'FINANCIAL:GROUP_READ', async (tx) => {
+    await withRls(branchANum.toString(), group1Id.toString(), 'FINANCIAL:GROUP_READ,IDENTITY:GROUP_READ', async (tx) => {
       // Can read Branch B payment
       const payments = await tx.payment.findMany({ where: { PatNum: patB } });
       expect(payments.length).toBe(1);
-      
+
       // But cannot read Group 2 (Branch D) payment
       const dPayments = await tx.payment.findMany({ where: { PatNum: patD } });
       expect(dPayments.length).toBe(0);
     });
 
-    // Without it, cannot read Branch B payment
+    // Without any sharing, cannot read Branch B payment
     await withRls(branchANum.toString(), group1Id.toString(), '', async (tx) => {
+      const payments = await tx.payment.findMany({ where: { PatNum: patB } });
+      expect(payments.length).toBe(0);
+    });
+  });
+
+  it('FINANCIAL:GROUP_READ alone is currently inert (patient RLS gates the subquery)', async () => {
+    await withRls(branchANum.toString(), group1Id.toString(), 'FINANCIAL:GROUP_READ', async (tx) => {
+      // The sibling-branch patient is invisible (IDENTITY sharing is off), so
+      // shared_read's EXISTS finds nothing and the payment stays hidden.
+      const siblingPatient = await tx.patient.findMany({ where: { PatNum: patB } });
+      expect(siblingPatient.length).toBe(0);
+
       const payments = await tx.payment.findMany({ where: { PatNum: patB } });
       expect(payments.length).toBe(0);
     });
@@ -222,8 +306,13 @@ describe('Row Level Security (RLS)', () => {
     it('scenario 2 — grouped clinic sees sibling branches in the same group, not other groups', async () => {
       // Branch A user, scoped to their own clinic only — group-wide
       // visibility must come from app.patient_group_id, not from having
-      // every sibling ClinicNum pre-expanded into app.clinic_ids.
-      await withRls(branchANum.toString(), group1Id.toString(), '', async (tx) => {
+      // every sibling ClinicNum pre-expanded into app.clinic_ids. That is
+      // what this scenario checks; IDENTITY:GROUP_READ is passed because
+      // patient_read_group's group arm is gated on it (the HIPAA
+      // minimum-necessary fix documented in 04-patient-group-visibility.sql),
+      // and without it the sibling read below is denied before the mechanism
+      // under test is ever exercised.
+      await withRls(branchANum.toString(), group1Id.toString(), 'IDENTITY:GROUP_READ', async (tx) => {
         const ownBranch = await tx.patient.findMany({ where: { PatNum: patA } });
         expect(ownBranch.length).toBe(1);
 

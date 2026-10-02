@@ -59,12 +59,29 @@ jobs:
           JWT_SECRET: test-jwt-secret-for-ci-only
           JWT_REFRESH_SECRET: test-refresh-secret-for-ci-only
 
+      # tests/rls/rls.test.ts asserts its connection is NOT a superuser, because a
+      # superuser bypasses RLS and every assertion in that suite would pass
+      # vacuously. Without this step the CI database has no medflow_app role and
+      # zero policies, and the suite fails outright rather than silently lying.
+      # Must run after `prisma db push` — it grants on the tables that creates.
+      - name: Apply RLS policies and create the medflow_app role
+        run: npm run rls:apply
+        env:
+          DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/medflow_test'
+          DIRECT_DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/medflow_test'
+          APP_DB_PASSWORD: ci-only-app-db-password
+
       - name: Run tests
         run: npm test
         env:
           NODE_ENV: test
           DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/medflow_test'
           DIRECT_DATABASE_URL: 'postgresql://postgres:postgres@localhost:5432/medflow_test'
+          # The RLS suite connects as the restricted role created above. It cannot
+          # be derived from DATABASE_URL here (that names `postgres`, not the
+          # `medflow` owner the derivation rewrites), so it is spelled out.
+          RLS_TEST_DATABASE_URL: 'postgresql://medflow_app:ci-only-app-db-password@localhost:5432/medflow_test'
+          APP_DB_PASSWORD: ci-only-app-db-password
           JWT_SECRET: test-jwt-secret-for-ci-only
           JWT_REFRESH_SECRET: test-refresh-secret-for-ci-only
 
