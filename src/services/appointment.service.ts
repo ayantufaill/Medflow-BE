@@ -1,4 +1,4 @@
-import { prisma } from '../config/db';
+import { prisma, applyTenantContextToTransaction } from '../config/db';
 import { NotFoundError, ConflictError, BadRequestError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
@@ -20,6 +20,7 @@ import { emailService } from './email.service';
 import { smsService } from './sms.service';
 import { practiceInfoService } from './practice-info.service';
 import { staffNotificationService } from './staffNotification.service';
+import { invoiceService } from './invoice.service';
 import { getAppointmentTimeZone, scheduledStartInstant } from '../utils/datetime.util';
 
 /**
@@ -1668,6 +1669,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
     }
 
     const oldRelatedData = await this.fetchAppointmentRelatedData(appointment.AptNum);
+    const newlyCompletedProcNums: bigint[] = [];
+    let createdInvoice: { id: string; invoiceNumber: string } | null = null;
 
     const existingMeta = await getAppointmentMeta(appointment.AptNum);
     const dbStatus = mapAppointmentStatusFromDb(appointment.AptStatus);
@@ -1923,6 +1926,14 @@ async getPatientAppointments(patientId: string, limit = 10) {
           if (matchIdx !== -1) {
             const matchedProc = existingProcs[matchIdx];
             procsToKeep.add(matchedProc.ProcNum);
+
+            // Appointment procedures are also shown in NewTreatmentPlanPage.
+            // Legacy rows can already be ProcStatus=2 while still unbilled;
+            // attach those once, and attach genuine non-completed -> completed
+            // transitions. StatementNum is the idempotency guard.
+            if (proc.completed && matchedProc.StatementNum == null && matchedProc.ProcStatus !== 6) {
+              newlyCompletedProcNums.push(matchedProc.ProcNum);
+            }
             
             await prisma.procedurelog.update({
               where: { ProcNum: matchedProc.ProcNum },
@@ -1932,7 +1943,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
               }
             });
           } else {
-            await this.addAppointmentProcedure(
+            const created = await this.addAppointmentProcedure(
               appointmentId,
               {
                 code: proc.code,
@@ -1944,6 +1955,9 @@ async getPatientAppointments(patientId: string, limit = 10) {
               },
               updatedBy
             );
+            if (proc.completed && created?.procedure?._id) {
+              newlyCompletedProcNums.push(BigInt(created.procedure._id));
+            }
           }
         } catch (error) {
           console.error(`Failed to sync procedure ${proc.code} for appointment ${appointmentId}:`, error);
@@ -1962,6 +1976,19 @@ async getPatientAppointments(patientId: string, limit = 10) {
           }
         }
       }
+    }
+
+    if (newlyCompletedProcNums.length && updated.PatNum) {
+      await prisma.$transaction(async (tx) => {
+        await applyTenantContextToTransaction(tx);
+        createdInvoice = await invoiceService.createInvoiceFromCompletedProcedures(
+          tx,
+          updated.PatNum as bigint,
+          newlyCompletedProcNums,
+          updatedBy,
+          `appointment:${appointmentId}`,
+        );
+      });
     }
 
     // Record audit event for appointment audit history
@@ -2011,15 +2038,15 @@ async getPatientAppointments(patientId: string, limit = 10) {
     );
 
     if (updates.customFields?.procedures && Array.isArray(updates.customFields.procedures) && updates.customFields.procedures.length > 0) {
-      return this.mapAppointmentWithMeta(updated, {
+      return { ...(await this.mapAppointmentWithMeta(updated, {
         patient: updated.patient,
         provider: updated.provider_appointment_ProvNumToprovider,
         appointmentType: updated.appointmenttype,
         createdBy: updated.userod,
-      });
+      })), createdInvoice };
     }
 
-    return mapped;
+    return { ...mapped, createdInvoice };
   }
 
   /**

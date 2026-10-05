@@ -71,11 +71,11 @@ export class TreatmentPlanController {
         status,
         totalAmount,
         items
-      });
+      }, req.userId);
       
       res.status(200).json({
         success: true,
-        data: { treatmentPlan: plan },
+        data: { treatmentPlan: plan, createdInvoice: plan.createdInvoice },
         message: 'Treatment plan updated successfully'
       });
     } catch (error) {
