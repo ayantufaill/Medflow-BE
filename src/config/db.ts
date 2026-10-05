@@ -4,7 +4,7 @@ import { tenantContextStorage } from './tenant-context';
 
 let _basePrisma: PrismaClient | null = null;
 
-const getDatasourceOptions = () => {
+const getDatasourceOptions = (): Pick<Prisma.PrismaClientOptions, 'datasources'> => {
   const rawUrl = process.env.DATABASE_URL;
   if (!rawUrl) return {};
 

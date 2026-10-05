@@ -1,3 +1,6 @@
+/// <reference lib="dom" />
+/// <reference lib="dom.iterable" />
+
 import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
