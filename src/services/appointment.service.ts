@@ -3045,18 +3045,18 @@ async getPatientAppointments(patientId: string, limit = 10) {
         finalSurface = null;
       } else if (treatArea === 'TOOTH') {
         finalSurface = null;
-        if (data.status === '2' && !finalTooth) {
-          throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a tooth number.`);
-        }
+        // if (data.status === '2' && !finalTooth) {
+        //   throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a tooth number.`);
+        // }
       } else if (treatArea === 'SURFACE') {
-        if (data.status === '2') {
-          if (!finalTooth) {
-            throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a tooth number.`);
-          }
-          if (!finalSurface) {
-            throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a surface.`);
-          }
-        }
+        // if (data.status === '2') {
+        //   if (!finalTooth) {
+        //     throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a tooth number.`);
+        //   }
+        //   if (!finalSurface) {
+        //     throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a surface.`);
+        //   }
+        // }
       }
     }
 

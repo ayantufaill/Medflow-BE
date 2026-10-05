@@ -541,7 +541,7 @@ export class TreatmentPlanService {
         let procNumOrig = existingRow?.ProcNumOrig ?? null;
         const isNowCompleted = item.status === 'C' || item.status === 'Completed';
         const itemStatus = isNowCompleted ? 'C' : item.status;
-        const wasCompleted = existingRow && (existingRow.Prognosis === 'C' || existingRow.ProcNumOrig != null);
+        const wasCompleted = existingRow && (existingRow.Prognosis === 'C' || (existingRow.ProcNumOrig != null && existingRow.ProcNumOrig !== BigInt(0)));
 
         if (isNowCompleted && !wasCompleted && plan.PatNum) {
           const patient = await tx.patient.findUnique({ where: { PatNum: plan.PatNum } });
