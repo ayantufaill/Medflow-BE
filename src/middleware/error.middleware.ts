@@ -97,6 +97,20 @@ export const errorHandler = (
     }
   }
 
+  // 4b. Row-level security refused a write (Postgres 42501). Prisma surfaces it
+  // as an unknown request error, so match the message rather than a P-code.
+  if (typeof err.message === 'string' && err.message.includes('violates row-level security policy')) {
+    return res.status(403).json({
+      success: false,
+      error: {
+        code: ErrorCode.FORBIDDEN,
+        message: 'You do not have access to this branch.',
+        details: null,
+        timestamp,
+      },
+    });
+  }
+
   // 5. Default 500 Server Error
   console.error('[GlobalErrorHandler] Unhandled Exception:', err);
 

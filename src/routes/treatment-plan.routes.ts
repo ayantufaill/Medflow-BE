@@ -5,7 +5,7 @@ import { authenticate } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePhiAccess } from '../middleware/phi.middleware';
-import { requirePermission } from '../middleware/permission.middleware';
+import { requirePermission, requirePermissionOrTreatmentCoordinator } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
   getTreatmentPlansValidator,
@@ -83,7 +83,7 @@ router.use(authenticate, requirePhiAccess, resolveBranchAccess, enterTenantConte
 router.get(
   '/',
   
-  requirePermission('treatment-plans.read'),
+  requirePermissionOrTreatmentCoordinator('treatment-plans.read'),
   validate(getTreatmentPlansValidator),
   treatmentPlanController.getAllTreatmentPlans
 );
@@ -139,7 +139,7 @@ router.get(
 router.get(
   '/:id',
   
-  requirePermission('treatment-plans.read'),
+  requirePermissionOrTreatmentCoordinator('treatment-plans.read'),
   validate(treatmentPlanIdValidator),
   treatmentPlanController.getTreatmentPlanById
 );
@@ -434,7 +434,7 @@ router.patch(
 router.get(
   '/:id/print',
   
-  requirePermission('treatment-plans.read'),
+  requirePermissionOrTreatmentCoordinator('treatment-plans.read'),
   validate(treatmentPlanIdValidator),
   treatmentPlanController.printTreatmentPlan
 );
@@ -515,4 +515,44 @@ router.post(
   validate(treatmentPlanIdValidator),
   treatmentPlanController.generatePreAuth
 );
+
+/**
+ * @swagger
+ * /treatment-plans/{id}/present:
+ *   post:
+ *     summary: Mark a treatment plan as presented to the patient
+ *     description: >
+ *       Sets the plan status to Presented (P). Allowed with treatment-plans.update,
+ *       or for a Front Desk / Branch Admin user when the patient's branch has the
+ *       Treatment Coordinator feature turned on.
+ *     tags: [Treatment Plans]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Treatment plan marked as presented
+ *       403:
+ *         description: Not allowed for this branch
+ *       404:
+ *         description: Treatment plan not found
+ */
+router.post(
+  '/:id/present',
+  requirePermissionOrTreatmentCoordinator('treatment-plans.update'),
+  validate(treatmentPlanIdValidator),
+  async (req, res, next) => {
+    try {
+      const treatmentPlan = await treatmentPlanService.updateTreatmentPlan(req.params.id, { status: 'P' });
+      res.status(200).json({ success: true, data: { treatmentPlan } });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 export default router;

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { auditCrossBranchRead } from '../middleware/audit.middleware';
 import { appointmentController } from '../controllers/appointment.controller';
-import { authenticate, requireRoles } from '../middleware/auth.middleware';
+import { authenticate, denyPatientPortalUsers, requireRoles } from '../middleware/auth.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
@@ -17,6 +17,7 @@ import {
 
 const router = Router();
 router.use(authenticate);
+router.use(denyPatientPortalUsers);
 router.use(resolveBranchAccess);
 router.use(enterTenantContext);
 

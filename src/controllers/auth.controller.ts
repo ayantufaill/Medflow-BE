@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import { getTreatmentCoordinatorClinicIds } from '../services/rbac.service';
 import { authService } from '../services/auth.service';
 import { userService } from '../services/user.service';
 import { generateTokens, verifyRefreshToken, blacklistToken } from '../utils/jwt.util';
@@ -113,6 +114,11 @@ export class AuthController {
         sharing: req.access.sharing,
         accessVersion: req.access.tokenVersion,
         isPlatformAdmin: req.access.isPlatformAdmin,
+        // Branches where this user may present treatment plans (Treatment
+        // Coordinator flag); the frontend shows "Present Treatment Plan" there.
+        treatmentCoordinatorBranchIds: (
+          await getTreatmentCoordinatorClinicIds(req.userId, req.access.clinicIds)
+        ).map(String),
       };
 
       res.status(200).json({ success: true, data: { user } });

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { invoiceController } from '../controllers/invoice.controller';
-import { authenticate } from '../middleware/auth.middleware';
+import { authenticate, denyPatientPortalUsers } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
@@ -55,6 +55,7 @@ const router = Router();
 router.get(
   '/',
   authenticate,
+  denyPatientPortalUsers,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('invoices.read'),
@@ -106,6 +107,7 @@ router.get(
 router.post(
   '/',
   authenticate,
+  denyPatientPortalUsers,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('invoices.create'),
@@ -116,6 +118,7 @@ router.post(
 router.post(
   '/estimate',
   authenticate,
+  denyPatientPortalUsers,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('invoices.read'),
@@ -144,6 +147,7 @@ router.post(
 router.get(
   '/patient/:patientId',
   authenticate,
+  denyPatientPortalUsers,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('invoices.read'),
@@ -154,6 +158,7 @@ router.get(
 router.get(
   '/patient/:patientId/composite',
   authenticate,
+  denyPatientPortalUsers,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('invoices.read'),
@@ -199,6 +204,7 @@ router.get(
 router.get(
   '/patient/:patientId/balance',
   authenticate,
+  denyPatientPortalUsers,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('invoices.read'),
@@ -228,6 +234,7 @@ router.get(
 router.get(
   '/:invoiceId',
   authenticate,
+  denyPatientPortalUsers,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('invoices.read'),
@@ -269,6 +276,7 @@ router.get(
 router.post(
   '/from-appointment/:appointmentId',
   authenticate,
+  denyPatientPortalUsers,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('invoices.create'),
@@ -311,6 +319,7 @@ router.post(
 router.patch(
   '/:invoiceId',
   authenticate,
+  denyPatientPortalUsers,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('invoices.update'),
@@ -342,6 +351,7 @@ router.patch(
 router.delete(
   '/:invoiceId',
   authenticate,
+  denyPatientPortalUsers,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('invoices.delete'),
@@ -392,6 +402,7 @@ router.delete(
 router.post(
   '/:invoiceId/items',
   authenticate,
+  denyPatientPortalUsers,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('invoices.update'),
@@ -438,6 +449,7 @@ router.post(
 router.patch(
   '/:invoiceId/items/:itemId',
   authenticate,
+  denyPatientPortalUsers,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('invoices.update'),
@@ -471,6 +483,7 @@ router.patch(
 router.delete(
   '/:invoiceId/items/:itemId',
   authenticate,
+  denyPatientPortalUsers,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('invoices.update'),
@@ -510,6 +523,7 @@ router.delete(
 router.post(
   '/:invoiceId/recalculate',
   authenticate,
+  denyPatientPortalUsers,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('invoices.update'),
@@ -541,6 +555,7 @@ router.post(
 router.patch(
   '/:invoiceId/finalize',
   authenticate,
+  denyPatientPortalUsers,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('invoices.update'),
@@ -583,6 +598,7 @@ router.patch(
 router.patch(
   '/:invoiceId/void',
   authenticate,
+  denyPatientPortalUsers,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('invoices.update'),
@@ -660,6 +676,7 @@ router.patch(
 router.patch(
   '/:invoiceId/items/:itemId/paid',
   authenticate,
+  denyPatientPortalUsers,
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('invoices.update'),
@@ -698,6 +715,7 @@ router.patch(
 router.post(
   '/:invoiceId/items/:itemId/transfer-outstanding',
   authenticate,
+  denyPatientPortalUsers,
   requirePermission('invoices.update'),
   validate([...invoiceIdValidator, ...invoiceItemIdValidator]),
   invoiceController.transferOutstandingToPatient.bind(invoiceController)
@@ -734,6 +752,7 @@ router.post(
 router.post(
   '/transfer-rejected-claim',
   authenticate,
+  denyPatientPortalUsers,
   requirePermission('invoices.update'),
   invoiceController.transferRejectedClaim.bind(invoiceController)
 );
@@ -741,6 +760,7 @@ router.post(
 router.post(
   '/:invoiceId/transfer-rejected-claim',
   authenticate,
+  denyPatientPortalUsers,
   requirePermission('invoices.update'),
   validate(invoiceIdValidator),
   invoiceController.transferRejectedClaim.bind(invoiceController)

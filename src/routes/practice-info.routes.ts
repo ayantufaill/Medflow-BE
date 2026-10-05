@@ -65,9 +65,10 @@ router.get(
  *       200:
  *         description: Current practice information
  */
+// Any signed-in user: the app shell loads this on login for the practice name,
+// logo and timezone. Non-admins get a redacted copy (see the controller).
 router.get(
   '/current',
-  requireRoles('Admin'),
   practiceInfoController.getPracticeInfo.bind(practiceInfoController)
 );
 

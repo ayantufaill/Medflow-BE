@@ -1151,7 +1151,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
         id: p.ProvNum.toString(),
         name: `${p.FName || ''} ${p.LName || ''}`,
         code: p.Abbr,
-        specialty: p.Specialty,
+        // Specialty is a DefNum (BigInt); JSON cannot serialise BigInt.
+        specialty: p.Specialty != null ? String(p.Specialty) : null,
         workingHours: [],
       })),
       dateRange: {
