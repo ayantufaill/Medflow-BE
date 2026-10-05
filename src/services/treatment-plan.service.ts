@@ -4,6 +4,7 @@ import { getNextId } from '../utils/opendental-ids.util.js';
 import { claimService } from './claim.service.js';
 import { PatientInsuranceService } from './patient-insurance.service.js';
 import { invoiceService } from './invoice.service.js';
+import { validateIcd10Assignments } from '../utils/icd10.util';
 import { agingService } from './aging.service.js';
 
 const patientInsuranceService = new PatientInsuranceService();
@@ -270,6 +271,7 @@ export class TreatmentPlanService {
     totalAmount?: number;
     items?: any[];
   }) {
+    data = { ...data, items: await validateIcd10Assignments(data.items ?? [], [], prisma) };
     const nextId = await getNextId('treatplan', 'TreatPlanNum');
 
     const { enrichedItems, insPortion, ptPortion, calcTotal } = await this.enrichItemsWithInsurance(
@@ -344,7 +346,7 @@ export class TreatmentPlanService {
             FeeAmt: feeAmt,
             PriInsAmt: priInsAmt,
             PatAmt: patAmt,
-            Dx: item.icd ?? item.dx ?? null,
+            Dx: item.icd,
             Prognosis: item.status ?? 'P',
             ProvNum: provNum,
             DateTP: planDate,
@@ -498,6 +500,9 @@ export class TreatmentPlanService {
       include: { provider: true, procedurelog: true },
     });
 
+    if (updates.items) {
+      updates = { ...updates, items: await validateIcd10Assignments(updates.items, existingProctpRows.map(row => ({ id: row.ProcTPNum.toString(), icd: row.Dx })), tx) };
+    }
     let nextItems = updates.items;
     let insPortion = meta.insurancePortion ?? 0;
     let ptPortion = meta.patientPortion ?? 0;
@@ -582,6 +587,7 @@ export class TreatmentPlanService {
               Surf: (item.site ?? item.surface ?? '').substring(0, 10),
               ToothNum: item.tooth ? String(item.tooth).substring(0, 2) : '',
               OldCode: (codeStr ?? '').substring(0, 15),
+              DiagnosticCode: item.icd,
               DateTP: plan.DateTP,
               ClinicNum: existingRow?.ClinicNum ?? (item.clinicId ? BigInt(item.clinicId) : patient.ClinicNum),
               BillingNote: buildJson({
@@ -604,6 +610,10 @@ export class TreatmentPlanService {
           procNumOrig = newProcNum;
           newlyCompletedProcNums.push(newProcNum);
           if (meta.feeDetailsByItemId?.[String(item.id || item._id || item.procTPNum || '')]?.manualOverride) manualProcNums.push(newProcNum);
+        }
+
+        if (procNumOrig) {
+          await tx.procedurelog.update({ where: { ProcNum: procNumOrig }, data: { DiagnosticCode: item.icd } });
         }
 
         const parseAmt = (val: any) => typeof val === 'number' ? val : Number(String(val || 0).replace(/[^0-9.-]+/g, '')) || 0;
@@ -634,7 +644,7 @@ export class TreatmentPlanService {
               FeeAmt: feeAmt,
               PriInsAmt: priInsAmt,
               PatAmt: patAmt,
-              Dx: item.icd ?? item.dx ?? null,
+              Dx: item.icd,
               Prognosis: itemStatus ?? existingRow.Prognosis ?? 'P',
               ProvNum: provNum ?? existingRow.ProvNum,
               ProcNumOrig: procNumOrig,
@@ -659,7 +669,7 @@ export class TreatmentPlanService {
               FeeAmt: feeAmt,
               PriInsAmt: priInsAmt,
               PatAmt: patAmt,
-              Dx: item.icd ?? item.dx ?? null,
+              Dx: item.icd,
               Prognosis: itemStatus ?? 'P',
               ProvNum: provNum,
               ProcNumOrig: procNumOrig,
