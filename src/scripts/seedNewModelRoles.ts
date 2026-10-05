@@ -88,6 +88,8 @@ const DENTAL_ASSISTANT_PERMISSIONS = {
   // "read-only financials" per spec
   'invoices.read': true,
   'insurance.read': true,
+  // Screen access matrix: Insurance/services/auths is read for clinical staff.
+  'authorizations.read': true,
 };
 
 const FRONT_DESK_PERMISSIONS = {
@@ -104,6 +106,14 @@ const FRONT_DESK_PERMISSIONS = {
   'documents.create': true,
   'insurance.read': true,
   'services.read': true,
+  // Screen access matrix: Front Desk/Biller have full Finance, Reports and Insurance pages (reads).
+  'reports.read': true,
+  'invoices.read': true,
+  'payments.read': true,
+  'claims.read': true,
+  'era.read': true,
+  'adjustments.read': true,
+  'authorizations.read': true,
 };
 
 const BILLING_PERMISSIONS = {
@@ -138,6 +148,11 @@ const BILLING_PERMISSIONS = {
   'insurance.update': true,
   'insurance.delete': true,
   'reports.financial': true,
+  // Screen access matrix: Reports, Services/Authorizations and Documents pages load their data.
+  'reports.read': true,
+  'services.read': true,
+  'authorizations.read': true,
+  'documents.read': true,
 };
 
 // Bounded and explicit — NOT '*'. This is the whole point of the new model:
