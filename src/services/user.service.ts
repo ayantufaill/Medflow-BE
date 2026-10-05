@@ -164,6 +164,22 @@ export class UserService {
     );
     const roleMetaMap = await getRolesMeta(allRoleNums);
 
+    // Branch assignments (userclinic + home clinic), so the list can show each
+    // user's branches instead of flagging everyone as "no branch".
+    const clinicLinks = await prisma.userclinic.findMany({
+      where: { UserNum: { in: userIds } },
+      select: { UserNum: true, ClinicNum: true },
+    });
+    const homeClinic = new Map(rows.map((r) => [r.UserNum.toString(), r.ClinicNum]));
+    const branchIdsOf = (userId: string): string[] => {
+      const ids = new Set(
+        clinicLinks.filter((l) => l.UserNum?.toString() === userId && l.ClinicNum).map((l) => String(l.ClinicNum))
+      );
+      const home = homeClinic.get(userId);
+      if (home && home > 0n) ids.add(home.toString());
+      return [...ids];
+    };
+
     const usersWithRoles = await Promise.all(
       users.map(async (user) => {
         const roleGroups = userRoles
@@ -173,7 +189,7 @@ export class UserService {
         const roles = await Promise.all(
           roleGroups.map((role) => mapRole(role, roleMetaMap[role.UserGroupNum.toString()] ?? {}))
         );
-        return { ...sanitizeUser(user), roles };
+        return { ...sanitizeUser(user), roles, branchIds: branchIdsOf(user._id) };
       })
     );
 
