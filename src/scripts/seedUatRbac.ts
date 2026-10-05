@@ -52,6 +52,25 @@ const PATIENTS = [
   { first: 'Ali', last: 'Tariq', email: 'ali.tariq@patient.test', branch: 'A' as BranchKey, label: 'PT-001' },
   { first: 'Sara', last: 'Khan', email: 'sara.khan@patient.test', branch: 'B' as BranchKey, label: 'PT-002' },
   { first: 'John', last: 'Doe', email: 'john.doe@patient.test', branch: 'CS' as BranchKey, label: 'PT-003' },
+  // Extra patients so lists look real. No name contains "ali", "sara" or "john":
+  // the visibility checks search for exactly those three.
+  { first: 'Usman', last: 'Qureshi', email: 'usman.qureshi@patient.test', branch: 'A' as BranchKey, label: 'PT-004' },
+  { first: 'Hina', last: 'Baig', email: 'hina.baig@patient.test', branch: 'A' as BranchKey, label: 'PT-005' },
+  { first: 'Daniel', last: 'Brooks', email: 'daniel.brooks@patient.test', branch: 'A' as BranchKey, label: 'PT-006' },
+  { first: 'Maria', last: 'Lopez', email: 'maria.lopez@patient.test', branch: 'A' as BranchKey, label: 'PT-007' },
+  { first: 'Bilal', last: 'Chaudhry', email: 'bilal.chaudhry@patient.test', branch: 'A' as BranchKey, label: 'PT-008' },
+  { first: 'Emily', last: 'Carter', email: 'emily.carter@patient.test', branch: 'A' as BranchKey, label: 'PT-009' },
+  { first: 'Fatima', last: 'Noor', email: 'fatima.noor@patient.test', branch: 'A' as BranchKey, label: 'PT-010' },
+  { first: 'Ayesha', last: 'Siddiqui', email: 'ayesha.siddiqui@patient.test', branch: 'B' as BranchKey, label: 'PT-011' },
+  { first: 'Ryan', last: 'Cooper', email: 'ryan.cooper@patient.test', branch: 'B' as BranchKey, label: 'PT-012' },
+  { first: 'Hamza', last: 'Rehman', email: 'hamza.rehman@patient.test', branch: 'B' as BranchKey, label: 'PT-013' },
+  { first: 'Olivia', last: 'Green', email: 'olivia.green@patient.test', branch: 'B' as BranchKey, label: 'PT-014' },
+  { first: 'Kamran', last: 'Butt', email: 'kamran.butt@patient.test', branch: 'B' as BranchKey, label: 'PT-015' },
+  { first: 'Grace', last: 'Kim', email: 'grace.kim@patient.test', branch: 'B' as BranchKey, label: 'PT-016' },
+  { first: 'Imran', last: 'Shah', email: 'imran.shah@patient.test', branch: 'CS' as BranchKey, label: 'PT-017' },
+  { first: 'Rabia', last: 'Aslam', email: 'rabia.aslam@patient.test', branch: 'CS' as BranchKey, label: 'PT-018' },
+  { first: 'Thomas', last: 'Reed', email: 'thomas.reed@patient.test', branch: 'CS' as BranchKey, label: 'PT-019' },
+  { first: 'Zoe', last: 'Turner', email: 'zoe.turner@patient.test', branch: 'CS' as BranchKey, label: 'PT-020' },
 ];
 
 const findOrCreateGroup = async (name: string) =>
@@ -178,7 +197,7 @@ async function main() {
   for (const p of PATIENTS) {
     const clinic = clinics[p.branch];
     const groupId = p.branch === 'CS' ? citySmiles.id : sunrise.id;
-    const data = { FName: p.first, LName: p.last, Email: p.email, ClinicNum: clinic.ClinicNum, GroupNum: groupId, PatStatus: 0, Birthdate: new Date('1990-05-15') };
+    const data = { FName: p.first, LName: p.last, Email: p.email, ClinicNum: clinic.ClinicNum, GroupNum: groupId, PatStatus: 0, Birthdate: new Date(Date.UTC(1960 + ((patientRows.length * 7) % 45), (patientRows.length * 5) % 12, 1 + ((patientRows.length * 11) % 27))) };
     const existing = await prisma.patient.findFirst({ where: { Email: p.email } });
     const patient = existing
       ? await prisma.patient.update({ where: { PatNum: existing.PatNum }, data })
