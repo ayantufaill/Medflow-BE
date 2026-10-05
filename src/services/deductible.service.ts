@@ -190,6 +190,22 @@ const CATEGORY_TO_ROW: Record<string, string | null> = {
 export const categoryToDeductibleRow = (category: string | null): string | null =>
   category ? CATEGORY_TO_ROW[category] ?? null : null;
 
+/**
+ * Map a procedure's own coverage tier (from `procedurecode.CoverageCategory`)
+ * onto the deductible-grid type key. This is the authoritative routing for the
+ * deductible: a plan that splits a category into Basic and Major must not read
+ * the delocalized CDT range and silently charge the Basic pool for a crown.
+ */
+export const tierKeyFromCoverageCategory = (value: unknown): string | null => {
+  const norm = String(value ?? '').toLowerCase();
+  if (!norm) return null;
+  if (norm.includes('basic')) return 'basic';
+  if (norm.includes('major')) return 'major';
+  if (norm.includes('orthodontic')) return 'orthodontics';
+  if (norm.includes('preventive')) return 'preventative';
+  return null;
+};
+
 /** Normalize a persisted grid, deriving `typeKey` for legacy rows that lack it. */
 export const normalizeDeductibleRows = (grid: unknown): NormalizedDeductibleRow[] => {
   if (!Array.isArray(grid)) return [];
@@ -257,9 +273,11 @@ export class DeductibleLedger {
   private readonly balances = new Map<string, number>();
   private readonly applied = new Map<string, number>();
   private readonly tier: DeductibleTier;
+  private readonly tierByCode: Map<string, string>;
 
-  constructor(grid: unknown, tier: DeductibleTier = 'individual') {
+  constructor(grid: unknown, tier: DeductibleTier = 'individual', tierByCode?: Map<string, string>) {
     this.tier = tier;
+    this.tierByCode = tierByCode ?? new Map();
     for (const row of normalizeDeductibleRows(grid)) {
       // A family plan whose family deductible was left blank falls back to the
       // individual amount. An explicitly-entered 0 means "no deductible".
@@ -284,6 +302,15 @@ export class DeductibleLedger {
     const normalized = normalizeCode(code);
     if (normalized && this.byCode.has(normalized)) {
       return { row: this.byCode.get(normalized)!, key: `code:${normalized}` };
+    }
+
+    // The plan splits the same procedure category into Basic / Major pools, so a
+    // numeric CDT range alone cannot route the deductible: a crown this carrier
+    // classifies as a Major service must drain the Major pool, not the Basic one.
+    // The category string lives on the procedure code itself.
+    const explicitTier = tierKeyFromCoverageCategory(normalized ? this.tierByCode.get(normalized) : undefined);
+    if (explicitTier && this.byCategory.has(explicitTier)) {
+      return { row: this.byCategory.get(explicitTier)!, key: explicitTier };
     }
 
     const categoryRow = categoryToDeductibleRow(mapCodeToCategory(code));
