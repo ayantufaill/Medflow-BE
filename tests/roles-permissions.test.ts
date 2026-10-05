@@ -1,13 +1,17 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import app from '../src/app';
-import { getAdminAuthHeader } from './helpers/auth';
+import { getAdminAuthHeader, getSuperAdminAuthHeader } from './helpers/auth';
 
 describe('Roles & Permissions', () => {
   let authHeader: { Authorization: string };
+  // Creating/updating/deleting a role is platform-level (requirePlatformAdmin
+  // in src/routes/role.routes.ts) — a plain 'Admin' gets a 403 there by design.
+  let platformAdminHeader: { Authorization: string };
 
   beforeAll(async () => {
     authHeader = await getAdminAuthHeader();
+    platformAdminHeader = await getSuperAdminAuthHeader();
   });
 
   it('gets all roles', async () => {
@@ -27,7 +31,7 @@ describe('Roles & Permissions', () => {
   it('validates create role payload', async () => {
     const res = await request(app)
       .post('/api/roles')
-      .set(authHeader)
+      .set(platformAdminHeader)
       .send({});
     expect(res.status).toBe(400);
   });
@@ -35,9 +39,17 @@ describe('Roles & Permissions', () => {
   it('validates update role payload', async () => {
     const res = await request(app)
       .put('/api/roles/999999999999')
-      .set(authHeader)
+      .set(platformAdminHeader)
       .send({});
     expect([200, 404]).toContain(res.status);
+  });
+
+  it('refuses role creation to a non-platform admin', async () => {
+    const res = await request(app)
+      .post('/api/roles')
+      .set(authHeader)
+      .send({ name: 'Should Not Be Created' });
+    expect(res.status).toBe(403);
   });
 
   it('returns users with role (empty ok)', async () => {

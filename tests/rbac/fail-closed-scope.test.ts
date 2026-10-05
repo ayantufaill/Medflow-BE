@@ -95,6 +95,14 @@ describe('A1 · fail-closed clinic scope', () => {
     //
     // This is the same FK-cleanup class of problem behind the pre-existing
     // failures recorded in docs/TEST-BASELINE.md.
+    // securityloghash hangs off securitylog, which hangs off userod. The sweep
+    // below swallows the securitylog delete when its own children are still
+    // there, which then strands the user behind fk_securitylog_1_UserNum — so
+    // clear the grandchildren first.
+    await prisma.securityloghash.deleteMany({
+      where: { securitylog: { UserNum: user.userNum } },
+    });
+
     const refs = await prisma.$queryRaw<{ table_name: string }[]>`
       SELECT c.conrelid::regclass::text AS table_name
       FROM pg_constraint c
@@ -214,6 +222,9 @@ describe('A1.3 · token validation is unconditional', () => {
         `DELETE FROM userodpref WHERE "UserNum" = $1`,
         u.userNum
       );
+      await prisma.securityloghash.deleteMany({
+        where: { securitylog: { UserNum: u.userNum } },
+      });
       await prisma.securitylog.deleteMany({ where: { UserNum: u.userNum } });
       await prisma.userod.deleteMany({ where: { UserNum: u.userNum } });
     }
@@ -320,6 +331,9 @@ describe('A1.4 · PHI access gate', () => {
   const teardown = async (u: { userNum: bigint }) => {
     await prisma.usergroupattach.deleteMany({ where: { UserNum: u.userNum } });
     await prisma.$executeRawUnsafe(`DELETE FROM userodpref WHERE "UserNum" = $1`, u.userNum);
+    await prisma.securityloghash.deleteMany({
+      where: { securitylog: { UserNum: u.userNum } },
+    });
     await prisma.securitylog.deleteMany({ where: { UserNum: u.userNum } });
     await prisma.userod.deleteMany({ where: { UserNum: u.userNum } });
   };

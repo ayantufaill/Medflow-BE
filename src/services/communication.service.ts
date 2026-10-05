@@ -1,6 +1,53 @@
 import { prisma } from '../config/db';
-import { NotFoundError } from '../utils/error.util';
+import { NotFoundError, BadRequestError } from '../utils/error.util';
 import { getNextId } from '../utils/opendental-ids.util';
+import {
+  EMPTY_EMAIL_DOMAIN,
+  createDomainIdentity,
+  normalizeDomain,
+  verifyDomainIdentity,
+  type EmailDomainState,
+} from './email-domain.service';
+
+import {
+  defaultMessagingState,
+  isValidAreaCode,
+  normalizeUsPhone,
+  sanitizePracticeDetails,
+  searchAvailableNumbers,
+  validatePracticeDetails,
+  type MessagingServiceState,
+  type PracticeDetails,
+  type PracticeDetailsInput,
+} from './messaging-number.service';
+import { practiceInfoService } from './practice-info.service';
+import {
+  applyAutomationUpdate,
+  buildAutomation,
+  buildDefaultAutomations,
+  isAutomationCategory,
+  summarizeAutomations,
+  validateAutomation,
+  type AutomationCategory,
+  type AutomationInput,
+  type AutomationMessage,
+} from './automation.service';
+
+const AUTOMATIONS_PREF = 'medflow.communication.automations';
+
+interface AutomationsState {
+  messages: Record<AutomationCategory, AutomationMessage[]>;
+}
+
+const EMAIL_DOMAIN_PREF = 'medflow.communication.email-domain';
+const EMAIL_PREFERENCES_PREF = 'medflow.communication.email-preferences';
+const MESSAGING_SERVICE_PREF = 'medflow.communication.messaging-service';
+const MESSAGING_PRACTICE_DETAILS_PREF = 'medflow.communication.messaging-practice-details';
+
+export interface EmailPreferences {
+  sentFromEmail: string | null;
+  replyToEmail: string | null;
+}
 
 const getClinicNum = async (): Promise<bigint> => {
   const clinic = await prisma.clinic.findFirst({ orderBy: { ClinicNum: 'asc' } });
@@ -75,6 +122,238 @@ export class CommunicationService {
     
     await this.setClinicPref(clinicNum, 'medflow.communication.settings', JSON.stringify(updated));
     return updated;
+  }
+
+  /* ─── Email Domain (Email Services) ─── */
+  async getEmailDomain(): Promise<EmailDomainState> {
+    const clinicNum = await getClinicNum();
+    const pref = await prisma.clinicpref.findFirst({
+      where: { ClinicNum: clinicNum, PrefName: EMAIL_DOMAIN_PREF },
+    });
+    if (!pref || !pref.ValueString) return { ...EMPTY_EMAIL_DOMAIN };
+    return JSON.parse(pref.ValueString);
+  }
+
+  /** Registers a new sending domain (or replaces the current one) and issues fresh DNS records. */
+  async setEmailDomain(input: string): Promise<EmailDomainState> {
+    const domain = normalizeDomain(input);
+    if (!domain) {
+      throw new BadRequestError('Enter a valid domain, e.g. yourpractice.com');
+    }
+    const current = await this.getEmailDomain();
+    if (current.domain === domain) {
+      throw new BadRequestError('This is already your current domain.');
+    }
+
+    const state = createDomainIdentity(domain);
+    const clinicNum = await getClinicNum();
+    await this.setClinicPref(clinicNum, EMAIL_DOMAIN_PREF, JSON.stringify(state));
+    return state;
+  }
+
+  /** Re-checks the domain's DNS records against live DNS and persists the result. */
+  async verifyEmailDomain(): Promise<EmailDomainState> {
+    const current = await this.getEmailDomain();
+    if (!current.domain) {
+      throw new BadRequestError('No email domain has been set up yet.');
+    }
+    const verified = await verifyDomainIdentity(current);
+    const clinicNum = await getClinicNum();
+    await this.setClinicPref(clinicNum, EMAIL_DOMAIN_PREF, JSON.stringify(verified));
+    return verified;
+  }
+
+  private async getJsonPref<T>(prefName: string): Promise<T | null> {
+    const clinicNum = await getClinicNum();
+    const pref = await prisma.clinicpref.findFirst({ where: { ClinicNum: clinicNum, PrefName: prefName } });
+    return pref?.ValueString ? (JSON.parse(pref.ValueString) as T) : null;
+  }
+
+  private async setJsonPref(prefName: string, value: unknown) {
+    const clinicNum = await getClinicNum();
+    await this.setClinicPref(clinicNum, prefName, JSON.stringify(value));
+  }
+
+  /* ─── Email Preferences ─── */
+  /** Saved addresses, or defaults derived from the email domain and practice email. */
+  async getEmailPreferences(): Promise<EmailPreferences> {
+    const saved = await this.getJsonPref<EmailPreferences>(EMAIL_PREFERENCES_PREF);
+    if (saved) return saved;
+
+    const { domain } = await this.getEmailDomain();
+    const practice = await practiceInfoService.getPracticeInfo();
+    return {
+      sentFromEmail: domain ? `noreply@${domain}` : null,
+      replyToEmail: practice?.email ?? null,
+    };
+  }
+
+  async updateEmailPreferences(input: { sentFromEmail: string; replyToEmail: string }): Promise<EmailPreferences> {
+    const sentFromEmail = input.sentFromEmail.trim().toLowerCase();
+    const replyToEmail = input.replyToEmail.trim().toLowerCase();
+
+    // Mail can only be sent from the domain verified under Email Services.
+    const { domain } = await this.getEmailDomain();
+    if (domain && sentFromEmail.split('@')[1] !== domain) {
+      throw new BadRequestError(
+        `'Sent From' email must use your email domain (@${domain}).`,
+        undefined,
+        { field: 'sentFromEmail' }
+      );
+    }
+
+    const preferences = { sentFromEmail, replyToEmail };
+    await this.setJsonPref(EMAIL_PREFERENCES_PREF, preferences);
+    return preferences;
+  }
+
+  /* ─── Messaging Service (two-way SMS number) ─── */
+  async getMessagingService(): Promise<MessagingServiceState> {
+    return (await this.getJsonPref<MessagingServiceState>(MESSAGING_SERVICE_PREF)) ?? defaultMessagingState();
+  }
+
+  /** Step 1 of Number Selection. Saved details, or defaults from Practice Info and the signed-in owner. */
+  async getMessagingPracticeDetails(owner: PracticeDetails['owner']): Promise<PracticeDetails> {
+    const saved = await this.getJsonPref<Omit<PracticeDetails, 'owner'>>(MESSAGING_PRACTICE_DETAILS_PREF);
+    if (saved) return { ...saved, owner };
+
+    const practice = await practiceInfoService.getPracticeInfo();
+    const taxDigits = (practice?.taxId ?? '').replace(/\D/g, '');
+    return {
+      legalBusinessName: practice?.practiceName ?? '',
+      doingBusinessAs: practice?.practiceName ?? '',
+      einLast4: taxDigits.length >= 4 ? taxDigits.slice(-4) : null,
+      businessType: '',
+      phoneNumber: normalizeUsPhone(practice?.phone) ?? '',
+      website: practice?.website ?? '',
+      address: practice?.address?.line1 ?? '',
+      address2: practice?.address?.line2 ?? '',
+      city: practice?.address?.city ?? '',
+      state: practice?.address?.state ?? '',
+      zip: practice?.address?.postalCode ?? '',
+      owner,
+    };
+  }
+
+  async updateMessagingPracticeDetails(input: PracticeDetailsInput, owner: PracticeDetails['owner']): Promise<PracticeDetails> {
+    const fields = validatePracticeDetails(input);
+    if (Object.keys(fields).length > 0) {
+      throw new BadRequestError('Please fix the highlighted fields.', undefined, { fields });
+    }
+    const previous = await this.getJsonPref<Omit<PracticeDetails, 'owner'>>(MESSAGING_PRACTICE_DETAILS_PREF);
+    const details = sanitizePracticeDetails(input, previous?.einLast4 ?? null);
+    await this.setJsonPref(MESSAGING_PRACTICE_DETAILS_PREF, details);
+    return { ...details, owner };
+  }
+
+  /** Step 2 of Number Selection. Excludes the practice's current number. */
+  async searchMessagingNumbers(areaCode: string): Promise<string[]> {
+    if (!isValidAreaCode(areaCode)) {
+      throw new BadRequestError('Enter a valid 3-digit area code.');
+    }
+    const { phoneNumber } = await this.getMessagingService();
+    return (await searchAvailableNumbers(areaCode)).filter((n) => n !== phoneNumber);
+  }
+
+  /** Records the chosen number as pending carrier registration. Does not purchase it. */
+  async selectMessagingNumber(input: string): Promise<MessagingServiceState> {
+    const phoneNumber = normalizeUsPhone(input);
+    if (!phoneNumber) {
+      throw new BadRequestError('Select a valid number to continue.');
+    }
+    const details = await this.getJsonPref(MESSAGING_PRACTICE_DETAILS_PREF);
+    if (!details) {
+      throw new BadRequestError('Confirm your practice details before selecting a number.');
+    }
+    const current = await this.getMessagingService();
+    if (current.phoneNumber === phoneNumber) {
+      throw new BadRequestError('This is already your messaging number.');
+    }
+
+    const state: MessagingServiceState = {
+      status: 'pending',
+      phoneNumber,
+      provider: current.provider,
+      selectedAt: new Date().toISOString(),
+    };
+    await this.setJsonPref(MESSAGING_SERVICE_PREF, state);
+    return state;
+  }
+
+  /* ─── Automations ─── */
+  /**
+   * All categories' messages. The first read seeds the starter messages; after
+   * that the stored state is authoritative, so deleting every message in a
+   * category doesn't bring the defaults back.
+   */
+  private async loadAutomations(): Promise<AutomationsState> {
+    const saved = await this.getJsonPref<AutomationsState>(AUTOMATIONS_PREF);
+    if (saved) return saved;
+    const seeded: AutomationsState = { messages: buildDefaultAutomations() };
+    await this.setJsonPref(AUTOMATIONS_PREF, seeded);
+    return seeded;
+  }
+
+  private assertCategory(category: unknown): asserts category is AutomationCategory {
+    if (!isAutomationCategory(category)) {
+      throw new BadRequestError(`Unknown automation category "${String(category)}".`);
+    }
+  }
+
+  /** Finds a message by id across categories. */
+  private locateAutomation(state: AutomationsState, id: string) {
+    for (const [category, messages] of Object.entries(state.messages)) {
+      const index = messages.findIndex((m) => m.id === id);
+      if (index !== -1) return { category: category as AutomationCategory, index };
+    }
+    throw new NotFoundError('Automation message not found');
+  }
+
+  async getAutomations(category: string) {
+    this.assertCategory(category);
+    const state = await this.loadAutomations();
+    const messages = state.messages[category] ?? [];
+    return { category, messages, overview: summarizeAutomations(messages) };
+  }
+
+  async createAutomation(category: string, input: AutomationInput): Promise<AutomationMessage> {
+    this.assertCategory(category);
+    const error = validateAutomation(category, input);
+    if (error) throw new BadRequestError(error);
+
+    const state = await this.loadAutomations();
+    const created = buildAutomation(input);
+    state.messages[category] = [...(state.messages[category] ?? []), created];
+    await this.setJsonPref(AUTOMATIONS_PREF, state);
+    return created;
+  }
+
+  async updateAutomation(id: string, input: AutomationInput): Promise<AutomationMessage> {
+    const state = await this.loadAutomations();
+    const { category, index } = this.locateAutomation(state, id);
+    const error = validateAutomation(category, input);
+    if (error) throw new BadRequestError(error);
+
+    const updated = applyAutomationUpdate(state.messages[category][index], input);
+    state.messages[category][index] = updated;
+    await this.setJsonPref(AUTOMATIONS_PREF, state);
+    return updated;
+  }
+
+  async setAutomationActive(id: string, active: boolean): Promise<AutomationMessage> {
+    const state = await this.loadAutomations();
+    const { category, index } = this.locateAutomation(state, id);
+    const updated = { ...state.messages[category][index], active, updatedAt: new Date().toISOString() };
+    state.messages[category][index] = updated;
+    await this.setJsonPref(AUTOMATIONS_PREF, state);
+    return updated;
+  }
+
+  async deleteAutomation(id: string): Promise<void> {
+    const state = await this.loadAutomations();
+    const { category, index } = this.locateAutomation(state, id);
+    state.messages[category].splice(index, 1);
+    await this.setJsonPref(AUTOMATIONS_PREF, state);
   }
 
   /* ─── Templates ─── */

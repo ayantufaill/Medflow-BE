@@ -33,28 +33,42 @@ describe('Route Registration & Middleware', () => {
   // 2. CORS middleware
   // -------------------------------------------------------------------------
 
+  // CORS is an explicit allow-list (src/config/security.ts): CORS_ORIGIN in
+  // production, the Vite dev origins otherwise. These assertions used to expect
+  // a wildcard `Access-Control-Allow-Origin: *`, which the allow-list replaced.
   describe('CORS middleware', () => {
+    const allowedOrigin = 'http://127.0.0.1:5173';
+
     it('responds to OPTIONS preflight with 200', async () => {
       const res = await request(app)
         .options('/api/rx')
-        .set('Origin', 'http://localhost:3000')
+        .set('Origin', allowedOrigin)
         .set('Access-Control-Request-Method', 'GET');
 
       expect(res.status).toBe(200);
     });
 
-    it('includes Access-Control-Allow-Origin header', async () => {
+    it('echoes an allow-listed origin back in Access-Control-Allow-Origin', async () => {
       const res = await request(app)
         .get('/health')
-        .set('Origin', 'http://localhost:3000');
+        .set('Origin', allowedOrigin);
 
-      expect(res.headers['access-control-allow-origin']).toBe('*');
+      // `credentials: true` means the origin is echoed, never '*'.
+      expect(res.headers['access-control-allow-origin']).toBe(allowedOrigin);
+    });
+
+    it('rejects an origin that is not allow-listed', async () => {
+      const res = await request(app)
+        .get('/health')
+        .set('Origin', 'http://evil.example.com');
+
+      expect(res.headers['access-control-allow-origin']).toBeUndefined();
     });
 
     it('allows Authorization header in CORS', async () => {
       const res = await request(app)
         .options('/api/rx')
-        .set('Origin', 'http://localhost:3000')
+        .set('Origin', allowedOrigin)
         .set('Access-Control-Request-Method', 'GET')
         .set('Access-Control-Request-Headers', 'Authorization');
 
@@ -64,7 +78,7 @@ describe('Route Registration & Middleware', () => {
     it('allows Content-Type header in CORS', async () => {
       const res = await request(app)
         .options('/api/rx')
-        .set('Origin', 'http://localhost:3000')
+        .set('Origin', allowedOrigin)
         .set('Access-Control-Request-Method', 'POST')
         .set('Access-Control-Request-Headers', 'Content-Type');
 

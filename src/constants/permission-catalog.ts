@@ -51,6 +51,7 @@ const requiredKeys = [
   'treatment-plans.read',
   'treatment-plans.create',
   'treatment-plans.update',
+  'treatment-plans.delete',
   'platform:manage_practice_groups',
   'clinical.cross_branch.view',
   'financial.cross_branch.view',

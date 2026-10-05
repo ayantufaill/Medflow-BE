@@ -232,3 +232,92 @@ export const bulkEmailValidator: ValidationChain[] = [
     .isString()
     .withMessage('message must be a string'),
 ];
+
+export const emailDomainValidator: ValidationChain[] = [
+  body('domain')
+    .notEmpty()
+    .withMessage('domain is required')
+    .isString()
+    .withMessage('domain must be a string')
+    .isLength({ max: 253 })
+    .withMessage('domain must be at most 253 characters'),
+];
+
+export const emailPreferencesValidator: ValidationChain[] = [
+  body('sentFromEmail')
+    .isString()
+    .trim()
+    .isEmail()
+    .withMessage('Enter a valid email address.'),
+  body('replyToEmail')
+    .isString()
+    .trim()
+    .isEmail()
+    .withMessage('Enter a valid email address.'),
+];
+
+// Field rules live in messaging-number.service (validatePracticeDetails) so the
+// response can carry per-field messages; this only guards the payload shape.
+export const messagingPracticeDetailsValidator: ValidationChain[] = [
+  body('legalBusinessName').isString().withMessage('legalBusinessName must be a string'),
+  body('doingBusinessAs').optional().isString().withMessage('doingBusinessAs must be a string'),
+  body('ein').optional({ values: 'falsy' }).isString().withMessage('ein must be a string'),
+  body('businessType').isString().withMessage('businessType must be a string'),
+  body('phoneNumber').isString().withMessage('phoneNumber must be a string'),
+  body('website').optional().isString().withMessage('website must be a string'),
+  body('address').isString().withMessage('address must be a string'),
+  body('address2').optional().isString().withMessage('address2 must be a string'),
+  body('city').isString().withMessage('city must be a string'),
+  body('state').isString().withMessage('state must be a string'),
+  body('zip').isString().withMessage('zip must be a string'),
+];
+
+export const messagingNumberSearchValidator: ValidationChain[] = [
+  query('areaCode')
+    .matches(/^[2-9]\d{2}$/)
+    .withMessage('Enter a valid 3-digit area code.'),
+];
+
+export const messagingNumberSelectValidator: ValidationChain[] = [
+  body('phoneNumber').isString().notEmpty().withMessage('phoneNumber is required'),
+];
+
+const AUTOMATION_CATEGORY_IDS = [
+  'pre-appointment',
+  'post-appointment',
+  'recall-reminders',
+  'incomplete-forms',
+  'payment-reminders',
+];
+
+// Shape checks only; per-category timing rules live in automation.service (validateAutomation).
+const automationBodyRules: ValidationChain[] = [
+  body('timing').isObject().withMessage('timing is required'),
+  body('timing.type').isIn(['event', 'offset']).withMessage('timing.type must be "event" or "offset"'),
+  body('channel').isString().withMessage('channel is required'),
+  body('subject').optional().isString().withMessage('subject must be a string'),
+  body('body').isString().withMessage('body is required'),
+];
+
+export const automationListValidator: ValidationChain[] = [
+  query('category').isIn(AUTOMATION_CATEGORY_IDS).withMessage(`category must be one of: ${AUTOMATION_CATEGORY_IDS.join(', ')}`),
+];
+
+export const automationCreateValidator: ValidationChain[] = [
+  body('category').isIn(AUTOMATION_CATEGORY_IDS).withMessage(`category must be one of: ${AUTOMATION_CATEGORY_IDS.join(', ')}`),
+  ...automationBodyRules,
+];
+
+export const automationUpdateValidator: ValidationChain[] = [
+  param('id').isUUID().withMessage('Invalid automation id'),
+  ...automationBodyRules,
+];
+
+export const automationActiveValidator: ValidationChain[] = [
+  param('id').isUUID().withMessage('Invalid automation id'),
+  body('active').isBoolean({ strict: true }).withMessage('active must be true or false'),
+];
+
+export const automationIdParamValidator: ValidationChain[] = [
+  param('id').isUUID().withMessage('Invalid automation id'),
+];

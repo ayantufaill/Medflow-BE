@@ -141,12 +141,26 @@ describe('Appointment Total and Paid Amount Calculation', () => {
       },
     });
 
-    // Insurance payment of $200
+    // Insurance payment of $200. It has to hang off a real claim: the
+    // appointment financials only count claim-linked claimproc rows as
+    // insurance payments (ClaimNum: { not: null } in appointment.service.ts),
+    // since an unlinked row is already represented by its paysplit.
+    const claim = await prisma.claim.create({
+      data: {
+        ClaimNum: BigInt(Math.floor(Date.now() + Math.random() * 100000 + 600)),
+        PatNum: patient.PatNum,
+        DateService: new Date(),
+        ClaimFee: 300,
+        InsPayAmt: 200,
+      },
+    });
+
     await prisma.claimproc.create({
       data: {
         ClaimProcNum: BigInt(Math.floor(Date.now() + Math.random() * 100000 + 500)),
         ProcNum: proc.ProcNum,
         PatNum: patient.PatNum,
+        ClaimNum: claim.ClaimNum,
         Status: 1, // 1 = Received
         InsPayAmt: 200,
       },

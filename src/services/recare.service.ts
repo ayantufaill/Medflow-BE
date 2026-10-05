@@ -132,7 +132,11 @@ export class RecareService {
     }
 
     const intervalMonths = recallType?.DefaultInterval ?? 6;
-    const offsetDays = 0;
+    // Per-recall-type offset (recalltype.OffsetDays, seeded by
+    // src/scripts/seedRecareTypes.ts — e.g. Adult Prophy is 6 months + 1 day).
+    // This was hard-coded to 0, so the configured offset never reached
+    // calculateDueDate and every due date came out a day early.
+    const offsetDays = recallType?.OffsetDays ?? 0;
     const recallTypeNum = recallType ? recallType.RecallTypeNum.toString() : null;
     const recallTypeName = recallType?.Description ?? null;
 
@@ -288,7 +292,7 @@ export class RecareService {
       // 1. Check per-CDT recall types
       for (const rt of recallTypes) {
         const intervalMonths = rt.DefaultInterval ?? defaultIntervalMonths;
-        const offsetDays = 0;
+        const offsetDays = rt.OffsetDays ?? 0;
         const triggerCodeNums = rt.recalltrigger
           .map((t) => t.CodeNum)
           .filter((c): c is bigint => c !== null);

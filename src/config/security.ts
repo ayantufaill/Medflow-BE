@@ -1,9 +1,15 @@
 import cors from 'cors';
 import helmet from 'helmet';
 
+const apiPort = process.env.PORT || '5001';
+
 const defaultDevOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
+  // Swagger UI is served by the API itself (/api-docs), so its "Try it out"
+  // requests carry the API's own origin.
+  `http://localhost:${apiPort}`,
+  `http://127.0.0.1:${apiPort}`,
 ];
 
 export const getAllowedOrigins = (): string[] => {

@@ -83,6 +83,15 @@ type ClaimMeta = {
   description?: string;
   claimSubmissionReasonCode?: string;
   serviceAuthExceptionCode?: string;
+  remittanceDate?: string;
+  insurancePaymentAmount?: number;
+  /** Set when a claim is voided; voided claims stay visible only under "include voided". */
+  isVoided?: boolean;
+  voidedDate?: string;
+  /** Locked claims freeze the invoice: no further claim can be built until it is paid. */
+  isLocked?: boolean;
+  lockedDate?: string;
+  lockedBy?: string | null;
 };
 
 type ClaimFilters = {
@@ -273,10 +282,10 @@ export class ClaimService {
   private async generateClaimNumber() {
     const recent = await prisma.claim.findMany({
       where: {
-        ClaimType: { not: 'PreAuth' },
         OR: [
           { PreAuthString: { startsWith: 'CLM' } },
           { PriorAuthorizationNumber: { startsWith: 'CLM' } },
+          { ClaimIdentifier: { startsWith: 'CLM' } },
         ],
       },
       orderBy: { ClaimNum: 'desc' },
@@ -285,7 +294,7 @@ export class ClaimService {
 
     let maxNumber = 0;
     for (const row of recent) {
-      const value = row.PreAuthString ?? row.PriorAuthorizationNumber ?? '';
+      const value = row.ClaimIdentifier ?? row.PreAuthString ?? row.PriorAuthorizationNumber ?? '';
       const match = value.match(/(\d+)$/);
       const numeric = match?.[1] ? parseInt(match[1], 10) : 0;
       if (numeric > maxNumber) {
@@ -414,6 +423,13 @@ export class ClaimService {
       selectedItems: meta.selectedItems || [],
       claimFormat: meta.claimFormat ?? (row.ClaimType === 'Manual' ? 'Paper' : 'E-claim'),
       isHidden: meta.isHidden ?? false,
+      isVoided: meta.isVoided ?? false,
+      voidedDate: meta.voidedDate ? new Date(meta.voidedDate) : null,
+      isLocked: meta.isLocked ?? false,
+      lockedDate: meta.lockedDate ? new Date(meta.lockedDate) : null,
+      lockedBy: meta.lockedBy ?? null,
+      remittanceDate: meta.remittanceDate ?? null,
+      insurancePaymentAmount: meta.insurancePaymentAmount ?? null,
       providerSignature: meta.providerSignature ?? null,
       patientSignature: meta.patientSignature ?? null,
       eobs: meta.eobs || [],
@@ -1221,6 +1237,8 @@ export class ClaimService {
       throw new NotFoundError('Invoice not found');
     }
 
+    await this.assertInvoiceNotLocked(invoiceId);
+
     const invoiceMeta = parseJson<Record<string, any>>(invoice.NoteBold);
     const status: ClaimStatus = 'draft';
     const isSecondary = String(data.insuranceType || '').toLowerCase() === 'secondary';
@@ -2018,6 +2036,10 @@ export class ClaimService {
 
     const primaryMeta = parseJson<ClaimMeta>(primaryClaim.Narrative);
 
+    // A locked primary freezes the invoice: no secondary claim until it is paid.
+    // The primary itself must stay in scope - it is usually the claim holding the lock.
+    await this.assertInvoiceNotLocked(primaryMeta.invoiceId);
+
     // Check if secondary claim already exists
     const existingSecondary = await prisma.claim.findFirst({
       where: {
@@ -2304,11 +2326,17 @@ export class ClaimService {
 
     if (!patPlanNum) return {};
 
-    // Note: We no longer call applyDeductibleMetAmountDelta here because the invoice
-    // finalized state now immediately posts the deductible to the patient's metAmount
-    // for all procedures. We just track `deductibleHeld` here for completeness.
-
-    return { patPlanNum, deductibleHeld: shouldHold };
+    // Posting the deductible to the plan's metAmount is the finalized invoice's
+    // job now (invoiceService.finalizeInvoice -> applyDeductibleMetAmountDelta),
+    // so this path moves no money.
+    //
+    // `deductibleHeld` therefore stays false: it means "this claim's estimate is
+    // currently applied to the plan's metAmount", and era835 subtracts it from
+    // the payer's actual. Setting it true here while posting nothing made the
+    // ERA subtract an amount the plan never received, pushing metAmount
+    // negative by the size of the estimate. Only a path that actually posts may
+    // set this flag.
+    return { patPlanNum };
   }
 
   async updateClaim(
@@ -2346,6 +2374,8 @@ export class ClaimService {
       description: string;
       claimSubmissionReasonCode: string;
       serviceAuthExceptionCode: string;
+      remittanceDate?: string;
+      insurancePaymentAmount?: number;
     }>,
     userId?: string
   ) {
@@ -2427,6 +2457,8 @@ export class ClaimService {
               ? new Date().toISOString()
               : currentMeta.paidDate,
       corrections: updates.corrections ?? currentMeta.corrections,
+      remittanceDate: updates.remittanceDate ?? currentMeta.remittanceDate,
+      insurancePaymentAmount: updates.insurancePaymentAmount ?? currentMeta.insurancePaymentAmount,
     };
 
     // Deductible lifecycle is bound to the claim's status, not its creation.
@@ -3497,6 +3529,157 @@ export class ClaimService {
     );
   }
 
+  /**
+   * Void a claim: the claim stops counting toward the invoice (balance and
+   * aging are recalculated) and its procedures go back to unclaimed, but the
+   * claim itself is retained so it can still be surfaced under
+   * "include voided transactions".
+   */
+  async voidClaim(claimId: string, note?: string, userId?: string) {
+    const existing = await this.getClaimRecord(claimId);
+    const currentMeta = parseJson<ClaimMeta>(existing.Narrative);
+
+    if (currentMeta.isVoided) {
+      return this.mapClaim(existing, currentMeta, {});
+    }
+
+    const voidedDate = new Date().toISOString();
+    const nextMeta: ClaimMeta = {
+      ...currentMeta,
+      status: 'cancelled',
+      isVoided: true,
+      voidedDate,
+      paidDate: undefined,
+      paidAmount: 0,
+      notes: note ?? currentMeta.notes,
+    };
+
+    const updated = await prisma.claim.update({
+      where: { ClaimNum: existing.ClaimNum },
+      data: {
+        ClaimStatus: claimStatusToCode('cancelled'),
+        InsPayAmt: 0,
+        ClaimNote: note ?? undefined,
+        Narrative: buildJson(nextMeta),
+      },
+      include: { patient: true },
+    });
+
+    // Procedures go back to unclaimed so the invoice's insurance balance returns.
+    await prisma.claimproc.updateMany({
+      where: { ClaimNum: existing.ClaimNum, Status: 1 },
+      data: { Status: 0, DateCP: null },
+    });
+
+    await this.createStatusHistoryEntry(
+      claimId,
+      'cancelled',
+      note ?? 'Claim voided',
+      userId
+    );
+
+    const targetInvId = currentMeta.invoiceId;
+    if (targetInvId) {
+      try {
+        const { invoiceService } = await import('./invoice.service');
+        await invoiceService.recalculateInvoice(targetInvId);
+      } catch (err) {
+        console.error(`[ClaimService] Error recalculating invoice ${targetInvId} after voiding claim:`, err);
+      }
+    }
+    if (updated.PatNum) {
+      await agingService.updatePatientAging(updated.PatNum).catch(() => {});
+    }
+
+    return this.mapClaim(updated, nextMeta, {});
+  }
+
+  /**
+   * Lock / unlock a claim. A locked claim is frozen: its row is greyed out in the
+   * ledger and no further claim may be built for the same invoice until the locked
+   * claim is paid (or unlocked).
+   */
+  async setClaimLock(claimId: string, isLocked: boolean, userId?: string) {
+    const existing = await this.getClaimRecord(claimId);
+    const currentMeta = parseJson<ClaimMeta>(existing.Narrative);
+    const status = normalizeClaimStatus(currentMeta.status ?? claimCodeToStatus(existing.ClaimStatus));
+
+    if (currentMeta.isVoided) {
+      throw new BadRequestError('A voided claim cannot be locked');
+    }
+
+    if (isLocked) {
+      // A claim counts as paid if either the narrative or the claim row records a payment.
+      const paidAmount = Math.max(
+        Number(currentMeta.paidAmount ?? 0),
+        Number(existing.InsPayAmt ?? 0)
+      );
+      if (status === 'paid' || status === 'acceptedPaid' || paidAmount > 0) {
+        throw new BadRequestError('A paid claim cannot be locked');
+      }
+    }
+
+    const nextMeta: ClaimMeta = {
+      ...currentMeta,
+      isLocked,
+      lockedDate: isLocked ? new Date().toISOString() : undefined,
+      lockedBy: isLocked ? (userId ?? null) : null,
+    };
+
+    const updated = await prisma.claim.update({
+      where: { ClaimNum: existing.ClaimNum },
+      data: { Narrative: buildJson(nextMeta) },
+      include: { patient: true },
+    });
+
+    await this.createStatusHistoryEntry(
+      claimId,
+      status,
+      isLocked ? 'Claim locked' : 'Claim unlocked',
+      userId
+    );
+
+    return this.mapClaim(updated, nextMeta, {});
+  }
+
+  /**
+   * Returns the locked, still-unpaid claim on an invoice (if any). Used to stop a
+   * second claim from being built while a locked claim is awaiting payment.
+   */
+  private async getLockedClaimForInvoice(invoiceId?: string | null, excludeClaimId?: string) {
+    if (!invoiceId) return null;
+
+    const rows = await prisma.claim.findMany({
+      where: {
+        ClaimType: { not: 'PreAuth' },
+        Narrative: { contains: `\"invoiceId\":\"${invoiceId}\"` },
+        ...(excludeClaimId ? { ClaimNum: { not: BigInt(excludeClaimId) } } : {}),
+      },
+      select: { ClaimNum: true, ClaimStatus: true, InsPayAmt: true, Narrative: true },
+    });
+
+    for (const row of rows) {
+      const meta = parseJson<ClaimMeta>(row.Narrative);
+      if (!meta.isLocked || meta.isVoided) continue;
+      if (meta.invoiceId?.toString() !== invoiceId.toString()) continue;
+      const status = normalizeClaimStatus(meta.status ?? claimCodeToStatus(row.ClaimStatus));
+      const paidAmount = Math.max(Number(meta.paidAmount ?? 0), Number(row.InsPayAmt ?? 0));
+      if (status === 'paid' || status === 'acceptedPaid' || paidAmount > 0) continue;
+      return { ...row, meta };
+    }
+
+    return null;
+  }
+
+  private async assertInvoiceNotLocked(invoiceId?: string | null, excludeClaimId?: string) {
+    const locked = await this.getLockedClaimForInvoice(invoiceId, excludeClaimId);
+    if (locked) {
+      throw new ConflictError(
+        `Claim #${locked.ClaimNum} on this invoice is locked. No further claim can be built until it is paid or unlocked.`
+      );
+    }
+  }
+
   async voidAndRecreateClaim(claimId: string, note?: string, userId?: string) {
     return this.updateClaim(
       claimId,
@@ -3645,6 +3828,14 @@ export class ClaimService {
     });
     if (!billingEntity) {
       throw new NotFoundError('Billing entity not found');
+    }
+
+    // A locked, unpaid claim freezes its invoice: refuse to stack another claim on it.
+    const selectedInvoiceIds = Array.from(
+      new Set((data.selectedItems || []).map((item) => item.invoiceId).filter(Boolean))
+    );
+    for (const invoiceId of selectedInvoiceIds) {
+      await this.assertInvoiceNotLocked(invoiceId.toString());
     }
 
     // Pre-load procedure records to correctly resolve secondary or primary portions

@@ -82,7 +82,28 @@ describe('New RBAC model (group_admin/branch_admin/front_desk/etc.)', () => {
     const userNums = [groupAdminUserNum, branchAdminUserNum, frontDeskUserNum, targetInBranchA, targetInBranchB].filter(Boolean);
     await prisma.usergroupattach.deleteMany({ where: { UserNum: { in: userNums } } });
     await prisma.userclinic.deleteMany({ where: { UserNum: { in: userNums } } });
-    await prisma.userod.deleteMany({ where: { UserNum: { in: userNums } } });
+    for (const userNum of userNums) {
+      await prisma.$executeRawUnsafe(`DELETE FROM userodpref WHERE "UserNum" = $1`, userNum);
+    }
+
+    // These users make real HTTP calls, so they leave audit rows behind:
+    // securityloghash references securitylog, which references userod, so both
+    // have to go first, youngest first. writeAudit serializes its inserts
+    // behind a pg advisory lock, so one can still commit after the first purge
+    // — hence the retry rather than a single pass.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await prisma.securityloghash.deleteMany({
+        where: { securitylog: { UserNum: { in: userNums } } },
+      });
+      await prisma.securitylog.deleteMany({ where: { UserNum: { in: userNums } } });
+      try {
+        await prisma.userod.deleteMany({ where: { UserNum: { in: userNums } } });
+        break;
+      } catch (error) {
+        if (attempt === 2) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+    }
     await prisma.clinic.deleteMany({ where: { ClinicNum: { in: [branchA, branchB] } } });
     await prisma.practicegroup.deleteMany({ where: { id: groupId } });
   });

@@ -426,6 +426,22 @@ export class InvoiceController {
     }
   }
 
+  async transferOutstandingToInsurance(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { invoiceId, itemId } = req.params;
+      const performedBy = req.userId || 'system';
+
+      const result = await invoiceService.transferOutstandingToInsurance(invoiceId, itemId, performedBy);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async estimateInvoiceItems(req: Request, res: Response, next: NextFunction) {
     try {
       const { patientId, items } = req.body;

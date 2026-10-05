@@ -191,6 +191,11 @@ export class ClaimController {
           description: req.body.description,
           claimSubmissionReasonCode: req.body.claimSubmissionReasonCode,
           serviceAuthExceptionCode: req.body.serviceAuthExceptionCode,
+          remittanceDate: req.body.remittanceDate,
+          insurancePaymentAmount:
+            req.body.insurancePaymentAmount !== undefined && req.body.insurancePaymentAmount !== null && req.body.insurancePaymentAmount !== ''
+              ? Number(req.body.insurancePaymentAmount)
+              : undefined,
         },
         req.userId
       );
@@ -686,6 +691,51 @@ export class ClaimController {
         success: true,
         data: { claim: result },
         message: 'Claim voided and recreated successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async voidClaim(req: Request, res: Response, next: NextFunction) {
+    try {
+      const claimId = req.params.claimId as string;
+      if (!req.userId) {
+        return res.status(401).json({ success: false, error: { message: 'User not authenticated' } });
+      }
+
+      const existing = await claimService.getClaimById(claimId);
+      const claimDate = existing.createdAt ? new Date(existing.createdAt as unknown as string) : new Date();
+      await assertNotLocked(req.userId, 'claims.update', claimDate, req.branchAccess!);
+
+      const result = await claimService.voidClaim(claimId, req.body.note, req.userId);
+      res.status(200).json({
+        success: true,
+        data: { claim: result },
+        message: 'Claim voided successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async setClaimLock(req: Request, res: Response, next: NextFunction) {
+    try {
+      const claimId = req.params.claimId as string;
+      if (!req.userId) {
+        return res.status(401).json({ success: false, error: { message: 'User not authenticated' } });
+      }
+
+      const isLocked = req.body.isLocked !== false;
+      const existing = await claimService.getClaimById(claimId);
+      const claimDate = existing.createdAt ? new Date(existing.createdAt as unknown as string) : new Date();
+      await assertNotLocked(req.userId, 'claims.update', claimDate, req.branchAccess!);
+
+      const result = await claimService.setClaimLock(claimId, isLocked, req.userId);
+      res.status(200).json({
+        success: true,
+        data: { claim: result },
+        message: isLocked ? 'Claim locked successfully' : 'Claim unlocked successfully',
       });
     } catch (error) {
       next(error);

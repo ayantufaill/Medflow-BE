@@ -1,3 +1,5 @@
+// Unrestricted tenant context for RLS — must be imported before any query.
+import '../config/seed-context';
 import dotenv from 'dotenv';
 import connectDB, { prisma } from '../config/db';
 import { getNextId } from '../utils/opendental-ids.util';

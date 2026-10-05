@@ -264,13 +264,16 @@ export class PatientController {
         });
       }
 
-      const duplicates = await patientService.findDuplicatePatients({
-        firstName,
-        lastName,
-        dateOfBirth: new Date(dateOfBirth),
-        phonePrimary,
-        email,
-      });
+      const duplicates = await patientService.findDuplicatePatients(
+        {
+          firstName,
+          lastName,
+          dateOfBirth: new Date(dateOfBirth),
+          phonePrimary,
+          email,
+        },
+        req.userId
+      );
 
       res.status(200).json({
         success: true,
@@ -913,9 +916,49 @@ export class PatientController {
       }
 
       await patientService.updateCrossBranchRestriction(BigInt(patientId), Boolean(restricted));
-      
+
       await logActivityFromRequest(req, 'updated', 'patient', patientId, null, { cross_branch_restricted: restricted });
       res.status(200).json({ success: true, data: { message: 'Patient cross-branch restriction updated successfully' } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * "Use this existing patient instead" — resolves a cross-branch
+   * duplicate-check match by granting the caller's own branch read access to
+   * the existing patient, instead of creating a new, duplicate chart.
+   */
+  async createBranchGrant(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId } = req.params;
+      const clinicIds = req.branchAccess?.clinicIds ?? [];
+      const { clinicId } = req.body;
+
+      // Accept the frontend's current-branch context explicitly (it already
+      // tracks this via useBranch()) rather than assuming clinicIds[0] — a
+      // user assigned to more than one branch should grant access to the
+      // branch they're actually working in, not an arbitrary one. Falls back
+      // to clinicIds[0] only for the common single-branch case.
+      let grantedClinicNum: bigint | undefined;
+      if (clinicId !== undefined && clinicId !== null) {
+        const requested = BigInt(clinicId);
+        if (!clinicIds.some((id) => id === requested)) {
+          return res.status(403).json({ success: false, error: { message: 'That branch is outside your assigned branches.' } });
+        }
+        grantedClinicNum = requested;
+      } else {
+        grantedClinicNum = clinicIds[0];
+      }
+
+      if (!grantedClinicNum) {
+        return res.status(400).json({ success: false, error: { message: 'No branch assigned to this account.' } });
+      }
+
+      await patientService.createPatientBranchGrant(BigInt(patientId), grantedClinicNum, req.userId);
+
+      await logActivityFromRequest(req, 'updated', 'patient', patientId, null, { grantedClinicNum: grantedClinicNum.toString() });
+      res.status(200).json({ success: true, data: { message: 'Patient is now accessible from your branch.' } });
     } catch (error) {
       next(error);
     }
