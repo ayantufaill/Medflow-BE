@@ -28,8 +28,10 @@ describe('Insurance Underpayment Balance Transfer', () => {
       }
       await prisma.paysplit.deleteMany({ where: { PatNum: patNum } });
       await prisma.payment.deleteMany({ where: { PatNum: patNum } });
-      await prisma.procedurelog.deleteMany({ where: { PatNum: patNum } });
+      // Income Transfer adjustments reference ProcNum (fk_adjustment_4_ProcNum),
+      // so they have to go before procedurelog.
       await prisma.adjustment.deleteMany({ where: { PatNum: patNum } });
+      await prisma.procedurelog.deleteMany({ where: { PatNum: patNum } });
       await prisma.statement.deleteMany({ where: { PatNum: patNum } });
       await prisma.$executeRawUnsafe('DELETE FROM famaging WHERE "PatNum" = $1', patNum);
       await prisma.patplan.deleteMany({ where: { PatNum: patNum } });

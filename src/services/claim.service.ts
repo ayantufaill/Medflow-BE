@@ -531,6 +531,13 @@ export class ClaimService {
 
       const procLog = cp.procedurelog;
       if (procLog) {
+        const cpMeta = parseJson<Record<string, any>>(procLog.BillingNote) || {};
+        // claimproc rows that claim creation writes carry no WriteOff/WriteOffEst
+        // (the write-off lives in the procedure's BillingNote as `writeoff`,
+        // derived from `charge - allowedFee` by the pricing engine). Fall back
+        // to that priced value so the insurance payment dialog shows — and
+        // posts — the real write-off instead of 0.
+        const bnWo = Math.max(0, Number(cpMeta?.writeoff) || 0);
         proceduresByClaimId.get(claimId)!.push({
           id: procLog.ProcNum.toString(),
           _id: procLog.ProcNum.toString(),
@@ -549,12 +556,18 @@ export class ClaimService {
           insPayEst: Number(cp.InsPayEst) || 0,
           insPayAmt: Number(cp.InsPayAmt) || 0,
           insPaid: Number(cp.InsPayAmt) || 0,
-          writeOffEst: Number(cp.WriteOffEst) || Number(cp.WriteOff) || 0,
-          writeOff: Number(cp.WriteOff) || 0,
-          writeoff: Number(cp.WriteOff) || 0,
+          writeOffEst: Number(cp.WriteOffEst) || Number(cp.WriteOff) || bnWo,
+          writeOff: Number(cp.WriteOff) || bnWo,
+          writeoff: Number(cp.WriteOff) || bnWo,
           dedApplied: Number(cp.DedApplied) || 0,
           deductible: Number(cp.DedApplied) || 0,
           allowedOverride: Number(cp.AllowedOverride) || 0,
+          allowedFee: cpMeta?.allowedFee !== undefined && cpMeta?.allowedFee !== null && Number(cpMeta.allowedFee) > 0 ? Number(cpMeta.allowedFee) : null,
+          coveragePct: cpMeta?.coveragePct !== undefined && cpMeta?.coveragePct !== null ? Number(cpMeta.coveragePct) : null,
+          deductibleApplied: Number(cpMeta?.deductibleApplied ?? cp.DedApplied) || 0,
+          effectiveCode: cpMeta?.effectiveCode ?? null,
+          downgraded: Boolean(cpMeta?.downgraded),
+          downgradedFrom: cpMeta?.downgradedFrom ?? null,
           claimProcStatus: cp.Status ?? null,
           providerId: procLog.ProvNum?.toString() ?? null,
           providerName: procLog.provider_procedurelog_ProvNumToprovider ? `${procLog.provider_procedurelog_ProvNumToprovider.FName} ${procLog.provider_procedurelog_ProvNumToprovider.LName}`.trim() : null,
@@ -621,10 +634,16 @@ export class ClaimService {
             insPayEst: Number(procMeta?.insPortion) || 0,
             insPayAmt: Number(procMeta?.paidAmount) || 0,
             insPaid: Number(procMeta?.paidAmount) || 0,
-            writeOffEst: Number(procMeta?.writeoff) || 0,
-            writeOff: Number(procMeta?.writeoff) || 0,
-            writeoff: Number(procMeta?.writeoff) || 0,
+            writeOffEst: Number(procMeta?.writeoff) || Number(procMeta?.estimatedWriteOff) || 0,
+            writeOff: Number(procMeta?.writeoff) || Number(procMeta?.estimatedWriteOff) || 0,
+            writeoff: Number(procMeta?.writeoff) || Number(procMeta?.estimatedWriteOff) || 0,
             allowedOverride: Number(procMeta?.feeAllowed) || 0,
+            allowedFee: procMeta?.allowedFee !== undefined && procMeta?.allowedFee !== null && Number(procMeta.allowedFee) > 0 ? Number(procMeta.allowedFee) : null,
+            coveragePct: procMeta?.coveragePct !== undefined && procMeta?.coveragePct !== null ? Number(procMeta.coveragePct) : null,
+            deductibleApplied: Number(procMeta?.deductibleApplied) || 0,
+            effectiveCode: procMeta?.effectiveCode ?? null,
+            downgraded: Boolean(procMeta?.downgraded),
+            downgradedFrom: procMeta?.downgradedFrom ?? null,
             providerId: proc.ProvNum?.toString() ?? null,
             providerName: proc.provider_procedurelog_ProvNumToprovider ? `${proc.provider_procedurelog_ProvNumToprovider.FName} ${proc.provider_procedurelog_ProvNumToprovider.LName}`.trim() : null,
             dateOfService: proc.ProcDate ?? null,
