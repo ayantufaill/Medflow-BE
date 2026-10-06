@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import { isAdminRequest } from '../middleware/auth.middleware';
 import { userService } from '../services/user.service';
 import { userClinicService } from '../services/user-clinic.service';
 import { logActivityFromRequest, getClientIp, getUserAgent } from '../utils/activity-logger.util';
@@ -60,7 +61,9 @@ export class UserController {
         });
       }
 
-      const isAdmin = req.user.roles?.includes('Admin');
+      // Same admin test as requireRoles('Admin'): admin group (Group/Branch Admin,
+      // new-model keys included), not only a role literally named 'Admin'.
+      const isAdmin = isAdminRequest(req);
       if (!isAdmin && req.userId !== userId) {
         return res.status(403).json({
           success: false,
@@ -105,7 +108,7 @@ export class UserController {
         });
       }
 
-      const isAdmin = req.user.roles?.includes('Admin');
+      const isAdmin = isAdminRequest(req);
       if (!isAdmin && req.userId !== userId) {
         return res.status(403).json({
           success: false,
