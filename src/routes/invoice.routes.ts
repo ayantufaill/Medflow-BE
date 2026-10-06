@@ -723,6 +723,42 @@ router.post(
 
 /**
  * @swagger
+ * /invoices/{invoiceId}/items/{itemId}/transfer-outstanding-to-insurance:
+ *   post:
+ *     summary: Transfer outstanding patient balance to the insurance estimate
+ *     description: Moves the remaining patient responsibility (ptPortion) for a line item back onto the insurance estimate (insPortion). Also updates the linked claim's InsPayEst and DedApplied fields and recalculates invoice totals. This is the reverse of transfer-outstanding.
+ *     tags: [Invoices]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: invoiceId
+ *         required: true
+ *         schema: { type: string }
+ *         description: ID of the invoice
+ *       - in: path
+ *         name: itemId
+ *         required: true
+ *         schema: { type: string }
+ *         description: ID of the line item (procedure log)
+ *     responses:
+ *       200:
+ *         description: Patient balance transferred to the insurance estimate
+ *       400:
+ *         description: No outstanding patient balance to transfer, or invoice is voided
+ *       404:
+ *         description: Invoice or item not found
+ */
+router.post(
+  '/:invoiceId/items/:itemId/transfer-outstanding-to-insurance',
+  authenticate,
+  requirePermission('invoices.update'),
+  validate([...invoiceIdValidator, ...invoiceItemIdValidator]),
+  invoiceController.transferOutstandingToInsurance.bind(invoiceController)
+);
+
+/**
+ * @swagger
  * /invoices/{invoiceId}/transfer-rejected-claim:
  *   post:
  *     summary: Transfer rejected claim balance to patient

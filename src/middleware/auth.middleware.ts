@@ -2,7 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { verifyAccessToken } from '../utils/jwt.util';
 import type { JWTPayload } from '../types/auth.types';
 import { AuthenticationError, AuthorizationError } from '../utils/error.util';
-import { prisma } from '../config/db';
+import { basePrisma } from '../config/db';
 import { getUserMeta } from '../utils/opendental-auth.util';
 import { AccessContextService } from '../services/access-context.service';
 import {
@@ -30,7 +30,7 @@ import {
  * a re-login, which is the correct trade for closing a revocation bypass.
  */
 export const verifyActiveSession = async (decoded: JWTPayload): Promise<void> => {
-  const user = await prisma.userod.findUnique({
+  const user = await basePrisma.userod.findUnique({
     where: { UserNum: BigInt(decoded.userId) },
   });
   if (!user) {

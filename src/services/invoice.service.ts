@@ -1,4 +1,5 @@
-import { prisma } from '../config/db';
+import { prisma, applyTenantContextToTransaction } from '../config/db';
+import type { Prisma } from '@prisma/client';
 import { BadRequestError, ConflictError, NotFoundError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
@@ -16,8 +17,44 @@ import {
   orderIndexesByDate,
   resolveDeductibleTier,
   splitSecondaryPortion,
+  tierKeyFromCoverageCategory,
 } from './deductible.service';
+import {
+  applyDowngradeSplit,
+  buildDowngradeMap,
+  parseTeethRange,
+  resolveDowngrade,
+  type DowngradeRule,
+} from './downgrade.service';
 const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
+
+/**
+ * Everything one insurance plan needs to price a procedure line on its OWN
+ * terms: its fee schedules, its coverage percentages, its deductible pools and
+ * its alternate-benefit rules.
+ *
+ * The primary and the secondary are priced through this same shape. That is
+ * deliberate — the secondary must never inherit the primary's basis, and the
+ * only reliable way to guarantee it is to make both plans go through identical
+ * setup code.
+ */
+type PlanPricingContext = {
+  patPlan: any;
+  insPlan: any;
+  allowedFeeMap: Map<string, number>;
+  planFeeMap: Map<string, number>;
+  procCodePercentages: Map<string, number>;
+  categoryPercentages: Map<string, number>;
+  deductibleLedger: DeductibleLedger;
+  downgradeMap: Map<string, DowngradeRule>;
+  coverageCategoryByCode: Map<string, string>;
+};
+
+/** Coverage-percentage lookup tables, keyed by normalized category name. */
+type CoveragePercentTables = {
+  procCodePercentages: Map<string, number>;
+  categoryPercentages: Map<string, number>;
+};
 
 type StatementMeta = {
   appointmentId?: string;
@@ -78,8 +115,8 @@ const toBigInt = (value?: string | null): bigint | null => {
   return /^\d+$/.test(value) ? BigInt(value) : null;
 };
 
-const getInvoiceNumber = async (): Promise<string> => {
-  const recent = await prisma.statement.findMany({
+const getInvoiceNumber = async (db: Prisma.TransactionClient | typeof prisma = prisma): Promise<string> => {
+  const recent = await db.statement.findMany({
     where: { ShortGUID: { startsWith: 'INV' } },
     orderBy: { StatementNum: 'desc' },
     take: 50,
@@ -140,6 +177,84 @@ export const isPatientPenaltyOrNonIns = (item: any): boolean => {
 };
 
 export class InvoiceService {
+  /** Attach the completed OpenDental procedures already created by a treatment plan. */
+  async createInvoiceFromCompletedProcedures(
+    tx: Prisma.TransactionClient,
+    patientId: bigint,
+    procNums: bigint[],
+    createdBy?: string,
+    treatmentPlanId?: string,
+    manualProcNums: bigint[] = [],
+  ) {
+    const uniqueNums = [...new Set(procNums.map(String))].map(BigInt);
+    if (!uniqueNums.length) return null;
+    const procedures = await tx.procedurelog.findMany({
+      where: { ProcNum: { in: uniqueNums }, PatNum: patientId, ProcStatus: 2, StatementNum: null },
+    });
+    if (procedures.length !== uniqueNums.length) {
+      throw new ConflictError('A completed procedure is already billed or is not available');
+    }
+    const now = new Date();
+    const dueDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const statementNum = await getNextId('statement', 'StatementNum', tx);
+    const invoiceNumber = await getInvoiceNumber(tx);
+    const pricedItems = await this.calculateInsuranceEstimates(
+      patientId,
+      procedures.map((proc) => ({
+        code: proc.OldCode || undefined,
+        procedureCode: proc.OldCode || undefined,
+        description: parseJson<any>(proc.BillingNote).description || proc.BillingNote || 'Service',
+        charge: Number(proc.ProcFee || 0),
+        ProcDate: proc.ProcDate,
+        insPortion: parseJson<any>(proc.BillingNote).insPortion,
+        ptPortion: parseJson<any>(proc.BillingNote).ptPortion,
+      })),
+      { db: tx },
+    );
+    const itemMetaByProc = new Map(procedures.map((proc, index) => [proc.ProcNum.toString(), {
+      ...parseJson<any>(proc.BillingNote),
+      description: parseJson<any>(proc.BillingNote).description || proc.BillingNote || 'Service',
+      cptCode: parseJson<any>(proc.BillingNote).cptCode || proc.OldCode || null,
+      serviceId: parseJson<any>(proc.BillingNote).serviceId || proc.CodeNum?.toString() || null,
+      charge: Number(proc.ProcFee || 0), unitPrice: Number(proc.ProcFee || 0), quantity: 1,
+      ptPortion: Number(pricedItems[index]?.ptPortion || 0),
+      insPortion: Number(pricedItems[index]?.insPortion || 0),
+      primaryInsPortion: Number(pricedItems[index]?.primaryInsPortion ?? pricedItems[index]?.insPortion ?? 0),
+      secondaryInsPortion: Number(pricedItems[index]?.secondaryInsPortion || 0),
+      totalInsPortion: Number(pricedItems[index]?.totalInsPortion ?? pricedItems[index]?.insPortion ?? 0),
+      writeoff: Number(pricedItems[index]?.writeoff || 0), completed: true,
+    }]));
+    const totalAmount = roundCurrency(procedures.reduce((sum, proc) => sum + Number(proc.ProcFee || 0), 0));
+    const insurancePortion = roundCurrency(procedures.reduce((sum, proc) => sum + Number(itemMetaByProc.get(proc.ProcNum.toString())?.totalInsPortion || 0), 0));
+    const patientPortion = roundCurrency(procedures.reduce((sum, proc) => sum + Number(itemMetaByProc.get(proc.ProcNum.toString())?.ptPortion || 0), 0));
+    const meta: StatementMeta = {
+      status: 'draft', createdBy, dueDate: dueDate.toISOString(), totalAmount,
+      insurancePortion, patientPortion, paidAmount: 0, taxAmount: 0,
+      discountAmount: 0, writeoffAmount: 0,
+      providerId: procedures[0]?.ProvNum?.toString(),
+    };
+    await tx.statement.create({ data: {
+      StatementNum: statementNum, PatNum: patientId, DateSent: now,
+      DateRangeFrom: now, DateRangeTo: dueDate,
+      Note: treatmentPlanId ? `Treatment Plan ${treatmentPlanId}` : 'Treatment Plan Invoice',
+      NoteBold: buildJson(meta), IsInvoice: 1, StatementType: 'draft',
+      ShortGUID: invoiceNumber, InsEst: insurancePortion, BalTotal: totalAmount,
+    } });
+    const manual = new Set(manualProcNums.map(String));
+    for (const proc of procedures) {
+      const note = parseJson<any>(proc.BillingNote);
+      const generatedMeta = itemMetaByProc.get(proc.ProcNum.toString()) || {};
+      if (manual.has(proc.ProcNum.toString())) note.isManuallyAdjusted = true;
+      const linked = await tx.procedurelog.updateMany({
+        where: { ProcNum: proc.ProcNum, PatNum: patientId, ProcStatus: 2, StatementNum: null },
+        data: { StatementNum: statementNum, BillingNote: buildJson({ ...generatedMeta, ...note, completed: true }) },
+      });
+      if (linked.count !== 1) throw new ConflictError('Procedure was billed concurrently');
+    }
+    await this.recalculateInvoice(statementNum.toString(), undefined, tx);
+    return { id: statementNum.toString(), invoiceNumber };
+  }
+
   private mapProcedureLogToInvoiceItem(item: any, invoiceId?: string, code?: any) {
     const meta = parseJson<ItemMeta>(item.BillingNote);
     const quantity = Number(meta.quantity ?? item.UnitQty ?? 1) || 1;
@@ -178,15 +293,524 @@ export class InvoiceService {
   }
 
   /**
+   * Build the coverage-percentage lookup tables from a plan's `coverageCategoryTable`.
+   *
+   * Extracted so the primary and the secondary build identical tables — the
+   * aliases and category normalization below are what make a "Preventative"
+   * row on one plan match a `preventive` CDT category on the other.
+   */
+  private buildCoveragePercentTables(coverageCategoryTable: any): CoveragePercentTables {
+    const procCodePercentages = new Map<string, number>();
+    const categoryPercentages = new Map<string, number>();
+
+    const normalizeCat = (str: string) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const addCategoryPercentage = (catName: string, cov: number, subLabel?: string) => {
+      if (!catName || typeof cov !== 'number') return;
+      const norm = normalizeCat(catName);
+      const normSub = subLabel ? normalizeCat(subLabel) : '';
+
+      if (normSub) {
+        categoryPercentages.set(`${norm}${normSub}`, cov);
+      } else {
+        categoryPercentages.set(norm, cov);
+      }
+
+      // Map common category aliases
+      const aliases: string[] = [];
+      if (norm.includes('diagnostic')) aliases.push('diagnostic');
+      if (norm.includes('prevent') || norm === 'preventative' || norm === 'preventive') {
+        aliases.push('preventative', 'preventive');
+      }
+      if (norm.includes('restor')) aliases.push('restorative');
+      if (norm.includes('endo')) aliases.push('endodontics');
+      if (norm.includes('perio')) aliases.push('periodontics');
+      if (norm.includes('remov')) aliases.push('prosthodonticsremovable');
+      if (norm.includes('maxillofac')) aliases.push('maxillofacialprosthetics');
+      if (norm.includes('implant')) aliases.push('implantservices');
+      if (norm.includes('fixed')) aliases.push('prosthodonticsfixed');
+      if (norm.includes('surg') || norm.includes('oral')) aliases.push('oralsurgery');
+      if (norm.includes('ortho')) aliases.push('orthodontics');
+      if (norm.includes('adjunc') || norm.includes('general')) aliases.push('adjunctgeneral');
+
+      for (const alias of aliases) {
+        if (normSub) {
+          categoryPercentages.set(`${alias}${normSub}`, cov);
+        } else {
+          categoryPercentages.set(alias, cov);
+        }
+      }
+    };
+
+    // Process coverageCategoryTable (can be Array or Object)
+    if (Array.isArray(coverageCategoryTable)) {
+      for (const catEntry of coverageCategoryTable) {
+        if (catEntry && typeof catEntry === 'object') {
+          const catName = catEntry.category || catEntry.title || catEntry.label || catEntry.name;
+          if (catName && typeof catEntry.coverage === 'number') {
+            addCategoryPercentage(catName, catEntry.coverage);
+          }
+          if (Array.isArray(catEntry.items)) {
+            for (const subItem of catEntry.items) {
+              if (subItem.code && typeof subItem.coverage === 'number') {
+                procCodePercentages.set(String(subItem.code).toUpperCase().trim(), subItem.coverage);
+              } else if (subItem.label && typeof subItem.coverage === 'number') {
+                const subLabel = String(subItem.label);
+                const normSub = normalizeCat(subLabel);
+                if (!categoryPercentages.has(normSub)) {
+                  categoryPercentages.set(normSub, subItem.coverage);
+                }
+                if (catName) {
+                  addCategoryPercentage(catName, subItem.coverage, subLabel);
+                  const normCat = normalizeCat(catName);
+                  if (!categoryPercentages.has(normCat)) {
+                    categoryPercentages.set(normCat, subItem.coverage);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    } else if (coverageCategoryTable && typeof coverageCategoryTable === 'object') {
+      for (const [catKey, value] of Object.entries(coverageCategoryTable)) {
+        if (typeof value === 'number') {
+          addCategoryPercentage(catKey, value);
+        } else if (Array.isArray(value)) {
+          for (const subItem of value as any[]) {
+            if (subItem.code && typeof subItem.coverage === 'number') {
+              procCodePercentages.set(String(subItem.code).toUpperCase().trim(), subItem.coverage);
+            } else if (subItem.label && typeof subItem.coverage === 'number') {
+              const subLabel = String(subItem.label);
+              const normSub = normalizeCat(subLabel);
+              if (!categoryPercentages.has(normSub)) {
+                categoryPercentages.set(normSub, subItem.coverage);
+              }
+              addCategoryPercentage(catKey, subItem.coverage, subLabel);
+              const normCat = normalizeCat(catKey);
+              if (!categoryPercentages.has(normCat)) {
+                categoryPercentages.set(normCat, subItem.coverage);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return { procCodePercentages, categoryPercentages };
+  }
+
+  /**
+   * Resolve a plan's allowed/contracted fee for a procedure code.
+   *
+   * `AllowedFeeSched` wins; a PPO plan (`PlanType === 'p'`) falls back to its
+   * `FeeSched`, which is the plan that pays off a contracted fee directly.
+   *
+   * A per-line override on the item still wins over the schedule, and is read
+   * by the caller so the primary and the secondary cannot disagree about it.
+   */
+  private resolvePlanAllowedFee(code: string, ctx: PlanPricingContext): number | undefined {
+    return (
+      ctx.allowedFeeMap.get(code) ??
+      (ctx.insPlan?.PlanType === 'p' ? ctx.planFeeMap.get(code) : undefined)
+    );
+  }
+
+  /**
+   * Resolve the fee a plan pays for an alternate-benefit SUBSTITUTE code.
+   *
+   * Deliberately broader than `resolvePlanAllowedFee`: a non-PPO plan with no
+   * `AllowedFeeSched` still has to price its own substitute, and gating the
+   * `FeeSched` fallback on `PlanType === 'p'` here would mark every such
+   * downgrade 'no-fee' and quietly bill the patient the full amount.
+   */
+  private resolveDowngradeFee(code: string, ctx: PlanPricingContext): number | undefined {
+    return ctx.allowedFeeMap.get(code) ?? ctx.planFeeMap.get(code);
+  }
+
+  /**
+   * Load everything one plan needs to price lines on its own terms.
+   *
+   * Returns null when the plan is not priceable at all (no `insplan` row), which
+   * is the only condition under which a plan falls back to a conservative
+   * estimate rather than being priced on its own fee schedule and rules.
+   */
+  private async buildPlanPricingContext(
+    patPlan: any,
+    opts: {
+      excludeInvoiceId?: bigint | string | null;
+      covSpans?: any[];
+      covCatMap?: Map<string, string>;
+      db?: Prisma.TransactionClient | typeof prisma;
+    } = {},
+  ): Promise<PlanPricingContext | null> {
+    const db = opts.db ?? prisma;
+    const insPlan = patPlan?.inssub?.insplan;
+    if (!patPlan?.PatPlanNum || !insPlan) return null;
+
+    const allowedFeeMap = new Map<string, number>();
+    const planFeeMap = new Map<string, number>();
+
+    const loadSchedule = async (feeSched: bigint | null | undefined, into: Map<string, number>) => {
+      if (!feeSched || feeSched <= 0n) return;
+      const feeRecords = await db.fee.findMany({
+        where: { FeeSched: feeSched },
+        include: { procedurecode: true },
+      });
+      for (const f of feeRecords) {
+        if (f.procedurecode?.ProcCode && f.Amount !== null && f.Amount !== undefined) {
+          into.set(f.procedurecode.ProcCode.toUpperCase().trim(), Number(f.Amount));
+        }
+      }
+    };
+
+    await loadSchedule(insPlan.AllowedFeeSched, allowedFeeMap);
+    await loadSchedule(insPlan.FeeSched, planFeeMap);
+
+    const meta: any = await getPatientInsuranceMeta(patPlan.PatPlanNum);
+    const { procCodePercentages, categoryPercentages } = this.buildCoveragePercentTables(
+      meta?.coverageCategoryTable || [],
+    );
+
+    // Map each code's own tier — crowns and other Major Services must never be
+    // priced with the Basic sub-row just because the numeric CDT range groups
+    // them together.
+    const coverageCategoryByCode = new Map<string, string>();
+    const scheduleCodes = [...new Set([...allowedFeeMap.keys(), ...planFeeMap.keys()])];
+    if (scheduleCodes.length > 0) {
+      const procRows = await db.procedurecode.findMany({
+        where: { ProcCode: { in: scheduleCodes } },
+        select: { ProcCode: true, CoverageCategory: true },
+      });
+      for (const r of procRows) {
+        if (r.ProcCode && r.CoverageCategory) {
+          coverageCategoryByCode.set(r.ProcCode.toUpperCase().trim(), r.CoverageCategory);
+        }
+      }
+    }
+
+    const deductibleTier = resolveDeductibleTier({
+      relationship: patPlan.Relationship,
+      patientsCovered: meta?.patientsCovered,
+    });
+    const deductibleLedger = new DeductibleLedger(meta?.deductiblesGrid, deductibleTier, coverageCategoryByCode);
+
+    // Claims that have not reserved yet (deductibleHeld !== true) still own their
+    // `deductibleReservedByRow` estimate — reservation happens on the claim's
+    // status change, not on creation. Those pools are already spoken for, so a
+    // new invoice must not re-spend them or the same deductible is quoted twice
+    // across invoices. Keyed by this plan's own InsSubNum so the two plans'
+    // pools stay separate.
+    const excludedInvoiceId =
+      opts.excludeInvoiceId != null ? String(opts.excludeInvoiceId) : null;
+    const claimsHoldingPools = await db.claim.findMany({
+      where: {
+        PatNum: patPlan.PatNum,
+        InsSubNum: patPlan.InsSubNum ?? undefined,
+        Narrative: { not: null },
+      },
+      select: { Narrative: true },
+    });
+    for (const held of claimsHoldingPools) {
+      const heldMeta = parseJson<any>(held.Narrative || '{}');
+      if (excludedInvoiceId !== null && String(heldMeta.invoiceId ?? '') === excludedInvoiceId) {
+        continue;
+      }
+      if (heldMeta.deductibleHeld === true) continue;
+      const reserved = heldMeta.deductibleReservedByRow;
+      if (!reserved || typeof reserved !== 'object') continue;
+      for (const [rowKey, amount] of Object.entries(reserved)) {
+        deductibleLedger.reduceBalance(rowKey, roundCurrency(Number(amount) || 0));
+      }
+    }
+
+    return {
+      patPlan,
+      insPlan,
+      allowedFeeMap,
+      planFeeMap,
+      procCodePercentages,
+      categoryPercentages,
+      deductibleLedger,
+      downgradeMap: buildDowngradeMap(meta?.coverageBookData),
+      coverageCategoryByCode,
+    };
+  }
+
+  /**
+   * Read a per-line allowance that was present on the item BEFORE this run.
+   *
+   * Precedence mirrors the long-standing primary behaviour: `allowedFee`, then
+   * `originalFee`, then `baseFee`. That last part matters — `recalculateInvoice`
+   * re-prices by spreading a stored BillingNote back onto the item, so a
+   * `allowedFee` in the input is a real, deliberate value and must keep winning.
+   *
+   * This MUST be read before the primary loop writes `item.allowedFee` with the
+   * allowance it resolved for itself. Called afterwards, the field is
+   * indistinguishable between "the user set this" and "the primary just
+   * computed this", and the secondary would inherit the primary's contracted fee
+   * as if it were an override.
+   */
+  private readExplicitAllowedFee(item: any): number | undefined {
+    // `allowedFee` doubles as the PRIMARY's own derivation target: this loop
+    // writes `item.allowedFee = <its resolved fee>` and, on the next
+    // re-estimate, the value comes back pinned to 'plan'. Honoring it again
+    // would freeze the line at the stale contractual fee forever — the payer's
+    // fee would never re-derive, and the secondary would inherit the primary's
+    // contracted allowance. Only a value a caller supplied WITHOUT that marker
+    // can have been typed in by hand.
+    const source = item?.allowedFeeSource;
+    if (item?.allowedFee !== undefined && item?.allowedFee !== null && Number(item.allowedFee) > 0 && source !== 'plan') {
+      return Number(item.allowedFee);
+    }
+    for (const key of ['originalFee', 'baseFee'] as const) {
+      const value = item?.[key];
+      if (value !== undefined && value !== null && Number(value) > 0) {
+        return Number(value);
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Resolve the coverage percentage for a procedure code on one plan.
+   *
+   * The ladder is deliberately identical for both plans: procedure-code
+   * override → CDT category → OpenDental CovSpan/CovCat → general/basic → the
+   * standard CDT-category default. A secondary plan priced by a different ladder
+   * would silently disagree with the primary on the same procedure.
+   *
+   * Always returns a number; the final fallbacks guarantee a value rather than
+   * `undefined`, so callers never have to special-case "no percentage found".
+   */
+  private resolveCoveragePercent(
+    cleanCode: string,
+    isCdtCode: boolean,
+    ctx: PlanPricingContext,
+    covSpans: any[],
+    covCatMap: Map<string, string>,
+  ): number {
+    const { procCodePercentages, categoryPercentages } = ctx;
+    let percent: number | undefined;
+
+    // 1. Specific Procedure Code Override (e.g. "D2140" or "2140")
+    if (procCodePercentages.has(cleanCode)) {
+      percent = procCodePercentages.get(cleanCode);
+    } else if (cleanCode.startsWith('D') && procCodePercentages.has(cleanCode.substring(1))) {
+      percent = procCodePercentages.get(cleanCode.substring(1));
+    }
+
+    // 2. CDT Code Range Category Mapping (12 standard categories)
+    // Shared with the deductible engine so the two can never disagree —
+    // if they diverge, every estimate silently mis-deducts.
+    if (percent === undefined && isCdtCode) {
+      const catKey = mapCodeToCategory(cleanCode);
+      const tierKey = tierKeyFromCoverageCategory(ctx.coverageCategoryByCode.get(cleanCode));
+
+      // A plan can split one numeric CDT category into Basic and Major tiers.
+      // The procedure code's own `CoverageCategory` is the only authoritative
+      // arbiter for which side of the split it belongs to — the CDT range alone
+      // would price every code in that range off the first sub-row the client
+      // happened to list (typically Basic).
+      if (catKey && tierKey) {
+        const tieredKey = `${catKey}${tierKey}`;
+        if (categoryPercentages.has(tieredKey)) {
+          percent = categoryPercentages.get(tieredKey);
+        }
+      }
+
+      const perioBase = catKey?.replace(/basic$|major$/, '');
+
+      // Periodontics splits Basic vs Major and falls back to the base key.
+      if (percent === undefined && perioBase === 'periodontics') {
+        percent = categoryPercentages.get(catKey!)
+          ?? categoryPercentages.get(perioBase)
+          ?? categoryPercentages.get(catKey === 'periodonticsbasic' ? 'basic' : 'major');
+      } else if (percent === undefined && catKey && categoryPercentages.has(catKey)) {
+        percent = categoryPercentages.get(catKey);
+      }
+    }
+
+    // 3. OpenDental CovSpan / CovCat Fallback
+    if (percent === undefined) {
+      const span = covSpans.find((s) => s.FromCode && s.ToCode && cleanCode >= s.FromCode && cleanCode <= s.ToCode);
+      if (span && span.CovCatNum) {
+        const odCategoryName = covCatMap.get(span.CovCatNum.toString());
+        if (odCategoryName) {
+          const normOdCat = odCategoryName.toLowerCase().replace(/[^a-z0-9]/g, '');
+          if (categoryPercentages.has(normOdCat)) {
+            percent = categoryPercentages.get(normOdCat);
+          }
+        }
+      }
+    }
+
+    // 4. General / Basic Fallback
+    if (percent === undefined) {
+      if (categoryPercentages.has('general')) {
+        percent = categoryPercentages.get('general');
+      } else if (categoryPercentages.has('basic')) {
+        percent = categoryPercentages.get('basic');
+      }
+    }
+
+    // 5. Standard CDT Category Default Fallback (matches cdtCategoryHelper)
+    if (percent === undefined) {
+      if (isCdtCode) {
+        const numMatch = cleanCode.match(/\d+/);
+        const num = numMatch ? parseInt(numMatch[0], 10) : null;
+        if (num !== null) {
+          if (num < 2000) percent = 100; // Diagnostic & Preventative
+          else if (num < 5000) percent = 80; // Restorative, Endo, Perio
+          else if (num < 9000) percent = 50; // Prosthodontics, Implants, Surgery, Ortho
+          else percent = 80; // Adjunct General
+        } else {
+          percent = 100;
+        }
+      } else {
+        // Non-dental custom codes default to 0% insurance coverage
+        percent = 0;
+      }
+    }
+
+    return percent ?? 0;
+  }
+
+  /**
+   * Price one line against the SECONDARY plan, independently of the primary.
+   *
+   * Mirrors the primary's arithmetic step for step, against the secondary's own
+   * context: its fee schedules, its coverage percentage ladder, its deductible
+   * pools and its alternate-benefit rules. Nothing here reads a value the
+   * primary computed — in particular the downgrade is re-resolved against the
+   * BILLED code rather than the primary's `effectiveCode`, because the two plans
+   * can carry completely different rules for the same procedure.
+   *
+   * Returns the benefit the secondary would pay on its own terms plus the audit
+   * fields describing how it got there. The caller applies the coordination-of-
+   * benefits cap; this must not, or the plan would be paid more than the balance
+   * the primary left.
+   */
+  private priceSecondaryLine(
+    item: any,
+    ctx: PlanPricingContext,
+    covSpans: any[],
+    covCatMap: Map<string, string>,
+    serviceIdToProcCodeMap: Map<string, string>,
+    manualAllowedFee: number | undefined,
+  ): {
+    benefit: number;
+    billedCode: string | null;
+    coveragePct: number | null;
+    downgraded: boolean;
+    effectiveCode: string | null;
+    downgradeSkipped: string | null;
+    notEstimated: boolean;
+  } {
+    let procCodeString = item.cptCode || item.code || item.procedureCode || item.procCode || '';
+    if (!procCodeString && item.serviceId) {
+      procCodeString = serviceIdToProcCodeMap.get(item.serviceId.toString()) || '';
+    }
+    if (!procCodeString) {
+      return {
+        benefit: 0,
+        billedCode: null,
+        coveragePct: null,
+        downgraded: false,
+        effectiveCode: null,
+        downgradeSkipped: null,
+        notEstimated: true,
+      };
+    }
+
+    const billedCode = String(procCodeString).toUpperCase().trim();
+    const isCdtCode = /^D\d{4}/i.test(billedCode) || /^\d{4}$/.test(billedCode);
+
+    // The secondary's own alternate-benefit rule, re-resolved from scratch
+    // against the BILLED code. A primary downgrade says nothing about this plan.
+    const { rule, skipped: toothSkipped } = resolveDowngrade(
+      billedCode,
+      ctx.downgradeMap,
+      parseTeethRange(item.site)
+    );
+
+    const coveragePct = this.resolveCoveragePercent(billedCode, isCdtCode, ctx, covSpans, covCatMap);
+
+    // A manually entered per-line allowance still wins, matching the primary's
+    // precedence — but it must be the allowance as it arrived on the item.
+    // The primary loop overwrites `item.allowedFee` with the value it resolved
+    // for ITSELF plan, so reading the field here would feed the primary's
+    // contracted fee back in as though the user had typed it, and the secondary
+    // would silently be priced on the primary's allowance. The snapshot taken
+    // before the primary loop ran is what makes this value trustworthy.
+    const explicitAllowedFee = manualAllowedFee;
+
+    const charge = Number(item.totalPrice ?? item.charge ?? item.ProcFee ?? item.unitPrice ?? 0);
+    const resolvedAllowedFee =
+      explicitAllowedFee !== undefined
+        ? explicitAllowedFee
+        : this.resolvePlanAllowedFee(billedCode, ctx);
+
+    // The secondary's basis is the charge less whatever discount already applies
+    // to the line. It does NOT reuse the primary's `writeoff`: that is the
+    // primary plan's contracted fee, and applying it twice would under-pay the
+    // secondary. The primary's discount is applied once, at coordination time.
+    // When this plan allows less than the charge, the excess is the secondary's own
+    // contractual discount and reduces the basis it prices against.
+    let basisFee = charge;
+    if (resolvedAllowedFee !== undefined && resolvedAllowedFee > 0 && charge > resolvedAllowedFee) {
+      basisFee = resolvedAllowedFee;
+    }
+
+    let insuranceBasis = basisFee;
+    let downgradeRule = rule;
+    let downgradeSkipped: string | null = rule ? null : toothSkipped ?? null;
+    if (downgradeRule) {
+      const downgradeKey = downgradeRule.downgradeCode.toUpperCase().trim();
+      const downgradeFee = this.resolveDowngradeFee(downgradeKey, ctx) ?? downgradeRule.maxAllowed;
+
+      if (downgradeFee !== undefined && downgradeFee > 0) {
+        insuranceBasis = downgradeFee;
+      } else {
+        // The rule matched but the substitute has no fee anywhere on this plan,
+        // so it cannot be priced. Skipped rather than priced against $0, and the
+        // line is reported as unestimated so the UI can say why.
+        downgradeRule = null;
+        downgradeSkipped = 'no-fee';
+      }
+    }
+
+    // The secondary's OWN deductible pool, drained once. `deductibleApplied`
+    // from the primary is deliberately not consulted — that deductible is
+    // already satisfied and belongs to the patient, not to this plan.
+    const priced = applyDeductible(ctx.deductibleLedger, billedCode, insuranceBasis, coveragePct);
+
+    return {
+      benefit: roundCurrency(priced.insurancePortion),
+      billedCode,
+      coveragePct,
+      downgraded: !!downgradeRule,
+      effectiveCode: downgradeRule ? downgradeRule.downgradeCode : null,
+      downgradeSkipped,
+      // A rule that matched but could not be priced leaves the secondary genuinely
+      // unestimated. A tooth-blocked rule does not: the line is priced normally,
+      // just without a downgrade, which is a deliberate exclusion rather than a
+      // missing estimate.
+      notEstimated: downgradeSkipped === 'no-fee',
+    };
+  }
+
+  /**
    * Calculate estimated insurance and patient portions for a list of items based on the primary patplan
    */
   public async calculateInsuranceEstimates(
     patientId: bigint,
     items: any[],
-    options: { excludeInvoiceId?: bigint | string } = {},
+    options: { excludeInvoiceId?: bigint | string; db?: Prisma.TransactionClient } = {},
   ) {
+    const db = options.db ?? prisma;
     try {
-      const patPlan = await prisma.patplan.findFirst({
+      const patPlan = await db.patplan.findFirst({
         where: { PatNum: patientId, OR: [{ IsPending: 0 }, { IsPending: null }] },
         orderBy: { Ordinal: 'asc' },
         include: {
@@ -227,185 +851,82 @@ export class InvoiceService {
         });
       }
 
-      const insPlan = patPlan?.inssub?.insplan;
-      const allowedFeeMap = new Map<string, number>();
-      const planFeeMap = new Map<string, number>();
-
-      if (insPlan?.AllowedFeeSched && insPlan.AllowedFeeSched > 0n) {
-        const feeRecords = await prisma.fee.findMany({
-          where: { FeeSched: insPlan.AllowedFeeSched },
-          include: { procedurecode: true }
-        });
-        for (const f of feeRecords) {
-          if (f.procedurecode?.ProcCode && f.Amount !== null && f.Amount !== undefined) {
-            allowedFeeMap.set(f.procedurecode.ProcCode.toUpperCase().trim(), Number(f.Amount));
-          }
-        }
-      }
-
-      if (insPlan?.FeeSched && insPlan.FeeSched > 0n) {
-        const feeRecords = await prisma.fee.findMany({
-          where: { FeeSched: insPlan.FeeSched },
-          include: { procedurecode: true }
-        });
-        for (const f of feeRecords) {
-          if (f.procedurecode?.ProcCode && f.Amount !== null && f.Amount !== undefined) {
-            planFeeMap.set(f.procedurecode.ProcCode.toUpperCase().trim(), Number(f.Amount));
-          }
-        }
-      }
-
-      const meta: any = await getPatientInsuranceMeta(patPlan.PatPlanNum);
-      const coverageCategoryTable = meta?.coverageCategoryTable || [];
-
-      // Deductible pools are independent per grid row and drained in
-      // date-of-service order across the whole claim, so the loop below walks a
-      // date-sorted index list rather than the input array.
-const deductibleTier = resolveDeductibleTier({
-        relationship: (patPlan as any).Relationship,
-        patientsCovered: meta?.patientsCovered,
-      });
-      const deductibleLedger = new DeductibleLedger(meta?.deductiblesGrid, deductibleTier);
-
-      // Claims that have not reserved yet (deductibleHeld !== true) still own their
-      // `deductibleReservedByRow` estimate — reservation happens on the claim's status
-      // change, not on creation. Those pools are already spoken for, so a new invoice
-      // must not re-spend them or the same deductible is quoted twice across invoices.
-      //
-      // The invoice being priced is excluded: it is re-pricing lines its own claim
-      // already reserved, and counting that reservation would zero it out.
-      const excludedInvoiceId =
-        options.excludeInvoiceId != null ? String(options.excludeInvoiceId) : null;
-      const claimsHoldingPools = await prisma.claim.findMany({
-        where: {
-          PatNum: patientId,
-          InsSubNum: patPlan.InsSubNum ?? undefined,
-          Narrative: { not: null },
-        },
-        select: { Narrative: true },
-      });
-      for (const held of claimsHoldingPools) {
-        const heldMeta = parseJson<any>(held.Narrative || '{}');
-        if (excludedInvoiceId !== null && String(heldMeta.invoiceId ?? '') === excludedInvoiceId) {
-          continue;
-        }
-        if (heldMeta.deductibleHeld === true) continue;
-        const reserved = heldMeta.deductibleReservedByRow;
-        if (!reserved || typeof reserved !== 'object') continue;
-        for (const [rowKey, amount] of Object.entries(reserved)) {
-          deductibleLedger.reduceBalance(rowKey, roundCurrency(Number(amount) || 0));
-        }
-      }
-
-      const pricedOrder = orderIndexesByDate(items);
-
-      // Build quick lookup maps from the UI meta payload
-      const procCodePercentages = new Map<string, number>();
-      const categoryPercentages = new Map<string, number>();
-
-      const normalizeCat = (str: string) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-
-      const addCategoryPercentage = (catName: string, cov: number, subLabel?: string) => {
-        if (!catName || typeof cov !== 'number') return;
-        const norm = normalizeCat(catName);
-        const normSub = subLabel ? normalizeCat(subLabel) : '';
-
-        if (normSub) {
-          categoryPercentages.set(`${norm}${normSub}`, cov);
-        } else {
-          categoryPercentages.set(norm, cov);
-        }
-
-        // Map common category aliases
-        const aliases: string[] = [];
-        if (norm.includes('diagnostic')) aliases.push('diagnostic');
-        if (norm.includes('prevent') || norm === 'preventative' || norm === 'preventive') {
-          aliases.push('preventative', 'preventive');
-        }
-        if (norm.includes('restor')) aliases.push('restorative');
-        if (norm.includes('endo')) aliases.push('endodontics');
-        if (norm.includes('perio')) aliases.push('periodontics');
-        if (norm.includes('remov')) aliases.push('prosthodonticsremovable');
-        if (norm.includes('maxillofac')) aliases.push('maxillofacialprosthetics');
-        if (norm.includes('implant')) aliases.push('implantservices');
-        if (norm.includes('fixed')) aliases.push('prosthodonticsfixed');
-        if (norm.includes('surg') || norm.includes('oral')) aliases.push('oralsurgery');
-        if (norm.includes('ortho')) aliases.push('orthodontics');
-        if (norm.includes('adjunc') || norm.includes('general')) aliases.push('adjunctgeneral');
-
-        for (const alias of aliases) {
-          if (normSub) {
-            categoryPercentages.set(`${alias}${normSub}`, cov);
-          } else {
-            categoryPercentages.set(alias, cov);
-          }
-        }
-      };
-
-      // Process coverageCategoryTable (can be Array or Object)
-      if (Array.isArray(coverageCategoryTable)) {
-        for (const catEntry of coverageCategoryTable) {
-          if (catEntry && typeof catEntry === 'object') {
-            const catName = catEntry.category || catEntry.title || catEntry.label || catEntry.name;
-            if (catName && typeof catEntry.coverage === 'number') {
-              addCategoryPercentage(catName, catEntry.coverage);
-            }
-            if (Array.isArray(catEntry.items)) {
-              for (const subItem of catEntry.items) {
-                if (subItem.code && typeof subItem.coverage === 'number') {
-                  procCodePercentages.set(String(subItem.code).toUpperCase().trim(), subItem.coverage);
-                } else if (subItem.label && typeof subItem.coverage === 'number') {
-                  const subLabel = String(subItem.label);
-                  const normSub = normalizeCat(subLabel);
-                  if (!categoryPercentages.has(normSub)) {
-                    categoryPercentages.set(normSub, subItem.coverage);
-                  }
-                  if (catName) {
-                    addCategoryPercentage(catName, subItem.coverage, subLabel);
-                    const normCat = normalizeCat(catName);
-                    if (!categoryPercentages.has(normCat)) {
-                      categoryPercentages.set(normCat, subItem.coverage);
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      } else if (coverageCategoryTable && typeof coverageCategoryTable === 'object') {
-        for (const [catKey, value] of Object.entries(coverageCategoryTable)) {
-          if (typeof value === 'number') {
-            addCategoryPercentage(catKey, value);
-          } else if (Array.isArray(value)) {
-            for (const subItem of value as any[]) {
-              if (subItem.code && typeof subItem.coverage === 'number') {
-                procCodePercentages.set(String(subItem.code).toUpperCase().trim(), subItem.coverage);
-              } else if (subItem.label && typeof subItem.coverage === 'number') {
-                const subLabel = String(subItem.label);
-                const normSub = normalizeCat(subLabel);
-                if (!categoryPercentages.has(normSub)) {
-                  categoryPercentages.set(normSub, subItem.coverage);
-                }
-                addCategoryPercentage(catKey, subItem.coverage, subLabel);
-                const normCat = normalizeCat(catKey);
-                if (!categoryPercentages.has(normCat)) {
-                  categoryPercentages.set(normCat, subItem.coverage);
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // Also get OpenDental covSpans so we can map procedures to general categories
-      const covSpans = await prisma.covspan.findMany();
-      const covCats = await prisma.covcat.findMany();
+      // Practice-wide category tables, fetched once and shared: they are not
+      // per-plan, so both plans must resolve percentages against the same data.
+      const covSpans = await db.covspan.findMany();
+      const covCats = await db.covcat.findMany();
       const covCatMap = new Map<string, string>();
       for (const cat of covCats) {
         if (cat.Description) {
           covCatMap.set(cat.CovCatNum.toString(), cat.Description.toLowerCase());
         }
       }
+
+      const excludedInvoiceId =
+        options.excludeInvoiceId != null ? String(options.excludeInvoiceId) : null;
+
+      // A per-line allowance can be typed in by the user, in which case it is
+      // authoritative for BOTH plans. It is snapshotted here, before the
+      // primary loop below overwrites `item.allowedFee` with the value it
+      // resolved for its own schedule. Without the snapshot the secondary would
+      // read the primary's resolved allowance back as a manual override and be
+      // priced on the primary's contracted fee — the exact bug this loop is
+      // supposed to have fixed.
+      const originalAllowedFeeByItem = new Map<any, number | undefined>();
+      for (const item of items) {
+        const raw = this.readExplicitAllowedFee(item);
+        originalAllowedFeeByItem.set(item, raw);
+      }
+
+      // The PRIMARY. Null means it carries no `insplan` and therefore has no
+      // fee schedule to price against — handled by the early return above, which
+      // already fired on `!patPlan?.PatPlanNum`.
+      const primaryCtx = await this.buildPlanPricingContext(patPlan, {
+        excludeInvoiceId: excludedInvoiceId,
+        db,
+      });
+      if (!primaryCtx) {
+        // The secondary audit fields are cleared alongside the money, not left to
+        // ride along on the `...item` spread. On a re-estimate the incoming item
+        // IS the previous BillingNote, so anything not explicitly nulled here
+        // survives as a stale record of a decision this run never made.
+        return items.map((item: any) => ({
+          ...item,
+          insPortion: 0,
+          ptPortion: roundCurrency(
+            Number(item.totalPrice ?? item.charge ?? item.ProcFee ?? item.unitPrice ?? 0)
+          ),
+          secondaryInsPortion: 0,
+          secondaryNotEstimated: false,
+          secondaryDowngraded: false,
+          secondaryDowngradedFrom: null,
+          secondaryEffectiveCode: null,
+          secondaryDowngradeSkipped: null,
+          secondaryCoveragePct: null,
+        }));
+      }
+      const { deductibleLedger, downgradeMap } = primaryCtx;
+
+      // The SECONDARY, loaded through the SAME builder so it is priced on its own
+      // fee schedules, its own coverage percentages, its own deductible pools and
+      // its own alternate-benefit rules. A null context (no `insplan`) is the only
+      // thing that forces the conservative fallback further down.
+      const secondaryPatPlan = await db.patplan.findFirst({
+        where: {
+          PatNum: patientId,
+          Ordinal: 2,
+          OR: [{ IsPending: 0 }, { IsPending: null }],
+        },
+        include: { inssub: { include: { insplan: true } } },
+      });
+      const secondaryCtx = secondaryPatPlan
+        ? await this.buildPlanPricingContext(secondaryPatPlan, {
+            excludeInvoiceId: excludedInvoiceId,
+            db,
+          })
+        : null;
+
+      const pricedOrder = orderIndexesByDate(items);
 
       // Batch fetch missing procedure codes for serviceIds to avoid N+1 queries
       const missingServiceIds = items
@@ -420,7 +941,7 @@ const deductibleTier = resolveDeductibleTier({
         .filter((id): id is bigint => id !== null);
 
       const resolvedProcCodes = missingServiceIds.length > 0
-        ? await prisma.procedurecode.findMany({
+        ? await db.procedurecode.findMany({
             where: { CodeNum: { in: missingServiceIds } },
             select: { CodeNum: true, ProcCode: true },
           })
@@ -467,88 +988,42 @@ const deductibleTier = resolveDeductibleTier({
 
         const cleanCode = String(procCodeString).toUpperCase().trim();
         const isCdtCode = /^D\d{4}/i.test(cleanCode) || /^\d{4}$/.test(cleanCode);
-        let percent: number | undefined;
+        const percent = this.resolveCoveragePercent(cleanCode, isCdtCode, primaryCtx, covSpans, covCatMap);
 
-        // 1. Specific Procedure Code Override (e.g. "D2140" or "2140")
-        if (procCodePercentages.has(cleanCode)) {
-          percent = procCodePercentages.get(cleanCode);
-        } else if (cleanCode.startsWith('D') && procCodePercentages.has(cleanCode.substring(1))) {
-          percent = procCodePercentages.get(cleanCode.substring(1));
-        }
+        // Alternate benefit (downgrade): the plan may substitute a cheaper
+        // procedure for this one, so insurance is priced on the SUBSTITUTE's
+        // allowed fee. The billed code is never rewritten — the payer applies
+        // the alternate benefit itself at adjudication.
+        //
+        // The rule is resolved before any fee work so that a rule limited to
+        // certain teeth (e.g. posterior-only composite -> amalgam) is honoured
+        // for exactly those teeth. A toothless line cannot prove it qualifies,
+        // so a tooth-limited rule does not apply to it — and that exclusion is
+        // reported distinctly from "this plan has no rule for this code".
+        const { rule, skipped: toothSkipped } = resolveDowngrade(
+          cleanCode,
+          downgradeMap,
+          parseTeethRange(item.site)
+        );
 
-        // 2. CDT Code Range Category Mapping (12 standard categories)
-        // Shared with the deductible engine so the two can never disagree —
-        // if they diverge, every estimate silently mis-deducts.
-        if (percent === undefined && isCdtCode) {
-          const catKey = mapCodeToCategory(cleanCode);
-          const perioBase = catKey?.replace(/basic$|major$/, '');
-
-          // Periodontics splits Basic vs Major and falls back to the base key.
-          if (perioBase === 'periodontics') {
-            percent = categoryPercentages.get(catKey!)
-              ?? categoryPercentages.get(perioBase)
-              ?? categoryPercentages.get(catKey === 'periodonticsbasic' ? 'basic' : 'major');
-          } else if (catKey && categoryPercentages.has(catKey)) {
-            percent = categoryPercentages.get(catKey);
-          }
-        }
-
-        // 3. OpenDental CovSpan / CovCat Fallback
-        if (percent === undefined) {
-          const span = covSpans.find(s => s.FromCode && s.ToCode && cleanCode >= s.FromCode && cleanCode <= s.ToCode);
-          if (span && span.CovCatNum) {
-            const odCategoryName = covCatMap.get(span.CovCatNum.toString());
-            if (odCategoryName) {
-              const normOdCat = normalizeCat(odCategoryName);
-              if (categoryPercentages.has(normOdCat)) {
-                percent = categoryPercentages.get(normOdCat);
-              }
-            }
-          }
-        }
-
-        // 4. General / Basic Fallback
-        if (percent === undefined) {
-          if (categoryPercentages.has('general')) {
-            percent = categoryPercentages.get('general');
-          } else if (categoryPercentages.has('basic')) {
-            percent = categoryPercentages.get('basic');
-          }
-        }
-
-        // 5. Standard CDT Category Default Fallback (matches cdtCategoryHelper)
-        if (percent === undefined) {
-          if (isCdtCode) {
-            const numMatch = cleanCode.match(/\d+/);
-            const num = numMatch ? parseInt(numMatch[0], 10) : null;
-            if (num !== null) {
-              if (num < 2000) percent = 100; // Diagnostic & Preventative
-              else if (num < 5000) percent = 80; // Restorative, Endo, Perio
-              else if (num < 9000) percent = 50; // Prosthodontics, Implants, Surgery, Ortho
-              else percent = 80; // Adjunct General
-            } else {
-              percent = 100;
-            }
-          } else {
-            // Non-dental custom codes default to 0% insurance coverage
-            percent = 0;
-          }
-        }
+        // These MUST be assigned unconditionally, not only when a rule matches.
+        // `recalculateInvoice` re-prices by spreading the item's existing
+        // BillingNote into the estimator input, so a previous run's
+        // `downgraded: true` is inherited onto the item and would otherwise
+        // survive a re-estimate after the rule was removed — leaving a stale
+        // "downgraded" badge on a line that is no longer downgraded.
+        item.downgraded = !!rule;
+        item.downgradedFrom = rule ? cleanCode : null;
+        item.effectiveCode = rule ? rule.downgradeCode : null;
+        item.downgradeSkipped = rule ? null : toothSkipped ?? null;
 
         // Apply Allowed / Contracted Fee logic
-        const explicitAllowedFee =
-          item.allowedFee !== undefined && item.allowedFee !== null && Number(item.allowedFee) > 0
-            ? Number(item.allowedFee)
-            : item.originalFee !== undefined && item.originalFee !== null && Number(item.originalFee) > 0
-            ? Number(item.originalFee)
-            : item.baseFee !== undefined && item.baseFee !== null && Number(item.baseFee) > 0
-            ? Number(item.baseFee)
-            : undefined;
+        const explicitAllowedFee = originalAllowedFeeByItem.get(item);
 
         const resolvedAllowedFee =
           explicitAllowedFee !== undefined
             ? explicitAllowedFee
-            : allowedFeeMap.get(cleanCode) ?? (insPlan?.PlanType === 'p' ? planFeeMap.get(cleanCode) : undefined);
+            : this.resolvePlanAllowedFee(cleanCode, primaryCtx);
 
         let basisFee = charge;
         let estimatedWriteOff = 0;
@@ -557,10 +1032,12 @@ const deductibleTier = resolveDeductibleTier({
           estimatedWriteOff = roundCurrency(charge - resolvedAllowedFee);
           basisFee = resolvedAllowedFee;
           item.allowedFee = resolvedAllowedFee;
+          item.allowedFeeSource = 'plan';
           item.estimatedWriteOff = estimatedWriteOff;
           item.writeoff = estimatedWriteOff;
         } else if (resolvedAllowedFee !== undefined && resolvedAllowedFee > 0) {
           item.allowedFee = resolvedAllowedFee;
+          item.allowedFeeSource = 'plan';
           item.estimatedWriteOff = 0;
           item.writeoff = 0;
           basisFee = charge;
@@ -573,29 +1050,169 @@ const deductibleTier = resolveDeductibleTier({
           }
         }
 
+        // The insurance basis is the downgrade code's allowed fee when this
+        // procedure has an alternate-benefit rule; otherwise the billed code's
+        // own allowed fee resolved above.
+        //
+        // The write-off above is deliberately NOT recomputed: it stays derived
+        // from the BILLED code's contracted fee, because that discount is owed
+        // on the procedure actually performed.
+        let insuranceBasis = basisFee;
+        let downgradeRule = rule;
+        if (downgradeRule) {
+          const downgradeKey = downgradeRule.downgradeCode.toUpperCase().trim();
+          const downgradeFee =
+            this.resolveDowngradeFee(downgradeKey, primaryCtx) ?? downgradeRule.maxAllowed;
+
+          if (downgradeFee !== undefined && downgradeFee > 0) {
+            insuranceBasis = downgradeFee;
+          } else {
+            // No fee anywhere for the substitute. Skip the downgrade entirely
+            // rather than pricing the line against $0, and flag it so the UI
+            // can tell the user the rule is unpriced.
+            downgradeRule = null;
+            item.downgradeSkipped = 'no-fee';
+            item.downgraded = false;
+            delete item.downgradedFrom;
+            delete item.effectiveCode;
+          }
+        }
+
         // Price the line against its resolved deductible pool. The deductible is
         // applied to `basisFee` (the ALLOWED fee) BEFORE coinsurance, so it is
         // never capped by the initial patient coinsurance. The write-off above
         // stays entirely outside this calculation.
-        const priced = applyDeductible(deductibleLedger, cleanCode, basisFee, percent);
+        //
+        // Called exactly ONCE: every invocation drains the shared ledger, so a
+        // second call would charge the deductible twice against the same pool.
+        // `cleanCode` — the BILLED code — selects the pool, which is the safe
+        // default: downgrades almost always stay within one category.
+        const priced = applyDeductible(deductibleLedger, cleanCode, insuranceBasis, percent);
 
         item.insPortion = priced.insurancePortion;
-        item.ptPortion = priced.patientPortion;
-        item.coinsurance = priced.coinsurance;
         item.deductibleApplied = priced.deductibleApplied;
         item.deductibleRowKey = priced.rowKey;
         if (percent !== undefined) {
           item.coveragePct = percent;
         }
-        item.secondaryInsPortion = 0;
+
+        if (downgradeRule) {
+          // `applyDeductible` derives the patient share from the basis it was
+          // given, and that basis was the downgrade fee. The patient received
+          // the real procedure, so their share must be recomputed from the
+          // billed charge — otherwise they are silently under-billed by the
+          // difference between the two procedures.
+          //
+          // Write-off double-count trace (verified against the downstream
+          // totals, so this is not re-derived on every future change):
+          //   - this loop sets item.writeoff ONCE, above, from the BILLED code's
+          //     contracted fee; the downgrade never recomputes it.
+          //   - the statement's `writeoffAmount` sums BillingNote.writeoff, and
+          //     `totalPtPortion` sums BillingNote.ptPortion — two SEPARATE
+          //     rollups, so the write-off is not added to the patient share
+          //     twice (invoice totals, ~line 1847 and ~line 2187).
+          //   - `balanceDue = subtotal - totalPaid` uses the GROSS charge and
+          //     deliberately excludes write-offs, which post as their own
+          //     payable line (see the comment at ~line 1910).
+          //   - therefore ptPortion already excludes the contractual discount,
+          //     and `charge - writeoff - insPortion` is the correct patient
+          //     share with no further adjustment. Deductible is folded into
+          //     ptPortion, and downstream secondary splitting treats
+          //     `deductibleApplied` as patient-only.
+          const split = applyDowngradeSplit({
+            charge,
+            contractualWriteOff: Number(item.writeoff ?? 0),
+            insurancePortion: priced.insurancePortion,
+          });
+          item.ptPortion = split.patientPortion;
+          item.coinsurance = split.coinsurance;
+        } else {
+          item.ptPortion = priced.patientPortion;
+          item.coinsurance = priced.coinsurance;
+        }
+        // `balance` is the GROSS charge — what the patient was actually billed
+        // for — and is deliberately independent of how the line ends up funded.
+        // Deriving it from the downgrade split would report the substitute
+        // procedure's share instead of the one performed, which understates
+        // the line by the whole downgrade gap.
         item.balance = charge;
+        item.secondaryInsPortion = 0;
       }
 
-      // Check for secondary insurance
-      const secondaryPlan = await prisma.patplan.findFirst({
-        where: { PatNum: patientId, Ordinal: 2, OR: [{ IsPending: 0 }, { IsPending: null }] }
-      });
-      if (secondaryPlan) {
+      // ── Secondary insurance ─────────────────────────────────────────────────
+      // The secondary is priced on its OWN terms: its own fee schedules, its own
+      // coverage percentages, its own deductible ledger and its own downgrade
+      // rules, all resolved through the same helpers the primary used. It never
+      // inherits the primary's basis — in particular the downgrade is re-resolved
+      // against the BILLED code, because the two plans can carry entirely
+      // different alternate-benefit rules for the same procedure.
+      if (secondaryCtx) {
+        for (const item of items) {
+          if (isPatientPenaltyOrNonIns(item) || item.dbi) {
+            item.primaryInsPortion = 0;
+            item.secondaryInsPortion = 0;
+            item.totalInsPortion = 0;
+            item.insPortion = 0;
+            item.ptPortion = Number(item.totalPrice ?? item.charge ?? item.ProcFee ?? item.unitPrice ?? 0);
+            continue;
+          }
+
+          item.primaryInsPortion = item.insPortion;
+
+          const secondary = this.priceSecondaryLine(
+            item,
+            secondaryCtx,
+            covSpans,
+            covCatMap,
+            serviceIdToProcCodeMap,
+            originalAllowedFeeByItem.get(item)
+          );
+
+          // The floor is not defensive padding: `balance` is the GROSS charge
+          // while `writeoff` and `primaryInsPortion` are each derived against
+          // their own basis, so on a heavily discounted line the two together can
+          // exceed the gross. Without Math.max(0, ...) the negative remainder
+          // would flow straight into `secondaryInsPortion`, then into
+          // `totalInsPortion`, and post a negative insurance payment to a payer.
+          const remainingAfterPrimary = roundCurrency(
+            Math.max(0, item.balance - Number(item.writeoff ?? 0) - item.primaryInsPortion)
+          );
+
+          item.secondaryInsPortion = roundCurrency(
+            Math.min(Math.max(0, secondary.benefit), remainingAfterPrimary)
+          );
+          // A downgraded secondary rule that matched but had no fee for the
+          // substitute cannot be priced, so the line is left unestimated rather
+          // than priced against $0. `secondaryNotEstimated` means ONLY "the
+          // secondary could not be independently estimated" — a downgraded
+          // PRIMARY is no longer a reason to set it.
+          item.secondaryNotEstimated = secondary.notEstimated;
+          item.secondaryDowngraded = secondary.downgraded;
+          item.secondaryDowngradedFrom = secondary.downgraded ? secondary.billedCode : null;
+          item.secondaryEffectiveCode = secondary.effectiveCode;
+          item.secondaryDowngradeSkipped = secondary.downgradeSkipped;
+          item.secondaryCoveragePct = secondary.coveragePct;
+
+          // `ptPortion` is the residual, not the primary's coinsurance split:
+          // gross charge minus the contractual discount minus what both plans
+          // pay. Deriving it any other way double-counts or drops the write-off.
+          item.ptPortion = roundCurrency(
+            Math.max(
+              0,
+              item.balance - Number(item.writeoff ?? 0) - item.primaryInsPortion - item.secondaryInsPortion
+            )
+          );
+
+          item.totalInsPortion = roundCurrency(
+            Number(item.primaryInsPortion || 0) + Number(item.secondaryInsPortion || 0)
+          );
+          item.insPortion = item.totalInsPortion;
+        }
+      } else if (secondaryPatPlan) {
+        // A secondary patplan exists but carries no `insplan`, so there is no fee
+        // schedule to price it against. Fall back to transferring the primary's
+        // coinsurance (never its deductible), which is the conservative answer,
+        // and flag every line as unestimated.
         for (const item of items) {
           if (isPatientPenaltyOrNonIns(item) || item.dbi) {
             item.primaryInsPortion = 0;
@@ -614,10 +1231,23 @@ const deductibleTier = resolveDeductibleTier({
             item.secondaryInsPortion = split.secondaryPortion;
             item.ptPortion = split.patientPortion;
           }
-          item.totalInsPortion = roundCurrency(Number(item.primaryInsPortion || 0) + Number(item.secondaryInsPortion || 0));
+          item.secondaryNotEstimated = true;
+          // The fallback is a coinsurance transfer, not a plan quote, so it has
+          // no downgrade trail and no percentage to attribute. Nulling them keeps
+          // a stale value from a previous independently-priced run from being
+          // persisted alongside it.
+          item.secondaryDowngraded = false;
+          item.secondaryDowngradedFrom = null;
+          item.secondaryEffectiveCode = null;
+          item.secondaryDowngradeSkipped = null;
+          item.secondaryCoveragePct = null;
+          item.totalInsPortion = roundCurrency(
+            Number(item.primaryInsPortion || 0) + Number(item.secondaryInsPortion || 0)
+          );
           item.insPortion = item.totalInsPortion;
         }
       } else {
+        // No secondary patplan at all — the primary result stands on its own.
         for (const item of items) {
           if (isPatientPenaltyOrNonIns(item) || item.dbi) {
             item.primaryInsPortion = 0;
@@ -625,13 +1255,31 @@ const deductibleTier = resolveDeductibleTier({
             item.totalInsPortion = 0;
             item.insPortion = 0;
             item.ptPortion = Number(item.totalPrice ?? item.charge ?? item.ProcFee ?? item.unitPrice ?? 0);
+            // Cleared for the same reason as in the priced branch: on a
+            // re-estimate these fields arrive from the previous BillingNote, so
+            // a line that was not billed to insurance must not keep a stale
+            // secondary estimate attached to it.
+            item.secondaryNotEstimated = false;
+            item.secondaryDowngraded = false;
+            item.secondaryDowngradedFrom = null;
+            item.secondaryEffectiveCode = null;
+            item.secondaryDowngradeSkipped = null;
+            item.secondaryCoveragePct = null;
             continue;
           }
           item.primaryInsPortion = item.insPortion;
           item.totalInsPortion = item.insPortion;
+          // No secondary plan exists at all, so there is no secondary estimate of
+          // any kind to report. Explicitly cleared rather than left to ride along
+          // on the incoming BillingNote spread.
+          item.secondaryNotEstimated = false;
+          item.secondaryDowngraded = false;
+          item.secondaryDowngradedFrom = null;
+          item.secondaryEffectiveCode = null;
+          item.secondaryDowngradeSkipped = null;
+          item.secondaryCoveragePct = null;
         }
       }
-
     } catch (err) {
       console.warn('[InvoiceService] Failed to calculate insurance estimates:', err);
     }
@@ -1433,7 +2081,12 @@ const deductibleTier = resolveDeductibleTier({
     const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
     if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
 
-    await prisma.procedurelog.delete({ where: { ProcNum: procNum } });
+    const linkedPlanItem = await prisma.proctp.findFirst({ where: { ProcNumOrig: procNum } });
+    if (linkedPlanItem) {
+      await prisma.procedurelog.update({ where: { ProcNum: procNum }, data: { StatementNum: null } });
+    } else {
+      await prisma.procedurelog.delete({ where: { ProcNum: procNum } });
+    }
     await this.recalculateInvoice(invoiceId);
     await logActivity(userId, 'deleted', 'invoice_items', itemId, item, undefined, undefined, undefined, 'low');
     return { message: 'Invoice item deleted successfully' };
@@ -1448,8 +2101,25 @@ const deductibleTier = resolveDeductibleTier({
       throw new BadRequestError('Only draft invoices can be deleted. Use void for finalized invoices.');
     }
 
-    await prisma.procedurelog.deleteMany({ where: { StatementNum: invoice.StatementNum } });
-    await prisma.statement.delete({ where: { StatementNum: invoice.StatementNum } });
+    await prisma.$transaction(async (tx) => {
+      await applyTenantContextToTransaction(tx);
+      const items = await tx.procedurelog.findMany({
+        where: { StatementNum: invoice.StatementNum }, select: { ProcNum: true },
+      });
+      const linked = await tx.proctp.findMany({
+        where: { ProcNumOrig: { in: items.map((item) => item.ProcNum) } },
+        select: { ProcNumOrig: true },
+      });
+      const linkedNums = linked.map((item) => item.ProcNumOrig).filter((id): id is bigint => id != null);
+      if (linkedNums.length) {
+        await tx.procedurelog.updateMany({
+          where: { ProcNum: { in: linkedNums }, StatementNum: invoice.StatementNum },
+          data: { StatementNum: null },
+        });
+      }
+      await tx.procedurelog.deleteMany({ where: { StatementNum: invoice.StatementNum } });
+      await tx.statement.delete({ where: { StatementNum: invoice.StatementNum } });
+    });
     await logActivity(userId, 'deleted', 'invoices', invoiceId, this.mapStatementToInvoice(invoice, meta), undefined, undefined, undefined, 'medium');
     return { message: 'Invoice deleted successfully' };
   }
@@ -1508,15 +2178,16 @@ const deductibleTier = resolveDeductibleTier({
     return this.mapStatementToInvoice(updated, nextMeta);
   }
 
-  async recalculateInvoice(invoiceId: string, insuranceCoveragePercent?: number) {
-    const invoice = await this.getStatementById(invoiceId);
+  async recalculateInvoice(invoiceId: string, insuranceCoveragePercent?: number, transaction?: Prisma.TransactionClient) {
+    const db = transaction ?? prisma;
+    const invoice = await db.statement.findUnique({ where: { StatementNum: BigInt(invoiceId) } });
     if (!invoice) throw new NotFoundError('Invoice not found');
 
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
-    const items = await prisma.procedurelog.findMany({ where: { StatementNum: invoice.StatementNum } });
+    const items = await db.procedurelog.findMany({ where: { StatementNum: invoice.StatementNum } });
 
     const codeNums = items.map((item) => item.CodeNum).filter((codeNum): codeNum is bigint => codeNum !== null && codeNum !== undefined);
-    const codes = codeNums.length ? await prisma.procedurecode.findMany({ where: { CodeNum: { in: codeNums } } }) : [];
+    const codes = codeNums.length ? await db.procedurecode.findMany({ where: { CodeNum: { in: codeNums } } }) : [];
     const codeMap = new Map(codes.map((code) => [code.CodeNum?.toString(), code]));
 
     const totalAmount = items.reduce((sum, item) => sum + (Number(item.ProcFee) || 0), 0);
@@ -1534,7 +2205,7 @@ const deductibleTier = resolveDeductibleTier({
 
     // Check existing claimprocs for these procedures to see if any have been adjudicated/received
     const procClaimProcs = procNums.length > 0
-      ? await prisma.claimproc.findMany({ where: { ProcNum: { in: procNums } } })
+      ? await db.claimproc.findMany({ where: { ProcNum: { in: procNums } } })
       : [];
     const claimProcByProcNum = new Map<string, typeof procClaimProcs>();
     procClaimProcs.forEach((cp) => {
@@ -1575,7 +2246,7 @@ const deductibleTier = resolveDeductibleTier({
       const enrichedSimulatedItems = await this.calculateInsuranceEstimates(
         invoice.PatNum,
         simulatedItems,
-        { excludeInvoiceId: invoice.StatementNum },
+        { excludeInvoiceId: invoice.StatementNum, db: transaction },
       );
       
       for (let i = 0; i < enrichedSimulatedItems.length; i++) {
@@ -1599,7 +2270,7 @@ const deductibleTier = resolveDeductibleTier({
           originalMeta.patientOnly = true;
           originalMeta.isAccountPenalty = true;
           originalItem.BillingNote = buildJson(originalMeta);
-          await prisma.procedurelog.update({
+          await db.procedurelog.update({
             where: { ProcNum: originalItem.ProcNum },
             data: { BillingNote: originalItem.BillingNote, NoBillIns: 1 }
           });
@@ -1619,7 +2290,7 @@ const deductibleTier = resolveDeductibleTier({
           const fee = Number(originalItem.ProcFee || 0);
 
           // Check if patient has already paid in full for this procedure
-          const existingSplits = await prisma.paysplit.findMany({
+          const existingSplits = await db.paysplit.findMany({
             where: { ProcNum: originalItem.ProcNum },
             include: { payment: true },
           });
@@ -1646,7 +2317,7 @@ const deductibleTier = resolveDeductibleTier({
           let isClaimPartial = false;
           for (const rCp of receivedCps) {
             if (rCp.ClaimNum) {
-              const linkedClaim = await prisma.claim.findUnique({ where: { ClaimNum: rCp.ClaimNum } });
+              const linkedClaim = await db.claim.findUnique({ where: { ClaimNum: rCp.ClaimNum } });
               if (linkedClaim) {
                 const cMeta = parseJson<any>(linkedClaim.Narrative);
                 const cStatus = String(cMeta?.status || linkedClaim.ClaimStatus || '').toLowerCase();
@@ -1684,7 +2355,7 @@ const deductibleTier = resolveDeductibleTier({
           originalMeta.ptPortion = newPt;
           originalMeta.isManuallyAdjusted = true;
           originalItem.BillingNote = buildJson(originalMeta);
-          await prisma.procedurelog.update({
+          await db.procedurelog.update({
             where: { ProcNum: originalItem.ProcNum },
             data: { BillingNote: originalItem.BillingNote },
           });
@@ -1718,13 +2389,39 @@ const deductibleTier = resolveDeductibleTier({
         // reflects the current deductible, and the invoice posts a stale amount.
         const deductibleChanged = Number(originalMeta.deductibleApplied || 0) !== Number(enrichedItem.deductibleApplied || 0);
 
+        // A rule can be added or removed without moving any money — e.g. a plan
+        // edits only its teeth limit, or the substitute's fee is identical. The
+        // guard must notice the audit fields on their own, otherwise the change
+        // is silently never persisted.
+        const downgradeChanged =
+          Boolean(originalMeta.downgraded) !== Boolean(enrichedItem.downgraded) ||
+          (originalMeta.downgradedFrom ?? null) !== (enrichedItem.downgradedFrom ?? null) ||
+          (originalMeta.effectiveCode ?? null) !== (enrichedItem.effectiveCode ?? null) ||
+          (originalMeta.downgradeSkipped ?? null) !== (enrichedItem.downgradeSkipped ?? null);
+
+        // The secondary is priced independently now, so it carries its own audit
+        // trail that can change while every money field stays identical — the two
+        // plans routinely disagree about the same procedure. Without these in the
+        // guard, adding or removing a SECONDARY downgrade rule would be priced
+        // correctly and then silently discarded, leaving BillingNote describing a
+        // decision that was never stored.
+        const secondaryAuditChanged =
+          Boolean(originalMeta.secondaryNotEstimated) !== Boolean(enrichedItem.secondaryNotEstimated) ||
+          Boolean(originalMeta.secondaryDowngraded) !== Boolean(enrichedItem.secondaryDowngraded) ||
+          (originalMeta.secondaryDowngradedFrom ?? null) !== (enrichedItem.secondaryDowngradedFrom ?? null) ||
+          (originalMeta.secondaryEffectiveCode ?? null) !== (enrichedItem.secondaryEffectiveCode ?? null) ||
+          (originalMeta.secondaryDowngradeSkipped ?? null) !== (enrichedItem.secondaryDowngradeSkipped ?? null) ||
+          (originalMeta.secondaryCoveragePct ?? null) !== (enrichedItem.secondaryCoveragePct ?? null);
+
         if (
           originalMeta.primaryInsPortion !== enrichedPrim ||
           originalMeta.insPortion !== enrichedPrim ||
           originalMeta.secondaryInsPortion !== enrichedItem.secondaryInsPortion ||
           originalMeta.ptPortion !== enrichedItem.ptPortion ||
           writeoffChanged ||
-          deductibleChanged
+          deductibleChanged ||
+          downgradeChanged ||
+          secondaryAuditChanged
         ) {
           originalMeta.insPortion = enrichedPrim;
           originalMeta.primaryInsPortion = enrichedPrim;
@@ -1737,10 +2434,30 @@ const deductibleTier = resolveDeductibleTier({
           originalMeta.writeoff = enrichedItem.writeoff ?? originalMeta.writeoff ?? 0;
           originalMeta.estimatedWriteOff = enrichedItem.estimatedWriteOff ?? originalMeta.estimatedWriteOff ?? 0;
           originalMeta.allowedFee = enrichedItem.allowedFee ?? originalMeta.allowedFee ?? null;
+          originalMeta.allowedFeeSource = enrichedItem.allowedFeeSource === 'plan' ? 'plan' : null;
           originalMeta.deductibleApplied = roundCurrency(Number(enrichedItem.deductibleApplied || 0));
           if (enrichedItem.deductibleRowKey) originalMeta.deductibleRowKey = enrichedItem.deductibleRowKey;
+          // Persist the downgrade audit fields on re-price. Guarded so a line
+          // that no longer has a rule (rule removed, or a tooth fell outside the
+          // limit) clears the stale values instead of keeping them forever.
+          originalMeta.downgraded = Boolean(enrichedItem.downgraded);
+          originalMeta.downgradedFrom = enrichedItem.downgradedFrom ?? null;
+          originalMeta.effectiveCode = enrichedItem.effectiveCode ?? null;
+          originalMeta.downgradeSkipped = enrichedItem.downgradeSkipped ?? null;
+          // The secondary's audit trail, written on exactly the same terms as the
+          // primary's above: null rather than the previous value when the rule is
+          // gone, so a re-estimate can never leave a stale badge behind.
+          originalMeta.secondaryNotEstimated = Boolean(enrichedItem.secondaryNotEstimated);
+          originalMeta.secondaryDowngraded = Boolean(enrichedItem.secondaryDowngraded);
+          originalMeta.secondaryDowngradedFrom = enrichedItem.secondaryDowngradedFrom ?? null;
+          originalMeta.secondaryEffectiveCode = enrichedItem.secondaryEffectiveCode ?? null;
+          originalMeta.secondaryDowngradeSkipped = enrichedItem.secondaryDowngradeSkipped ?? null;
+          originalMeta.secondaryCoveragePct =
+            enrichedItem.secondaryCoveragePct === undefined || enrichedItem.secondaryCoveragePct === null
+              ? null
+              : Number(enrichedItem.secondaryCoveragePct);
           originalItem.BillingNote = buildJson(originalMeta);
-          await prisma.procedurelog.update({
+          await db.procedurelog.update({
             where: { ProcNum: originalItem.ProcNum },
             data: { BillingNote: originalItem.BillingNote }
           });
@@ -1763,7 +2480,7 @@ const deductibleTier = resolveDeductibleTier({
 
     // Query actual paysplits for these procedures to ensure paidAmount is completely accurate
     const procPaysplits = procNums.length > 0
-      ? await prisma.paysplit.findMany({
+      ? await db.paysplit.findMany({
           where: { ProcNum: { in: procNums } },
           include: { payment: true },
         })
@@ -1789,7 +2506,7 @@ const deductibleTier = resolveDeductibleTier({
       if (itemMeta.paidAmount !== itemPaid) {
         itemMeta.paidAmount = itemPaid;
         item.BillingNote = buildJson(itemMeta);
-        await prisma.procedurelog.update({
+        await db.procedurelog.update({
           where: { ProcNum: item.ProcNum },
           data: { BillingNote: item.BillingNote },
         });
@@ -1798,7 +2515,7 @@ const deductibleTier = resolveDeductibleTier({
     totalPaid = roundCurrency(totalPaid);
 
     // Fetch all formally posted adjustments associated with this invoice
-    const adjustments = await prisma.adjustment.findMany({
+    const adjustments = await db.adjustment.findMany({
       where: {
         OR: [
           { StatementNum: invoice.StatementNum },
@@ -1841,12 +2558,12 @@ const deductibleTier = resolveDeductibleTier({
     const unclaimedIns = Math.max(0, roundCurrency(totalExpectedIns - totalInsPaid - pendingInsEst));
     const remainingInsEst = hasAnyClaimProc ? roundCurrency(pendingInsEst + unclaimedIns) : totalExpectedIns;
 
-    const updated = await prisma.statement.update({
+    const updated = await db.statement.update({
       where: { StatementNum: invoice.StatementNum },
       data: { BalTotal: roundCurrency(balanceDue), InsEst: roundCurrency(remainingInsEst), NoteBold: buildJson(nextMeta) },
     });
 
-    if (invoice.PatNum) {
+    if (invoice.PatNum && !transaction) {
       await agingService.updatePatientAging(invoice.PatNum).catch(() => {});
     }
 
@@ -2014,6 +2731,28 @@ const deductibleTier = resolveDeductibleTier({
         balance?: number;
         dbi?: boolean;
         completed?: boolean;
+        // Alternate-benefit (downgrade) audit trail, set by the pricing loop.
+        downgraded?: boolean;
+        downgradedFrom?: string;
+        effectiveCode?: string;
+        downgradeSkipped?: string | null;
+        // Where the line's `allowedFee` came from. 'plan' means the pricing loop
+        // derived it from the plan's schedule; null means manual/unknown. Used to
+        // stop a previously-saved contracted fee from being treated as a manual
+        // override on subsequent estimates.
+        allowedFeeSource?: string | null;
+        // The secondary payer could not be independently estimated for this line —
+        // its plan context was unavailable, or its own downgrade rule matched but
+        // had no fee for the substitute. The $0 is a conservative placeholder,
+        // not a determination, so the UI must not present it as a real secondary
+        // benefit of zero. A downgraded PRIMARY no longer sets this.
+        secondaryNotEstimated?: boolean;
+        /** The secondary plan's own alternate-benefit audit trail. */
+        secondaryDowngraded?: boolean;
+        secondaryDowngradedFrom?: string | null;
+        secondaryEffectiveCode?: string | null;
+        secondaryDowngradeSkipped?: string | null;
+        secondaryCoveragePct?: number | null;
       }>;
       addClaim?: boolean;
       branchId?: string;
@@ -2161,12 +2900,38 @@ const deductibleTier = resolveDeductibleTier({
         ptPortion: isPenalty ? Number(item.charge ?? 0) : Number(item.ptPortion ?? 0),
         insPortion: isPenalty ? 0 : Number(item.insPortion ?? 0),
         primaryInsPortion: isPenalty ? 0 : Number(item.primaryInsPortion ?? item.insPortion ?? 0),
+        // Provenance for `allowedFee`: 'plan' when the estimator derived it from
+        // the plan's schedule, absent/manual otherwise. Without this marker,
+        // every re-estimate treats the previous contracted fee as a manual
+        // override and it can never be re-derived.
+        allowedFeeSource: item.allowedFeeSource === 'plan' ? 'plan' : null,
         secondaryInsPortion: isPenalty ? 0 : Number(item.secondaryInsPortion ?? 0),
+        secondaryNotEstimated: Boolean(item.secondaryNotEstimated),
+        // The secondary's own downgrade trail. Kept separate from the primary's
+        // above because the two plans routinely disagree about the same
+        // procedure — collapsing them would hide exactly the difference that
+        // matters when a claim comes back short.
+        secondaryDowngraded: Boolean(item.secondaryDowngraded),
+        secondaryDowngradedFrom: item.secondaryDowngradedFrom ?? null,
+        secondaryEffectiveCode: item.secondaryEffectiveCode ?? null,
+        secondaryDowngradeSkipped: item.secondaryDowngradeSkipped ?? null,
+        secondaryCoveragePct:
+          item.secondaryCoveragePct === undefined || item.secondaryCoveragePct === null
+            ? null
+            : Number(item.secondaryCoveragePct),
         totalInsPortion: isPenalty ? 0 : Number(item.totalInsPortion ?? (Number(item.insPortion ?? 0) + Number(item.secondaryInsPortion ?? 0))),
         charge: Number(item.charge ?? 0),
         balance: Number(item.balance ?? 0),
         dbi: Boolean(item.dbi),
         completed: Boolean(item.completed),
+        // Alternate-benefit (downgrade) audit trail. The billed code above is
+        // unchanged — `effectiveCode` is only the procedure the plan may
+        // substitute, and `downgradeSkipped` records a rule that matched but
+        // could not be priced.
+        downgraded: Boolean(item.downgraded),
+        downgradedFrom: item.downgradedFrom ?? null,
+        effectiveCode: item.effectiveCode ?? null,
+        downgradeSkipped: item.downgradeSkipped ?? null,
         isPatientPenalty: isPenalty,
         patientOnly: isPenalty || Boolean((item as any).patientOnly),
         isAccountPenalty: isPenalty || Boolean((item as any).isAccountPenalty),
@@ -2437,6 +3202,126 @@ const deductibleTier = resolveDeductibleTier({
       invoice: this.mapStatementToInvoice(updatedInvoice, updatedMeta),
     };
   }
+  /**
+   * Reverse of transferOutstandingToPatient: shift what the patient still owes on a
+   * line item back onto the insurance estimate. Mirrors the forward calculation so
+   * the two directions stay symmetric - the amount moved is always capped by what is
+   * genuinely still outstanding after write-offs and payments.
+   */
+  async transferOutstandingToInsurance(invoiceId: string, itemId: string, performedBy: string) {
+    const invoice = await this.getStatementById(invoiceId);
+    if (!invoice) throw new NotFoundError('Invoice not found');
+
+    const meta = parseJson<StatementMeta>(invoice.NoteBold);
+    if (String(meta.status) === 'void') throw new BadRequestError('Cannot transfer on a voided invoice');
+
+    const procNum = toBigInt(itemId);
+    if (!procNum) throw new NotFoundError('Invoice item not found');
+
+    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
+    if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
+
+    const itemMeta = parseJson<any>(item.BillingNote);
+
+    const initialPt   = roundCurrency(Number(itemMeta.ptPortion || 0));
+    const totalFee    = roundCurrency(Number(item.ProcFee || 0));
+    const writeoff    = roundCurrency(Number(itemMeta.writeoff || itemMeta.estimatedWriteOff || 0));
+    const paidAmount  = roundCurrency(Number(itemMeta.paidAmount || 0));
+    const netOwed     = roundCurrency(Math.max(0, totalFee - writeoff));
+    const remaining   = roundCurrency(Math.max(0, netOwed - paidAmount));
+    const outstandingPatient = roundCurrency(Math.min(initialPt, remaining));
+
+    if (outstandingPatient <= 0) {
+      throw new BadRequestError('No outstanding patient balance to transfer for this item');
+    }
+
+    // Shift the amount from patient portion to insurance portion
+    const newInsPortion = roundCurrency((Number(itemMeta.insPortion) || 0) + outstandingPatient);
+    const updatedItemMeta = {
+      ...itemMeta,
+      insPortion: newInsPortion,
+      ptPortion: 0,
+      isManuallyAdjusted: true,
+    };
+
+    await prisma.procedurelog.update({
+      where: { ProcNum: procNum },
+      data: { BillingNote: buildJson(updatedItemMeta) },
+    });
+
+    // Give the amount back to the linked claim's estimate (mirror image of the
+    // forward transfer, which moved it onto DedApplied).
+    const claimId = meta.claimId;
+    if (claimId && /^\d+$/.test(claimId)) {
+      const claim = await prisma.claim.findUnique({ where: { ClaimNum: BigInt(claimId) } });
+      if (claim) {
+        const currentInsPayEst = roundCurrency(Number(claim.InsPayEst) || 0);
+        const currentDedApplied = roundCurrency(Number(claim.DedApplied) || 0);
+        const addBack = Math.min(outstandingPatient, currentDedApplied);
+
+        await prisma.claim.update({
+          where: { ClaimNum: BigInt(claimId) },
+          data: {
+            InsPayEst: roundCurrency(currentInsPayEst + outstandingPatient),
+            DedApplied: roundCurrency(Math.max(0, currentDedApplied - addBack)),
+          },
+        });
+      }
+    }
+
+    // Net-zero audit record, matching the forward transfer
+    if (invoice.PatNum) {
+      const adjNum = await getNextId('adjustment', 'AdjNum');
+      const invoiceNumber = invoice.StatementNum.toString();
+      const adjNote = `Invoice #${invoiceNumber} - Income Transfer: $${outstandingPatient.toFixed(2)} shifted from Patient to Insurance`;
+      const userNum = toBigInt(performedBy);
+
+      await prisma.adjustment.create({
+        data: {
+          AdjNum: adjNum,
+          PatNum: invoice.PatNum,
+          ProvNum: item.ProvNum ?? undefined,
+          ProcNum: procNum,
+          StatementNum: invoice.StatementNum,
+          AdjAmt: 0,
+          AdjDate: new Date(),
+          ProcDate: item.ProcDate ?? new Date(),
+          DateEntry: new Date(),
+          AdjNote: adjNote,
+          SecUserNumEntry: userNum ?? undefined,
+        },
+      });
+    }
+
+    await this.recalculateInvoice(invoiceId);
+
+    if (invoice.PatNum) {
+      await agingService.updatePatientAging(invoice.PatNum);
+    }
+
+    const updatedInvoice = await this.getStatementById(invoiceId);
+    const updatedMeta = parseJson<StatementMeta>(updatedInvoice?.NoteBold);
+
+    await logActivity(
+      performedBy,
+      'updated',
+      'invoices',
+      invoiceId,
+      undefined,
+      { action: 'transfer_outstanding_to_insurance', itemId, transferredAmount: outstandingPatient },
+      undefined,
+      undefined,
+      'medium'
+    );
+
+    return {
+      success: true,
+      message: `$${outstandingPatient.toFixed(2)} transferred from patient balance to insurance estimate`,
+      transferredAmount: outstandingPatient,
+      invoice: this.mapStatementToInvoice(updatedInvoice, updatedMeta),
+    };
+  }
+
   async transferRejectedClaim(invoiceId: string | undefined, claimId: string) {
     const claimNum = toBigInt(claimId);
     if (!claimNum) throw new BadRequestError('Invalid claim ID');

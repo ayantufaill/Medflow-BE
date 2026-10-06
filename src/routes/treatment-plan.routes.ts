@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { param } from 'express-validator';
 import { treatmentPlanController } from '../controllers/treatment-plan.controller';
 import { treatmentPlanService } from '../services/treatment-plan.service';
 import { authenticate } from '../middleware/auth.middleware';
@@ -12,11 +13,23 @@ import {
   treatmentPlanIdValidator,
   createTreatmentPlanValidator,
   updateTreatmentPlanValidator,
+  updateTreatmentPlanItemFeesValidator,
   reorderTreatmentPlanValidator
 } from '../validators/treatment-plan.validator';
 
 const router = Router();
 router.use(authenticate, requirePhiAccess, resolveBranchAccess, enterTenantContext);
+
+router.patch('/:id/items/:itemId/fees',
+  requirePermission('treatment-plans.update'),
+  validate(updateTreatmentPlanItemFeesValidator),
+  treatmentPlanController.updateItemFees
+);
+router.post('/:id/items/:itemId/reestimate',
+  requirePermission('treatment-plans.update'),
+  validate([...treatmentPlanIdValidator, param('itemId').isInt({ min: 1 })]),
+  treatmentPlanController.reestimateItemFees
+);
 
 /**
  * @swagger

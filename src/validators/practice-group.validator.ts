@@ -1,4 +1,5 @@
 import { body, param } from 'express-validator';
+import { validatePasswordStrength } from '../utils/password.util';
 
 export const createPracticeGroupValidator = [
   body('name')
@@ -25,6 +26,11 @@ export const createBranchValidator = [
 
 export const createGroupAdminValidator = [
   ...groupIdParamValidator,
+  body('password').optional().isString().bail().custom((value) => {
+    const result = validatePasswordStrength(value);
+    if (!result.valid) throw new Error(result.message);
+    return true;
+  }),
   body('email').isEmail().withMessage('A valid email is required').normalizeEmail(),
   body('firstName').trim().notEmpty().withMessage('firstName is required'),
   body('lastName').trim().notEmpty().withMessage('lastName is required'),

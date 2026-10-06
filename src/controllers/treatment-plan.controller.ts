@@ -71,13 +71,31 @@ export class TreatmentPlanController {
         status,
         totalAmount,
         items
-      });
+      }, req.userId);
       
       res.status(200).json({
         success: true,
-        data: { treatmentPlan: plan },
+        data: { treatmentPlan: plan, createdInvoice: plan.createdInvoice },
         message: 'Treatment plan updated successfully'
       });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateItemFees = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await treatmentPlanService.updateItemFees(req.params.id, req.params.itemId, req.body);
+      res.status(200).json({ success: true, data: result, message: 'Procedure fees updated successfully' });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  reestimateItemFees = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await treatmentPlanService.reestimateItemFees(req.params.id, req.params.itemId);
+      res.status(200).json({ success: true, data: result, message: 'Procedure estimates recalculated' });
     } catch (error) {
       next(error);
     }

@@ -508,6 +508,10 @@ export class UserService {
       }
     }
 
+    if (isAccountActive && data.password) {
+      return { message: 'User created and active. Sign in with the supplied password.' };
+    }
+
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
     await setVerification(user.UserNum, token, expiresAt);

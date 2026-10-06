@@ -1,7 +1,8 @@
-import { prisma } from '../config/db';
+import { prisma, applyTenantContextToTransaction } from '../config/db';
 import { NotFoundError, ConflictError, BadRequestError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
+import { validateIcd10Assignments } from '../utils/icd10.util';
 import {
   mapAppointmentStatusToDb,
   mapAppointmentToApi,
@@ -20,6 +21,7 @@ import { emailService } from './email.service';
 import { smsService } from './sms.service';
 import { practiceInfoService } from './practice-info.service';
 import { staffNotificationService } from './staffNotification.service';
+import { invoiceService } from './invoice.service';
 import { getAppointmentTimeZone, scheduledStartInstant } from '../utils/datetime.util';
 
 /**
@@ -252,6 +254,7 @@ export class AppointmentService {
       status: proc.ProcStatus ?? null,
       completed: proc.ProcStatus === 2,
       quantity: proc.UnitQty ?? 1,
+      icd: proc.DiagnosticCode ?? null,
       fee: proc.ProcFee ?? 0,
       providerId: proc.ProvNum?.toString() ?? null,
       providerName: proc.provider_procedurelog_ProvNumToprovider 
@@ -1369,6 +1372,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
           ProcFee: true,
           ProcStatus: true,
           ToothNum: true,
+          DiagnosticCode: true,
         },
       }),
       prisma.appointment.findUnique({
@@ -1472,6 +1476,9 @@ async getPatientAppointments(patientId: string, limit = 10) {
 
     // Generate appointment code
     await generateAppointmentCode();
+    if (Array.isArray(data.customFields?.procedures)) {
+      data = { ...data, customFields: { ...data.customFields, procedures: await validateIcd10Assignments(data.customFields.procedures, [], prisma) } };
+    }
     const nextId = await getNextId('appointment', 'AptNum');
     const appointmentDateObj = data.appointmentDate instanceof Date
       ? new Date(data.appointmentDate)
@@ -1582,6 +1589,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
             appointment.AptNum.toString(),
             {
               code: proc.code,
+              icd: proc.icd,
               description: proc.treatment || proc.name || '',
               fee: isNaN(fee) ? 0 : fee,
               providerId: proc.provider || data.providerId,
@@ -1669,8 +1677,16 @@ async getPatientAppointments(patientId: string, limit = 10) {
     }
 
     const oldRelatedData = await this.fetchAppointmentRelatedData(appointment.AptNum);
+    const newlyCompletedProcNums: bigint[] = [];
+    let createdInvoice: { id: string; invoiceNumber: string } | null = null;
 
     const existingMeta = await getAppointmentMeta(appointment.AptNum);
+    if (Array.isArray(updates.customFields?.procedures)) {
+      const priorProcedures = Array.isArray(existingMeta.customFields?.procedures)
+        ? existingMeta.customFields.procedures
+        : oldRelatedData.procedures.map(proc => ({ id: proc.ProcNum.toString(), icd: proc.DiagnosticCode }));
+      updates = { ...updates, customFields: { ...updates.customFields, procedures: await validateIcd10Assignments(updates.customFields.procedures, priorProcedures, prisma) } };
+    }
     const dbStatus = mapAppointmentStatusFromDb(appointment.AptStatus);
     const currentStatus = existingMeta?.status ?? dbStatus;
 
@@ -1915,36 +1931,56 @@ async getPatientAppointments(patientId: string, limit = 10) {
       for (const proc of updates.customFields.procedures) {
         try {
           const fee = proc.charge ? parseFloat(proc.charge.toString().replace(/[^0-9.-]+/g, "")) : 0;
-          
-          const matchIdx = existingProcs.findIndex(ep => 
-            !procsToKeep.has(ep.ProcNum) &&
-            ((ep.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode === proc.code) || (ep.OldCode === proc.code))
-          );
+          const numericStatus = Number(proc.status);
+          const procStatus = proc.completed ? 2 : (Number.isInteger(numericStatus) && numericStatus > 0 ? numericStatus : 1);
+          const identity = String(proc.id ?? proc._id ?? '');
+          let matchIdx = existingProcs.findIndex(ep => !procsToKeep.has(ep.ProcNum) && ep.ProcNum.toString() === identity);
+          if (matchIdx < 0) {
+            matchIdx = existingProcs.findIndex(ep => !procsToKeep.has(ep.ProcNum) &&
+              ((ep.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode === proc.code) || ep.OldCode === proc.code));
+          }
 
           if (matchIdx !== -1) {
             const matchedProc = existingProcs[matchIdx];
+            const changedCode = proc.code && proc.code !== (matchedProc.procedurecode_procedurelog_CodeNumToprocedurecode?.ProcCode ?? matchedProc.OldCode);
+            const selectedCode = changedCode ? await prisma.procedurecode.findFirst({ where: { ProcCode: proc.code } }) : null;
             procsToKeep.add(matchedProc.ProcNum);
+
+            // Appointment procedures are also shown in NewTreatmentPlanPage.
+            // Legacy rows can already be ProcStatus=2 while still unbilled;
+            // attach those once, and attach genuine non-completed -> completed
+            // transitions. StatementNum is the idempotency guard.
+            if (proc.completed && matchedProc.StatementNum == null && matchedProc.ProcStatus !== 6) {
+              newlyCompletedProcNums.push(matchedProc.ProcNum);
+            }
             
             await prisma.procedurelog.update({
               where: { ProcNum: matchedProc.ProcNum },
               data: {
                 ProcFee: isNaN(fee) ? matchedProc.ProcFee : fee,
-                ProcStatus: proc.completed ? 2 : (proc.status !== undefined && proc.status !== null ? Number(proc.status) : 1),
+                DiagnosticCode: proc.icd,
+                ...(changedCode ? { CodeNum: selectedCode?.CodeNum ?? null, OldCode: proc.code } : {}),
+                ProcStatus: procStatus,
               }
             });
           } else {
-            await this.addAppointmentProcedure(
+            const created = await this.addAppointmentProcedure(
               appointmentId,
               {
                 code: proc.code,
+                icd: proc.icd,
                 description: proc.treatment || proc.name || '',
                 fee: isNaN(fee) ? 0 : fee,
                 providerId: proc.provider || updates.providerId || appointment.ProvNum?.toString(),
                 tooth: proc.site || '',
-                status: proc.completed ? '2' : (proc.status !== undefined && proc.status !== null ? String(proc.status) : '1'),
+                status: String(procStatus),
               },
               updatedBy
             );
+            if (created?.procedure?._id) procsToKeep.add(BigInt(created.procedure._id));
+            if (proc.completed && created?.procedure?._id) {
+              newlyCompletedProcNums.push(BigInt(created.procedure._id));
+            }
           }
         } catch (error) {
           console.error(`Failed to sync procedure ${proc.code} for appointment ${appointmentId}:`, error);
@@ -1963,6 +1999,19 @@ async getPatientAppointments(patientId: string, limit = 10) {
           }
         }
       }
+    }
+
+    if (newlyCompletedProcNums.length && updated.PatNum) {
+      await prisma.$transaction(async (tx) => {
+        await applyTenantContextToTransaction(tx);
+        createdInvoice = await invoiceService.createInvoiceFromCompletedProcedures(
+          tx,
+          updated.PatNum as bigint,
+          newlyCompletedProcNums,
+          updatedBy,
+          `appointment:${appointmentId}`,
+        );
+      });
     }
 
     // Record audit event for appointment audit history
@@ -2012,15 +2061,15 @@ async getPatientAppointments(patientId: string, limit = 10) {
     );
 
     if (updates.customFields?.procedures && Array.isArray(updates.customFields.procedures) && updates.customFields.procedures.length > 0) {
-      return this.mapAppointmentWithMeta(updated, {
+      return { ...(await this.mapAppointmentWithMeta(updated, {
         patient: updated.patient,
         provider: updated.provider_appointment_ProvNumToprovider,
         appointmentType: updated.appointmenttype,
         createdBy: updated.userod,
-      });
+      })), createdInvoice };
     }
 
-    return mapped;
+    return { ...mapped, createdInvoice };
   }
 
   /**
@@ -2980,6 +3029,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
     appointmentId: string,
     data: {
       code?: string;
+      icd?: string | null;
       codeNum?: string;
       description: string;
       tooth?: string;
@@ -3019,21 +3069,22 @@ async getPatientAppointments(patientId: string, limit = 10) {
         finalSurface = null;
       } else if (treatArea === 'TOOTH') {
         finalSurface = null;
-        if (data.status === '2' && !finalTooth) {
-          throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a tooth number.`);
-        }
+        // if (data.status === '2' && !finalTooth) {
+        //   throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a tooth number.`);
+        // }
       } else if (treatArea === 'SURFACE') {
-        if (data.status === '2') {
-          if (!finalTooth) {
-            throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a tooth number.`);
-          }
-          if (!finalSurface) {
-            throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a surface.`);
-          }
-        }
+        // if (data.status === '2') {
+        //   if (!finalTooth) {
+        //     throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a tooth number.`);
+        //   }
+        //   if (!finalSurface) {
+        //     throw new BadRequestError(`Procedure code ${procedureCode.ProcCode} requires a surface.`);
+        //   }
+        // }
       }
     }
 
+    const [diagnosis] = await validateIcd10Assignments([{ icd: data.icd }], [], prisma);
     const procNum = await getNextId('procedurelog', 'ProcNum');
     const procedure = await prisma.procedurelog.create({
       data: {
@@ -3050,6 +3101,7 @@ async getPatientAppointments(patientId: string, limit = 10) {
         ToothNum: finalTooth,
         Surf: finalSurface,
         BillingNote: data.description,
+        DiagnosticCode: diagnosis.icd,
         SecUserNumEntry: BigInt(userId),
         SecDateEntry: new Date(),
       },
