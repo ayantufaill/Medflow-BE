@@ -1,11 +1,30 @@
 import { PrismaClient } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { tenantContextStorage } from './tenant-context';
 
 let _basePrisma: PrismaClient | null = null;
 
+const getDatasourceOptions = (): Pick<Prisma.PrismaClientOptions, 'datasources'> => {
+  const rawUrl = process.env.DATABASE_URL;
+  if (!rawUrl) return {};
+
+  try {
+    const url = new URL(rawUrl);
+    const connectionLimit = process.env.PRISMA_CONNECTION_LIMIT;
+    const poolTimeout = process.env.PRISMA_POOL_TIMEOUT;
+    if (connectionLimit) url.searchParams.set('connection_limit', connectionLimit);
+    if (poolTimeout) url.searchParams.set('pool_timeout', poolTimeout);
+    return { datasources: { db: { url: url.toString() } } };
+  } catch {
+    // Prisma will report the normal invalid DATABASE_URL error below.
+    return {};
+  }
+};
+
 const getBasePrisma = (): PrismaClient => {
   if (!_basePrisma) {
     _basePrisma = new PrismaClient({
+      ...getDatasourceOptions(),
       log: process.env.NODE_ENV === 'production' ? ['error'] : ['error', 'warn'],
     });
   }
@@ -90,6 +109,30 @@ export const prisma = new Proxy({} as PrismaClient, {
     return (getExtendedPrisma() as any)[prop];
   },
 });
+
+/** Direct base client — bypasses the RLS extension.
+ *  Use ONLY for global tables (sessiontoken, userod, etc.) that don't need tenant isolation.
+ *  Queries through this client do NOT open an interactive $transaction, so they consume
+ *  far fewer pool connections. */
+export const basePrisma = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    return (getBasePrisma() as any)[prop];
+  },
+});
+
+/** Interactive transactions do not pass through the per-model RLS extension. */
+export const applyTenantContextToTransaction = async (tx: Prisma.TransactionClient) => {
+  const ctx = tenantContextStorage.getStore();
+  if (!ctx) return;
+  const clinicIds = ctx.clinicIds === '*' ? '*' : ctx.clinicIds.map(String).join(',');
+  const patientGroupId = ctx.patientGroupId === null ? '0' : String(ctx.patientGroupId);
+  await tx.$queryRaw`
+    SELECT set_config('app.clinic_ids', ${clinicIds}, true),
+           set_config('app.patient_group_id', ${patientGroupId}, true),
+           set_config('app.user_id', ${ctx.userId ?? ''}, true),
+           set_config('app.shared', ${ctx.sharing ?? ''}, true)
+  `;
+};
 
 // ─── Row-Level Security startup guard ──────────────────────────────────────
 //

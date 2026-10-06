@@ -28,6 +28,20 @@ export const updateTreatmentPlanValidator = [
   body('items.*.status').optional().isIn(['C', 'D', 'P', 'A', 'X', 'F', '!', 'EO', 'EX', 'R', 'S']).withMessage('Invalid item status code.'),
 ];
 
+export const updateTreatmentPlanItemFeesValidator = [
+  ...treatmentPlanIdValidator,
+  param('itemId').isInt({ min: 1 }).withMessage('Valid procedure ID is required'),
+  body('ucrFee').optional({ nullable: true }).isFloat({ min: 0 }),
+  body('negotiatedRate').isFloat({ min: 0 }),
+  body('insuranceEstimate').isFloat({ min: 0 }),
+  body('patientEstimate').isFloat({ min: 0 }),
+  body('deductible').isFloat({ min: 0 }),
+  body('noBillInsurance').isBoolean(),
+  body('preAuthStatus').isString().isLength({ max: 40 }),
+  body('preAuthNumber').isString().isLength({ max: 80 }),
+  body('downgradedCode').isString().isLength({ max: 15 }),
+];
+
 export const reorderTreatmentPlanValidator = [
   body('items').isArray().withMessage('Items array is required to reorder.'),
 ];

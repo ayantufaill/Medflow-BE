@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import type { JWTPayload, AuthTokens } from '../types/auth.types';
-import { prisma } from '../config/db';
+import { basePrisma } from '../config/db';
 import { getNextId } from './opendental-ids.util';
 
 const JWT_SECRET: string = process.env.JWT_SECRET as string;
@@ -40,7 +40,7 @@ const hashToken = (token: string): string => {
 
 const isTokenBlacklisted = async (token: string): Promise<boolean> => {
   const hash = hashToken(token);
-  const record = await prisma.sessiontoken.findFirst({
+  const record = await basePrisma.sessiontoken.findFirst({
     where: {
       OR: [
         { SessionTokenHash: hash },
@@ -101,7 +101,7 @@ export const blacklistToken = async (
     const expiresAt = new Date(decoded.exp * 1000);
     if (expiresAt > new Date()) {
       const nextId = await getNextId('sessiontoken', 'SessionTokenNum');
-      await prisma.sessiontoken.create({
+      await basePrisma.sessiontoken.create({
         data: {
           SessionTokenNum: nextId,
           SessionTokenHash: hashToken(token),

@@ -1,4 +1,5 @@
-import { prisma } from '../config/db';
+import { prisma, applyTenantContextToTransaction } from '../config/db';
+import type { Prisma } from '@prisma/client';
 import { BadRequestError, ConflictError, NotFoundError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
@@ -114,8 +115,8 @@ const toBigInt = (value?: string | null): bigint | null => {
   return /^\d+$/.test(value) ? BigInt(value) : null;
 };
 
-const getInvoiceNumber = async (): Promise<string> => {
-  const recent = await prisma.statement.findMany({
+const getInvoiceNumber = async (db: Prisma.TransactionClient | typeof prisma = prisma): Promise<string> => {
+  const recent = await db.statement.findMany({
     where: { ShortGUID: { startsWith: 'INV' } },
     orderBy: { StatementNum: 'desc' },
     take: 50,
@@ -176,6 +177,84 @@ export const isPatientPenaltyOrNonIns = (item: any): boolean => {
 };
 
 export class InvoiceService {
+  /** Attach the completed OpenDental procedures already created by a treatment plan. */
+  async createInvoiceFromCompletedProcedures(
+    tx: Prisma.TransactionClient,
+    patientId: bigint,
+    procNums: bigint[],
+    createdBy?: string,
+    treatmentPlanId?: string,
+    manualProcNums: bigint[] = [],
+  ) {
+    const uniqueNums = [...new Set(procNums.map(String))].map(BigInt);
+    if (!uniqueNums.length) return null;
+    const procedures = await tx.procedurelog.findMany({
+      where: { ProcNum: { in: uniqueNums }, PatNum: patientId, ProcStatus: 2, StatementNum: null },
+    });
+    if (procedures.length !== uniqueNums.length) {
+      throw new ConflictError('A completed procedure is already billed or is not available');
+    }
+    const now = new Date();
+    const dueDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const statementNum = await getNextId('statement', 'StatementNum', tx);
+    const invoiceNumber = await getInvoiceNumber(tx);
+    const pricedItems = await this.calculateInsuranceEstimates(
+      patientId,
+      procedures.map((proc) => ({
+        code: proc.OldCode || undefined,
+        procedureCode: proc.OldCode || undefined,
+        description: parseJson<any>(proc.BillingNote).description || proc.BillingNote || 'Service',
+        charge: Number(proc.ProcFee || 0),
+        ProcDate: proc.ProcDate,
+        insPortion: parseJson<any>(proc.BillingNote).insPortion,
+        ptPortion: parseJson<any>(proc.BillingNote).ptPortion,
+      })),
+      { db: tx },
+    );
+    const itemMetaByProc = new Map(procedures.map((proc, index) => [proc.ProcNum.toString(), {
+      ...parseJson<any>(proc.BillingNote),
+      description: parseJson<any>(proc.BillingNote).description || proc.BillingNote || 'Service',
+      cptCode: parseJson<any>(proc.BillingNote).cptCode || proc.OldCode || null,
+      serviceId: parseJson<any>(proc.BillingNote).serviceId || proc.CodeNum?.toString() || null,
+      charge: Number(proc.ProcFee || 0), unitPrice: Number(proc.ProcFee || 0), quantity: 1,
+      ptPortion: Number(pricedItems[index]?.ptPortion || 0),
+      insPortion: Number(pricedItems[index]?.insPortion || 0),
+      primaryInsPortion: Number(pricedItems[index]?.primaryInsPortion ?? pricedItems[index]?.insPortion ?? 0),
+      secondaryInsPortion: Number(pricedItems[index]?.secondaryInsPortion || 0),
+      totalInsPortion: Number(pricedItems[index]?.totalInsPortion ?? pricedItems[index]?.insPortion ?? 0),
+      writeoff: Number(pricedItems[index]?.writeoff || 0), completed: true,
+    }]));
+    const totalAmount = roundCurrency(procedures.reduce((sum, proc) => sum + Number(proc.ProcFee || 0), 0));
+    const insurancePortion = roundCurrency(procedures.reduce((sum, proc) => sum + Number(itemMetaByProc.get(proc.ProcNum.toString())?.totalInsPortion || 0), 0));
+    const patientPortion = roundCurrency(procedures.reduce((sum, proc) => sum + Number(itemMetaByProc.get(proc.ProcNum.toString())?.ptPortion || 0), 0));
+    const meta: StatementMeta = {
+      status: 'draft', createdBy, dueDate: dueDate.toISOString(), totalAmount,
+      insurancePortion, patientPortion, paidAmount: 0, taxAmount: 0,
+      discountAmount: 0, writeoffAmount: 0,
+      providerId: procedures[0]?.ProvNum?.toString(),
+    };
+    await tx.statement.create({ data: {
+      StatementNum: statementNum, PatNum: patientId, DateSent: now,
+      DateRangeFrom: now, DateRangeTo: dueDate,
+      Note: treatmentPlanId ? `Treatment Plan ${treatmentPlanId}` : 'Treatment Plan Invoice',
+      NoteBold: buildJson(meta), IsInvoice: 1, StatementType: 'draft',
+      ShortGUID: invoiceNumber, InsEst: insurancePortion, BalTotal: totalAmount,
+    } });
+    const manual = new Set(manualProcNums.map(String));
+    for (const proc of procedures) {
+      const note = parseJson<any>(proc.BillingNote);
+      const generatedMeta = itemMetaByProc.get(proc.ProcNum.toString()) || {};
+      if (manual.has(proc.ProcNum.toString())) note.isManuallyAdjusted = true;
+      const linked = await tx.procedurelog.updateMany({
+        where: { ProcNum: proc.ProcNum, PatNum: patientId, ProcStatus: 2, StatementNum: null },
+        data: { StatementNum: statementNum, BillingNote: buildJson({ ...generatedMeta, ...note, completed: true }) },
+      });
+      if (linked.count !== 1) throw new ConflictError('Procedure was billed concurrently');
+    }
+    await this.recalculateInvoice(statementNum.toString(), undefined, tx);
+    return { id: statementNum.toString(), invoiceNumber };
+  }
+
   private mapProcedureLogToInvoiceItem(item: any, invoiceId?: string, code?: any) {
     const meta = parseJson<ItemMeta>(item.BillingNote);
     const quantity = Number(meta.quantity ?? item.UnitQty ?? 1) || 1;
@@ -362,8 +441,10 @@ export class InvoiceService {
       excludeInvoiceId?: bigint | string | null;
       covSpans?: any[];
       covCatMap?: Map<string, string>;
+      db?: Prisma.TransactionClient | typeof prisma;
     } = {},
   ): Promise<PlanPricingContext | null> {
+    const db = opts.db ?? prisma;
     const insPlan = patPlan?.inssub?.insplan;
     if (!patPlan?.PatPlanNum || !insPlan) return null;
 
@@ -372,7 +453,7 @@ export class InvoiceService {
 
     const loadSchedule = async (feeSched: bigint | null | undefined, into: Map<string, number>) => {
       if (!feeSched || feeSched <= 0n) return;
-      const feeRecords = await prisma.fee.findMany({
+      const feeRecords = await db.fee.findMany({
         where: { FeeSched: feeSched },
         include: { procedurecode: true },
       });
@@ -397,7 +478,7 @@ export class InvoiceService {
     const coverageCategoryByCode = new Map<string, string>();
     const scheduleCodes = [...new Set([...allowedFeeMap.keys(), ...planFeeMap.keys()])];
     if (scheduleCodes.length > 0) {
-      const procRows = await prisma.procedurecode.findMany({
+      const procRows = await db.procedurecode.findMany({
         where: { ProcCode: { in: scheduleCodes } },
         select: { ProcCode: true, CoverageCategory: true },
       });
@@ -422,7 +503,7 @@ export class InvoiceService {
     // pools stay separate.
     const excludedInvoiceId =
       opts.excludeInvoiceId != null ? String(opts.excludeInvoiceId) : null;
-    const claimsHoldingPools = await prisma.claim.findMany({
+    const claimsHoldingPools = await db.claim.findMany({
       where: {
         PatNum: patPlan.PatNum,
         InsSubNum: patPlan.InsSubNum ?? undefined,
@@ -725,10 +806,11 @@ export class InvoiceService {
   public async calculateInsuranceEstimates(
     patientId: bigint,
     items: any[],
-    options: { excludeInvoiceId?: bigint | string } = {},
+    options: { excludeInvoiceId?: bigint | string; db?: Prisma.TransactionClient } = {},
   ) {
+    const db = options.db ?? prisma;
     try {
-      const patPlan = await prisma.patplan.findFirst({
+      const patPlan = await db.patplan.findFirst({
         where: { PatNum: patientId, OR: [{ IsPending: 0 }, { IsPending: null }] },
         orderBy: { Ordinal: 'asc' },
         include: {
@@ -771,8 +853,8 @@ export class InvoiceService {
 
       // Practice-wide category tables, fetched once and shared: they are not
       // per-plan, so both plans must resolve percentages against the same data.
-      const covSpans = await prisma.covspan.findMany();
-      const covCats = await prisma.covcat.findMany();
+      const covSpans = await db.covspan.findMany();
+      const covCats = await db.covcat.findMany();
       const covCatMap = new Map<string, string>();
       for (const cat of covCats) {
         if (cat.Description) {
@@ -801,6 +883,7 @@ export class InvoiceService {
       // already fired on `!patPlan?.PatPlanNum`.
       const primaryCtx = await this.buildPlanPricingContext(patPlan, {
         excludeInvoiceId: excludedInvoiceId,
+        db,
       });
       if (!primaryCtx) {
         // The secondary audit fields are cleared alongside the money, not left to
@@ -828,7 +911,7 @@ export class InvoiceService {
       // fee schedules, its own coverage percentages, its own deductible pools and
       // its own alternate-benefit rules. A null context (no `insplan`) is the only
       // thing that forces the conservative fallback further down.
-      const secondaryPatPlan = await prisma.patplan.findFirst({
+      const secondaryPatPlan = await db.patplan.findFirst({
         where: {
           PatNum: patientId,
           Ordinal: 2,
@@ -839,6 +922,7 @@ export class InvoiceService {
       const secondaryCtx = secondaryPatPlan
         ? await this.buildPlanPricingContext(secondaryPatPlan, {
             excludeInvoiceId: excludedInvoiceId,
+            db,
           })
         : null;
 
@@ -857,7 +941,7 @@ export class InvoiceService {
         .filter((id): id is bigint => id !== null);
 
       const resolvedProcCodes = missingServiceIds.length > 0
-        ? await prisma.procedurecode.findMany({
+        ? await db.procedurecode.findMany({
             where: { CodeNum: { in: missingServiceIds } },
             select: { CodeNum: true, ProcCode: true },
           })
@@ -1997,7 +2081,12 @@ export class InvoiceService {
     const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
     if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
 
-    await prisma.procedurelog.delete({ where: { ProcNum: procNum } });
+    const linkedPlanItem = await prisma.proctp.findFirst({ where: { ProcNumOrig: procNum } });
+    if (linkedPlanItem) {
+      await prisma.procedurelog.update({ where: { ProcNum: procNum }, data: { StatementNum: null } });
+    } else {
+      await prisma.procedurelog.delete({ where: { ProcNum: procNum } });
+    }
     await this.recalculateInvoice(invoiceId);
     await logActivity(userId, 'deleted', 'invoice_items', itemId, item, undefined, undefined, undefined, 'low');
     return { message: 'Invoice item deleted successfully' };
@@ -2012,8 +2101,25 @@ export class InvoiceService {
       throw new BadRequestError('Only draft invoices can be deleted. Use void for finalized invoices.');
     }
 
-    await prisma.procedurelog.deleteMany({ where: { StatementNum: invoice.StatementNum } });
-    await prisma.statement.delete({ where: { StatementNum: invoice.StatementNum } });
+    await prisma.$transaction(async (tx) => {
+      await applyTenantContextToTransaction(tx);
+      const items = await tx.procedurelog.findMany({
+        where: { StatementNum: invoice.StatementNum }, select: { ProcNum: true },
+      });
+      const linked = await tx.proctp.findMany({
+        where: { ProcNumOrig: { in: items.map((item) => item.ProcNum) } },
+        select: { ProcNumOrig: true },
+      });
+      const linkedNums = linked.map((item) => item.ProcNumOrig).filter((id): id is bigint => id != null);
+      if (linkedNums.length) {
+        await tx.procedurelog.updateMany({
+          where: { ProcNum: { in: linkedNums }, StatementNum: invoice.StatementNum },
+          data: { StatementNum: null },
+        });
+      }
+      await tx.procedurelog.deleteMany({ where: { StatementNum: invoice.StatementNum } });
+      await tx.statement.delete({ where: { StatementNum: invoice.StatementNum } });
+    });
     await logActivity(userId, 'deleted', 'invoices', invoiceId, this.mapStatementToInvoice(invoice, meta), undefined, undefined, undefined, 'medium');
     return { message: 'Invoice deleted successfully' };
   }
@@ -2072,15 +2178,16 @@ export class InvoiceService {
     return this.mapStatementToInvoice(updated, nextMeta);
   }
 
-  async recalculateInvoice(invoiceId: string, insuranceCoveragePercent?: number) {
-    const invoice = await this.getStatementById(invoiceId);
+  async recalculateInvoice(invoiceId: string, insuranceCoveragePercent?: number, transaction?: Prisma.TransactionClient) {
+    const db = transaction ?? prisma;
+    const invoice = await db.statement.findUnique({ where: { StatementNum: BigInt(invoiceId) } });
     if (!invoice) throw new NotFoundError('Invoice not found');
 
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
-    const items = await prisma.procedurelog.findMany({ where: { StatementNum: invoice.StatementNum } });
+    const items = await db.procedurelog.findMany({ where: { StatementNum: invoice.StatementNum } });
 
     const codeNums = items.map((item) => item.CodeNum).filter((codeNum): codeNum is bigint => codeNum !== null && codeNum !== undefined);
-    const codes = codeNums.length ? await prisma.procedurecode.findMany({ where: { CodeNum: { in: codeNums } } }) : [];
+    const codes = codeNums.length ? await db.procedurecode.findMany({ where: { CodeNum: { in: codeNums } } }) : [];
     const codeMap = new Map(codes.map((code) => [code.CodeNum?.toString(), code]));
 
     const totalAmount = items.reduce((sum, item) => sum + (Number(item.ProcFee) || 0), 0);
@@ -2098,7 +2205,7 @@ export class InvoiceService {
 
     // Check existing claimprocs for these procedures to see if any have been adjudicated/received
     const procClaimProcs = procNums.length > 0
-      ? await prisma.claimproc.findMany({ where: { ProcNum: { in: procNums } } })
+      ? await db.claimproc.findMany({ where: { ProcNum: { in: procNums } } })
       : [];
     const claimProcByProcNum = new Map<string, typeof procClaimProcs>();
     procClaimProcs.forEach((cp) => {
@@ -2139,7 +2246,7 @@ export class InvoiceService {
       const enrichedSimulatedItems = await this.calculateInsuranceEstimates(
         invoice.PatNum,
         simulatedItems,
-        { excludeInvoiceId: invoice.StatementNum },
+        { excludeInvoiceId: invoice.StatementNum, db: transaction },
       );
       
       for (let i = 0; i < enrichedSimulatedItems.length; i++) {
@@ -2163,7 +2270,7 @@ export class InvoiceService {
           originalMeta.patientOnly = true;
           originalMeta.isAccountPenalty = true;
           originalItem.BillingNote = buildJson(originalMeta);
-          await prisma.procedurelog.update({
+          await db.procedurelog.update({
             where: { ProcNum: originalItem.ProcNum },
             data: { BillingNote: originalItem.BillingNote, NoBillIns: 1 }
           });
@@ -2183,7 +2290,7 @@ export class InvoiceService {
           const fee = Number(originalItem.ProcFee || 0);
 
           // Check if patient has already paid in full for this procedure
-          const existingSplits = await prisma.paysplit.findMany({
+          const existingSplits = await db.paysplit.findMany({
             where: { ProcNum: originalItem.ProcNum },
             include: { payment: true },
           });
@@ -2210,7 +2317,7 @@ export class InvoiceService {
           let isClaimPartial = false;
           for (const rCp of receivedCps) {
             if (rCp.ClaimNum) {
-              const linkedClaim = await prisma.claim.findUnique({ where: { ClaimNum: rCp.ClaimNum } });
+              const linkedClaim = await db.claim.findUnique({ where: { ClaimNum: rCp.ClaimNum } });
               if (linkedClaim) {
                 const cMeta = parseJson<any>(linkedClaim.Narrative);
                 const cStatus = String(cMeta?.status || linkedClaim.ClaimStatus || '').toLowerCase();
@@ -2248,7 +2355,7 @@ export class InvoiceService {
           originalMeta.ptPortion = newPt;
           originalMeta.isManuallyAdjusted = true;
           originalItem.BillingNote = buildJson(originalMeta);
-          await prisma.procedurelog.update({
+          await db.procedurelog.update({
             where: { ProcNum: originalItem.ProcNum },
             data: { BillingNote: originalItem.BillingNote },
           });
@@ -2350,7 +2457,7 @@ export class InvoiceService {
               ? null
               : Number(enrichedItem.secondaryCoveragePct);
           originalItem.BillingNote = buildJson(originalMeta);
-          await prisma.procedurelog.update({
+          await db.procedurelog.update({
             where: { ProcNum: originalItem.ProcNum },
             data: { BillingNote: originalItem.BillingNote }
           });
@@ -2373,7 +2480,7 @@ export class InvoiceService {
 
     // Query actual paysplits for these procedures to ensure paidAmount is completely accurate
     const procPaysplits = procNums.length > 0
-      ? await prisma.paysplit.findMany({
+      ? await db.paysplit.findMany({
           where: { ProcNum: { in: procNums } },
           include: { payment: true },
         })
@@ -2399,7 +2506,7 @@ export class InvoiceService {
       if (itemMeta.paidAmount !== itemPaid) {
         itemMeta.paidAmount = itemPaid;
         item.BillingNote = buildJson(itemMeta);
-        await prisma.procedurelog.update({
+        await db.procedurelog.update({
           where: { ProcNum: item.ProcNum },
           data: { BillingNote: item.BillingNote },
         });
@@ -2408,7 +2515,7 @@ export class InvoiceService {
     totalPaid = roundCurrency(totalPaid);
 
     // Fetch all formally posted adjustments associated with this invoice
-    const adjustments = await prisma.adjustment.findMany({
+    const adjustments = await db.adjustment.findMany({
       where: {
         OR: [
           { StatementNum: invoice.StatementNum },
@@ -2451,12 +2558,12 @@ export class InvoiceService {
     const unclaimedIns = Math.max(0, roundCurrency(totalExpectedIns - totalInsPaid - pendingInsEst));
     const remainingInsEst = hasAnyClaimProc ? roundCurrency(pendingInsEst + unclaimedIns) : totalExpectedIns;
 
-    const updated = await prisma.statement.update({
+    const updated = await db.statement.update({
       where: { StatementNum: invoice.StatementNum },
       data: { BalTotal: roundCurrency(balanceDue), InsEst: roundCurrency(remainingInsEst), NoteBold: buildJson(nextMeta) },
     });
 
-    if (invoice.PatNum) {
+    if (invoice.PatNum && !transaction) {
       await agingService.updatePatientAging(invoice.PatNum).catch(() => {});
     }
 
