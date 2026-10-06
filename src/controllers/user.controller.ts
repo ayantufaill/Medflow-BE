@@ -245,7 +245,7 @@ export class UserController {
         });
       }
       
-      const result = await userService.removeRole(userId, roleId, req.branchAccess?.clinicIds);
+      const result = await userService.removeRole(userId, roleId, req.branchAccess?.clinicIds, req.userId);
       await logActivityFromRequest(req, 'updated', 'usergroupattach', userId, { roleId }, null);
       res.status(200).json({
         success: true,
@@ -518,7 +518,7 @@ export class UserController {
         });
       }
 
-      await userService.assignUserRoles(userId, finalRoleIds, req.branchAccess?.clinicIds);
+      await userService.assignUserRoles(userId, finalRoleIds, req.branchAccess?.clinicIds, req.userId);
 
       res.status(200).json({
         success: true,
