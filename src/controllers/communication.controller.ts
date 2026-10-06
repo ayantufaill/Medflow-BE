@@ -4,6 +4,7 @@ import { logActivityFromRequest } from '../utils/activity-logger.util';
 import { smsService } from '../services/sms.service';
 import { emailService } from '../services/email.service';
 import { prisma } from '../config/db';
+import { userService } from '../services/user.service';
 
 export class CommunicationController {
   /* ─── Communication Settings ─── */
@@ -30,6 +31,190 @@ export class CommunicationController {
         data: result,
         message: 'Settings updated successfully',
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /* ─── Email Domain (Email Services) ─── */
+  async getEmailDomain(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await communicationService.getEmailDomain();
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async setEmailDomain(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await communicationService.setEmailDomain(req.body.domain);
+      if (req.userId) {
+        await logActivityFromRequest(req, 'updated', 'settings', 'email-domain');
+      }
+      res.status(200).json({
+        success: true,
+        data: result,
+        message: `New DNS records generated for ${result.domain}.`,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async verifyEmailDomain(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await communicationService.verifyEmailDomain();
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /* ─── Email Preferences ─── */
+  async getEmailPreferences(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await communicationService.getEmailPreferences();
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateEmailPreferences(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await communicationService.updateEmailPreferences(req.body);
+      if (req.userId) {
+        await logActivityFromRequest(req, 'updated', 'settings', 'email-preferences');
+      }
+      res.status(200).json({ success: true, data: result, message: 'Email preferences saved successfully' });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /* ─── Messaging Service ─── */
+  // The practice owner shown on Number Selection is the admin completing it.
+  private async messagingOwner(req: Request) {
+    const user = req.userId ? await userService.getUserById(req.userId) : null;
+    return {
+      name: [user?.firstName, user?.lastName].filter(Boolean).join(' '),
+      phone: user?.phone ?? null,
+      email: user?.email ?? req.user?.email ?? '',
+    };
+  }
+
+  async getMessagingService(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await communicationService.getMessagingService();
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getMessagingPracticeDetails(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await communicationService.getMessagingPracticeDetails(await this.messagingOwner(req));
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateMessagingPracticeDetails(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await communicationService.updateMessagingPracticeDetails(req.body, await this.messagingOwner(req));
+      if (req.userId) {
+        await logActivityFromRequest(req, 'updated', 'settings', 'messaging-practice-details');
+      }
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async searchMessagingNumbers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await communicationService.searchMessagingNumbers(String(req.query.areaCode ?? ''));
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async selectMessagingNumber(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await communicationService.selectMessagingNumber(req.body.phoneNumber);
+      if (req.userId) {
+        await logActivityFromRequest(req, 'updated', 'settings', 'messaging-number');
+      }
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /* ─── Automations ─── */
+  async getAutomations(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await communicationService.getAutomations(String(req.query.category ?? ''));
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async createAutomation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { category, ...input } = req.body;
+      const result = await communicationService.createAutomation(category, input);
+      if (req.userId) {
+        await logActivityFromRequest(req, 'created', 'automation', result.id);
+      }
+      res.status(201).json({ success: true, data: result, message: 'Message created' });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateAutomation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await communicationService.updateAutomation(req.params.id, req.body);
+      if (req.userId) {
+        await logActivityFromRequest(req, 'updated', 'automation', req.params.id);
+      }
+      res.status(200).json({ success: true, data: result, message: 'Message updated' });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async setAutomationActive(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await communicationService.setAutomationActive(req.params.id, req.body.active);
+      if (req.userId) {
+        await logActivityFromRequest(req, 'updated', 'automation', req.params.id);
+      }
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deleteAutomation(req: Request, res: Response, next: NextFunction) {
+    try {
+      await communicationService.deleteAutomation(req.params.id);
+      if (req.userId) {
+        await logActivityFromRequest(req, 'deleted', 'automation', req.params.id);
+      }
+      res.status(200).json({ success: true, message: 'Message deleted' });
     } catch (error) {
       next(error);
     }

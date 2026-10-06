@@ -186,12 +186,12 @@ describe('New RBAC model (group_admin/branch_admin/front_desk/etc.)', () => {
     }
   });
 
-  // 6. A user whose role changes gets a 401 on their next request with the
-  // old JWT (exercises the already-existing bumpAccessVersion/
-  // verifyActiveSession machinery, not new code).
-  it('invalidates the target user\'s existing session when their role changes', async () => {
-    const staleToken = authHeaderFor(targetInBranchB);
-    await request(app).get('/api/auth/profile').set(staleToken).expect(200);
+  // 6. A user whose role changes stays signed in with the same JWT and is
+  // authorised against the new role on the next request (bumpAccessVersion
+  // drops the cached access context instead of revoking the token).
+  it('keeps the target user signed in and applies the new role at once when their role changes', async () => {
+    const session = authHeaderFor(targetInBranchB);
+    await request(app).get('/api/auth/profile').set(session).expect(200);
 
     await request(app)
       .patch(`/api/users/${targetInBranchB}/role`)
@@ -199,10 +199,11 @@ describe('New RBAC model (group_admin/branch_admin/front_desk/etc.)', () => {
       .send({ roleSlug: 'hygienist', branchId: Number(branchB) })
       .expect(200);
 
-    // Same JWT, now stale — generateAccessToken above always stamps
-    // tokenVersion: 0, and bumpAccessVersion increments the user's real
-    // stored tokenVersion past that on every call, so this is a stale token
-    // on the FIRST role change too, not just subsequent ones.
-    await request(app).get('/api/auth/profile').set(staleToken).expect(401);
+    // Product decision: a role change must not log the user out. The same
+    // token keeps working and the profile already reflects the new role, so
+    // the frontend can refresh the user's screens in place.
+    const res = await request(app).get('/api/auth/profile').set(session).expect(200);
+    const roleNames = (res.body.data.user.roles ?? []).map((r: { name?: string } | string) => (typeof r === 'string' ? r : r.name));
+    expect(roleNames).toContain('hygienist');
   });
 });

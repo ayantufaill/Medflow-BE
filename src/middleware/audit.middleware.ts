@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/db';
 import { writeAudit } from '../services/audit.service';
+import { PermType } from '../constants/audit-types';
 
 export const auditCrossBranchRead = (category: string) => {
   return async (req: Request, res: Response, next: NextFunction) => {
@@ -80,4 +81,37 @@ export const auditCrossBranchRead = (category: string) => {
     
     next();
   };
+};
+
+/**
+ * HIPAA access trail for a patient's record: logs every successful read and
+ * every refused attempt (403/404 — under RLS a patient outside the caller's
+ * scope simply isn't found) with actor, patient and time. Written after the
+ * response is sent so it never slows or fails the request.
+ */
+export const auditPatientAccess = (req: Request, res: Response, next: NextFunction) => {
+  const requestedId = req.params.patientId;
+  // Only numeric ids are patient records; '/search' etc. also match '/:patientId'.
+  if (!req.userId || !requestedId || !/^\d+$/.test(requestedId)) return next();
+
+  const userNum = BigInt(req.userId);
+  res.on('finish', () => {
+    const status = res.statusCode;
+    const isRead = req.method === 'GET' && status >= 200 && status < 300;
+    const isDenied = status === 403 || status === 404;
+    if (!isRead && !isDenied) return;
+
+    const permType = isRead ? PermType.PATIENT_RECORD_READ : PermType.PATIENT_ACCESS_DENIED;
+    const text = isRead
+      ? `Patient record read: ${req.method} ${req.originalUrl}`
+      : `Patient record access denied (${status}) for patient ${requestedId}: ${req.method} ${req.originalUrl}`;
+
+    void (async () => {
+      const written = await writeAudit({ userNum, permType, patNum: BigInt(requestedId), text, req });
+      // securitylog.PatNum is a foreign key; a denied id that doesn't exist at
+      // all can't be stored there, so keep the attempt with the id in the text.
+      if (!written && isDenied) await writeAudit({ userNum, permType, text, req });
+    })();
+  });
+  next();
 };

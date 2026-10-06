@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { auditCrossBranchRead } from '../middleware/audit.middleware';
+import { auditCrossBranchRead, auditPatientAccess } from '../middleware/audit.middleware';
 import { clinicalNoteController } from '../controllers/clinical-note.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
@@ -91,6 +91,7 @@ router.get(
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.read'),
+  auditPatientAccess,
   validate([...patientIdParamValidator, ...paginationQueryValidator]),
   clinicalNoteController.getClinicalNotesByPatient
 );

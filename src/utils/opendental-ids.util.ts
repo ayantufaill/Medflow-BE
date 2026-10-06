@@ -1,4 +1,5 @@
 import { prisma } from '../config/db';
+import type { Prisma } from '@prisma/client';
 
 // medflow_sequences is now a real Prisma-managed model (see schema.prisma) —
 // `prisma db push` creates/preserves it. It used to be bootstrapped here via
@@ -6,8 +7,8 @@ import { prisma } from '../config/db';
 // started connecting as a restricted, non-superuser role (no CREATE on
 // schema) instead of the postgres superuser.
 
-export const getNextId = async (table: string, column: string): Promise<bigint> => {
-  return await prisma.$transaction(async (tx) => {
+export const getNextId = async (table: string, column: string, transaction?: Prisma.TransactionClient): Promise<bigint> => {
+  const allocate = async (tx: Prisma.TransactionClient) => {
     const model = (tx as any)[table];
     if (!model) {
       throw new Error(`Model ${table} does not exist on PrismaClient`);
@@ -28,5 +29,6 @@ export const getNextId = async (table: string, column: string): Promise<bigint> 
     `, table, targetNextId);
 
     return BigInt(inserted[0].next_id);
-  });
+  };
+  return transaction ? allocate(transaction) : prisma.$transaction(allocate);
 };

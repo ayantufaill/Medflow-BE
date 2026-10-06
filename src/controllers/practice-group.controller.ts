@@ -124,10 +124,10 @@ export class PracticeGroupController {
     try {
       const groupId = parseInt(req.params.groupId, 10);
       await assertCanOperateOnGroup(req.userId!, groupId);
-      const { email, firstName, lastName, clinicId } = req.body;
+      const { email, firstName, lastName, clinicId, password } = req.body;
       const data = await practiceGroupService.createGroupAdmin(
         groupId,
-        { email, firstName, lastName, clinicId },
+        { email, firstName, lastName, clinicId, password },
         req.userId!
       );
       res.status(201).json({ success: true, data });

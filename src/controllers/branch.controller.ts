@@ -1,4 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
+import { prisma } from '../config/db';
+import { emitToUser } from '../sockets/socket';
 import { branchService } from '../services/branch.service';
 import { AuthorizationError, ValidationError } from '../utils/error.util';
 import { getNewModelRoleForUser } from '../services/rbac.service';
@@ -61,6 +63,14 @@ export class BranchController {
       }
 
       const features = await branchService.updateFeatures(clinicId, { treatment_coordinator });
+
+      // Everyone assigned to this branch may gain or lose the coordinator
+      // screens: refresh their open sessions now instead of on next login.
+      const members = await prisma.userclinic.findMany({ where: { ClinicNum: clinicId }, select: { UserNum: true } });
+      for (const m of members) {
+        if (m.UserNum) emitToUser(m.UserNum.toString(), 'access:changed', { at: new Date().toISOString() });
+      }
+
       res.status(200).json({ success: true, data: { features } });
     } catch (error) {
       next(error);

@@ -42,7 +42,7 @@ export class PatientInsuranceController {
 
   async getPatientInsuranceById(req: Request, res: Response, next: NextFunction) {
     try {
-      const { patientInsuranceId } = req.params;
+      const { patientId, patientInsuranceId } = req.params;
       
       if (!patientInsuranceId) {
         return res.status(400).json({
@@ -52,6 +52,12 @@ export class PatientInsuranceController {
       }
       
       const insurance = await patientInsuranceService.getPatientInsuranceById(patientInsuranceId);
+      if (insurance.patientId !== patientId) {
+        return res.status(404).json({
+          success: false,
+          error: { message: 'Patient insurance not found' },
+        });
+      }
 
       // Log activity
       if (req.userId) {

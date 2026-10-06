@@ -2,7 +2,7 @@ import type { Request, Response, NextFunction } from 'express';
 import { verifyAccessToken } from '../utils/jwt.util';
 import type { JWTPayload } from '../types/auth.types';
 import { AuthenticationError, AuthorizationError } from '../utils/error.util';
-import { prisma } from '../config/db';
+import { basePrisma } from '../config/db';
 import { getUserMeta } from '../utils/opendental-auth.util';
 import { AccessContextService } from '../services/access-context.service';
 import {
@@ -10,6 +10,7 @@ import {
   USER_GROUPS,
   getUserGroups,
   isUserInAnyGroup,
+  withLegacyRoleNames,
 } from '../types/user-group.types';
 
 /**
@@ -29,7 +30,7 @@ import {
  * a re-login, which is the correct trade for closing a revocation bypass.
  */
 export const verifyActiveSession = async (decoded: JWTPayload): Promise<void> => {
-  const user = await prisma.userod.findUnique({
+  const user = await basePrisma.userod.findUnique({
     where: { UserNum: BigInt(decoded.userId) },
   });
   if (!user) {
@@ -85,8 +86,11 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
  * ('group_admin'), which is what usergroup.Description actually stores — so
  * reading the token alone left every new-model account with no roles at all
  * and answered 403 on routes they are entitled to.
+ *
+ * New-model keys are expanded with the legacy names they answer to
+ * (withLegacyRoleNames), so routes that still list legacy names accept them.
  */
-const rolesOf = (req: Request): string[] => req.access?.roles ?? req.user?.roles ?? [];
+const rolesOf = (req: Request): string[] => withLegacyRoleNames(req.access?.roles ?? req.user?.roles ?? []);
 
 const ROLE_ALIASES: Record<string, string[]> = {
   'Admin': ['Super Admin', 'Group Admin', 'Branch Admin'],
@@ -170,6 +174,30 @@ export const requireRoles = (...allowedRoles: string[]) => {
 
     next();
   };
+};
+
+/** True when the caller passes requireRoles('Admin') (admin group, Super Admin or aliases). */
+export const isAdminRequest = (req: Request): boolean => {
+  const userRoles = rolesOf(req);
+  if (getUserGroups(userRoles).includes('ADMIN_GROUP') || userRoles.includes('Super Admin')) return true;
+  const allowed = ['Admin', ...(USER_GROUPS['Admin' as UserGroup] || []), ...(ROLE_ALIASES['Admin'] || [])];
+  return allowed.some((role) => userRoles.includes(role));
+};
+
+/**
+ * Staff-only API. Patient portal accounts use /portal/*, which scopes every
+ * query to their own record; the staff endpoints scope by branch only, so a
+ * patient account there would see other patients' appointments and invoices.
+ */
+export const denyPatientPortalUsers = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.user) {
+    return next(new AuthenticationError('Authentication required'));
+  }
+  const groups = getUserGroups(rolesOf(req));
+  if (groups.length > 0 && groups.every((g) => g === 'PATIENT_GROUP')) {
+    return next(new AuthorizationError('Patient accounts use the patient portal.'));
+  }
+  next();
 };
 
 export const requireAnyRole = (...allowedRoles: string[]) => {

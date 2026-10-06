@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true },
+  "include": [
+    "src/utils/icd10.util.ts",
+    "src/services/icd10-code.service.ts",
+    "src/routes/icd10-code.routes.ts",
+    "src/services/treatment-plan.service.ts",
+    "src/services/appointment.service.ts",
+    "src/scripts/seedIcd10Codes.ts",
+    "src/scripts/verifyIcd10Drawer.ts"
+  ]
+}

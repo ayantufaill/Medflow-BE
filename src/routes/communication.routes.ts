@@ -19,6 +19,16 @@ import {
   updateReviewSettingsValidator,
   bulkTextValidator,
   bulkEmailValidator,
+  emailDomainValidator,
+  emailPreferencesValidator,
+  messagingPracticeDetailsValidator,
+  messagingNumberSearchValidator,
+  messagingNumberSelectValidator,
+  automationListValidator,
+  automationCreateValidator,
+  automationUpdateValidator,
+  automationActiveValidator,
+  automationIdParamValidator,
 } from '../validators/communication.validator';
 
 const router = Router();
@@ -87,6 +97,426 @@ router.put(
   requirePermission('settings.update'),
   validate(updateSettingsValidator),
   communicationController.updateSettings.bind(communicationController)
+);
+
+/**
+ * @swagger
+ * /communication/email-domain:
+ *   get:
+ *     summary: Get the practice's email sending domain, its DNS records and verification status
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Email domain state (status is "not_configured" when no domain is set)
+ *       401:
+ *         description: Unauthorized
+ */
+router.get(
+  '/email-domain',
+  requirePermission('settings.read'),
+  communicationController.getEmailDomain.bind(communicationController)
+);
+
+/**
+ * @swagger
+ * /communication/email-domain:
+ *   put:
+ *     summary: Set or change the email sending domain and generate new DNS records
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [domain]
+ *             properties:
+ *               domain:
+ *                 type: string
+ *                 example: yourpractice.com
+ *     responses:
+ *       200:
+ *         description: Domain saved with status "pending" and fresh DNS records
+ *       400:
+ *         description: Invalid domain, or the domain is already the current one
+ */
+router.put(
+  '/email-domain',
+  requirePermission('settings.update'),
+  validate(emailDomainValidator),
+  communicationController.setEmailDomain.bind(communicationController)
+);
+
+/**
+ * @swagger
+ * /communication/email-domain/verify:
+ *   post:
+ *     summary: Check the domain's DNS records against live DNS and update the verification status
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Updated state; each record carries "found" and status is verified, pending or failed
+ *       400:
+ *         description: No email domain has been set up yet
+ */
+router.post(
+  '/email-domain/verify',
+  requirePermission('settings.update'),
+  communicationController.verifyEmailDomain.bind(communicationController)
+);
+
+/**
+ * @swagger
+ * /communication/email-preferences:
+ *   get:
+ *     summary: Get the 'Sent From' and 'Reply To' addresses for patient emails
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Saved addresses, or defaults derived from the email domain and practice email
+ *   put:
+ *     summary: Update the 'Sent From' and 'Reply To' addresses
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [sentFromEmail, replyToEmail]
+ *             properties:
+ *               sentFromEmail: { type: string, example: noreply@yourpractice.com }
+ *               replyToEmail: { type: string, example: info@yourpractice.com }
+ *     responses:
+ *       200:
+ *         description: Preferences saved
+ *       400:
+ *         description: Invalid email, or 'Sent From' does not use the verified email domain
+ */
+router.get(
+  '/email-preferences',
+  requirePermission('settings.read'),
+  communicationController.getEmailPreferences.bind(communicationController)
+);
+
+router.put(
+  '/email-preferences',
+  requirePermission('settings.update'),
+  validate(emailPreferencesValidator),
+  communicationController.updateEmailPreferences.bind(communicationController)
+);
+
+/**
+ * @swagger
+ * /communication/messaging-service:
+ *   get:
+ *     summary: Get the practice's two-way SMS number and its status (active, pending or inactive)
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Messaging service state
+ */
+router.get(
+  '/messaging-service',
+  requirePermission('settings.read'),
+  communicationController.getMessagingService.bind(communicationController)
+);
+
+/**
+ * @swagger
+ * /communication/messaging-service/practice-details:
+ *   get:
+ *     summary: Number Selection step 1 - business details carriers register the number against
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Saved details, or defaults from Practice Info. Only the EIN's last 4 digits are returned.
+ *   put:
+ *     summary: Confirm practice details for number registration
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               legalBusinessName: { type: string }
+ *               doingBusinessAs: { type: string }
+ *               ein: { type: string, description: Full EIN, only when changing it. Only the last 4 digits are stored. }
+ *               businessType: { type: string, example: Limited liability company }
+ *               phoneNumber: { type: string, example: "2015006314" }
+ *               website: { type: string }
+ *               address: { type: string }
+ *               address2: { type: string }
+ *               city: { type: string }
+ *               state: { type: string, example: NJ }
+ *               zip: { type: string, example: 07446-1926 }
+ *     responses:
+ *       200:
+ *         description: Details saved
+ *       400:
+ *         description: Per-field errors in error.details.fields
+ */
+router.get(
+  '/messaging-service/practice-details',
+  requirePermission('settings.read'),
+  communicationController.getMessagingPracticeDetails.bind(communicationController)
+);
+
+router.put(
+  '/messaging-service/practice-details',
+  requirePermission('settings.update'),
+  validate(messagingPracticeDetailsValidator),
+  communicationController.updateMessagingPracticeDetails.bind(communicationController)
+);
+
+/**
+ * @swagger
+ * /communication/messaging-service/available-numbers:
+ *   get:
+ *     summary: Number Selection step 2 - SMS-capable numbers available in an area code
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: areaCode
+ *         required: true
+ *         schema: { type: string, example: "201" }
+ *     responses:
+ *       200:
+ *         description: List of 10-digit numbers (Twilio inventory when configured)
+ *       400:
+ *         description: Invalid area code
+ */
+router.get(
+  '/messaging-service/available-numbers',
+  requirePermission('settings.read'),
+  validate(messagingNumberSearchValidator),
+  communicationController.searchMessagingNumbers.bind(communicationController)
+);
+
+/**
+ * @swagger
+ * /communication/messaging-service/number:
+ *   post:
+ *     summary: Select a messaging number (saved as pending carrier registration; not purchased)
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [phoneNumber]
+ *             properties:
+ *               phoneNumber: { type: string, example: "2015550142" }
+ *     responses:
+ *       200:
+ *         description: Messaging service with status "pending"
+ *       400:
+ *         description: Invalid number, practice details not confirmed, or already the current number
+ */
+router.post(
+  '/messaging-service/number',
+  requirePermission('settings.update'),
+  validate(messagingNumberSelectValidator),
+  communicationController.selectMessagingNumber.bind(communicationController)
+);
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     AutomationTiming:
+ *       oneOf:
+ *         - type: object
+ *           required: [type, event]
+ *           properties:
+ *             type: { type: string, enum: [event] }
+ *             event: { type: string, example: When Appointment Created }
+ *         - type: object
+ *           required: [type, amount, unit, direction, anchor]
+ *           properties:
+ *             type: { type: string, enum: [offset] }
+ *             amount: { type: integer, minimum: 1, maximum: 365, example: 7 }
+ *             unit: { type: string, enum: [Hours, Days, Weeks] }
+ *             direction: { type: string, enum: [Before, After] }
+ *             anchor: { type: string, example: Confirmed Appointment }
+ *     AutomationInput:
+ *       type: object
+ *       required: [timing, channel, body]
+ *       properties:
+ *         timing: { $ref: '#/components/schemas/AutomationTiming' }
+ *         channel: { type: string, enum: [Preferred, SMS, Email, "Email, SMS"] }
+ *         subject: { type: string, description: Email subject (ignored for SMS) }
+ *         body: { type: string, maxLength: 1000, example: "Hi {Patient: First Name}, see you tomorrow at {Appointment: Time}." }
+ */
+
+/**
+ * @swagger
+ * /communication/automations:
+ *   get:
+ *     summary: List a category's automated messages with overview counts
+ *     description: The first call seeds starter messages for every category.
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: category
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [pre-appointment, post-appointment, recall-reminders, incomplete-forms, payment-reminders]
+ *     responses:
+ *       200:
+ *         description: "{ category, messages, overview: { actions, totalSent, recipients } }"
+ *       400:
+ *         description: Unknown category
+ *   post:
+ *     summary: Create an automated message in a category
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             allOf:
+ *               - $ref: '#/components/schemas/AutomationInput'
+ *               - type: object
+ *                 required: [category]
+ *                 properties:
+ *                   category: { type: string, example: recall-reminders }
+ *     responses:
+ *       201:
+ *         description: Created message (active)
+ *       400:
+ *         description: Timing not valid for the category, bad channel, or empty message
+ */
+router.get(
+  '/automations',
+  requirePermission('settings.read'),
+  validate(automationListValidator),
+  communicationController.getAutomations.bind(communicationController)
+);
+
+router.post(
+  '/automations',
+  requirePermission('settings.update'),
+  validate(automationCreateValidator),
+  communicationController.createAutomation.bind(communicationController)
+);
+
+/**
+ * @swagger
+ * /communication/automations/{id}:
+ *   put:
+ *     summary: Update an automated message's timing, channel and content
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { $ref: '#/components/schemas/AutomationInput' }
+ *     responses:
+ *       200:
+ *         description: Updated message
+ *       400:
+ *         description: Invalid input for the message's category
+ *       404:
+ *         description: Message not found
+ *   delete:
+ *     summary: Delete an automated message
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Deleted
+ *       404:
+ *         description: Message not found
+ */
+router.put(
+  '/automations/:id',
+  requirePermission('settings.update'),
+  validate(automationUpdateValidator),
+  communicationController.updateAutomation.bind(communicationController)
+);
+
+router.delete(
+  '/automations/:id',
+  requirePermission('settings.update'),
+  validate(automationIdParamValidator),
+  communicationController.deleteAutomation.bind(communicationController)
+);
+
+/**
+ * @swagger
+ * /communication/automations/{id}/active:
+ *   patch:
+ *     summary: Turn an automated message on or off
+ *     tags: [Communication]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [active]
+ *             properties:
+ *               active: { type: boolean }
+ *     responses:
+ *       200:
+ *         description: Updated message
+ *       404:
+ *         description: Message not found
+ */
+router.patch(
+  '/automations/:id/active',
+  requirePermission('settings.update'),
+  validate(automationActiveValidator),
+  communicationController.setAutomationActive.bind(communicationController)
 );
 
 /**

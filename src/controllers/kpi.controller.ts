@@ -1,6 +1,14 @@
 import type { Request, Response, NextFunction } from 'express';
 import { kpiService } from '../services/kpi.service';
 
+/** Branches the caller may report on; undefined = unrestricted (platform admin / all-clinics profile). */
+const reportableClinicIds = (req: Request): bigint[] | undefined => {
+  const access = req.access;
+  if (!access || access.isPlatformAdmin || access.accessAllClinics) return undefined;
+  const ids = access.isGroupAdmin ? [...access.clinicIds, ...access.groupClinicIds] : access.clinicIds;
+  return [...new Set(ids.map(String))].map((id) => BigInt(id));
+};
+
 export class KpiController {
   /**
    * GET /kpis
@@ -14,7 +22,7 @@ export class KpiController {
       const branchId = req.query.branchId ? String(req.query.branchId) : undefined;
       const userId = (req as any).userId ? String((req as any).userId) : undefined;
 
-      const metrics = await kpiService.getMainKpis(startDate, endDate, branchId, userId);
+      const metrics = await kpiService.getMainKpis(startDate, endDate, branchId, userId, reportableClinicIds(req));
       res.status(200).json({
         success: true,
         data: metrics,
@@ -36,7 +44,7 @@ export class KpiController {
       const branchId = req.query.branchId ? String(req.query.branchId) : undefined;
       const userId = (req as any).userId ? String((req as any).userId) : undefined;
 
-      const providerMetrics = await kpiService.getProviderKpis(startDate, endDate, branchId, userId);
+      const providerMetrics = await kpiService.getProviderKpis(startDate, endDate, branchId, userId, reportableClinicIds(req));
       res.status(200).json({
         success: true,
         data: providerMetrics,
@@ -59,7 +67,7 @@ export class KpiController {
       const branchId = req.query.branchId ? String(req.query.branchId) : undefined;
       const userId = (req as any).userId ? String((req as any).userId) : undefined;
 
-      const summary = await kpiService.getKpiSummary(branchId, userId);
+      const summary = await kpiService.getKpiSummary(branchId, userId, reportableClinicIds(req));
       res.status(200).json({
         success: true,
         data: summary,

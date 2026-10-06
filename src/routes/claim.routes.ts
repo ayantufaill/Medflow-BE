@@ -1679,6 +1679,125 @@ router.post(
 
 /**
  * @swagger
+ * /claims/{claimId}/void:
+ *   post:
+ *     summary: Void a claim
+ *     description: Voids a claim. The claim is retained (and surfaced under "include voided transactions") but stops counting toward the invoice, its procedures return to unclaimed, and the invoice balance/aging are recalculated.
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: claimId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               note:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Claim voided
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     claim:
+ *                       $ref: '#/components/schemas/Claim'
+ *                 message:
+ *                   type: string
+ *                   example: "Claim voided successfully"
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Claim not found
+ *       500:
+ *         description: Internal server error
+ */
+router.post(
+  '/:claimId/void',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('claims.update'),
+  validate(claimIdValidator),
+  claimController.voidClaim.bind(claimController)
+);
+
+/**
+ * @swagger
+ * /claims/{claimId}/lock:
+ *   patch:
+ *     summary: Lock or unlock a claim
+ *     description: Locking freezes the claim's invoice - no further claim can be built for it until the locked claim is paid or unlocked. Send isLocked=false to release the lock.
+ *     tags: [Claims]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: claimId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               isLocked:
+ *                 type: boolean
+ *                 example: true
+ *     responses:
+ *       200:
+ *         description: Claim lock updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     claim:
+ *                       $ref: '#/components/schemas/Claim'
+ *                 message:
+ *                   type: string
+ *                   example: "Claim locked successfully"
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Claim not found
+ *       500:
+ *         description: Internal server error
+ */
+router.patch(
+  '/:claimId/lock',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('claims.update'),
+  validate(claimIdValidator),
+  claimController.setClaimLock.bind(claimController)
+);
+
+/**
+ * @swagger
  * /claims/manual:
  *   post:
  *     summary: Create a manual claim from selected procedures

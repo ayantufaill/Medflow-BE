@@ -114,13 +114,12 @@ export class PracticeGroupService {
 
   /**
    * Creates the first Group Admin user for a practice group, assigned to one
-   * of its branches. Reuses the existing invite flow (userService.createUser
-   * — hidden user + email verification link to set a real password) rather
-   * than accepting a plaintext password through a provisioning API.
+   * of its branches. A supplied password activates the account immediately;
+   * otherwise the existing email invitation flow is used.
    */
   async createGroupAdmin(
     groupId: number,
-    data: { email: string; firstName: string; lastName: string; clinicId: string },
+    data: { email: string; firstName: string; lastName: string; clinicId: string; password?: string },
     createdBy: string
   ): Promise<{ message: string }> {
     const group = await prisma.practicegroup.findUnique({ where: { id: groupId } });
@@ -140,7 +139,11 @@ export class PracticeGroupService {
     }
 
     const result = await userService.createUser(
-      { email: data.email, firstName: data.firstName, lastName: data.lastName, roleIds: [groupAdminRole._id] },
+      {
+        email: data.email, firstName: data.firstName, lastName: data.lastName,
+        roleIds: [groupAdminRole._id], password: data.password,
+        isActive: Boolean(data.password),
+      },
       createdBy
     );
 

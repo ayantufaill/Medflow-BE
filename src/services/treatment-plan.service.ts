@@ -1,9 +1,11 @@
-import { prisma } from '../config/db.js';
+import { prisma, applyTenantContextToTransaction } from '../config/db.js';
 import { NotFoundError, UnprocessableEntityError } from '../utils/error.util.js';
 import { getNextId } from '../utils/opendental-ids.util.js';
 import { claimService } from './claim.service.js';
 import { PatientInsuranceService } from './patient-insurance.service.js';
 import { invoiceService } from './invoice.service.js';
+import { validateIcd10Assignments } from '../utils/icd10.util';
+import { agingService } from './aging.service.js';
 
 const patientInsuranceService = new PatientInsuranceService();
 
@@ -25,19 +27,24 @@ type PlanMeta = {
   totalAmount?: number;
   insurancePortion?: number;
   patientPortion?: number;
+  preAuthByItemId?: Record<string, { status?: string; preAuthId?: string }>;
+  feeDetailsByItemId?: Record<string, { ucrFee?: number | null; noBillInsurance?: boolean; preAuthStatus?: string; preAuthNumber?: string; downgradedCode?: string; deductible?: number; estimateSource?: string; manualOverride?: boolean }>;
 };
 
 export class TreatmentPlanService {
-  private mapProctpToItem(row: any, idx = 0) {
+  private mapProctpToItem(row: any, idx = 0, meta: PlanMeta = {}) {
     const fee = Number(row.FeeAmt || 0);
     const insPortion = Number(row.PriInsAmt || 0);
     const ptPortion = Number(row.PatAmt || 0);
     const providerAbbr = row.provider?.Abbr || (row.ProvNum ? row.ProvNum.toString() : '');
+    const itemId = row.ProcTPNum.toString();
+    const preAuthMeta = meta.preAuthByItemId?.[itemId] || {};
+    const feeDetails = meta.feeDetailsByItemId?.[itemId] || {};
 
     return {
-      id: row.ProcTPNum.toString(),
-      _id: row.ProcTPNum.toString(),
-      procTPNum: row.ProcTPNum.toString(),
+      id: itemId,
+      _id: itemId,
+      procTPNum: itemId,
       procNumOrig: row.ProcNumOrig ? row.ProcNumOrig.toString() : null,
       itemOrder: row.ItemOrder ?? idx + 1,
       priority: row.Priority ? row.Priority.toString() : '- -',
@@ -61,7 +68,58 @@ export class TreatmentPlanService {
       providerId: row.ProvNum ? row.ProvNum.toString() : null,
       dateTP: row.DateTP ?? null,
       clinicId: row.ClinicNum ? row.ClinicNum.toString() : null,
+      preAuth: preAuthMeta.status || '-',
+      preAuthId: preAuthMeta.preAuthId || null,
+      ucrFee: feeDetails.ucrFee ?? null,
+      negotiatedRate: fee,
+      noBillInsurance: feeDetails.noBillInsurance ?? Boolean(row.procedurelog?.NoBillIns),
+      preAuthStatus: feeDetails.preAuthStatus || preAuthMeta.status || '',
+      preAuthNumber: feeDetails.preAuthNumber || '',
+      downgradedCode: feeDetails.downgradedCode || '',
+      deductible: feeDetails.deductible ?? 0,
+      estimateSource: feeDetails.estimateSource || (feeDetails.manualOverride ? 'Manual' : 'Auto'),
+      feeAllowed: row.FeeAllowed ?? null,
     };
+  }
+
+  /**
+   * Fold one item's pre-auth fields into the plan's `preAuthByItemId` map.
+   *
+   * Reconciliation is deliberately partial, because the UI sends back only
+   * what the user actually touched: a status alone keeps the stored id, an id
+   * alone keeps the stored status, and sending neither — including the API's
+   * '-' placeholder for "no status" — removes the entry. Dropping the stored
+   * counterpart would lose an approval the payer already issued, while keeping
+   * the entry on a clear would let a stale authorisation outlive the value the
+   * user removed.
+   *
+   * `isNew` only matters for the id-only branch: a row that has just been
+   * inserted cannot have a previously stored id to inherit.
+   */
+  private static applyPreAuth(
+    map: Record<string, { status?: string; preAuthId?: string }>,
+    itemId: string,
+    item: any,
+    isNew: boolean,
+  ) {
+    const existing = map[itemId];
+    if (item.preAuth && item.preAuth !== '-') {
+      map[itemId] = {
+        status: String(item.preAuth),
+        preAuthId: item.preAuthId
+          ? String(item.preAuthId)
+          : isNew
+            ? undefined
+            : existing?.preAuthId,
+      };
+    } else if (item.preAuthId) {
+      map[itemId] = {
+        status: existing?.status || 'Requested',
+        preAuthId: String(item.preAuthId),
+      };
+    } else {
+      delete map[itemId];
+    }
   }
 
   private async enrichItemsWithInsurance(patientId: bigint, items: any[]) {
@@ -131,7 +189,7 @@ export class TreatmentPlanService {
     const proctpRows = await prisma.proctp.findMany({
       where: { TreatPlanNum: { in: planIds } },
       orderBy: { ItemOrder: 'asc' },
-      include: { provider: true },
+      include: { provider: true, procedurelog: true },
     });
 
     const proctpByPlan = new Map<string, any[]>();
@@ -150,7 +208,7 @@ export class TreatmentPlanService {
         // Fallback: If no proctp rows exist yet, read from Note JSON (compatibility reader)
         const items =
           planProctp && planProctp.length > 0
-            ? planProctp.map((r, idx) => this.mapProctpToItem(r, idx))
+            ? planProctp.map((r, idx) => this.mapProctpToItem(r, idx, meta))
             : meta.items ?? [];
 
         return {
@@ -182,13 +240,13 @@ export class TreatmentPlanService {
     const proctpRows = await prisma.proctp.findMany({
       where: { TreatPlanNum: plan.TreatPlanNum },
       orderBy: { ItemOrder: 'asc' },
-      include: { provider: true },
+      include: { provider: true, procedurelog: true },
     });
 
     // Fallback: If no proctp rows exist yet, read from Note JSON (compatibility reader)
     const items =
       proctpRows && proctpRows.length > 0
-        ? proctpRows.map((r, idx) => this.mapProctpToItem(r, idx))
+        ? proctpRows.map((r, idx) => this.mapProctpToItem(r, idx, meta))
         : meta.items ?? [];
 
     return {
@@ -213,6 +271,7 @@ export class TreatmentPlanService {
     totalAmount?: number;
     items?: any[];
   }) {
+    data = { ...data, items: await validateIcd10Assignments(data.items ?? [], [], prisma) };
     const nextId = await getNextId('treatplan', 'TreatPlanNum');
 
     const { enrichedItems, insPortion, ptPortion, calcTotal } = await this.enrichItemsWithInsurance(
@@ -242,6 +301,13 @@ export class TreatmentPlanService {
 
     // Insert relational proctp rows
     const createdProctpRows = [];
+
+    // Pre-auth is keyed by ProcTPNum, which only exists once the rows below are
+    // inserted — so the map cannot be part of the Note written above, and is
+    // written back once the ids are known. Without this a plan created WITH
+    // pre-auth would silently lose it and come back reading '-' on every item.
+    const preAuthByItemId: Record<string, { status?: string; preAuthId?: string }> = {};
+
     if (enrichedItems.length > 0) {
       for (let i = 0; i < enrichedItems.length; i++) {
         const item = enrichedItems[i];
@@ -280,18 +346,27 @@ export class TreatmentPlanService {
             FeeAmt: feeAmt,
             PriInsAmt: priInsAmt,
             PatAmt: patAmt,
-            Dx: item.icd ?? item.dx ?? null,
+            Dx: item.icd,
             Prognosis: item.status ?? 'P',
             ProvNum: provNum,
             DateTP: planDate,
           },
-          include: { provider: true },
+          include: { provider: true, procedurelog: true },
         });
         createdProctpRows.push(row);
+        TreatmentPlanService.applyPreAuth(preAuthByItemId, procTPNum.toString(), item, true);
       }
     }
 
-    const items = createdProctpRows.map((r, idx) => this.mapProctpToItem(r, idx));
+    if (Object.keys(preAuthByItemId).length > 0) {
+      payload.preAuthByItemId = preAuthByItemId;
+      await prisma.treatplan.update({
+        where: { TreatPlanNum: plan.TreatPlanNum },
+        data: { Note: buildJson(payload) },
+      });
+    }
+
+    const items = createdProctpRows.map((r, idx) => this.mapProctpToItem(r, idx, payload));
 
     return {
       _id: plan.TreatPlanNum.toString(),
@@ -307,11 +382,110 @@ export class TreatmentPlanService {
     };
   }
 
+  async updateItemFees(planId: string, itemId: string, fees: {
+    ucrFee: number | null; negotiatedRate: number; insuranceEstimate: number;
+    patientEstimate: number; deductible: number; noBillInsurance: boolean;
+    preAuthStatus: string; preAuthNumber: string; downgradedCode: string;
+  }, automatic = false) {
+    const values = [fees.negotiatedRate, fees.insuranceEstimate, fees.patientEstimate, fees.deductible];
+    if (values.some((value) => !Number.isFinite(value) || value < 0)
+      || (fees.ucrFee !== null && (!Number.isFinite(fees.ucrFee) || fees.ucrFee < 0))
+      || fees.insuranceEstimate + fees.patientEstimate > fees.negotiatedRate + 0.01
+      || (fees.noBillInsurance && fees.insuranceEstimate !== 0)) {
+      throw new UnprocessableEntityError('Invalid procedure fee or estimate amounts');
+    }
+    const planNum = BigInt(planId);
+    const procTPNum = BigInt(itemId);
+    const result = await prisma.$transaction(async (tx) => {
+      const plan = await tx.treatplan.findUnique({ where: { TreatPlanNum: planNum } });
+      if (!plan) throw new NotFoundError('Treatment plan not found');
+      const row = await tx.proctp.findFirst({ where: { ProcTPNum: procTPNum, TreatPlanNum: planNum } });
+      if (!row) throw new NotFoundError('Treatment plan procedure not found');
+      const meta = parseJson<PlanMeta>(plan.Note);
+      const details = { ...(meta.feeDetailsByItemId || {}) };
+      const preAuthByItemId = { ...(meta.preAuthByItemId || {}) };
+      if (fees.preAuthStatus) {
+        preAuthByItemId[itemId] = { ...preAuthByItemId[itemId], status: fees.preAuthStatus };
+      } else {
+        delete preAuthByItemId[itemId];
+      }
+      details[itemId] = {
+        ucrFee: fees.ucrFee,
+        noBillInsurance: fees.noBillInsurance,
+        preAuthStatus: fees.preAuthStatus,
+        preAuthNumber: fees.preAuthNumber,
+        downgradedCode: fees.downgradedCode,
+        deductible: fees.deductible,
+        estimateSource: automatic ? 'Auto' : 'Manual',
+        manualOverride: !automatic,
+      };
+      await tx.proctp.update({
+        where: { ProcTPNum: procTPNum },
+        data: {
+          FeeAmt: fees.negotiatedRate,
+          PriInsAmt: fees.noBillInsurance ? 0 : fees.insuranceEstimate,
+          PatAmt: fees.patientEstimate,
+        },
+      });
+      const rows = await tx.proctp.findMany({ where: { TreatPlanNum: planNum }, include: { provider: true, procedurelog: true }, orderBy: { ItemOrder: 'asc' } });
+      const nextMeta = {
+        ...meta,
+        feeDetailsByItemId: details,
+        preAuthByItemId,
+        totalAmount: rows.reduce((sum, item) => sum + Number(item.FeeAmt || 0), 0),
+        insurancePortion: rows.reduce((sum, item) => sum + Number(item.PriInsAmt || 0), 0),
+        patientPortion: rows.reduce((sum, item) => sum + Number(item.PatAmt || 0), 0),
+      };
+      await tx.treatplan.update({ where: { TreatPlanNum: planNum }, data: { Note: buildJson(nextMeta) } });
+      return { rows, meta: nextMeta };
+    });
+    return {
+      items: result.rows.map((row, index) => this.mapProctpToItem(row, index, result.meta)),
+      totalAmount: result.meta.totalAmount,
+      insurancePortion: result.meta.insurancePortion,
+      patientPortion: result.meta.patientPortion,
+    };
+  }
+
+  async reestimateItemFees(planId: string, itemId: string) {
+    const plan = await prisma.treatplan.findUnique({ where: { TreatPlanNum: BigInt(planId) } });
+    if (!plan?.PatNum) throw new NotFoundError('Treatment plan not found');
+    const row = await prisma.proctp.findFirst({ where: { ProcTPNum: BigInt(itemId), TreatPlanNum: plan.TreatPlanNum } });
+    if (!row) throw new NotFoundError('Treatment plan procedure not found');
+    const calculated = await invoiceService.calculateInsuranceEstimates(plan.PatNum, [{
+      procedureCode: row.ProcCode,
+      code: row.ProcCode,
+      charge: Number(row.FeeAmt || 0),
+    }]);
+    const insuranceEstimate = Number(calculated[0]?.insPortion || 0);
+    const patientEstimate = Number(calculated[0]?.ptPortion || 0);
+    const meta = parseJson<PlanMeta>(plan.Note);
+    const previous = meta.feeDetailsByItemId?.[itemId];
+    return this.updateItemFees(planId, itemId, {
+      ucrFee: previous?.ucrFee ?? null,
+      negotiatedRate: Number(row.FeeAmt || 0),
+      insuranceEstimate,
+      patientEstimate,
+      deductible: Number(calculated[0]?.deductibleApplied || 0),
+      noBillInsurance: false,
+      preAuthStatus: previous?.preAuthStatus || '',
+      preAuthNumber: previous?.preAuthNumber || '',
+      downgradedCode: previous?.downgradedCode || '',
+    }, true);
+  }
+
   async updateTreatmentPlan(
     planId: string,
-    updates: Partial<{ title: string; notes: string; status: string; totalAmount: number; items: any[] }>
+    updates: Partial<{ title: string; notes: string; status: string; totalAmount: number; items: any[] }>,
+    createdBy?: string,
   ) {
-    const plan = await prisma.treatplan.findUnique({
+    const result = await prisma.$transaction(async (tx) => {
+      const newlyCompletedProcNums: bigint[] = [];
+      const manualProcNums: bigint[] = [];
+    await applyTenantContextToTransaction(tx);
+    // Serialize edits of the same plan so concurrent retries see the committed link.
+    await tx.$queryRaw`SELECT "TreatPlanNum" FROM "treatplan" WHERE "TreatPlanNum" = ${BigInt(planId)} FOR UPDATE`;
+    const plan = await tx.treatplan.findUnique({
       where: { TreatPlanNum: BigInt(planId) },
     });
     if (!plan) {
@@ -321,11 +495,14 @@ export class TreatmentPlanService {
     const meta = parseJson<PlanMeta>(plan.Note);
 
     // Existing proctp rows
-    const existingProctpRows = await prisma.proctp.findMany({
+    const existingProctpRows = await tx.proctp.findMany({
       where: { TreatPlanNum: plan.TreatPlanNum },
-      include: { provider: true },
+      include: { provider: true, procedurelog: true },
     });
 
+    if (updates.items) {
+      updates = { ...updates, items: await validateIcd10Assignments(updates.items, existingProctpRows.map(row => ({ id: row.ProcTPNum.toString(), icd: row.Dx })), tx) };
+    }
     let nextItems = updates.items;
     let insPortion = meta.insurancePortion ?? 0;
     let ptPortion = meta.patientPortion ?? 0;
@@ -337,7 +514,21 @@ export class TreatmentPlanService {
       insPortion = enrichment.insPortion;
       ptPortion = enrichment.ptPortion;
       calcTotal = enrichment.calcTotal;
+      for (const item of nextItems || []) {
+        const itemId = String(item.id || item._id || item.procTPNum || '');
+        if (!meta.feeDetailsByItemId?.[itemId]?.manualOverride) continue;
+        const saved = existingProctpRows.find((row) => row.ProcTPNum.toString() === itemId);
+        if (!saved) continue;
+        item.insPortion = Number(saved.PriInsAmt || 0);
+        item.ptPortion = Number(saved.PatAmt || 0);
+        item.insuranceAmount = `$${item.insPortion.toFixed(2)}`;
+        item.patientAmount = `$${item.ptPortion.toFixed(2)}`;
+      }
+      insPortion = (nextItems || []).reduce((sum, item) => sum + Number(item.insPortion || 0), 0);
+      ptPortion = (nextItems || []).reduce((sum, item) => sum + Number(item.ptPortion || 0), 0);
     }
+
+    const preAuthByItemId = { ...(meta.preAuthByItemId || {}) };
 
     // Process items if provided
     if (nextItems && Array.isArray(nextItems)) {
@@ -354,33 +545,37 @@ export class TreatmentPlanService {
         // Check if item is being marked complete ('C') and create procedurelog row
         let procNumOrig = existingRow?.ProcNumOrig ?? null;
         const isNowCompleted = item.status === 'C' || item.status === 'Completed';
-        const wasCompleted = existingRow && (existingRow.Prognosis === 'C' || existingRow.ProcNumOrig != null);
+        const itemStatus = isNowCompleted ? 'C' : item.status;
+        const wasCompleted = existingRow && (existingRow.Prognosis === 'C' || (existingRow.ProcNumOrig != null && existingRow.ProcNumOrig !== BigInt(0)));
 
         if (isNowCompleted && !wasCompleted && plan.PatNum) {
+          const patient = await tx.patient.findUnique({ where: { PatNum: plan.PatNum } });
+          if (!patient) throw new NotFoundError('Patient not found');
           let codeNum = BigInt(0);
           const codeStr = item.procedureCode || item.code;
           if (codeStr) {
-            const pc = await prisma.procedurecode.findFirst({ where: { ProcCode: codeStr } });
+            const pc = await tx.procedurecode.findFirst({ where: { ProcCode: codeStr } });
             if (pc?.CodeNum) codeNum = pc.CodeNum;
           }
 
           let provNum = BigInt(0);
-          if (item.provider) {
-            const prov = await prisma.provider.findFirst({ where: { Abbr: item.provider } });
+          if (item.providerId && /^\d+$/.test(String(item.providerId))) {
+            provNum = BigInt(String(item.providerId));
+          } else if (item.provider) {
+            const prov = await tx.provider.findFirst({ where: { Abbr: item.provider } });
             if (prov?.ProvNum) provNum = prov.ProvNum;
           }
           if (provNum === BigInt(0)) {
-            const patient = await prisma.patient.findUnique({ where: { PatNum: plan.PatNum } });
-            if (patient && patient.PriProv) {
+            if (patient.PriProv) {
               provNum = patient.PriProv;
             } else {
-              const fallbackProv = await prisma.provider.findFirst({ where: { IsHidden: 0 } });
+              const fallbackProv = await tx.provider.findFirst({ where: { IsHidden: 0 } });
               if (fallbackProv?.ProvNum) provNum = fallbackProv.ProvNum;
             }
           }
 
-          const newProcNum = await getNextId('procedurelog', 'ProcNum');
-          await prisma.procedurelog.create({
+          const newProcNum = await getNextId('procedurelog', 'ProcNum', tx);
+          await tx.procedurelog.create({
             data: {
               ProcNum: newProcNum,
               PatNum: plan.PatNum,
@@ -392,12 +587,33 @@ export class TreatmentPlanService {
               Surf: (item.site ?? item.surface ?? '').substring(0, 10),
               ToothNum: item.tooth ? String(item.tooth).substring(0, 2) : '',
               OldCode: (codeStr ?? '').substring(0, 15),
+              DiagnosticCode: item.icd,
               DateTP: plan.DateTP,
+              ClinicNum: existingRow?.ClinicNum ?? (item.clinicId ? BigInt(item.clinicId) : patient.ClinicNum),
+              BillingNote: buildJson({
+                description: item.description || item.name || '',
+                cptCode: codeStr || '', serviceId: codeNum.toString(),
+                unitPrice: Number(item.charge ?? item.fee ?? 0), quantity: 1,
+                charge: Number(item.charge ?? item.fee ?? 0),
+                site: item.site || item.surface || '', provider: item.provider || '',
+                ptPortion: Number(item.ptPortion ?? item.patientAmount ?? 0) || 0,
+                insPortion: Number(item.insPortion ?? item.insuranceAmount ?? 0) || 0,
+                writeoff: Number(item.writeoff ?? Math.max(0,
+                  Number(item.charge ?? item.fee ?? 0) - Number(item.insPortion ?? 0) - Number(item.ptPortion ?? 0))),
+                completed: true,
+              }),
+              NoBillIns: item.noBillInsurance ? 1 : null,
             },
           });
 
           // Restored Link: Capture created ProcNum and link it to proctp.ProcNumOrig!
           procNumOrig = newProcNum;
+          newlyCompletedProcNums.push(newProcNum);
+          if (meta.feeDetailsByItemId?.[String(item.id || item._id || item.procTPNum || '')]?.manualOverride) manualProcNums.push(newProcNum);
+        }
+
+        if (procNumOrig) {
+          await tx.procedurelog.update({ where: { ProcNum: procNumOrig }, data: { DiagnosticCode: item.icd } });
         }
 
         const parseAmt = (val: any) => typeof val === 'number' ? val : Number(String(val || 0).replace(/[^0-9.-]+/g, '')) || 0;
@@ -411,13 +627,13 @@ export class TreatmentPlanService {
           if (/^\d+$/.test(String(provInput))) {
             provNum = BigInt(String(provInput));
           } else {
-            const prov = await prisma.provider.findFirst({ where: { Abbr: String(provInput) } });
+            const prov = await tx.provider.findFirst({ where: { Abbr: String(provInput) } });
             if (prov?.ProvNum) provNum = prov.ProvNum;
           }
         }
 
         if (existingRow) {
-          await prisma.proctp.update({
+          await tx.proctp.update({
             where: { ProcTPNum: existingRow.ProcTPNum },
             data: {
               ItemOrder: i + 1,
@@ -428,16 +644,19 @@ export class TreatmentPlanService {
               FeeAmt: feeAmt,
               PriInsAmt: priInsAmt,
               PatAmt: patAmt,
-              Dx: item.icd ?? item.dx ?? null,
-              Prognosis: item.status ?? existingRow.Prognosis ?? 'P',
+              Dx: item.icd,
+              Prognosis: itemStatus ?? existingRow.Prognosis ?? 'P',
               ProvNum: provNum ?? existingRow.ProvNum,
               ProcNumOrig: procNumOrig,
             },
           });
           keepProcTPNums.push(existingRow.ProcTPNum);
+
+          const itemId = existingRow.ProcTPNum.toString();
+          TreatmentPlanService.applyPreAuth(preAuthByItemId, itemId, item, false);
         } else {
-          const newProcTPNum = await getNextId('proctp', 'ProcTPNum');
-          await prisma.proctp.create({
+          const newProcTPNum = await getNextId('proctp', 'ProcTPNum', tx);
+          await tx.proctp.create({
             data: {
               ProcTPNum: newProcTPNum,
               TreatPlanNum: plan.TreatPlanNum,
@@ -450,21 +669,28 @@ export class TreatmentPlanService {
               FeeAmt: feeAmt,
               PriInsAmt: priInsAmt,
               PatAmt: patAmt,
-              Dx: item.icd ?? item.dx ?? null,
-              Prognosis: item.status ?? 'P',
+              Dx: item.icd,
+              Prognosis: itemStatus ?? 'P',
               ProvNum: provNum,
               ProcNumOrig: procNumOrig,
               DateTP: plan.DateTP,
             },
           });
           keepProcTPNums.push(newProcTPNum);
+
+          const itemId = newProcTPNum.toString();
+          TreatmentPlanService.applyPreAuth(preAuthByItemId, itemId, item, true);
         }
       }
 
       // Delete removed proctp rows
       const toDelete = existingProctpRows.filter((r) => !keepProcTPNums.includes(r.ProcTPNum));
       if (toDelete.length > 0) {
-        await prisma.proctp.deleteMany({
+        toDelete.forEach((row) => {
+          delete preAuthByItemId[row.ProcTPNum.toString()];
+          if (meta.feeDetailsByItemId) delete meta.feeDetailsByItemId[row.ProcTPNum.toString()];
+        });
+        await tx.proctp.deleteMany({
           where: { ProcTPNum: { in: toDelete.map((r) => r.ProcTPNum) } },
         });
       }
@@ -477,9 +703,10 @@ export class TreatmentPlanService {
       totalAmount: updates.items ? calcTotal : (updates.totalAmount ?? meta.totalAmount),
       insurancePortion: insPortion,
       patientPortion: ptPortion,
+      preAuthByItemId,
     };
 
-    const updated = await prisma.treatplan.update({
+    const updated = await tx.treatplan.update({
       where: { TreatPlanNum: plan.TreatPlanNum },
       data: {
         Heading: updates.title ?? undefined,
@@ -487,14 +714,20 @@ export class TreatmentPlanService {
       },
     });
 
-    const refreshedProctpRows = await prisma.proctp.findMany({
+    const createdInvoice = plan.PatNum && newlyCompletedProcNums.length
+      ? await invoiceService.createInvoiceFromCompletedProcedures(
+          tx, plan.PatNum, newlyCompletedProcNums, createdBy, planId, manualProcNums,
+        )
+      : null;
+
+    const refreshedProctpRows = await tx.proctp.findMany({
       where: { TreatPlanNum: plan.TreatPlanNum },
       orderBy: { ItemOrder: 'asc' },
-      include: { provider: true },
+      include: { provider: true, procedurelog: true },
     });
 
     const items = refreshedProctpRows.length > 0
-      ? refreshedProctpRows.map((r, idx) => this.mapProctpToItem(r, idx))
+      ? refreshedProctpRows.map((r, idx) => this.mapProctpToItem(r, idx, nextMeta))
       : (meta.items ?? []);
 
     return {
@@ -508,7 +741,13 @@ export class TreatmentPlanService {
       patientPortion: nextMeta.patientPortion ?? null,
       items,
       createdAt: updated.DateTP ?? null,
+      createdInvoice,
     };
+    }, { maxWait: 10000, timeout: 60000 });
+    if (result.createdInvoice && result.patientId) {
+      await agingService.updatePatientAging(BigInt(result.patientId)).catch(() => {});
+    }
+    return result;
   }
 
   async deleteTreatmentPlan(planId: string) {
@@ -535,7 +774,7 @@ export class TreatmentPlanService {
 
     const existingProctpRows = await prisma.proctp.findMany({
       where: { TreatPlanNum: plan.TreatPlanNum },
-      include: { provider: true },
+      include: { provider: true, procedurelog: true },
     });
 
     if (existingProctpRows.length > 0) {
@@ -569,11 +808,11 @@ export class TreatmentPlanService {
     const refreshedProctpRows = await prisma.proctp.findMany({
       where: { TreatPlanNum: plan.TreatPlanNum },
       orderBy: { ItemOrder: 'asc' },
-      include: { provider: true },
+      include: { provider: true, procedurelog: true },
     });
 
     const hydratedItems = refreshedProctpRows.length > 0
-      ? refreshedProctpRows.map((r, idx) => this.mapProctpToItem(r, idx))
+      ? refreshedProctpRows.map((r, idx) => this.mapProctpToItem(r, idx, meta))
       : (meta.items ?? items);
 
     return {
@@ -607,11 +846,11 @@ export class TreatmentPlanService {
     const proctpRows = await prisma.proctp.findMany({
       where: { TreatPlanNum: plan.TreatPlanNum },
       orderBy: { ItemOrder: 'asc' },
-      include: { provider: true },
+      include: { provider: true, procedurelog: true },
     });
 
     const items = proctpRows.length > 0
-      ? proctpRows.map((r, idx) => this.mapProctpToItem(r, idx))
+      ? proctpRows.map((r, idx) => this.mapProctpToItem(r, idx, meta))
       : (meta.items ?? []);
 
     return {
@@ -638,7 +877,9 @@ export class TreatmentPlanService {
       throw new UnprocessableEntityError('Treatment plan has no items');
     }
 
-    const acceptedItems = plan.items.filter((item: any) => item.status === 'A' || item.status === 'accepted');
+    const acceptedItems = plan.items.filter((item: any) =>
+      !item.noBillInsurance && (item.status === 'A' || item.status === 'accepted')
+    );
 
     if (acceptedItems.length === 0) {
       throw new UnprocessableEntityError('No accepted items in treatment plan');
@@ -700,6 +941,8 @@ export class TreatmentPlanService {
     let itemsToProcess = payload.items && payload.items.length > 0 
       ? payload.items 
       : plan.items;
+    const excludedIds = new Set(plan.items.filter((item: any) => item.noBillInsurance).map((item: any) => String(item.id)));
+    itemsToProcess = itemsToProcess.filter((item: any) => !excludedIds.has(String(item.id || item._id || item.procTPNum)));
 
     if (!itemsToProcess || itemsToProcess.length === 0) {
       throw new UnprocessableEntityError('No items found to generate a PreAuth');
