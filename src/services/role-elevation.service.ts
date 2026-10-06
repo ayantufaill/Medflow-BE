@@ -119,6 +119,16 @@ export async function elevateUserRole({
 
   const existing = await getNewModelRoleForUser(targetUserId);
 
+  // The user's current role must be one the actor could have handed out:
+  // nobody here demotes a group_admin, and a branch_admin cannot change the
+  // role of another branch_admin or of billing.
+  if (existing && NOT_ELEVATABLE_ROLE_KEYS.has(existing.roleKey)) {
+    throw new AuthorizationError(`A ${existing.roleKey}'s role cannot be changed from here.`);
+  }
+  if (existing && actingAsBranchAdminOnly && BRANCH_ADMIN_CANNOT_ASSIGN.has(existing.roleKey)) {
+    throw new AuthorizationError(`branch_admin cannot change the role of a ${existing.roleKey} user.`);
+  }
+
   await prisma.$transaction(async (tx) => {
     // Only remove the target's EXISTING new-model attachment, if any —
     // every legacy usergroupattach row is left completely alone.
