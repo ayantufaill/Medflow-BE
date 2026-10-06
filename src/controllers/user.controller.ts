@@ -566,7 +566,7 @@ export class UserController {
       res.status(200).json({
         success: true,
         data: {
-          message: `Role changed to "${result.newRoleKey}". The user will be signed out of all active sessions.`,
+          message: `Role changed to "${result.newRoleKey}". Their access updates automatically; they stay signed in.`,
           oldRole: result.oldRoleKey,
           newRole: result.newRoleKey,
         },
