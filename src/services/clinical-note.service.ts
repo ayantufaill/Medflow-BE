@@ -63,6 +63,45 @@ const isClinicalNoteMeta = (meta: Record<string, unknown>): boolean =>
 
 export class ClinicalNoteService {
   private async enrichClinicalNotes(notes: any[]) {
+    // Notes created with their appointment carry no providerId; fall back to
+    // the appointment's provider so the note never reads "Unknown Provider".
+    const missingProviderApptIds = Array.from(
+      new Set(
+        notes
+          .filter((note) => !note.providerId && note.appointmentId && /^\d+$/.test(String(note.appointmentId)))
+          .map((note) => String(note.appointmentId))
+      )
+    );
+    if (missingProviderApptIds.length) {
+      const appts = await prisma.appointment.findMany({
+        where: { AptNum: { in: missingProviderApptIds.map((id) => BigInt(id)) } },
+        select: { AptNum: true, ProvNum: true },
+      });
+      const provByAppt = new Map(appts.map((a) => [a.AptNum.toString(), a.ProvNum ? a.ProvNum.toString() : null]));
+      notes = notes.map((note) =>
+        !note.providerId && note.appointmentId && provByAppt.get(String(note.appointmentId))
+          ? { ...note, providerId: provByAppt.get(String(note.appointmentId)) }
+          : note
+      );
+    }
+
+    // signedBy is stored as a user id; resolve it to a name for display.
+    const signerIds = Array.from(
+      new Set(notes.map((note) => note.signedBy).filter((id): id is string => typeof id === 'string' && /^\d+$/.test(id)))
+    );
+    const signerRows = signerIds.length
+      ? await prisma.userod.findMany({ where: { UserNum: { in: signerIds.map((id) => BigInt(id)) } } })
+      : [];
+    const signerMeta = signerRows.length ? await getUsersMeta(signerRows.map((u) => u.UserNum)) : {};
+    const signerMap = new Map(
+      await Promise.all(
+        signerRows.map(async (u) => {
+          const m = await mapUser(u, signerMeta[u.UserNum.toString()]);
+          return [u.UserNum.toString(), { _id: m._id, firstName: m.firstName, lastName: m.lastName, email: m.email || null }] as const;
+        })
+      )
+    );
+
     const patientIds = Array.from(
       new Set(notes.map((note) => note.patientId).filter((id): id is string => Boolean(id)))
     );
@@ -140,6 +179,7 @@ export class ClinicalNoteService {
       ...note,
       patientId: note.patientId ? patientMap.get(note.patientId) ?? null : null,
       providerId: note.providerId ? providerMap.get(note.providerId) ?? null : null,
+      signedBy: note.signedBy ? signerMap.get(String(note.signedBy)) ?? note.signedBy : null,
     }));
   }
 
@@ -494,8 +534,21 @@ export class ClinicalNoteService {
       throw new ValidationError('Cannot sign an empty clinical note. At least one SOAP section or note content must be completed.');
     }
 
+    // A note without a provider (created with its appointment) takes the
+    // appointment's provider, else the signer's own provider record.
+    let providerId = meta.providerId;
+    if (!providerId && meta.appointmentId && /^\d+$/.test(String(meta.appointmentId))) {
+      const appt = await prisma.appointment.findUnique({ where: { AptNum: BigInt(meta.appointmentId) }, select: { ProvNum: true } });
+      if (appt?.ProvNum) providerId = appt.ProvNum.toString();
+    }
+    if (!providerId) {
+      const signer = await prisma.userod.findUnique({ where: { UserNum: BigInt(userId) }, select: { ProvNum: true } });
+      if (signer?.ProvNum && signer.ProvNum > 0n) providerId = signer.ProvNum.toString();
+    }
+
     const nextMeta: ClinicalNoteMeta = {
       ...meta,
+      providerId,
       isSigned: true,
       signedAt: new Date().toISOString(),
       signedBy: userId,
