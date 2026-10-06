@@ -80,7 +80,7 @@ const findOrCreateGroup = async (name: string) =>
 const findOrCreateClinic = async (description: string, groupId: number, city: string, state: string) => {
   const existing = await prisma.clinic.findFirst({ where: { Description: description } });
   // Feature flags start off (T-FD-02 turns treatment_coordinator on for Branch A).
-  const data = { GroupNum: groupId, City: city, State: state, features: { treatment_coordinator: false } };
+  const data = { GroupNum: groupId, City: city, State: state, IsHidden: 0, features: { treatment_coordinator: false } };
   if (existing) return prisma.clinic.update({ where: { ClinicNum: existing.ClinicNum }, data });
   return prisma.clinic.create({
     data: { ClinicNum: await getNextId('clinic', 'ClinicNum'), Description: description, ...data },

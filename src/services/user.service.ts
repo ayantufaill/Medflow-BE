@@ -859,9 +859,10 @@ export class UserService {
     }
     await assertUserInScope(userId, allowedClinicIds);
 
-    const clinicNums = branchIds.map((id) => BigInt(id));
+    const clinicNums = [...new Set(branchIds.map(String))].map((id) => BigInt(id));
+    // IsHidden is NULL on clinics created outside the admin UI; only 1 hides.
     const clinics = await prisma.clinic.findMany({
-      where: { ClinicNum: { in: clinicNums }, IsHidden: 0 },
+      where: { ClinicNum: { in: clinicNums }, OR: [{ IsHidden: 0 }, { IsHidden: null }] },
       select: { ClinicNum: true },
     });
     if (clinics.length !== clinicNums.length) {
