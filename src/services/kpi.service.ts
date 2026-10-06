@@ -1,4 +1,5 @@
 import { prisma } from '../config/db';
+import { AuthorizationError, BadRequestError } from '../utils/error.util';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -70,27 +71,37 @@ function fmtInt(n: number): string {
 // ─── KPI Service ─────────────────────────────────────────────────────────────
 
 export class KpiService {
-  private async resolveClinicNums(branchId?: string, userId?: string): Promise<bigint[] | undefined> {
-    let targetClinicNums: bigint[] | undefined = undefined;
+  /**
+   * `allowedClinicIds` is the caller's branch scope (undefined = unrestricted, e.g. platform admin).
+   * A specific branchId outside that scope is refused; "All" means every branch in scope.
+   */
+  private async resolveClinicNums(branchId?: string, userId?: string, allowedClinicIds?: bigint[]): Promise<bigint[] | undefined> {
     if (branchId && branchId !== 'All') {
-      targetClinicNums = [BigInt(branchId)];
-    } else if (userId) {
-      const branches = await prisma.userclinic.findMany({ where: { UserNum: Number(userId) }, select: { ClinicNum: true } });
-      targetClinicNums = branches.map((b) => b.ClinicNum).filter(Boolean) as bigint[];
+      if (!/^\d+$/.test(branchId)) throw new BadRequestError('Invalid branchId');
+      const requested = BigInt(branchId);
+      if (allowedClinicIds && !allowedClinicIds.includes(requested)) {
+        throw new AuthorizationError('You do not have access to this branch.');
+      }
+      return [requested];
     }
-    return targetClinicNums;
+    if (allowedClinicIds) return allowedClinicIds;
+    if (userId) {
+      const branches = await prisma.userclinic.findMany({ where: { UserNum: Number(userId) }, select: { ClinicNum: true } });
+      return branches.map((b) => b.ClinicNum).filter(Boolean) as bigint[];
+    }
+    return undefined;
   }
 
   /**
    * Returns consolidated KPI metrics for the rolling last 12 months.
    * All values arrays are ordered: index 0 = most recent month.
    */
-  async getMainKpis(startDate?: Date, endDate?: Date, branchId?: string, userId?: string) {
+  async getMainKpis(startDate?: Date, endDate?: Date, branchId?: string, userId?: string, allowedClinicIds?: bigint[]) {
     const buckets = getLast12MonthBuckets();
     const rangeStart = buckets[11].start;
     const rangeEnd = buckets[0].end;
     
-    const targetClinicNums = await this.resolveClinicNums(branchId, userId);
+    const targetClinicNums = await this.resolveClinicNums(branchId, userId, allowedClinicIds);
 
     // ── 1. Load all providers to classify Doctor vs Hygiene ──────────────────
     const providers = await prisma.provider.findMany({
@@ -301,12 +312,12 @@ export class KpiService {
   /**
    * Returns KPI metrics grouped by provider for the rolling last 12 months.
    */
-  async getProviderKpis(startDate?: Date, endDate?: Date, branchId?: string, userId?: string) {
+  async getProviderKpis(startDate?: Date, endDate?: Date, branchId?: string, userId?: string, allowedClinicIds?: bigint[]) {
     const buckets = getLast12MonthBuckets();
     const rangeStart = buckets[11].start;
     const rangeEnd = buckets[0].end;
     
-    const targetClinicNums = await this.resolveClinicNums(branchId, userId);
+    const targetClinicNums = await this.resolveClinicNums(branchId, userId, allowedClinicIds);
 
     // ── Load all non-hidden providers ─────────────────────────────────────────
     const providers = await prisma.provider.findMany({
@@ -474,12 +485,12 @@ export class KpiService {
    * Returns 4 top-card summary metrics comparing current month vs last month.
    * Suitable for a dedicated GET /kpis/summary endpoint.
    */
-  async getKpiSummary(branchId?: string, userId?: string) {
+  async getKpiSummary(branchId?: string, userId?: string, allowedClinicIds?: bigint[]) {
     const buckets = getLast12MonthBuckets();
     const thisMonth = buckets[0];
     const lastMonth = buckets[1];
     
-    const targetClinicNums = await this.resolveClinicNums(branchId, userId);
+    const targetClinicNums = await this.resolveClinicNums(branchId, userId, allowedClinicIds);
 
     // Helper: sum paysplit for a date range
     const sumCollection = async (start: Date, end: Date) => {

@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import { isAdminRequest } from '../middleware/auth.middleware';
 import { practiceInfoService } from '../services/practice-info.service';
 import { isValidFileSize } from '../utils/s3.util';
 
@@ -36,11 +37,16 @@ export class PracticeInfoController {
    */
   async getPracticeInfo(req: Request, res: Response, next: NextFunction) {
     try {
-      const practiceInfo = await practiceInfoService.getPracticeInfo({
+      const info = await practiceInfoService.getPracticeInfo({
         userId: req.userId,
         branchId: req.query.branchId as string | undefined,
         groupClinicIds: req.branchAccess?.groupClinicIds,
       });
+      // Kiosk credentials and the tax ID are for admins only.
+      const practiceInfo =
+        info && !isAdminRequest(req)
+          ? { ...info, kioskPassword: undefined, kioskAccounts: undefined, taxId: undefined }
+          : info;
       res.status(200).json({
         success: true,
         data: { practiceInfo },

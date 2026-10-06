@@ -73,6 +73,9 @@ export async function getNewModelRoleByKey(roleKey: string): Promise<NewModelRol
  * feature-flag toggle takes effect immediately with no session invalidation
  * needed.
  */
+/** Roles a branch's Treatment Coordinator flag applies to. */
+const TREATMENT_COORDINATOR_ROLES = new Set(['branch_admin', 'front_desk']);
+
 export async function resolveEffectivePermissions(
   userId: string,
   opts?: { clinicId?: bigint }
@@ -94,7 +97,7 @@ export async function resolveEffectivePermissions(
     }
   }
 
-  if (opts?.clinicId && (newModelRole.roleKey === 'branch_admin' || newModelRole.roleKey === 'front_desk')) {
+  if (opts?.clinicId && TREATMENT_COORDINATOR_ROLES.has(newModelRole.roleKey)) {
     const clinic = await prisma.clinic.findUnique({
       where: { ClinicNum: opts.clinicId },
       select: { features: true },
@@ -107,3 +110,23 @@ export async function resolveEffectivePermissions(
 
   return resolved;
 }
+
+/**
+ * Branches (among `clinicIds`, the caller's own) where the user may present
+ * treatment plans because the branch has the Treatment Coordinator feature on.
+ * Same rule as resolveEffectivePermissions' can_present_treatment_plan, for
+ * many clinics at once. Read live, so a flag toggle applies on the next call.
+ */
+export async function getTreatmentCoordinatorClinicIds(userId: string, clinicIds: bigint[]): Promise<bigint[]> {
+  if (clinicIds.length === 0) return [];
+  const role = await getNewModelRoleForUser(userId);
+  if (!role || !TREATMENT_COORDINATOR_ROLES.has(role.roleKey)) return [];
+  const clinics = await prisma.clinic.findMany({
+    where: { ClinicNum: { in: clinicIds } },
+    select: { ClinicNum: true, features: true },
+  });
+  return clinics
+    .filter((c) => ((c.features ?? {}) as Record<string, unknown>).treatment_coordinator === true)
+    .map((c) => c.ClinicNum);
+}
+

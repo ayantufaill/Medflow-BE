@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import { isAdminRequest } from '../middleware/auth.middleware';
 import { roleService } from '../services/role.service';
 import { PermissionService } from '../services/permission.service';
 import { logActivityFromRequest } from '../utils/activity-logger.util';
@@ -25,7 +26,7 @@ export class RoleController {
       const search = req.query.search as string | undefined;
       const scope = req.query.scope === 'assignable' ? 'assignable' : undefined;
 
-      const result = await roleService.getAllRoles(page, limit, search, scope);
+      const result = await roleService.getAllRoles(page, limit, search, scope, req.userId);
       res.status(200).json({
         success: true,
         data: result,
@@ -202,7 +203,7 @@ export class RoleController {
       }
 
       // Users can view their own permissions, admins can view any
-      const isAdmin = req.user?.roles?.includes('Admin');
+      const isAdmin = isAdminRequest(req);
       if (!isAdmin && req.userId !== targetUserId) {
         return res.status(403).json({
           success: false,
@@ -239,7 +240,7 @@ export class RoleController {
       }
 
       // Users can view their own roles, admins can view any
-      const isAdmin = req.user?.roles?.includes('Admin');
+      const isAdmin = isAdminRequest(req);
       if (!isAdmin && req.userId !== targetUserId) {
         return res.status(403).json({
           success: false,

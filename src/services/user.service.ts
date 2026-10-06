@@ -5,6 +5,9 @@ import { PermissionService } from './permission.service';
 import { logActivity, logSecurityEvent } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { assertCanGrant, assertCanGrantAll } from './role-grant.guard';
+import { getAssignableRoleRules } from './role-elevation.service';
+import { resolveEffectivePermissions } from './rbac.service';
+import { getRoleMeta } from '../utils/opendental-auth.util';
 import { bumpAccessVersion } from './access-version.service';
 import {
   mapRole,
@@ -36,6 +39,42 @@ const sanitizeUser = (user: AppUser) => {
  * system Admin, or a not-yet-onboarded single-practice deployment — and stays
  * unrestricted rather than being locked out of every user.
  */
+/**
+ * Role chips (POST/DELETE /users/:id/roles) follow the same rules as the role
+ * picker (PATCH /users/:id/role), for adding and for removing a role:
+ *  - platform roles ('Super Admin', any role holding '*' or platform:*): Super Admin only;
+ *  - new-model roles: getAssignableRoleRules (never group_admin; Branch Admin
+ *    also not branch_admin / billing);
+ *  - legacy roles: never 'Group Admin', and the actor must hold every
+ *    permission in the role (effective permissions, inherited ones included).
+ */
+export const assertMayChangeRoles = async (actorUserId: string, roleNums: bigint[]): Promise<void> => {
+  if (await PermissionService.hasRole(actorUserId, 'Super Admin')) return;
+  const rules = await getAssignableRoleRules(actorUserId);
+  if (!rules.canAssign) {
+    throw new AuthorizationError('You are not allowed to change user roles.');
+  }
+  const actorPerms = await resolveEffectivePermissions(actorUserId);
+  for (const roleNum of roleNums) {
+    const role = await prisma.usergroup.findUnique({ where: { UserGroupNum: roleNum }, select: { Description: true } });
+    const name = role?.Description ?? '';
+    const meta = (await getRoleMeta(roleNum)) as { roleKey?: string; permissions?: Record<string, unknown> } | null;
+    const perms = Object.entries(meta?.permissions ?? {}).filter(([, v]) => v === true).map(([k]) => k);
+    if (name === 'Super Admin' || perms.some((k) => k === '*' || k.startsWith('platform:'))) {
+      throw new AuthorizationError(`Only a Super Admin can assign or remove the "${name}" role.`);
+    }
+    if ((meta?.roleKey && rules.blockedRoleKeys.has(meta.roleKey)) || name === 'Group Admin') {
+      throw new AuthorizationError(`You cannot assign or remove the "${name}" role.`);
+    }
+    if (!meta?.roleKey && !actorPerms.has('*')) {
+      const missing = perms.filter((k) => !actorPerms.has(k));
+      if (missing.length > 0) {
+        throw new AuthorizationError(`You cannot assign or remove "${name}": it holds permissions you don't have (${missing.slice(0, 5).join(', ')}).`);
+      }
+    }
+  }
+};
+
 const assertUserInScope = async (targetUserId: string, allowedClinicIds?: bigint[]): Promise<void> => {
   if (!allowedClinicIds || allowedClinicIds.length === 0) return;
 
@@ -164,6 +203,22 @@ export class UserService {
     );
     const roleMetaMap = await getRolesMeta(allRoleNums);
 
+    // Branch assignments (userclinic + home clinic), so the list can show each
+    // user's branches instead of flagging everyone as "no branch".
+    const clinicLinks = await prisma.userclinic.findMany({
+      where: { UserNum: { in: userIds } },
+      select: { UserNum: true, ClinicNum: true },
+    });
+    const homeClinic = new Map(rows.map((r) => [r.UserNum.toString(), r.ClinicNum]));
+    const branchIdsOf = (userId: string): string[] => {
+      const ids = new Set(
+        clinicLinks.filter((l) => l.UserNum?.toString() === userId && l.ClinicNum).map((l) => String(l.ClinicNum))
+      );
+      const home = homeClinic.get(userId);
+      if (home && home > 0n) ids.add(home.toString());
+      return [...ids];
+    };
+
     const usersWithRoles = await Promise.all(
       users.map(async (user) => {
         const roleGroups = userRoles
@@ -173,7 +228,7 @@ export class UserService {
         const roles = await Promise.all(
           roleGroups.map((role) => mapRole(role, roleMetaMap[role.UserGroupNum.toString()] ?? {}))
         );
-        return { ...sanitizeUser(user), roles };
+        return { ...sanitizeUser(user), roles, branchIds: branchIdsOf(user._id) };
       })
     );
 
@@ -365,7 +420,7 @@ export class UserService {
     return { message: 'Role assigned successfully' };
   }
 
-  async removeRole(userId: string, roleId: string, allowedClinicIds?: bigint[]) {
+  async removeRole(userId: string, roleId: string, allowedClinicIds?: bigint[], actorUserId?: string) {
     const userRole = await prisma.usergroupattach.findFirst({
       where: { UserNum: BigInt(userId), UserGroupNum: BigInt(roleId) },
     });
@@ -373,6 +428,7 @@ export class UserService {
       throw new NotFoundError('Role assignment not found');
     }
     await assertUserInScope(userId, allowedClinicIds);
+    if (actorUserId) await assertMayChangeRoles(actorUserId, [BigInt(roleId)]);
 
     await prisma.usergroupattach.delete({
       where: { UserGroupAttachNum: userRole.UserGroupAttachNum },
@@ -708,7 +764,7 @@ export class UserService {
     return { loginHistory: history, history, pagination: { page, limit, total, pages } };
   }
 
-  async assignUserRoles(userId: string, roleIds: string[], allowedClinicIds?: bigint[]): Promise<void> {
+  async assignUserRoles(userId: string, roleIds: string[], allowedClinicIds?: bigint[], actorUserId?: string): Promise<void> {
     const userNum = BigInt(userId);
     const user = await prisma.userod.findUnique({
       where: { UserNum: userNum },
@@ -726,12 +782,18 @@ export class UserService {
       throw new NotFoundError('One or more roles do not exist');
     }
 
-    // B1.4: Grant guard — check each role before assigning
-    // The actorId is not available here, so we pass the userId of the
-    // user performing the action. The caller (controller) should pass
-    // the acting user's ID via a separate parameter if needed.
-    // For now, re-use the existing scope check.
-    // TODO: Pass actorUserId from controller for proper grant checks
+    // B1.4: Grant guard. This call replaces every role the user holds, so the
+    // actor must be allowed to grant each new role and to drop each old one.
+    if (actorUserId) {
+      const current = await prisma.usergroupattach.findMany({ where: { UserNum: userNum }, select: { UserGroupNum: true } });
+      const changed = new Set<bigint>(bigIntRoleIds);
+      for (const c of current) {
+        if (c.UserGroupNum == null) continue;
+        if (changed.has(c.UserGroupNum)) changed.delete(c.UserGroupNum);
+        else changed.add(c.UserGroupNum);
+      }
+      await assertMayChangeRoles(actorUserId, [...changed]);
+    }
 
     await prisma.$transaction(async (tx) => {
       // Delete existing attachments
@@ -801,9 +863,10 @@ export class UserService {
     }
     await assertUserInScope(userId, allowedClinicIds);
 
-    const clinicNums = branchIds.map((id) => BigInt(id));
+    const clinicNums = [...new Set(branchIds.map(String))].map((id) => BigInt(id));
+    // IsHidden is NULL on clinics created outside the admin UI; only 1 hides.
     const clinics = await prisma.clinic.findMany({
-      where: { ClinicNum: { in: clinicNums }, IsHidden: 0 },
+      where: { ClinicNum: { in: clinicNums }, OR: [{ IsHidden: 0 }, { IsHidden: null }] },
       select: { ClinicNum: true },
     });
     if (clinics.length !== clinicNums.length) {

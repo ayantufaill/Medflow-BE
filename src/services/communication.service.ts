@@ -1,4 +1,5 @@
 import { prisma } from '../config/db';
+import { tenantContextStorage } from '../config/tenant-context';
 import { NotFoundError, BadRequestError } from '../utils/error.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import {
@@ -50,6 +51,14 @@ export interface EmailPreferences {
 }
 
 const getClinicNum = async (): Promise<bigint> => {
+  // Practice-level settings live on the caller's own clinic. Under RLS the
+  // caller can neither read nor write another clinic's prefs, so "the first
+  // clinic in the table" broke for every non-platform user.
+  const ctx = tenantContextStorage.getStore();
+  if (ctx && ctx.clinicIds !== '*' && ctx.clinicIds.length > 0) {
+    return [...ctx.clinicIds].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[0];
+  }
+
   const clinic = await prisma.clinic.findFirst({ orderBy: { ClinicNum: 'asc' } });
   if (clinic) return clinic.ClinicNum;
 

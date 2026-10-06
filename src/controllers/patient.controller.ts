@@ -1,9 +1,32 @@
 import type { Request, Response, NextFunction } from 'express';
 import { patientService } from '../services/patient.service';
+import { prisma } from '../config/db';
 import { PermissionService } from '../services/permission.service';
 import { patientWorkspaceService } from '../services/patient-workspace.service';
 import { recareService } from '../services/recare.service';
 import { logActivityFromRequest } from '../utils/activity-logger.util';
+
+/**
+ * Masked cross-branch notice (UAT T-VIS-04): how many patients in another
+ * branch of the caller's own group match the search. A count only — never a
+ * name or id. Skipped for callers who can already see every branch.
+ */
+async function countOtherBranchMatches(req: Request, search?: string): Promise<number> {
+  const access = req.access;
+  const term = search?.trim() ?? '';
+  if (!access || term.length < 3 || access.groupId == null) return 0;
+  if (access.isPlatformAdmin || access.accessAllClinics || access.isGroupAdmin) return 0;
+  if (access.sharing?.IDENTITY === 'GROUP_READ') return 0;
+  try {
+    const rows = await prisma.$queryRaw<{ n: number }[]>`
+      SELECT mf.count_other_branch_patients(${access.groupId}::integer, ${access.clinicIds}::bigint[], ${term}) AS n
+    `;
+    return Number(rows[0]?.n ?? 0);
+  } catch {
+    // The notice is a convenience; never fail the search because of it.
+    return 0;
+  }
+}
 
 export class PatientController {
   async getBasicPatients(req: Request, res: Response, next: NextFunction) {
@@ -58,9 +81,11 @@ export class PatientController {
         result.patients.forEach((p: any) => delete p.ssn);
       }
 
+      const crossBranchMatches = await countOtherBranchMatches(req, search);
+
       res.status(200).json({
         success: true,
-        data: result,
+        data: { ...result, crossBranchMatches },
       });
     } catch (error) {
       next(error);

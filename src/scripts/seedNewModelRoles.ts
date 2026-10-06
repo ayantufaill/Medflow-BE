@@ -88,6 +88,8 @@ const DENTAL_ASSISTANT_PERMISSIONS = {
   // "read-only financials" per spec
   'invoices.read': true,
   'insurance.read': true,
+  // Screen access matrix: Insurance/services/auths is read for clinical staff.
+  'authorizations.read': true,
 };
 
 const FRONT_DESK_PERMISSIONS = {
@@ -104,6 +106,14 @@ const FRONT_DESK_PERMISSIONS = {
   'documents.create': true,
   'insurance.read': true,
   'services.read': true,
+  // Screen access matrix: Front Desk/Biller have full Finance, Reports and Insurance pages (reads).
+  'reports.read': true,
+  'invoices.read': true,
+  'payments.read': true,
+  'claims.read': true,
+  'era.read': true,
+  'adjustments.read': true,
+  'authorizations.read': true,
 };
 
 const BILLING_PERMISSIONS = {
@@ -138,6 +148,11 @@ const BILLING_PERMISSIONS = {
   'insurance.update': true,
   'insurance.delete': true,
   'reports.financial': true,
+  // Screen access matrix: Reports, Services/Authorizations and Documents pages load their data.
+  'reports.read': true,
+  'services.read': true,
+  'authorizations.read': true,
+  'documents.read': true,
 };
 
 // Bounded and explicit — NOT '*'. This is the whole point of the new model:
@@ -157,6 +172,8 @@ const BRANCH_ADMIN_PERMISSIONS = {
   'users.create': true,
   'users.update': true,
   'reports.access': true,
+  // Report and KPI routes check reports.read; without it admins get 403 on /kpi.
+  'reports.read': true,
   'reports.financial': true,
   'reports.administrative': true,
   'branches.read': true,
@@ -174,6 +191,20 @@ const BRANCH_ADMIN_PERMISSIONS = {
   'documents.read': true,
   'documents.create': true,
   'services.read': true,
+  // Read-only view of clinical and billing work in the branch (and, via
+  // inheritance, across the group for group_admin). Writes stay with the
+  // clinical and billing roles. Without these the Clinical and Billing pages
+  // open but every data call returns 403.
+  'clinical-notes.read': true,
+  'treatment-plans.read': true,
+  'claims.read': true,
+  'era.read': true,
+  'payments.read': true,
+  'adjustments.read': true,
+  'authorizations.read': true,
+  // Admin console → Patient Communication settings.
+  'settings.read': true,
+  'settings.update': true,
   // Without this, requirePhiAccess rejects branch_admin on every patient
   // route — same bug class fixed on the legacy Admin/Branch Admin roles
   // earlier this session.

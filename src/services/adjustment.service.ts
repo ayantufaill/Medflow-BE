@@ -110,7 +110,8 @@ export class AdjustmentService {
     },
     userId: string
   ) {
-    if (!data.amount) {
+    // $0 is a valid amount (zero-dollar write-off); only a missing or non-numeric amount is rejected.
+    if (data.amount === undefined || data.amount === null || !Number.isFinite(Number(data.amount))) {
       throw new BadRequestError('Adjustment amount is required');
     }
 

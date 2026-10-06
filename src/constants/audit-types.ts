@@ -32,6 +32,10 @@ export const PermType = {
 
   // ── Cross-branch PHI read audit ───────────────────────────────────
   CROSS_BRANCH_READ: 1050,
+
+  // ── Patient record access (every read, and every refused attempt) ─
+  PATIENT_RECORD_READ: 1051,
+  PATIENT_ACCESS_DENIED: 1052,
 } as const;
 
 export type PermTypeValue = (typeof PermType)[keyof typeof PermType];

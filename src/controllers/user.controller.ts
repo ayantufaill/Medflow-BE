@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
+import { isAdminRequest } from '../middleware/auth.middleware';
 import { userService } from '../services/user.service';
 import { userClinicService } from '../services/user-clinic.service';
 import { logActivityFromRequest, getClientIp, getUserAgent } from '../utils/activity-logger.util';
@@ -60,7 +61,9 @@ export class UserController {
         });
       }
 
-      const isAdmin = req.user.roles?.includes('Admin');
+      // Same admin test as requireRoles('Admin'): admin group (Group/Branch Admin,
+      // new-model keys included), not only a role literally named 'Admin'.
+      const isAdmin = isAdminRequest(req);
       if (!isAdmin && req.userId !== userId) {
         return res.status(403).json({
           success: false,
@@ -105,7 +108,7 @@ export class UserController {
         });
       }
 
-      const isAdmin = req.user.roles?.includes('Admin');
+      const isAdmin = isAdminRequest(req);
       if (!isAdmin && req.userId !== userId) {
         return res.status(403).json({
           success: false,
@@ -242,7 +245,7 @@ export class UserController {
         });
       }
       
-      const result = await userService.removeRole(userId, roleId, req.branchAccess?.clinicIds);
+      const result = await userService.removeRole(userId, roleId, req.branchAccess?.clinicIds, req.userId);
       await logActivityFromRequest(req, 'updated', 'usergroupattach', userId, { roleId }, null);
       res.status(200).json({
         success: true,
@@ -515,7 +518,7 @@ export class UserController {
         });
       }
 
-      await userService.assignUserRoles(userId, finalRoleIds, req.branchAccess?.clinicIds);
+      await userService.assignUserRoles(userId, finalRoleIds, req.branchAccess?.clinicIds, req.userId);
 
       res.status(200).json({
         success: true,
@@ -563,7 +566,7 @@ export class UserController {
       res.status(200).json({
         success: true,
         data: {
-          message: `Role changed to "${result.newRoleKey}". The user will be signed out of all active sessions.`,
+          message: `Role changed to "${result.newRoleKey}". Their access updates automatically; they stay signed in.`,
           oldRole: result.oldRoleKey,
           newRole: result.newRoleKey,
         },
