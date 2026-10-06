@@ -119,6 +119,7 @@ export const createPaymentValidator: ValidationChain[] = [
   body('procedures.*.wo').optional().isNumeric().withMessage('Writeoff must be a number'),
   body('procedures.*.pay').optional().isNumeric().withMessage('Pay amount must be a number'),
   body('procedures.*.ded').optional().isNumeric().withMessage('Deductible must be a number'),
+  body('procedures.*.excess').optional().isNumeric().withMessage('excess must be a number'),
   body('procedures.*.updateAllowedFee').optional().isBoolean().withMessage('updateAllowedFee must be a boolean'),
   body('procedures.*.updateInsFlatPortion').optional().isBoolean().withMessage('updateInsFlatPortion must be a boolean'),
   body('procedures.*.moveToNewClaim').optional().isBoolean().withMessage('moveToNewClaim must be a boolean'),

@@ -223,6 +223,9 @@ export class InvoiceService {
       secondaryInsPortion: Number(pricedItems[index]?.secondaryInsPortion || 0),
       totalInsPortion: Number(pricedItems[index]?.totalInsPortion ?? pricedItems[index]?.insPortion ?? 0),
       writeoff: Number(pricedItems[index]?.writeoff || 0), completed: true,
+      coveragePct: pricedItems[index]?.coveragePct ?? parseJson<any>(proc.BillingNote)?.coveragePct ?? null,
+      allowedFee: pricedItems[index]?.allowedFee ?? parseJson<any>(proc.BillingNote)?.allowedFee ?? null,
+      allowedFeeSource: pricedItems[index]?.allowedFeeSource ?? parseJson<any>(proc.BillingNote)?.allowedFeeSource ?? null,
     }]));
     const totalAmount = roundCurrency(procedures.reduce((sum, proc) => sum + Number(proc.ProcFee || 0), 0));
     const insurancePortion = roundCurrency(procedures.reduce((sum, proc) => sum + Number(itemMetaByProc.get(proc.ProcNum.toString())?.totalInsPortion || 0), 0));
@@ -280,6 +283,8 @@ export class InvoiceService {
       writeoff: isPenalty ? 0 : Number((meta as any).writeoff || (meta as any).estimatedWriteOff || 0),
       estimatedWriteOff: isPenalty ? 0 : Number((meta as any).estimatedWriteOff || (meta as any).writeoff || 0),
       allowedFee: isPenalty ? null : ((meta as any).allowedFee ? Number((meta as any).allowedFee) : null),
+      coveragePct: isPenalty ? null : ((meta as any).coveragePct !== undefined && (meta as any).coveragePct !== null ? Number((meta as any).coveragePct) : null),
+      deductibleApplied: isPenalty ? 0 : Number((meta as any).deductibleApplied || 0),
       paidAmount: Number((meta as any).paidAmount || 0),
       dbi: (meta as any).dbi !== undefined ? Boolean((meta as any).dbi) : null,
       site: (meta as any).site || null,
@@ -1089,6 +1094,11 @@ export class InvoiceService {
         // default: downgrades almost always stay within one category.
         const priced = applyDeductible(deductibleLedger, cleanCode, insuranceBasis, percent);
 
+        // The line's Allowed fee is the basis the insurance actually priced
+        // against: the downgraded procedure's allowed fee when a downgrade
+        // applies, otherwise the billed code's contracted allowed fee.
+        item.allowedFee = insuranceBasis;
+        item.allowedFeeSource = 'plan';
         item.insPortion = priced.insurancePortion;
         item.deductibleApplied = priced.deductibleApplied;
         item.deductibleRowKey = priced.rowKey;
@@ -2058,6 +2068,15 @@ export class InvoiceService {
           ...(updates.provider !== undefined && { provider: updates.provider }),
           ...(updates.site !== undefined && { site: updates.site }),
           ...(updates.dbi !== undefined && { dbi: updates.dbi }),
+          // When a caller explicitly writes any portion, treat the item as
+          // manually adjusted so recalculateInvoice keeps these splits instead of
+          // re-pricing (which would fold the whole balance into the patient portion).
+          ...(updates.ptPortion !== undefined ||
+          updates.insPortion !== undefined ||
+          updates.secondaryInsPortion !== undefined ||
+          updates.writeoff !== undefined
+            ? { isManuallyAdjusted: true }
+            : {}),
         }),
       },
     });
@@ -2341,10 +2360,25 @@ export class InvoiceService {
             newPt = initialPtPortion;
             newIns = Math.max(0, roundCurrency(fee - wo - initialPtPortion - secPortion));
           } else {
-            // Final payment:
-            // Underpayment shifts to patient responsibility. Insurance portion is finalized at insPaid.
-            newPt = Math.max(0, roundCurrency(fee - wo - insPaid - secPortion));
-            newIns = insPaid;
+            // Scenario 2 guard: if the patient has already satisfied their
+            // ORIGINAL responsibility, the underpayment stays with insurance —
+            // keep ptPortion and leave the insurance portion at the expected
+            // amount so expected − paid remains an insurance balance.
+            const expectedIns = Number(originalMeta.insPortion || 0) > 0
+              ? roundCurrency(Number(originalMeta.insPortion))
+              : Math.max(0, roundCurrency(fee - wo - initialPtPortion - secPortion));
+            const underpayment = Math.max(0, roundCurrency(expectedIns - insPaid));
+            const patientAlreadyPaidInFull = ptPaidOnProc >= initialPtPortion - 0.005;
+
+            if (patientAlreadyPaidInFull && underpayment > 0) {
+              newPt = initialPtPortion;
+              newIns = expectedIns;
+            } else {
+              // Final payment:
+              // Underpayment shifts to patient responsibility. Insurance portion is finalized at insPaid.
+              newPt = Math.max(0, roundCurrency(fee - wo - insPaid - secPortion));
+              newIns = insPaid;
+            }
           }
 
           insurancePortion += newIns;
@@ -2421,7 +2455,9 @@ export class InvoiceService {
           writeoffChanged ||
           deductibleChanged ||
           downgradeChanged ||
-          secondaryAuditChanged
+          secondaryAuditChanged ||
+          (enrichedItem.coveragePct !== undefined && enrichedItem.coveragePct !== null &&
+            Number(originalMeta.coveragePct ?? -1) !== Number(enrichedItem.coveragePct))
         ) {
           originalMeta.insPortion = enrichedPrim;
           originalMeta.primaryInsPortion = enrichedPrim;
@@ -2435,6 +2471,7 @@ export class InvoiceService {
           originalMeta.estimatedWriteOff = enrichedItem.estimatedWriteOff ?? originalMeta.estimatedWriteOff ?? 0;
           originalMeta.allowedFee = enrichedItem.allowedFee ?? originalMeta.allowedFee ?? null;
           originalMeta.allowedFeeSource = enrichedItem.allowedFeeSource === 'plan' ? 'plan' : null;
+          originalMeta.coveragePct = enrichedItem.coveragePct !== undefined && enrichedItem.coveragePct !== null ? Number(enrichedItem.coveragePct) : (originalMeta.coveragePct ?? null);
           originalMeta.deductibleApplied = roundCurrency(Number(enrichedItem.deductibleApplied || 0));
           if (enrichedItem.deductibleRowKey) originalMeta.deductibleRowKey = enrichedItem.deductibleRowKey;
           // Persist the downgrade audit fields on re-price. Guarded so a line
@@ -2731,6 +2768,11 @@ export class InvoiceService {
         balance?: number;
         dbi?: boolean;
         completed?: boolean;
+        // The line's contracted/basis allowed fee (the downgraded code's
+        // allowed fee when a downgrade rule applied). Written through to the
+        // procedure's BillingNote meta so downstream readers can display it.
+        allowedFee?: number;
+        coveragePct?: number;
         // Alternate-benefit (downgrade) audit trail, set by the pricing loop.
         downgraded?: boolean;
         downgradedFrom?: string;
@@ -2904,6 +2946,7 @@ export class InvoiceService {
         // the plan's schedule, absent/manual otherwise. Without this marker,
         // every re-estimate treats the previous contracted fee as a manual
         // override and it can never be re-derived.
+        allowedFee: isPenalty ? null : (item.allowedFee !== undefined && item.allowedFee !== null && Number(item.allowedFee) > 0 ? Number(item.allowedFee) : null),
         allowedFeeSource: item.allowedFeeSource === 'plan' ? 'plan' : null,
         secondaryInsPortion: isPenalty ? 0 : Number(item.secondaryInsPortion ?? 0),
         secondaryNotEstimated: Boolean(item.secondaryNotEstimated),
@@ -2920,6 +2963,7 @@ export class InvoiceService {
             ? null
             : Number(item.secondaryCoveragePct),
         totalInsPortion: isPenalty ? 0 : Number(item.totalInsPortion ?? (Number(item.insPortion ?? 0) + Number(item.secondaryInsPortion ?? 0))),
+        coveragePct: isPenalty ? null : (item.coveragePct ?? null),
         charge: Number(item.charge ?? 0),
         balance: Number(item.balance ?? 0),
         dbi: Boolean(item.dbi),
