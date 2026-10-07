@@ -10,6 +10,7 @@ import { paymentService } from './payment.service';
 import { claimService } from './claim.service';
 import { patientInsuranceService } from './patient-insurance.service';
 import { agingService } from './aging.service';
+import { lateFee } from './late-fee.service';
 import {
   DeductibleLedger,
   applyDeductible,
@@ -223,6 +224,9 @@ export class InvoiceService {
       secondaryInsPortion: Number(pricedItems[index]?.secondaryInsPortion || 0),
       totalInsPortion: Number(pricedItems[index]?.totalInsPortion ?? pricedItems[index]?.insPortion ?? 0),
       writeoff: Number(pricedItems[index]?.writeoff || 0), completed: true,
+      coveragePct: pricedItems[index]?.coveragePct ?? parseJson<any>(proc.BillingNote)?.coveragePct ?? null,
+      allowedFee: pricedItems[index]?.allowedFee ?? parseJson<any>(proc.BillingNote)?.allowedFee ?? null,
+      allowedFeeSource: pricedItems[index]?.allowedFeeSource ?? parseJson<any>(proc.BillingNote)?.allowedFeeSource ?? null,
     }]));
     const totalAmount = roundCurrency(procedures.reduce((sum, proc) => sum + Number(proc.ProcFee || 0), 0));
     const insurancePortion = roundCurrency(procedures.reduce((sum, proc) => sum + Number(itemMetaByProc.get(proc.ProcNum.toString())?.totalInsPortion || 0), 0));
@@ -280,7 +284,13 @@ export class InvoiceService {
       writeoff: isPenalty ? 0 : Number((meta as any).writeoff || (meta as any).estimatedWriteOff || 0),
       estimatedWriteOff: isPenalty ? 0 : Number((meta as any).estimatedWriteOff || (meta as any).writeoff || 0),
       allowedFee: isPenalty ? null : ((meta as any).allowedFee ? Number((meta as any).allowedFee) : null),
+      coveragePct: isPenalty ? null : ((meta as any).coveragePct !== undefined && (meta as any).coveragePct !== null ? Number((meta as any).coveragePct) : null),
+      deductibleApplied: isPenalty ? 0 : Number((meta as any).deductibleApplied || 0),
       paidAmount: Number((meta as any).paidAmount || 0),
+      patientPaidAmount: Number((meta as any).patientPaidAmount || 0),
+      insurancePaidAmount: Number((meta as any).insurancePaidAmount || 0),
+      insuranceExpected: Number((meta as any).insuranceExpected || (meta as any).totalInsPortion || (meta as any).insPortion || 0),
+      insuranceBalance: Number((meta as any).insuranceBalance != null ? (meta as any).insuranceBalance : Math.max(0, Number((meta as any).totalInsPortion || (meta as any).insPortion || 0) - Number((meta as any).insurancePaidAmount || 0))),
       dbi: (meta as any).dbi !== undefined ? Boolean((meta as any).dbi) : null,
       site: (meta as any).site || null,
       provider: (meta as any).provider || null,
@@ -476,16 +486,12 @@ export class InvoiceService {
     // priced with the Basic sub-row just because the numeric CDT range groups
     // them together.
     const coverageCategoryByCode = new Map<string, string>();
-    const scheduleCodes = [...new Set([...allowedFeeMap.keys(), ...planFeeMap.keys()])];
-    if (scheduleCodes.length > 0) {
-      const procRows = await db.procedurecode.findMany({
-        where: { ProcCode: { in: scheduleCodes } },
-        select: { ProcCode: true, CoverageCategory: true },
-      });
-      for (const r of procRows) {
-        if (r.ProcCode && r.CoverageCategory) {
-          coverageCategoryByCode.set(r.ProcCode.toUpperCase().trim(), r.CoverageCategory);
-        }
+    const procRows = await db.procedurecode.findMany({
+      select: { ProcCode: true, CoverageCategory: true },
+    });
+    for (const r of procRows) {
+      if (r.ProcCode && r.CoverageCategory) {
+        coverageCategoryByCode.set(r.ProcCode.toUpperCase().trim(), r.CoverageCategory);
       }
     }
 
@@ -1089,6 +1095,11 @@ export class InvoiceService {
         // default: downgrades almost always stay within one category.
         const priced = applyDeductible(deductibleLedger, cleanCode, insuranceBasis, percent);
 
+        // The line's Allowed fee is the basis the insurance actually priced
+        // against: the downgraded procedure's allowed fee when a downgrade
+        // applies, otherwise the billed code's contracted allowed fee.
+        item.allowedFee = insuranceBasis;
+        item.allowedFeeSource = 'plan';
         item.insPortion = priced.insurancePortion;
         item.deductibleApplied = priced.deductibleApplied;
         item.deductibleRowKey = priced.rowKey;
@@ -1774,17 +1785,45 @@ export class InvoiceService {
     if (!invoice) throw new NotFoundError('Invoice not found');
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
 
-    const [patient, appointment, directProvider, insuranceCompany, items] = await Promise.all([
+    const [patient, appointment, directProvider, insuranceCompany, secondaryInsuranceCompany, items] = await Promise.all([
       invoice.PatNum
         ? prisma.patient.findUnique({ where: { PatNum: invoice.PatNum } })
         : null,
       this.resolveAppointment(meta.appointmentId ?? null),
       this.resolveProvider(meta.providerId ?? null),
       this.resolveInsuranceCompany(meta.insuranceCompanyId ?? null),
+      this.resolveInsuranceCompany(meta.secondaryInsuranceCompanyId ?? null),
       this.getInvoiceItems(invoice.StatementNum),
     ]);
 
     const provider = directProvider ?? (appointment?.providerId ? await this.resolveProvider(appointment.providerId) : null);
+
+    // The estimators price from the patient's ACTIVE coverage, but
+    // `meta.insuranceCompanyId` is only populated when the invoice was created
+    // from an appointment that had a carrier explicitly attached. For an invoice
+    // built any other way it is null, so the carrier names a display needs have
+    // to come from the patient's coverages, ordered by ordinal — ordinal 1 is
+    // primary, 2 is secondary, which is exactly the split the line items are
+    // priced into.
+    let coverages: Array<{ insuranceType: string; name: string | null }> = [];
+    if (invoice.PatNum) {
+      try {
+        const active = await patientInsuranceService.getPatientInsurances(String(invoice.PatNum), true);
+        coverages = (active || [])
+          .map((ins: any) => ({
+            insuranceType: ins.insuranceType,
+            // patient-insurance.service returns the resolved carrier under the
+            // (confusingly named) `insuranceCompanyId` key, not `insuranceCompany`.
+            // Accept either so this does not silently break if that is renamed.
+            name: ins.insuranceCompany?.name ?? ins.insuranceCompanyId?.name ?? null,
+          }))
+          .filter((c) => !!c.name);
+      } catch {
+        // Coverage names are display-only. A failure here must not stop the
+        // invoice from loading.
+        coverages = [];
+      }
+    }
 
     return {
       invoice: {
@@ -1792,6 +1831,8 @@ export class InvoiceService {
         patient: patient ? mapPatientToApi(patient) : null,
         provider,
         insuranceCompany,
+        secondaryInsuranceCompany,
+        coverages,
         appointment,
         dateOfService: appointment?.appointmentDate ?? null,
       },
@@ -2053,13 +2094,34 @@ export class InvoiceService {
           quantity,
           cptCode: updates.cptCode ?? currentMeta.cptCode ?? service?.ProcCode ?? null,
           serviceId: service?.CodeNum?.toString() ?? currentMeta.serviceId ?? null,
-          ...(updates.insPortion !== undefined && { insPortion: updates.insPortion }),
+          ...(updates.insPortion !== undefined && {
+            insPortion: updates.insPortion,
+            // `insPortion` IS the primary portion (see payment.service.ts's
+            // note on the two write paths agreeing), and the line-item reader
+            // resolves primaryInsPortion as `meta.primaryInsPortion ||
+            // meta.insPortion`. payment.service writes both, so a line that has
+            // been through an insurance payment already carries an explicit
+            // primaryInsPortion. Mirroring the value here keeps the two in step —
+            // without this, editing the primary coverage would write insPortion,
+            // leave the stale primaryInsPortion winning the read, and silently
+            // discard the edit.
+            primaryInsPortion: updates.insPortion,
+          }),
           ...(updates.secondaryInsPortion !== undefined && { secondaryInsPortion: updates.secondaryInsPortion }),
           ...(updates.ptPortion !== undefined && { ptPortion: updates.ptPortion }),
           ...(updates.writeoff !== undefined && { writeoff: updates.writeoff }),
           ...(updates.provider !== undefined && { provider: updates.provider }),
           ...(updates.site !== undefined && { site: updates.site }),
           ...(updates.dbi !== undefined && { dbi: updates.dbi }),
+          // When a caller explicitly writes any portion, treat the item as
+          // manually adjusted so recalculateInvoice keeps these splits instead of
+          // re-pricing (which would fold the whole balance into the patient portion).
+          ...(updates.ptPortion !== undefined ||
+          updates.insPortion !== undefined ||
+          updates.secondaryInsPortion !== undefined ||
+          updates.writeoff !== undefined
+            ? { isManuallyAdjusted: true }
+            : {}),
         }),
       },
     });
@@ -2343,10 +2405,25 @@ export class InvoiceService {
             newPt = initialPtPortion;
             newIns = Math.max(0, roundCurrency(fee - wo - initialPtPortion - secPortion));
           } else {
-            // Final payment:
-            // Underpayment shifts to patient responsibility. Insurance portion is finalized at insPaid.
-            newPt = Math.max(0, roundCurrency(fee - wo - insPaid - secPortion));
-            newIns = insPaid;
+            // Scenario 2 guard: if the patient has already satisfied their
+            // ORIGINAL responsibility, the underpayment stays with insurance —
+            // keep ptPortion and leave the insurance portion at the expected
+            // amount so expected − paid remains an insurance balance.
+            const expectedIns = Number(originalMeta.insPortion || 0) > 0
+              ? roundCurrency(Number(originalMeta.insPortion))
+              : Math.max(0, roundCurrency(fee - wo - initialPtPortion - secPortion));
+            const underpayment = Math.max(0, roundCurrency(expectedIns - insPaid));
+            const patientAlreadyPaidInFull = ptPaidOnProc >= initialPtPortion - 0.005;
+
+            if (patientAlreadyPaidInFull && underpayment > 0) {
+              newPt = initialPtPortion;
+              newIns = expectedIns;
+            } else {
+              // Final payment:
+              // Underpayment shifts to patient responsibility. Insurance portion is finalized at insPaid.
+              newPt = Math.max(0, roundCurrency(fee - wo - insPaid - secPortion));
+              newIns = insPaid;
+            }
           }
 
           insurancePortion += newIns;
@@ -2423,13 +2500,19 @@ export class InvoiceService {
           writeoffChanged ||
           deductibleChanged ||
           downgradeChanged ||
-          secondaryAuditChanged
+          secondaryAuditChanged ||
+          (enrichedItem.coveragePct !== undefined && enrichedItem.coveragePct !== null &&
+            Number(originalMeta.coveragePct ?? -1) !== Number(enrichedItem.coveragePct))
         ) {
           originalMeta.insPortion = enrichedPrim;
           originalMeta.primaryInsPortion = enrichedPrim;
           originalMeta.secondaryInsPortion = enrichedItem.secondaryInsPortion;
           originalMeta.totalInsPortion = enrichedPrim + Number(enrichedItem.secondaryInsPortion || 0);
           originalMeta.ptPortion = enrichedItem.ptPortion;
+          originalMeta.insuranceExpected = originalMeta.totalInsPortion;
+          originalMeta.insurancePaidAmount = Number(originalMeta.insurancePaidAmount) || 0;
+          originalMeta.patientPaidAmount = Number(originalMeta.patientPaidAmount) || 0;
+          originalMeta.insuranceBalance = Math.max(0, roundCurrency(originalMeta.totalInsPortion - originalMeta.insurancePaidAmount));
           // Persist write-off fields — fall back to existing value for non-PPO items
           // (where calculateInsuranceEstimates leaves the field undefined) so we never
           // accidentally zero out a manually-entered adjustment.
@@ -2437,6 +2520,7 @@ export class InvoiceService {
           originalMeta.estimatedWriteOff = enrichedItem.estimatedWriteOff ?? originalMeta.estimatedWriteOff ?? 0;
           originalMeta.allowedFee = enrichedItem.allowedFee ?? originalMeta.allowedFee ?? null;
           originalMeta.allowedFeeSource = enrichedItem.allowedFeeSource === 'plan' ? 'plan' : null;
+          originalMeta.coveragePct = enrichedItem.coveragePct !== undefined && enrichedItem.coveragePct !== null ? Number(enrichedItem.coveragePct) : (originalMeta.coveragePct ?? null);
           originalMeta.deductibleApplied = roundCurrency(Number(enrichedItem.deductibleApplied || 0));
           if (enrichedItem.deductibleRowKey) originalMeta.deductibleRowKey = enrichedItem.deductibleRowKey;
           // Persist the downgrade audit fields on re-price. Guarded so a line
@@ -2733,6 +2817,11 @@ export class InvoiceService {
         balance?: number;
         dbi?: boolean;
         completed?: boolean;
+        // The line's contracted/basis allowed fee (the downgraded code's
+        // allowed fee when a downgrade rule applied). Written through to the
+        // procedure's BillingNote meta so downstream readers can display it.
+        allowedFee?: number;
+        coveragePct?: number;
         // Alternate-benefit (downgrade) audit trail, set by the pricing loop.
         downgraded?: boolean;
         downgradedFrom?: string;
@@ -2755,9 +2844,15 @@ export class InvoiceService {
         secondaryEffectiveCode?: string | null;
         secondaryDowngradeSkipped?: string | null;
         secondaryCoveragePct?: number | null;
+        /** Late-fee provenance — see late-fee.service.ts. */
+        lateFeeSourceStatement?: string | number | null;
+        lateFeeTier?: number | null;
+        lateFeeBaseAmount?: number | null;
       }>;
       addClaim?: boolean;
       branchId?: string;
+      /** Statement-level note. Defaults to 'Standalone Invoice'. */
+      notes?: string;
     },
     createdBy: string
   ) {
@@ -2844,7 +2939,7 @@ export class InvoiceService {
         DateSent: new Date(),
         DateRangeFrom: new Date(),
         DateRangeTo: dueDate,
-        Note: 'Standalone Invoice',
+        Note: data.notes || 'Standalone Invoice',
         NoteBold: buildJson(meta),
         IsInvoice: 1,
         StatementType: 'draft',
@@ -2906,6 +3001,7 @@ export class InvoiceService {
         // the plan's schedule, absent/manual otherwise. Without this marker,
         // every re-estimate treats the previous contracted fee as a manual
         // override and it can never be re-derived.
+        allowedFee: isPenalty ? null : (item.allowedFee !== undefined && item.allowedFee !== null && Number(item.allowedFee) > 0 ? Number(item.allowedFee) : null),
         allowedFeeSource: item.allowedFeeSource === 'plan' ? 'plan' : null,
         secondaryInsPortion: isPenalty ? 0 : Number(item.secondaryInsPortion ?? 0),
         secondaryNotEstimated: Boolean(item.secondaryNotEstimated),
@@ -2922,6 +3018,7 @@ export class InvoiceService {
             ? null
             : Number(item.secondaryCoveragePct),
         totalInsPortion: isPenalty ? 0 : Number(item.totalInsPortion ?? (Number(item.insPortion ?? 0) + Number(item.secondaryInsPortion ?? 0))),
+        coveragePct: isPenalty ? null : (item.coveragePct ?? null),
         charge: Number(item.charge ?? 0),
         balance: Number(item.balance ?? 0),
         dbi: Boolean(item.dbi),
@@ -2937,6 +3034,22 @@ export class InvoiceService {
         isPatientPenalty: isPenalty,
         patientOnly: isPenalty || Boolean((item as any).patientOnly),
         isAccountPenalty: isPenalty || Boolean((item as any).isAccountPenalty),
+        // Late-fee provenance. These three keys are the only record that a
+        // given source invoice has already been charged a given tier, so they
+        // are what makes the duplicate check in late-fee.service.ts possible.
+        // They live in BillingNote rather than in columns because every
+        // recalculateInvoice path parses BillingNote, mutates its own keys and
+        // re-serializes the whole object (:2291, :2500, :2549) — so unknown
+        // keys survive re-estimation instead of being wiped by a whitelist.
+        lateFeeSourceStatement: (item as any).lateFeeSourceStatement != null
+          ? String((item as any).lateFeeSourceStatement)
+          : null,
+        lateFeeTier: (item as any).lateFeeTier != null
+          ? Number((item as any).lateFeeTier)
+          : null,
+        lateFeeBaseAmount: (item as any).lateFeeBaseAmount != null
+          ? Number((item as any).lateFeeBaseAmount)
+          : null,
       });
 
       // If item carries an existing ProcNum (unbilled product), update it in-place
@@ -3050,7 +3163,286 @@ export class InvoiceService {
     return this.mapStatementToInvoice(finalStatement, finalMeta);
   }
 
-  async markItemPaid(invoiceId: string, itemId: string, amount: number) {
+  /**
+   * Invoices eligible for a late-fee tier, for the dialog to render.
+   *
+   * Uses the same helpers as applyLateFee so the rows the user sees can never
+   * disagree with what the charge will accept. `alreadyCharged` is included
+   * because the provenance behind it is not exposed by the normal invoice
+   * shape, so the frontend has no way to work it out itself.
+   */
+  async getLateFeeEligibility(patientId: string, tier: number | null) {
+    // undefined means the tier was supplied but invalid; null means "any
+    // overdue invoice", which is what flat-rate and percentage use.
+    const resolved = lateFee.resolveTier(tier);
+    if (resolved === undefined) {
+      throw new BadRequestError(`Invalid late-fee tier: ${tier}. Expected one of ${lateFee.LATE_FEE_TIERS.join(', ')}.`);
+    }
+
+    const patNum = BigInt(patientId);
+    const patient = await prisma.patient.findUnique({ where: { PatNum: patNum } });
+    if (!patient) throw new NotFoundError('Patient not found');
+
+    const statements = await prisma.statement.findMany({
+      where: { PatNum: patNum, IsInvoice: 1 },
+      orderBy: { StatementNum: 'desc' },
+    });
+
+    const invoices = statements.map((statement) => {
+      const meta = parseJson<StatementMeta>(statement.NoteBold);
+      const mapped = this.mapStatementToInvoice(statement, meta);
+      const split = lateFee.outstandingSplit({
+        balTotal: statement.BalTotal,
+        insEst: statement.InsEst,
+        writeoffAmount: meta.writeoffAmount,
+      });
+      return {
+        ...mapped,
+        patientPortion: split.patientRemaining,
+        insuranceWriteOff: split.insuranceWriteOff,
+        insuranceBalance: split.insuranceRemaining,
+        patientRemaining: split.patientRemaining,
+        balanceDue: split.totalOwing,
+      };
+    });
+
+    const charged = await lateFee.findChargedLateFees(patNum);
+    const eligible = lateFee.eligibleInvoices(invoices, resolved, charged);
+
+    return {
+      tier: resolved,
+      // Sent to the dialog so the amount it previews is the amount the server
+      // will charge, rather than a second copy of these numbers in the UI.
+      defaultRate: lateFee.defaultRateFor(resolved),
+      invoices: eligible.map((row) => ({
+        id: row.id,
+        invoiceNumber: row.invoiceNumber,
+        invoiceDate: row.invoiceDate,
+        daysOutstanding: row.daysOutstanding,
+        tier: row.tier,
+        // The four ledger columns: insurance write-off, then what each party
+        // still owes, then the total.
+        insuranceWriteOff: row.insuranceWriteOff ?? 0,
+        patientBalance: row.basisPatient,
+        insuranceBalance: row.insuranceBalance ?? 0,
+        totalBalance: row.basisTotal,
+        alreadyCharged: row.alreadyCharged,
+      })),
+      // Everything sent, so the dialog can explain why nothing is eligible.
+      totalInvoices: invoices.length,
+    };
+  }
+
+  /**
+   * Apply late fees for a tier to a set of source invoices.
+   *
+   * Everything is recomputed here from the database rather than trusted from the
+   * request: ages, buckets, balances and the duplicate check. The dialog is a
+   * display convenience, not the enforcement point — otherwise a crafted
+   * request could charge a fee for an invoice that isn't 30 days overdue, or
+   * charge the same tier twice.
+   *
+   * All fees land on ONE standalone invoice with a line per source invoice, so
+   * the patient gets a single statement instead of N. Each line carries its own
+   * provenance so the fees remain independently auditable and individually
+   * de-duplicable.
+   */
+  async applyLateFee(
+    params: {
+      patientId: string;
+      tier: number;
+      invoiceIds: string[];
+      mode: 'flat' | 'percentage';
+      /** Omit to charge the tier's default rate (see late-fee.service.ts). */
+      rate?: number;
+      basis: 'patient' | 'total';
+      branchId?: string;
+    },
+    createdBy: string,
+  ) {
+    const {
+      invoiceIds, mode, basis, branchId,
+    } = params;
+
+    const resolvedTier = lateFee.resolveTier(params.tier);
+    if (resolvedTier === undefined) {
+      throw new BadRequestError(`Invalid late-fee tier: ${params.tier}. Expected one of ${lateFee.LATE_FEE_TIERS.join(', ')}.`);
+    }
+    if (!invoiceIds?.length) {
+      throw new BadRequestError('Select at least one invoice to charge.');
+    }
+
+    // The dialog no longer sends a rate: each tier has a fixed amount. An
+    // explicit rate is still honoured so the API stays usable from outside the
+    // UI, and so the un-tiered adjustments keep working.
+    const tierDefault = lateFee.defaultRateFor(resolvedTier);
+    const requestedRate = params.rate === undefined || params.rate === null ? undefined : Number(params.rate);
+    let parsedRate: number;
+    if (requestedRate !== undefined) {
+      if (!Number.isFinite(requestedRate) || requestedRate <= 0) {
+        throw new BadRequestError('Late-fee rate must be a positive number.');
+      }
+      parsedRate = requestedRate;
+    } else if (tierDefault !== null) {
+      parsedRate = tierDefault;
+    } else {
+      throw new BadRequestError(
+        'A rate is required for an un-tiered adjustment, because there is no tier default to fall back on.',
+      );
+    }
+
+    const patientId = BigInt(params.patientId);
+    const patient = await prisma.patient.findUnique({ where: { PatNum: patientId } });
+    if (!patient) throw new NotFoundError('Patient not found');
+
+    // Load the source invoices and rebuild them through the same mapper the rest
+    // of the billing code uses, so balances and DateSent can't drift.
+    const sourceInvoices = [];
+    for (const invoiceId of invoiceIds) {
+      const statement = await this.getStatementById(invoiceId);
+      if (!statement) throw new NotFoundError(`Invoice ${invoiceId} not found`);
+      if (String(statement.PatNum) !== String(patientId)) {
+        throw new BadRequestError(`Invoice ${invoiceId} does not belong to this patient.`);
+      }
+      const meta = parseJson<StatementMeta>(statement.NoteBold);
+      const mapped = this.mapStatementToInvoice(statement, meta);
+      // Same ledger split the dialog displays, so the previewed amounts and the
+      // charged basis cannot disagree.
+      const split = lateFee.outstandingSplit({
+        balTotal: statement.BalTotal,
+        insEst: statement.InsEst,
+        writeoffAmount: meta.writeoffAmount,
+      });
+      sourceInvoices.push({
+        ...mapped,
+        patientPortion: split.patientRemaining,
+        patientRemaining: split.patientRemaining,
+        insuranceWriteOff: split.insuranceWriteOff,
+        insuranceBalance: split.insuranceRemaining,
+        balanceDue: split.totalOwing,
+      });
+    }
+
+    const alreadyCharged = await lateFee.findChargedLateFees(patientId);
+    const chargedKeys = new Set(
+      alreadyCharged.map((c) => lateFee.chargeKey(c.sourceStatement, c.tier)),
+    );
+
+    const accepted: Array<{
+      sourceStatement: string;
+      invoiceNumber: string;
+      daysOutstanding: number;
+      baseAmount: number;
+      feeAmount: number;
+    }> = [];
+    const rejected: Array<{ invoiceId: string; reason: string }> = [];
+
+    for (const invoice of sourceInvoices) {
+      const days = lateFee.daysOutstanding(invoice.invoiceDate);
+      if (days === null) {
+        rejected.push({ invoiceId: invoice.id, reason: 'Invoice has not been sent yet.' });
+        continue;
+      }
+      const actualBucket = lateFee.bucketFor(days);
+      if (actualBucket === null) {
+        rejected.push({ invoiceId: invoice.id, reason: `Invoice is only ${days} days old and is not yet late.` });
+        continue;
+      }
+      if (resolvedTier !== null && actualBucket !== resolvedTier) {
+        rejected.push({
+          invoiceId: invoice.id,
+          reason: `Invoice is ${days} days old, which is in the ${actualBucket}-day tier, not ${resolvedTier}.`,
+        });
+        continue;
+      }
+      if (chargedKeys.has(lateFee.chargeKey(invoice.id, resolvedTier))) {
+        rejected.push({
+          invoiceId: invoice.id,
+          reason: resolvedTier
+            ? `A ${resolvedTier}-day late fee has already been charged for this invoice.`
+            : `A late fee has already been charged for this invoice.`,
+        });
+        continue;
+      }
+
+      const baseAmount = lateFee.basisAmount(invoice, basis);
+      const feeAmount = lateFee.feeAmountFor(baseAmount, mode, parsedRate);
+      if (feeAmount <= 0) {
+        rejected.push({
+          invoiceId: invoice.id,
+          reason: basis === 'patient'
+            ? 'Invoice has no outstanding patient balance to charge against.'
+            : 'Invoice has no outstanding balance to charge against.',
+        });
+        continue;
+      }
+
+      chargedKeys.add(lateFee.chargeKey(invoice.id, resolvedTier));
+      accepted.push({
+        sourceStatement: invoice.id,
+        invoiceNumber: invoice.invoiceNumber || invoice.id,
+        daysOutstanding: days,
+        baseAmount,
+        feeAmount,
+      });
+    }
+
+    if (accepted.length === 0) {
+      throw new ConflictError(
+        `No eligible invoices for the requested late fee. ${rejected.map((r) => `${r.invoiceId}: ${r.reason}`).join(' ') || 'None selected.'}`,
+      );
+    }
+
+    const tierLabel = resolvedTier ? `${resolvedTier} days` : 'overdue';
+    const basisLabel = basis === 'patient' ? 'patient balance' : 'total outstanding';
+    const rateLabel = mode === 'percentage' ? `${parsedRate}% of ${basisLabel}` : `$${parsedRate} flat`;
+    const totalFee = Math.round(accepted.reduce((sum, a) => sum + a.feeAmount, 0) * 100) / 100;
+
+    const created = await this.createStandaloneInvoice(
+      {
+        patientId: String(patientId),
+        branchId,
+        notes: `Late fee — ${tierLabel} (${rateLabel})`,
+        items: accepted.map((a) => ({
+          code: `LATE-${resolvedTier ?? 'ANY'}-${a.sourceStatement}`,
+          description: `Late fee ${tierLabel} - invoice ${a.invoiceNumber} (${a.daysOutstanding} days overdue, ${rateLabel})`,
+          date: new Date().toISOString(),
+          site: 'Office',
+          provider: 'Staff',
+          writeoff: 0,
+          ptPortion: a.feeAmount,
+          insPortion: 0,
+          primaryInsPortion: 0,
+          secondaryInsPortion: 0,
+          totalInsPortion: 0,
+          charge: a.feeAmount,
+          balance: a.feeAmount,
+          dbi: false,
+          completed: true,
+          patientOnly: true,
+          isPatientPenalty: true,
+          isAccountPenalty: true,
+          lateFeeSourceStatement: a.sourceStatement,
+          lateFeeTier: resolvedTier,
+          lateFeeBaseAmount: a.baseAmount,
+        })),
+      },
+      createdBy,
+    );
+
+    return {
+      invoice: created,
+      tier: resolvedTier,
+      basis,
+      mode,
+      rate: parsedRate,
+      totalFee,
+      charged: accepted,
+      rejected,
+    };
+  }
+
+  async markItemPaid(invoiceId: string, itemId: string, amount: number, paymentSource?: string) {
     const invoice = await this.getStatementById(invoiceId);
     if (!invoice) throw new NotFoundError('Invoice not found');
 
@@ -3066,10 +3458,22 @@ export class InvoiceService {
     const itemMeta = parseJson<ItemMeta>(item.BillingNote);
     const currentPaid = Number((itemMeta as any).paidAmount || 0);
     const newPaid = roundCurrency(currentPaid + amount);
+    const isInsPayment = String(paymentSource ?? '').toLowerCase() === 'insurance_company' || String(paymentSource ?? '').toLowerCase() === 'insurance';
 
     await prisma.procedurelog.update({
       where: { ProcNum: procNum },
-      data: { BillingNote: buildJson({ ...itemMeta, paidAmount: newPaid }) },
+      data: {
+        BillingNote: buildJson({
+          ...itemMeta,
+          paidAmount: newPaid,
+          insurancePaidAmount: isInsPayment
+            ? roundCurrency(Number((itemMeta as any).insurancePaidAmount || 0) + amount)
+            : Number((itemMeta as any).insurancePaidAmount || 0),
+          patientPaidAmount: isInsPayment
+            ? Number((itemMeta as any).patientPaidAmount || 0)
+            : roundCurrency(Number((itemMeta as any).patientPaidAmount || 0) + amount),
+        }),
+      },
     });
 
     await this.recalculateInvoice(invoiceId);

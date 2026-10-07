@@ -167,6 +167,10 @@ export const updateInvoiceItemValidator: ValidationChain[] = [
     .optional()
     .isNumeric()
     .withMessage('insPortion must be numeric'),
+  body('secondaryInsPortion')
+    .optional()
+    .isNumeric()
+    .withMessage('secondaryInsPortion must be numeric'),
   body('ptPortion')
     .optional()
     .isNumeric()

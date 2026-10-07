@@ -345,6 +345,66 @@ export class InvoiceController {
       next(error);
     }
   }
+
+  async getLateFeeEligibility(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const { patientId } = req.params;
+      // Absent tier means "any overdue invoice" (flat-rate / percentage), not an
+      // error — Number(undefined) is NaN, so this must be parsed explicitly.
+      const rawTier = (req.query.tier ?? '') as string | number;
+      const tier = rawTier === '' || rawTier === 'any' ? null : Number(rawTier);
+
+      const result = await invoiceService.getLateFeeEligibility(patientId, tier);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async applyLateFee(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const { patientId, invoiceIds, mode, rate, basis, branchId } = req.body || {};
+
+      const result = await invoiceService.applyLateFee(
+        {
+          patientId,
+          tier: req.body?.tier ?? null,
+          invoiceIds,
+          mode: mode === 'percentage' ? 'percentage' : 'flat',
+          rate,
+          basis: basis === 'total' ? 'total' : 'patient',
+          branchId,
+        },
+        req.userId,
+      );
+
+      res.status(201).json({
+        success: true,
+        data: result,
+        message: `Adjustment applied to ${result.charged.length} invoice(s)`,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
   async transferRejectedClaim(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.userId) {

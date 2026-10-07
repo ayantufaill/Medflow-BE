@@ -28,8 +28,10 @@ describe('Insurance Underpayment Balance Transfer', () => {
       }
       await prisma.paysplit.deleteMany({ where: { PatNum: patNum } });
       await prisma.payment.deleteMany({ where: { PatNum: patNum } });
-      await prisma.procedurelog.deleteMany({ where: { PatNum: patNum } });
+      // Income Transfer adjustments reference ProcNum (fk_adjustment_4_ProcNum),
+      // so they have to go before procedurelog.
       await prisma.adjustment.deleteMany({ where: { PatNum: patNum } });
+      await prisma.procedurelog.deleteMany({ where: { PatNum: patNum } });
       await prisma.statement.deleteMany({ where: { PatNum: patNum } });
       await prisma.$executeRawUnsafe('DELETE FROM famaging WHERE "PatNum" = $1', patNum);
       await prisma.patplan.deleteMany({ where: { PatNum: patNum } });
@@ -614,5 +616,196 @@ describe('Insurance Underpayment Balance Transfer', () => {
       .set(authHeader);
     expect(agingFinal.body.data.insuranceBalance.total).toBe(0);
     expect(agingFinal.body.data.familyOutstanding.total).toBe(15);
+  });
+
+  const buildExplicitRejectionFixture = async (tokenSeed: string, insuranceEstimate: number, patientEstimate: number) => {
+    const token = uniqueToken(tokenSeed);
+    const patient = await createPatientRecord(token);
+    cleanupPatientIds.push(patient.PatNum);
+
+    const statement = await createInvoiceStatement({
+      patientId: patient.PatNum,
+      token,
+      totalAmount: insuranceEstimate + patientEstimate,
+      balanceDue: insuranceEstimate + patientEstimate,
+      patientPortion: patientEstimate,
+      insurancePortion: insuranceEstimate,
+    });
+    cleanupStatementNums.push(statement.StatementNum);
+
+    const procNum = await getNextId('procedurelog', 'ProcNum');
+    await prisma.procedurelog.create({
+      data: {
+        ProcNum: procNum,
+        PatNum: patient.PatNum,
+        StatementNum: statement.StatementNum,
+        ProcDate: new Date(),
+        ProcFee: insuranceEstimate + patientEstimate,
+        ProcStatus: 2,
+        BillingNote: JSON.stringify({
+          charge: insuranceEstimate + patientEstimate,
+          insPortion: insuranceEstimate,
+          primaryInsPortion: insuranceEstimate,
+          totalInsPortion: insuranceEstimate,
+          ptPortion: patientEstimate,
+          writeoff: 0,
+          paidAmount: 0,
+        }),
+      },
+    });
+
+    const claimNum = await getNextId('claim', 'ClaimNum');
+    await prisma.claim.create({
+      data: {
+        ClaimNum: claimNum,
+        PatNum: patient.PatNum,
+        ClaimStatus: 'S',
+        ClaimFee: insuranceEstimate + patientEstimate,
+        InsPayEst: insuranceEstimate,
+        InsPayAmt: 0,
+        DedApplied: 0,
+        DateSent: new Date(),
+        ClaimNote: `Invoice #${statement.StatementNum}`,
+        Narrative: JSON.stringify({
+          invoiceId: statement.StatementNum.toString(),
+          status: 'submitted',
+          claimAmount: insuranceEstimate + patientEstimate,
+          submittedAmount: insuranceEstimate,
+        }),
+      },
+    });
+
+    const cpNum = await getNextId('claimproc', 'ClaimProcNum');
+    await prisma.claimproc.create({
+      data: {
+        ClaimProcNum: cpNum,
+        ProcNum: procNum,
+        ClaimNum: claimNum,
+        PatNum: patient.PatNum,
+        Status: 0,
+        FeeBilled: insuranceEstimate + patientEstimate,
+        InsPayEst: insuranceEstimate,
+        InsPayAmt: 0,
+        WriteOff: 0,
+      },
+    });
+
+    return { patient, statement, procNum, claimNum };
+  };
+
+  it('Explicit rejection after prior insurance paid transfers only the remaining expectation', async () => {
+    const fx = await buildExplicitRejectionFixture('rej150', 475, 475);
+
+    const priorInsurance = await request(app)
+      .post('/api/payments')
+      .set(authHeader)
+      .send({
+        patientId: fx.patient.PatNum.toString(),
+        invoiceId: fx.statement.StatementNum.toString(),
+        amount: 150,
+        paymentDate: new Date().toISOString(),
+        paymentMethod: 'ach',
+        paymentSource: 'insurance_company',
+        isPartialPayment: true,
+        procedures: [{ id: fx.procNum.toString(), pay: 150, claimId: fx.claimNum.toString() }],
+      });
+    expect(priorInsurance.status).toBe(201);
+
+    const rejectedPay = await request(app)
+      .post('/api/payments')
+      .set(authHeader)
+      .send({
+        patientId: fx.patient.PatNum.toString(),
+        invoiceId: fx.statement.StatementNum.toString(),
+        amount: 0,
+        paymentDate: new Date().toISOString(),
+        paymentMethod: 'ach',
+        paymentSource: 'insurance_company',
+        claimStatus: 'rejected',
+        procedures: [{ id: fx.procNum.toString(), pay: 0, claimId: fx.claimNum.toString() }],
+      });
+    expect(rejectedPay.status).toBe(201);
+
+    const updatedProc = await prisma.procedurelog.findUnique({ where: { ProcNum: fx.procNum } });
+    const procMeta = JSON.parse(updatedProc?.BillingNote || '{}');
+    expect(procMeta.primaryInsPortion).toBe(150);
+    expect(procMeta.insPortion).toBe(150);
+    expect(procMeta.totalInsPortion).toBe(150);
+    expect(procMeta.insurancePaidAmount).toBe(150);
+    expect(procMeta.insuranceBalance).toBe(0);
+    expect(procMeta.ptPortion).toBe(800); // 475 original + 325 rejected insurance balance
+    expect(procMeta.isClaimRejected).toBe(true);
+
+    const adjustment = await prisma.adjustment.findFirst({ where: { ProcNum: fx.procNum } });
+    expect(adjustment?.AdjNote).toContain('Insurance Rejected: $325.00');
+  });
+
+  it('Explicit rejection preserves a paid-in-full patient portion', async () => {
+    const fx = await buildExplicitRejectionFixture('rejectpt', 475, 475);
+
+    const ptPay = await request(app)
+      .post('/api/payments')
+      .set(authHeader)
+      .send({
+        patientId: fx.patient.PatNum.toString(),
+        invoiceId: fx.statement.StatementNum.toString(),
+        amount: 475,
+        paymentDate: new Date().toISOString(),
+        paymentMethod: 'card',
+        paymentSource: 'patient',
+        procedures: [{ id: fx.procNum.toString(), pay: 475 }],
+      });
+    expect(ptPay.status).toBe(201);
+
+    const rejectedPay = await request(app)
+      .post('/api/payments')
+      .set(authHeader)
+      .send({
+        patientId: fx.patient.PatNum.toString(),
+        invoiceId: fx.statement.StatementNum.toString(),
+        amount: 0,
+        paymentDate: new Date().toISOString(),
+        paymentMethod: 'ach',
+        paymentSource: 'insurance_company',
+        claimStatus: 'rejected',
+        procedures: [{ id: fx.procNum.toString(), pay: 0, claimId: fx.claimNum.toString() }],
+      });
+    expect(rejectedPay.status).toBe(201);
+
+    const updatedProc = await prisma.procedurelog.findUnique({ where: { ProcNum: fx.procNum } });
+    const procMeta = JSON.parse(updatedProc?.BillingNote || '{}');
+    expect(procMeta.patientPaidAmount).toBe(475);
+    expect(procMeta.ptPortion).toBe(950);
+    expect(procMeta.insurancePaidAmount).toBe(0);
+    expect(procMeta.insuranceBalance).toBe(0);
+    expect(procMeta.isClaimRejected).toBe(true);
+  });
+
+  it('A partial payment does not trigger rejection transfer even with a denial status', async () => {
+    const fx = await buildExplicitRejectionFixture('rejpartial', 475, 475);
+
+    const rejectedPay = await request(app)
+      .post('/api/payments')
+      .set(authHeader)
+      .send({
+        patientId: fx.patient.PatNum.toString(),
+        invoiceId: fx.statement.StatementNum.toString(),
+        amount: 0,
+        paymentDate: new Date().toISOString(),
+        paymentMethod: 'ach',
+        paymentSource: 'insurance_company',
+        isPartialPayment: true,
+        claimStatus: 'rejected',
+        procedures: [{ id: fx.procNum.toString(), pay: 0, claimId: fx.claimNum.toString() }],
+      });
+    expect(rejectedPay.status).toBe(201);
+
+    const updatedProc = await prisma.procedurelog.findUnique({ where: { ProcNum: fx.procNum } });
+    const procMeta = JSON.parse(updatedProc?.BillingNote || '{}');
+    expect(procMeta.ptPortion).toBe(475);
+    expect(procMeta.totalInsPortion).toBe(475);
+    expect(procMeta.insurancePaidAmount).toBe(0);
+    expect(procMeta.insuranceBalance).toBe(475);
+    expect(procMeta.isClaimRejected).not.toBe(true);
   });
 });
