@@ -1,4 +1,9 @@
+<<<<<<< HEAD
 import { prisma, basePrisma, applyTenantContextToTransaction } from '../config/db.js';
+=======
+import { prisma, withTenantTransaction } from '../config/db.js';
+import type { Prisma } from '@prisma/client';
+>>>>>>> e3a0544 (feat: implement treatment plan draft persistence with unit tests)
 import { NotFoundError, UnprocessableEntityError } from '../utils/error.util.js';
 import { getNextId } from '../utils/opendental-ids.util.js';
 import { claimService } from './claim.service.js';
@@ -22,6 +27,7 @@ const parseJson = <T>(value?: string | null): T => {
 const buildJson = (value: Record<string, unknown>) => JSON.stringify(value);
 
 type PlanMeta = {
+  creationRequestId?: string;
   items?: any[];
   status?: string;
   totalAmount?: number;
@@ -122,7 +128,7 @@ export class TreatmentPlanService {
     }
   }
 
-  private async enrichItemsWithInsurance(patientId: bigint, items: any[]) {
+  private async enrichItemsWithInsurance(patientId: bigint, items: any[], db?: Prisma.TransactionClient) {
     if (!items || items.length === 0) {
       return { enrichedItems: items, insPortion: 0, ptPortion: 0, calcTotal: 0 };
     }
@@ -151,7 +157,7 @@ export class TreatmentPlanService {
       }
     }
 
-    const enrichedProcedures = await invoiceService.calculateInsuranceEstimates(patientId, flatProcedures);
+    const enrichedProcedures = await invoiceService.calculateInsuranceEstimates(patientId, flatProcedures, { db });
 
     let insPortion = 0;
     let ptPortion = 0;
@@ -228,8 +234,8 @@ export class TreatmentPlanService {
     };
   }
 
-  async getTreatmentPlanById(planId: string) {
-    const plan = await prisma.treatplan.findUnique({
+  async getTreatmentPlanById(planId: string, db: Prisma.TransactionClient = prisma) {
+    const plan = await db.treatplan.findUnique({
       where: { TreatPlanNum: BigInt(planId) },
     });
     if (!plan) {
@@ -237,7 +243,7 @@ export class TreatmentPlanService {
     }
     const meta = parseJson<PlanMeta>(plan.Note);
 
-    const proctpRows = await prisma.proctp.findMany({
+    const proctpRows = await db.proctp.findMany({
       where: { TreatPlanNum: plan.TreatPlanNum },
       orderBy: { ItemOrder: 'asc' },
       include: { provider: true, procedurelog: true },
@@ -270,17 +276,31 @@ export class TreatmentPlanService {
     status?: string;
     totalAmount?: number;
     items?: any[];
+    creationRequestId?: string;
   }) {
-    data = { ...data, items: await validateIcd10Assignments(data.items ?? [], [], prisma) };
-    const nextId = await getNextId('treatplan', 'TreatPlanNum');
+    return withTenantTransaction(async (tx) => {
+    if (data.creationRequestId) {
+      // A lost response must not create a second draft on retry. Serialize the
+      // same patient/request key; tenant RLS still scopes the lookup and writes.
+      const key = `treatment-plan:${data.patientId}:${data.creationRequestId}`;
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))::text`;
+      const candidates = await tx.treatplan.findMany({
+        where: { PatNum: BigInt(data.patientId), Note: { contains: data.creationRequestId } },
+      });
+      const existing = candidates.find(plan => parseJson<PlanMeta>(plan.Note).creationRequestId === data.creationRequestId);
+      if (existing) return this.getTreatmentPlanById(existing.TreatPlanNum.toString(), tx);
+    }
+    data = { ...data, items: await validateIcd10Assignments(data.items ?? [], [], tx) };
+    const nextId = await getNextId('treatplan', 'TreatPlanNum', tx);
 
     const { enrichedItems, insPortion, ptPortion, calcTotal } = await this.enrichItemsWithInsurance(
       BigInt(data.patientId),
-      data.items ?? []
+      data.items ?? [], tx
     );
 
     // Plan-level metadata in Note — items are NO LONGER serialized into Note JSON
     const payload: PlanMeta = {
+      creationRequestId: data.creationRequestId,
       status: data.status,
       totalAmount: enrichedItems.length > 0 ? calcTotal : data.totalAmount,
       insurancePortion: insPortion,
@@ -288,7 +308,7 @@ export class TreatmentPlanService {
     };
 
     const planDate = new Date();
-    const plan = await prisma.treatplan.create({
+    const plan = await tx.treatplan.create({
       data: {
         TreatPlanNum: nextId,
         PatNum: BigInt(data.patientId),
@@ -311,7 +331,7 @@ export class TreatmentPlanService {
     if (enrichedItems.length > 0) {
       for (let i = 0; i < enrichedItems.length; i++) {
         const item = enrichedItems[i];
-        const procTPNum = await getNextId('proctp', 'ProcTPNum');
+        const procTPNum = await getNextId('proctp', 'ProcTPNum', tx);
 
         let provNum: bigint | null = null;
         const provInput = item.providerId || item.provider;
@@ -319,12 +339,12 @@ export class TreatmentPlanService {
           if (/^\d+$/.test(String(provInput))) {
             provNum = BigInt(String(provInput));
           } else {
-            const prov = await prisma.provider.findFirst({ where: { Abbr: String(provInput) } });
+            const prov = await tx.provider.findFirst({ where: { Abbr: String(provInput) } });
             if (prov?.ProvNum) provNum = prov.ProvNum;
           }
         }
         if (!provNum && data.patientId) {
-          const patient = await prisma.patient.findUnique({ where: { PatNum: BigInt(data.patientId) } });
+          const patient = await tx.patient.findUnique({ where: { PatNum: BigInt(data.patientId) } });
           if (patient?.PriProv) provNum = patient.PriProv;
         }
 
@@ -333,7 +353,7 @@ export class TreatmentPlanService {
         const priInsAmt = parseAmt(item.insPortion ?? item.insuranceAmount);
         const patAmt = parseAmt(item.ptPortion ?? item.patientAmount);
 
-        const row = await prisma.proctp.create({
+        const row = await tx.proctp.create({
           data: {
             ProcTPNum: procTPNum,
             TreatPlanNum: plan.TreatPlanNum,
@@ -360,7 +380,7 @@ export class TreatmentPlanService {
 
     if (Object.keys(preAuthByItemId).length > 0) {
       payload.preAuthByItemId = preAuthByItemId;
-      await prisma.treatplan.update({
+      await tx.treatplan.update({
         where: { TreatPlanNum: plan.TreatPlanNum },
         data: { Note: buildJson(payload) },
       });
@@ -380,6 +400,7 @@ export class TreatmentPlanService {
       items,
       createdAt: plan.DateTP ?? null,
     };
+    });
   }
 
   async updateItemFees(planId: string, itemId: string, fees: {
@@ -396,7 +417,7 @@ export class TreatmentPlanService {
     }
     const planNum = BigInt(planId);
     const procTPNum = BigInt(itemId);
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await withTenantTransaction(async (tx) => {
       const plan = await tx.treatplan.findUnique({ where: { TreatPlanNum: planNum } });
       if (!plan) throw new NotFoundError('Treatment plan not found');
       const row = await tx.proctp.findFirst({ where: { ProcTPNum: procTPNum, TreatPlanNum: planNum } });
@@ -479,13 +500,16 @@ export class TreatmentPlanService {
     updates: Partial<{ title: string; notes: string; status: string; totalAmount: number; items: any[] }>,
     createdBy?: string,
   ) {
+<<<<<<< HEAD
     // Base client on purpose: the RLS extension would run every tx.* call on
     // its own connection, which then waits on the FOR UPDATE lock below
     // forever. applyTenantContextToTransaction sets the tenant context here.
     const result = await basePrisma.$transaction(async (tx) => {
+=======
+    const result = await withTenantTransaction(async (tx) => {
+>>>>>>> e3a0544 (feat: implement treatment plan draft persistence with unit tests)
       const newlyCompletedProcNums: bigint[] = [];
       const manualProcNums: bigint[] = [];
-    await applyTenantContextToTransaction(tx);
     // Serialize edits of the same plan so concurrent retries see the committed link.
     await tx.$queryRaw`SELECT "TreatPlanNum" FROM "treatplan" WHERE "TreatPlanNum" = ${BigInt(planId)} FOR UPDATE`;
     const plan = await tx.treatplan.findUnique({
@@ -512,7 +536,7 @@ export class TreatmentPlanService {
     let calcTotal = updates.totalAmount ?? meta.totalAmount;
 
     if (updates.items && plan.PatNum) {
-      const enrichment = await this.enrichItemsWithInsurance(plan.PatNum, updates.items);
+      const enrichment = await this.enrichItemsWithInsurance(plan.PatNum, updates.items, tx);
       nextItems = enrichment.enrichedItems;
       insPortion = enrichment.insPortion;
       ptPortion = enrichment.ptPortion;
@@ -781,7 +805,7 @@ export class TreatmentPlanService {
     });
 
     if (existingProctpRows.length > 0) {
-      await prisma.$transaction(async (tx) => {
+      await withTenantTransaction(async (tx) => {
         for (let i = 0; i < items.length; i++) {
           const item = items[i];
           const match = existingProctpRows.find(
