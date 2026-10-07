@@ -6564,6 +6564,8 @@ model statement {
   SmsSendStatus                          Int?
   LimitedCustomFamily                    Int?
   ShowTransSinceBalZero                  Int?
+  lateFeePolicyVersionId                 BigInt?
+  patientLiabilityFinalizedAt            DateTime?
   adjustment                             adjustment[]
   msgtopaysent                           msgtopaysent[]  @ignore
   payplancharge                          payplancharge[]
@@ -8373,4 +8375,82 @@ model cob_invoice_liability {
   /// The claim whose remittance finalized it (the last payer's).
   last_payer_claim_num           BigInt?
   updated_at                     DateTime  @default(now()) @updatedAt
+model LateFeePolicy {
+  id                   BigInt   @id @default(autoincrement())
+  clinicId             BigInt
+  version              Int      @default(1)
+  isActive             Boolean  @default(false)
+  termsText            String   @db.Text
+  gracePeriodDays      Int      @default(15)
+  paymentTermsDays     Int      @default(30)
+  feeType              String   // 'flat' | 'percentage'
+  patientFeeAmount     Decimal  @db.Decimal(12, 2) // Flat fee for individuals (in minor units/cents)
+  corporateFeePct      Decimal  @db.Decimal(5, 2)  // Monthly % for corporate (e.g., 1.50 = 1.5%)
+  capPct               Decimal  @db.Decimal(5, 2)  @default(10.00)
+  enabled              Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  createdBy            BigInt
+  acceptances          LateFeePolicyAcceptance[]
+  applications         LateFeeApplication[]
+
+  @@unique([clinicId, version])
+  @@index([clinicId, isActive])
+}
+
+model LateFeePolicyAcceptance {
+  id                 BigInt   @id @default(autoincrement())
+  policyId           BigInt
+  policy             LateFeePolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  patientId          BigInt?
+  corporateClientId  BigInt?
+  acceptedAt         DateTime @default(now())
+  channel            String   // 'registration_form' | 'signed_consent' | 'portal_checkbox' | 'verbal'
+  acceptedBy         BigInt?  // Staff user who recorded verbal acceptance
+
+  @@unique([policyId, patientId])
+  @@unique([policyId, corporateClientId])
+  @@index([patientId])
+  @@index([corporateClientId])
+}
+
+model LateFeeApplication {
+  id                     BigInt   @id @default(autoincrement())
+  invoiceId              BigInt
+  policyId               BigInt
+  policy                 LateFeePolicy @relation(fields: [policyId], references: [id])
+  patientId              BigInt
+  clinicId               BigInt
+  feeAmount              Decimal  @db.Decimal(12, 2)
+  baseAmount             Decimal  @db.Decimal(12, 2)
+  feeType                String   // 'flat' | 'percentage'
+  appliedAt              DateTime @default(now())
+  appliedBy              String   // 'system_job' | 'staff_user_id'
+  status                 String   // 'applied' | 'skipped' | 'waived'
+  skipReason             String?  // 'POLICY_NOT_ACCEPTED' | 'INSURANCE_PENDING' | 'GRACE_PERIOD' | 'CAP_REACHED' | 'ALREADY_APPLIED' | 'NOT_ELIGIBLE'
+  periodStart            DateTime
+  periodEnd              DateTime
+  originalInvoiceAmount  Decimal  @db.Decimal(12, 2)
+  cumulativeFees         Decimal  @db.Decimal(12, 2)
+  waivers                LateFeeWaiver[]
+
+  @@index([invoiceId])
+  @@index([patientId, appliedAt])
+  @@index([clinicId, appliedAt])
+  @@index([status])
+  @@index([periodStart, periodEnd, invoiceId])
+}
+
+model LateFeeWaiver {
+  id            BigInt   @id @default(autoincrement())
+  applicationId BigInt
+  application   LateFeeApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  waivedAmount  Decimal  @db.Decimal(12, 2)
+  reasonCode    String   // 'HARDSHIP' | 'GOODWILL' | 'BILLING_ERROR' | 'INSURANCE_DELAY' | 'OTHER'
+  reasonNote    String?  @db.Text
+  waivedBy      BigInt
+  waivedAt      DateTime @default(now())
+
+  @@index([applicationId])
+  @@index([waivedBy, waivedAt])
+  @@index([reasonCode])
 }

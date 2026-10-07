@@ -42,6 +42,18 @@ export interface WriteAuditParams {
   req?: Request;
 }
 
+export const AuditEventType = {
+  LATE_FEE_APPLIED: 'late_fee_applied',
+  LATE_FEE_SKIPPED: 'late_fee_skipped',
+  LATE_FEE_WAIVED: 'late_fee_waived',
+  LATE_FEE_POLICY_CREATED: 'late_fee_policy_created',
+  LATE_FEE_POLICY_UPDATED: 'late_fee_policy_updated',
+  LATE_FEE_POLICY_ACTIVATED: 'late_fee_policy_activated',
+  LATE_FEE_ACCEPTANCE_RECORDED: 'late_fee_acceptance_recorded',
+} as const;
+
+export type AuditEventType = typeof AuditEventType[keyof typeof AuditEventType];
+
 /**
  * Write an audit row into securitylog.
  *
@@ -112,6 +124,35 @@ export async function writeAudit(params: WriteAuditParams): Promise<boolean> {
     return false;
   }
   return true;
+}
+
+export async function writeLateFeeAudit(params: {
+  userNum: bigint;
+  patNum?: bigint;
+  clinicNum?: bigint;
+  eventType: AuditEventType;
+  invoiceId?: bigint;
+  feeAmount?: number;
+  reason?: string;
+  details?: Record<string, any>;
+  req?: Request;
+}): Promise<boolean> {
+  const text = JSON.stringify({
+    eventType: params.eventType,
+    invoiceId: params.invoiceId?.toString(),
+    feeAmount: params.feeAmount,
+    reason: params.reason,
+    details: params.details,
+  });
+  return writeAudit({
+    userNum: params.userNum,
+    permType: 999,
+    patNum: params.patNum,
+    clinicNum: params.clinicNum,
+    text,
+    source: 1,
+    req: params.req,
+  });
 }
 
 export async function verifyAuditChain() {

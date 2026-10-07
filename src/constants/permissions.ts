@@ -109,6 +109,13 @@ export const PERMISSIONS = {
     PROCESS: 'invoices.process',
   },
 
+  // Late Fee
+  LATE_FEE: {
+    WAIVE: 'billing.late_fee.waive',
+    POLICY_MANAGE: 'billing.late_fee.policy_manage',
+    VIEW: 'billing.late_fee.view',
+  },
+
   // Payments
   PAYMENTS: {
     CREATE: 'payments.create',

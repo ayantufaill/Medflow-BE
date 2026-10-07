@@ -73,6 +73,7 @@ import timeclockRoutes from './timeclock.routes';
 import patientReportRoutes from './patient-report.routes';
 import securityRoutes from './security.routes';
 import sharingRoutes from './sharing.routes';
+import lateFeeRoutes from './late-fee.routes';
 
 const router = Router();
 router.use('/sharing', sharingRoutes);
@@ -156,5 +157,6 @@ router.use('/practice-groups', practiceGroupRoutes);
 router.use('/form-templates', formTemplateRoutes);
 router.use('/public/booking', publicBookingRoutes);
 router.use('/tasks', taskRoutes);
+router.use('/late-fee', lateFeeRoutes);
 
 export default router;
