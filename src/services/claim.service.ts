@@ -556,6 +556,9 @@ export class ClaimService {
           insPayEst: Number(cp.InsPayEst) || 0,
           insPayAmt: Number(cp.InsPayAmt) || 0,
           insPaid: Number(cp.InsPayAmt) || 0,
+          insurancePaidAmount: Number(cp.InsPayAmt) || 0,
+          patientPaidAmount: Number(cpMeta?.patientPaidAmount) || 0,
+          insuranceBalance: Math.max(0, Math.round(((Number(cp.InsPayEst) || 0) - (Number(cp.InsPayAmt) || 0) - (Number(cp.WriteOff) || bnWo || 0)) * 100) / 100),
           writeOffEst: Number(cp.WriteOffEst) || Number(cp.WriteOff) || bnWo,
           writeOff: Number(cp.WriteOff) || bnWo,
           writeoff: Number(cp.WriteOff) || bnWo,
@@ -632,8 +635,11 @@ export class ClaimService {
             quantity: proc.UnitQty ?? 1,
             fee: proc.ProcFee ?? 0,
             insPayEst: Number(procMeta?.insPortion) || 0,
-            insPayAmt: Number(procMeta?.paidAmount) || 0,
-            insPaid: Number(procMeta?.paidAmount) || 0,
+            insPayAmt: Number(procMeta?.insurancePaidAmount ?? procMeta?.paidAmount) || 0,
+            insPaid: Number(procMeta?.insurancePaidAmount ?? procMeta?.paidAmount) || 0,
+            insurancePaidAmount: Number(procMeta?.insurancePaidAmount) || 0,
+            patientPaidAmount: Number(procMeta?.patientPaidAmount) || 0,
+            insuranceBalance: Number(procMeta?.insuranceBalance ?? Math.max(0, (Number(procMeta?.insPortion) || 0) - (Number(procMeta?.insurancePaidAmount) || 0) - (Number(procMeta?.writeoff ?? procMeta?.estimatedWriteOff) || 0))) || 0,
             writeOffEst: Number(procMeta?.writeoff) || Number(procMeta?.estimatedWriteOff) || 0,
             writeOff: Number(procMeta?.writeoff) || Number(procMeta?.estimatedWriteOff) || 0,
             writeoff: Number(procMeta?.writeoff) || Number(procMeta?.estimatedWriteOff) || 0,
@@ -1368,6 +1374,11 @@ export class ClaimService {
       patientResponsibility: isSecondary ? 0 : patientResponsibility,
       policyNumber: data.policyNumber,
       notes: data.notes,
+      // Claims created from the invoice "Add to Claim" checkbox are always
+      // submitted electronically. Written explicitly so the read model does not
+      // have to infer it from `ClaimType`, which this path uses for the
+      // insurance tier (Primary/Secondary).
+      claimFormat: 'E-claim',
     };
 
     const claimNum = await getNextId('claim', 'ClaimNum');
@@ -3912,6 +3923,13 @@ export class ClaimService {
       selectedItems: cleanSelectedItems,
       insuranceType,
       claimType: isSecondary ? 'Secondary' : (data.claimType || 'Manual'),
+      // ManualClaimDialog already sends claimType 'Manual' | 'Electronic'.
+      // Persist it in the field the claim read model exposes as `claimFormat`,
+      // instead of leaving it to be inferred from `ClaimType`.
+      claimFormat:
+        String(data.claimType || 'Manual').toLowerCase() === 'electronic'
+          ? 'E-claim'
+          : 'Paper',
       insuranceCompanyId: insurance.CarrierNum ? insurance.CarrierNum.toString() : undefined,
       claimAmount: totalAmount,
       submittedAmount: totalAmount,
