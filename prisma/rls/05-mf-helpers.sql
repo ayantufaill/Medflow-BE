@@ -8,9 +8,20 @@ CREATE SCHEMA IF NOT EXISTS mf;
 -- either may run first against a database that has neither.
 GRANT USAGE ON SCHEMA mf TO medflow_app;
 
+-- '*' (all groups), '' and NULL return NULL instead of reaching the cast,
+-- which raised 22P02 on '*' in every shared_read policy (payment, paysplit,
+-- ...) for unrestricted contexts. plpgsql for the same reason as clinic_ids().
 CREATE OR REPLACE FUNCTION mf.group_id() RETURNS integer
-LANGUAGE sql STABLE AS $$
-  SELECT NULLIF(current_setting('app.patient_group_id', true), '')::integer;
+LANGUAGE plpgsql STABLE AS $$
+DECLARE
+  raw text;
+BEGIN
+  raw := current_setting('app.patient_group_id', true);
+  IF raw IS NULL OR raw !~ '^[0-9]+$' THEN
+    RETURN NULL;
+  END IF;
+  RETURN raw::integer;
+END;
 $$;
 
 CREATE OR REPLACE FUNCTION mf.user_id() RETURNS bigint

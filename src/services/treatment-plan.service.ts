@@ -1,4 +1,4 @@
-import { prisma, applyTenantContextToTransaction } from '../config/db.js';
+import { prisma, basePrisma, applyTenantContextToTransaction } from '../config/db.js';
 import { NotFoundError, UnprocessableEntityError } from '../utils/error.util.js';
 import { getNextId } from '../utils/opendental-ids.util.js';
 import { claimService } from './claim.service.js';
@@ -479,7 +479,10 @@ export class TreatmentPlanService {
     updates: Partial<{ title: string; notes: string; status: string; totalAmount: number; items: any[] }>,
     createdBy?: string,
   ) {
-    const result = await prisma.$transaction(async (tx) => {
+    // Base client on purpose: the RLS extension would run every tx.* call on
+    // its own connection, which then waits on the FOR UPDATE lock below
+    // forever. applyTenantContextToTransaction sets the tenant context here.
+    const result = await basePrisma.$transaction(async (tx) => {
       const newlyCompletedProcNums: bigint[] = [];
       const manualProcNums: bigint[] = [];
     await applyTenantContextToTransaction(tx);

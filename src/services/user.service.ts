@@ -460,6 +460,16 @@ export class UserService {
       throw new ConflictError('User with this email already exists');
     }
 
+    // Check the roles before anything is written, so a refused role can't leave
+    // a half-created account behind.
+    const roles = data.roleIds && data.roleIds.length > 0
+      ? await prisma.usergroup.findMany({ where: { UserGroupNum: { in: data.roleIds.map((id) => BigInt(id)) } } })
+      : [];
+    if (roles.length > 0) {
+      // B1.4: Grant guard on user creation with roles
+      await assertCanGrantAll(createdBy, roles.map(r => r.UserGroupNum));
+    }
+
     const effectivePassword = data.password || crypto.randomBytes(32).toString('hex');
     const passwordHash = await hashPassword(effectivePassword);
     const isAccountActive = data.isActive ?? false;
@@ -485,31 +495,26 @@ export class UserService {
       tokenVersion: 0,
     });
 
-    if (data.roleIds && data.roleIds.length > 0) {
-      const validRoleNums = data.roleIds.map((id) => BigInt(id));
-      const roles = await prisma.usergroup.findMany({
-        where: { UserGroupNum: { in: validRoleNums } },
-      });
-      if (roles.length > 0) {
-        // B1.4: Grant guard on user creation with roles
-        await assertCanGrantAll(createdBy, roles.map(r => r.UserGroupNum));
-        await Promise.all(
-          roles.map(async (role) => {
-            const nextAttach = await getNextId('usergroupattach', 'UserGroupAttachNum');
-            return prisma.usergroupattach.create({
-              data: {
-                UserGroupAttachNum: nextAttach,
-                UserNum: user.UserNum,
-                UserGroupNum: role.UserGroupNum,
-              },
-            });
-          })
-        );
-      }
+    if (roles.length > 0) {
+      await Promise.all(
+        roles.map(async (role) => {
+          const nextAttach = await getNextId('usergroupattach', 'UserGroupAttachNum');
+          return prisma.usergroupattach.create({
+            data: {
+              UserGroupAttachNum: nextAttach,
+              UserNum: user.UserNum,
+              UserGroupNum: role.UserGroupNum,
+            },
+          });
+        })
+      );
     }
 
+    // The Add User drawer needs the new id to assign the user's branches.
+    const created = { _id: user.UserNum.toString(), email: data.email.toLowerCase() };
+
     if (isAccountActive && data.password) {
-      return { message: 'User created and active. Sign in with the supplied password.' };
+      return { message: 'User created and active. Sign in with the supplied password.', user: created };
     }
 
     const token = crypto.randomBytes(32).toString('hex');
@@ -518,7 +523,7 @@ export class UserService {
 
     await emailService.sendRegistrationVerificationLink(data.email, token, data.firstName);
 
-    return { message: 'User created. Verification link sent.' };
+    return { message: 'User created. Verification link sent.', user: created };
   }
 
   async verifyTokenAndSetPassword(token: string, password: string) {

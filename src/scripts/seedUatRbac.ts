@@ -205,6 +205,28 @@ async function main() {
     patientRows.push({ label: p.label, name: `${p.first} ${p.last}`, patNum: patient.PatNum, branch: p.branch });
   }
 
+  // One cash payment per branch so the KPI dashboard has collections to filter
+  // by branch (All branches $140 = Downtown $100 + Uptown $40). Created once.
+  const DEMO_NOTE = 'UAT demo payment';
+  const demoPayments = [
+    { label: 'PT-001', amount: 100 },
+    { label: 'PT-002', amount: 40 },
+    { label: 'PT-003', amount: 60 },
+  ];
+  const today = new Date();
+  for (const d of demoPayments) {
+    const p = patientRows.find((r) => r.label === d.label)!;
+    const clinicNum = clinics[p.branch as BranchKey].ClinicNum;
+    if (await prisma.payment.findFirst({ where: { PatNum: p.patNum, PayNote: DEMO_NOTE } })) continue;
+    const payNum = await getNextId('payment', 'PayNum');
+    await prisma.payment.create({
+      data: { PayNum: payNum, PayDate: today, DateEntry: today, PayAmt: d.amount, PayNote: DEMO_NOTE, IsSplit: 0, PatNum: p.patNum, ClinicNum: clinicNum },
+    });
+    await prisma.paysplit.create({
+      data: { SplitNum: await getNextId('paysplit', 'SplitNum'), SplitAmt: d.amount, PatNum: p.patNum, PayNum: payNum, IsDiscount: 0, DatePay: today, DateEntry: today, ClinicNum: clinicNum },
+    });
+  }
+
   const branchName: Record<BranchKey, string> = { A: 'Sunrise Downtown', B: 'Sunrise Uptown', CS: 'City Smiles Main' };
   console.log('\n✅ UAT RBAC fixtures ready');
   console.log(`   Password for every account: ${PASSWORD}\n`);
@@ -216,6 +238,7 @@ async function main() {
   for (const p of patientRows) {
     console.log(`     ${p.label}  ${p.name.padEnd(10)} PatNum ${p.patNum}  (${branchName[p.branch as BranchKey]})`);
   }
+  console.log('\n   Demo payments: Ali Tariq $100 (Downtown), Sara Khan $40 (Uptown), John Doe $60 (City Smiles)');
   console.log('\n   Accounts:');
   for (const u of USERS) console.log(`     ${u.role.padEnd(16)} ${u.email}`);
 }
