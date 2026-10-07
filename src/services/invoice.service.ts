@@ -1282,6 +1282,8 @@ export class InvoiceService {
       }
     } catch (err) {
       console.warn('[InvoiceService] Failed to calculate insurance estimates:', err);
+      // Transactional saves must roll back instead of persisting partial estimates.
+      if (options.db) throw err;
     }
     return items;
   }
