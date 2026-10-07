@@ -125,6 +125,10 @@ export const createPaymentValidator: ValidationChain[] = [
   body('procedures.*.moveToNewClaim').optional().isBoolean().withMessage('moveToNewClaim must be a boolean'),
   body('procedures.*.claimId').optional().isString().withMessage('Claim ID must be a string'),
   body('isPartialPayment').optional().isBoolean().withMessage('isPartialPayment must be a boolean'),
+  body('claimStatus')
+    .optional()
+    .isIn(['rejected', 'denied', 'paid', 'partial'])
+    .withMessage('claimStatus must be rejected, denied, paid, or partial'),
   body('overpaymentAmount')
     .optional()
     .isFloat({ min: 0 })
