@@ -9,7 +9,7 @@ export class DashboardMetricsController {
       const providerId = req.query.providerId ? String(req.query.providerId) : 'All';
       const startDate = req.query.startDate ? String(req.query.startDate) : undefined;
       const endDate = req.query.endDate ? String(req.query.endDate) : undefined;
-      const branchId = req.query.branchId ? String(req.query.branchId) : undefined;
+      const branchId = req.query.branchId ? String(req.query.branchId) : req.header('x-branch-id');
       const groupId = req.query.groupId ? String(req.query.groupId) : undefined;
       
       const userId = (req as any).user?.userId; // to resolve user's branches if 'All' is selected. Assuming req.user is set by auth middleware

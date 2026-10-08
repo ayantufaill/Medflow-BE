@@ -4,7 +4,7 @@ import app from '../src/app';
 import { prisma } from '../src/config/db';
 import { getAdminAuthHeader } from './helpers/auth';
 import { uniqueToken } from './helpers/unique';
-import { createPatientRecord, createInvoiceStatement } from './helpers/fixtures';
+import { createPatientRecord, createInvoiceStatement, deletePatientRecord } from './helpers/fixtures';
 import { getNextId } from '../src/utils/opendental-ids.util';
 
 describe('Insurance Underpayment Balance Transfer', () => {
@@ -36,7 +36,10 @@ describe('Insurance Underpayment Balance Transfer', () => {
       await prisma.$executeRawUnsafe('DELETE FROM famaging WHERE "PatNum" = $1', patNum);
       await prisma.patplan.deleteMany({ where: { PatNum: patNum } });
       await prisma.inssub.deleteMany({ where: { Subscriber: patNum } });
-      await prisma.patient.deleteMany({ where: { PatNum: patNum } });
+      // Via the helper, not patient.deleteMany: posting payments through the
+      // API audits every patient read (fk_securitylog_2_PatNum), and those
+      // rows have to go before the patient can be removed.
+      await deletePatientRecord(patNum);
     }
     // insplan is referenced by claim.PlanNum (fk_claim_2_PlanNum), so it can only
     // be removed once the loop above has deleted this patient's claims. Doing it

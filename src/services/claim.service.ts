@@ -12,7 +12,9 @@ import { agingService } from './aging.service';
 import { providerResolutionService } from './provider-resolution.service';
 import { getProviderMeta } from '../utils/opendental-auth.util';
 import { aggregateAppliedByRow } from './deductible.service';
+import { claimClinicFromLines } from '../utils/claim-clinic.util';
 import { CLAIM_STATUS_CODE } from '../constants/claim-status';
+import { claimClinicFromLines } from '../utils/claim-clinic.util';
 
 type ClaimStatus =
   | 'draft'
@@ -1456,6 +1458,7 @@ export class ClaimService {
       data: {
         ClaimNum: claimNum,
         PatNum: invoice.PatNum ?? null,
+        ClinicNum: claimClinicFromLines(insProcs.map(p => p.ClinicNum)),
         PlanNum: patPlan?.inssub?.PlanNum ?? null,
         InsSubNum: patPlan?.InsSubNum ?? null,
         ProvTreat: treatingProv ?? null,
@@ -1766,6 +1769,7 @@ export class ClaimService {
       data: {
         ClaimNum: claimNum,
         PatNum: patNumBigInt,
+        ClinicNum: claimClinicFromLines(resolvedProcedures.map(p => p.proctp.ClinicNum)),
         PlanNum: patPlan?.inssub?.PlanNum ?? null,
         InsSubNum: patPlan?.InsSubNum ?? null,
         ProvTreat: treatingProvNum,
@@ -2007,6 +2011,7 @@ export class ClaimService {
       data: {
         ClaimNum: claimNum,
         PatNum: patNumBigInt,
+        ClinicNum: claimClinicFromLines(resolvedProcedures.map(p => p.proctp.ClinicNum)),
         PlanNum: patPlan?.inssub?.PlanNum ?? null,
         InsSubNum: patPlan?.InsSubNum ?? null,
         ProvTreat: treatingProvNum,
@@ -2254,6 +2259,11 @@ export class ClaimService {
       },
     };
 
+    const primaryClaimProcs = await prisma.claimproc.findMany({
+      where: { ClaimNum: primaryClaim.ClaimNum },
+      include: { procedurelog: true },
+    });
+
     const createdSecondary = await prisma.claim.create({
       data: {
         ClaimNum: secondaryClaimNum,
@@ -2262,7 +2272,7 @@ export class ClaimService {
         InsSubNum: secondaryInsSubNum,
         ProvTreat: primaryClaim.ProvTreat,
         ProvBill: primaryClaim.ProvBill,
-        ClinicNum: primaryClaim.ClinicNum,
+        ClinicNum: primaryClaim.ClinicNum && primaryClaim.ClinicNum > 0n ? primaryClaim.ClinicNum : claimClinicFromLines(primaryClaimProcs.map(cp => cp.ClinicNum)),
         ClaimType: 'Secondary',
         ClaimStatus: claimStatusToCode(status),
         DateService: primaryClaim.DateService ?? new Date(),
@@ -2291,10 +2301,6 @@ export class ClaimService {
     );
 
     // Copy primary claim procedures to secondary claimproc records
-    const primaryClaimProcs = await prisma.claimproc.findMany({
-      where: { ClaimNum: primaryClaim.ClaimNum },
-      include: { procedurelog: true },
-    });
 
     if (primaryClaimProcs.length > 0) {
       for (const cp of primaryClaimProcs) {
@@ -2625,6 +2631,45 @@ export class ClaimService {
         updates.notes ?? `Status changed from ${previousStatus} to ${nextStatus}`,
         userId
       );
+    }
+
+    // When claim is marked as paid/denied/resolved, update patientLiabilityFinalizedAt on linked invoice
+    const resolvedStatuses = ['paid', 'denied', 'partial', 'rejected'];
+    const pendingStatuses = ['submitted', 'pending', 'under_review', 'readyForSubmission'];
+    if (resolvedStatuses.includes(nextStatus) && !resolvedStatuses.includes(previousStatus)) {
+      const targetInvId = nextMeta.invoiceId || existing.ClaimNote?.match(/Invoice #(\d+)/)?.[1];
+      if (targetInvId) {
+        try {
+          await prisma.statement.update({
+            where: { StatementNum: BigInt(targetInvId) },
+            data: { patientLiabilityFinalizedAt: new Date() },
+          });
+          const { invoiceService } = await import('./invoice.service');
+          await invoiceService.recalculateInvoice(targetInvId);
+        } catch (err) {
+          console.error(`[ClaimService] Error updating liability finalized for invoice ${targetInvId}:`, err);
+        }
+      }
+      if (updated.PatNum) {
+        await agingService.updatePatientAging(updated.PatNum).catch(() => {});
+      }
+    }
+
+    // When claim is reopened/appealed (resolved -> pending), clear patientLiabilityFinalizedAt
+    if (pendingStatuses.includes(nextStatus) && resolvedStatuses.includes(previousStatus)) {
+      const targetInvId = nextMeta.invoiceId || existing.ClaimNote?.match(/Invoice #(\d+)/)?.[1];
+      if (targetInvId) {
+        try {
+          await prisma.statement.update({
+            where: { StatementNum: BigInt(targetInvId) },
+            data: { patientLiabilityFinalizedAt: null },
+          });
+          const { invoiceService } = await import('./invoice.service');
+          await invoiceService.recalculateInvoice(targetInvId);
+        } catch (err) {
+          console.error(`[ClaimService] Error clearing liability finalized for invoice ${targetInvId}:`, err);
+        }
+      }
     }
 
     // When claim is marked as paid, update associated claimproc items to status 1 (Received)
@@ -4657,6 +4702,7 @@ export class ClaimService {
       data: {
         ClaimNum: claimNum,
         PatNum: procedure.PatNum ?? null,
+        ClinicNum: claimClinicFromLines([procedure.ClinicNum]),
         PlanNum: patPlan?.inssub?.PlanNum ?? null,
         InsSubNum: patPlan?.InsSubNum ?? null,
         ProvTreat: treatingProv,

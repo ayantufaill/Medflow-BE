@@ -11,6 +11,7 @@ import { claimService } from './claim.service';
 import { patientInsuranceService } from './patient-insurance.service';
 import { agingService } from './aging.service';
 import { lateFee } from './late-fee.service';
+import { LateFeeGuardrails } from './late-fee-guardrails.service';
 import {
   DeductibleLedger,
   applyDeductible,
@@ -80,6 +81,7 @@ type StatementMeta = {
   dueDate?: string;
   voidReason?: string;
   claimId?: string; // Added to store generated claim ID
+  lateFeePolicyVersionId?: string;
   /**
    * Set when the invoice's deductible has been made permanent, i.e. when the
    * fully patient-responsible portion was folded into the plan's `metAmount`.
@@ -114,6 +116,22 @@ const buildJson = (value: Record<string, unknown>) => JSON.stringify(value);
 const toBigInt = (value?: string | null): bigint | null => {
   if (!value) return null;
   return /^\d+$/.test(value) ? BigInt(value) : null;
+};
+
+/**
+ * Parse a calendar date (YYYY-MM-DD, as sent by the invoice modal) as LOCAL
+ * midnight. Parsing such a string with `new Date("YYYY-MM-DD")` yields UTC
+ * midnight, which displays as the previous day in UTC-negative timezones —
+ * so the date a user picked in the UI would round-trip one day early.
+ */
+const parseLocalDate = (value?: string | null): Date | null => {
+  if (!value) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  }
+  const fallback = new Date(value);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
 };
 
 const getInvoiceNumber = async (db: Prisma.TransactionClient | typeof prisma = prisma): Promise<string> => {
@@ -1293,6 +1311,8 @@ export class InvoiceService {
       }
     } catch (err) {
       console.warn('[InvoiceService] Failed to calculate insurance estimates:', err);
+      // Transactional saves must roll back instead of persisting partial estimates.
+      if (options.db) throw err;
     }
     return items;
   }
@@ -2945,7 +2965,17 @@ export class InvoiceService {
 
     const invoiceNumber = await getInvoiceNumber();
     const statementNum = await getNextId('statement', 'StatementNum');
-    const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    // The invoice's date is the LATEST procedure date on it (the most recent
+    // service rendered), falling back to now when no row carries a date. Derived
+    // as local midnight so a date picked in the invoice modal's DATE column
+    // round-trips to the same calendar day on the ledger card.
+    const invoiceDate =
+      data.items
+        .map((item) => parseLocalDate(item.date))
+        .filter((d): d is Date => d !== null)
+        .sort((a, b) => b.getTime() - a.getTime())[0] ?? new Date();
+    const dueDate = new Date(invoiceDate.getTime() + 30 * 24 * 60 * 60 * 1000);
 
     const secondaryPlan = await prisma.patplan.findFirst({
       where: { PatNum: patientId, Ordinal: 2, OR: [{ IsPending: 0 }, { IsPending: null }] }
@@ -2997,6 +3027,14 @@ export class InvoiceService {
       totalWriteoff += Number(item.writeoff ?? 0);
     }
 
+    const activePolicy = patient.ClinicNum
+      ? await prisma.lateFeePolicy.findFirst({
+          where: { clinicId: patient.ClinicNum, isActive: true, enabled: true },
+        orderBy: { version: 'desc' },
+          select: { id: true },
+        })
+      : null;
+
     const meta: StatementMeta = {
       appointmentId: resolvedAptNum ? resolvedAptNum.toString() : undefined,
       copayAmount: 0,
@@ -3011,14 +3049,15 @@ export class InvoiceService {
       status: 'draft',
       createdBy,
       dueDate: dueDate.toISOString(),
+      lateFeePolicyVersionId: activePolicy?.id.toString(),
     };
 
     const statement = await prisma.statement.create({
       data: {
         StatementNum: statementNum,
         PatNum: patientId,
-        DateSent: new Date(),
-        DateRangeFrom: new Date(),
+        DateSent: invoiceDate,
+        DateRangeFrom: invoiceDate,
         DateRangeTo: dueDate,
         Note: data.notes || 'Standalone Invoice',
         NoteBold: buildJson(meta),
@@ -3027,6 +3066,7 @@ export class InvoiceService {
         ShortGUID: invoiceNumber,
         InsEst: roundCurrency(totalInsPortion + totalSecondaryInsPortion),
         BalTotal: totalAmount,
+        lateFeePolicyVersionId: activePolicy?.id ?? null,
       },
     });
 
@@ -3175,7 +3215,11 @@ export class InvoiceService {
       }
 
       if (existingRecord) {
-        // Link the existing record to the new invoice — marks it as "billed"
+        // Link the existing record to the new invoice — marks it as "billed".
+        // Also update ProcDate to the date the user selected in the modal so
+        // each procedure keeps its own chosen date rather than whatever was
+        // previously stored on the record.
+        const itemProcDate = item.date ? parseLocalDate(item.date) : null;
         await prisma.procedurelog.update({
           where: { ProcNum: existingRecord.ProcNum },
           data: {
@@ -3185,6 +3229,7 @@ export class InvoiceService {
             ProvNum: provNum ?? existingRecord.ProvNum,
             BillingNote: billingNote,
             NoBillIns: isPenalty ? 1 : existingRecord.NoBillIns,
+            ...(itemProcDate ? { ProcDate: itemProcDate } : {}),
           },
         });
       } else {
@@ -3290,11 +3335,44 @@ export class InvoiceService {
     const charged = await lateFee.findChargedLateFees(patNum);
     const eligible = lateFee.eligibleInvoices(invoices, resolved, charged);
 
+    // Active policy for the patient's clinic, when one is enabled. The dialog
+    // reads the amount and terms from here (or falls back to the legacy tier
+    // default below) so it displays exactly what the charge will apply.
+    const policy = patient.ClinicNum
+      ? await LateFeeGuardrails.getActivePolicy(BigInt(patient.ClinicNum))
+      : null;
+    const policyRate = policy
+      ? policy.feeType === 'flat' ? policy.patientFeeAmount : policy.corporateFeePct
+      : null;
+    const policyMode = policy?.feeType ?? 'flat';
+    const projectedFee = (basis: number) => {
+      const rate = policyRate ?? lateFee.defaultRateFor(resolved);
+      if (rate === null || rate <= 0) return null;
+      return lateFee.feeAmountFor(basis, policyMode, rate);
+    };
+
     return {
       tier: resolved,
+      // Legacy tier default, still returned so old callers keep working; new
+      // dialog code should read `policy` + per-invoice `feePatient/feeTotal`.
+      defaultRate: lateFee.defaultRateFor(resolved),
+      // Backend-provided terms: amount and policy terms the dialog displays and
+      // re-sends on submit — never computed in the frontend.
+      policy: policy
+        ? {
+            policyVersion: policy.version,
+            termsText: policy.termsText,
+            feeType: policy.feeType,
+            patientFeeAmount: policy.patientFeeAmount,
+            corporateFeePct: policy.corporateFeePct,
+            capPct: policy.capPct,
+            paymentTermsDays: policy.paymentTermsDays,
+            gracePeriodDays: policy.gracePeriodDays,
+            enabled: policy.enabled,
+          }
+        : null,
       // Sent to the dialog so the amount it previews is the amount the server
       // will charge, rather than a second copy of these numbers in the UI.
-      defaultRate: lateFee.defaultRateFor(resolved),
       invoices: eligible.map((row) => ({
         id: row.id,
         invoiceNumber: row.invoiceNumber,
@@ -3308,6 +3386,10 @@ export class InvoiceService {
         insuranceBalance: row.insuranceBalance ?? 0,
         totalBalance: row.basisTotal,
         alreadyCharged: row.alreadyCharged,
+        // Amount that WILL be charged for this invoice on each basis, computed
+        // on the backend (flat fee, or % of the basis balance).
+        feePatient: projectedFee(row.basisPatient),
+        feeTotal: projectedFee(row.basisTotal),
       })),
       // Everything sent, so the dialog can explain why nothing is eligible.
       totalInvoices: invoices.length,
@@ -3330,10 +3412,12 @@ export class InvoiceService {
    */
   async applyLateFee(
     params: {
+      /** null/undefined = un-tiered adjustment (flat-rate / percentage menu items). */
+      tier?: number | null;
       patientId: string;
-      tier: number;
       invoiceIds: string[];
-      mode: 'flat' | 'percentage';
+      /** Omit for the flat default, which is what the dialog sends. */
+      mode?: 'flat' | 'percentage';
       /** Omit to charge the tier's default rate (see late-fee.service.ts). */
       rate?: number;
       basis: 'patient' | 'total';
@@ -3342,8 +3426,9 @@ export class InvoiceService {
     createdBy: string,
   ) {
     const {
-      invoiceIds, mode, basis, branchId,
+      invoiceIds, basis, branchId,
     } = params;
+    const mode: 'flat' | 'percentage' = params.mode ?? 'flat';
 
     const resolvedTier = lateFee.resolveTier(params.tier);
     if (resolvedTier === undefined) {
@@ -3998,6 +4083,22 @@ export class InvoiceService {
       payments: paymentsResult.payments,
       claims: claimsResult.claims,
     };
+  }
+
+  async getLateFeeTerms(invoiceId: string): Promise<{ termsText: string; policyVersion: number } | null> {
+    const statement = await prisma.statement.findUnique({
+      where: { StatementNum: BigInt(invoiceId) },
+      select: { lateFeePolicyVersionId: true },
+    });
+    if (!statement?.lateFeePolicyVersionId) return null;
+
+    const policy = await prisma.lateFeePolicy.findUnique({
+      where: { id: BigInt(statement.lateFeePolicyVersionId) },
+      select: { termsText: true, version: true },
+    });
+    if (!policy) return null;
+
+    return { termsText: policy.termsText, policyVersion: policy.version };
   }
 }
 

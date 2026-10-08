@@ -1,3 +1,6 @@
+// Unrestricted tenant context for RLS — must be imported before any query.
+// This script writes `fee`, which has row-level security.
+import '../config/seed-context';
 import { prisma } from '../config/db';
 import { getNextId } from '../utils/opendental-ids.util';
 

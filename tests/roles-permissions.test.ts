@@ -94,7 +94,17 @@ describe('Roles & Permissions', () => {
     const rolesRes = await request(app)
       .get('/api/roles')
       .set(authHeader);
-    const roleId = rolesRes.body.data.roles[0]?._id;
+
+    // Deliberately NOT roles[0]. On a freshly seeded database that is
+    // "Super Admin", and role-grant.guard.ts correctly refuses to let a plain
+    // Admin grant a platform-level role — so the test used to assert 200 on a
+    // request the system is supposed to reject with 403. The intent here is
+    // "an admin can assign a role", so pick one an admin is actually allowed
+    // to grant.
+    const grantableRole = (rolesRes.body.data.roles ?? []).find((r: any) =>
+      ['Front Desk', 'Receptionist', 'Provider', 'Assistant'].includes(r.name ?? r.description)
+    );
+    const roleId = grantableRole?._id;
 
     const usersRes = await request(app)
       .get('/api/users')
@@ -102,9 +112,12 @@ describe('Roles & Permissions', () => {
     const targetUser = usersRes.body.data.users[0];
 
     if (roleId && targetUser) {
+      // Role chips are Super Admin only (assertMayChangeRoles in
+      // src/services/user.service.ts) — a plain 'Admin' gets a 403 there by
+      // design, same as the role CRUD endpoints above.
       const res = await request(app)
         .post(`/api/users/${targetUser._id}/roles`)
-        .set(authHeader)
+        .set(platformAdminHeader)
         .send({ roleIds: [roleId] });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);

@@ -75,17 +75,66 @@ const provenanceRows = async () => {
 };
 
 describe('applyLateFee (integration)', () => {
+  let clinicNum: bigint;
+
   beforeAll(async () => {
     patNum = await getNextId('patient', 'PatNum');
+    clinicNum = await getNextId('clinic', 'ClinicNum');
+
+    await prisma.clinic.create({
+      data: {
+        ClinicNum: clinicNum,
+        Description: 'Test Clinic',
+        features: {
+          path: ['lateFee', 'enabled'],
+          equals: true,
+        },
+      },
+    });
+
+    // Create patient and associate with clinic
     await prisma.patient.create({
       data: {
         PatNum: patNum,
         FName: 'Lf',
         LName: `LateFee${patNum}`,
         Birthdate: new Date('1990-01-15'),
+        ClinicNum: clinicNum,
       },
     });
     cleanup.push(() => destroyPatient(patNum));
+
+    const maxVersion = await prisma.lateFeePolicy.aggregate({
+      where: { clinicId: clinicNum },
+      _max: { version: true },
+    });
+    const nextVersion = (maxVersion._max.version ?? 0) + 1;
+
+    const policy = await prisma.lateFeePolicy.create({
+      data: {
+        clinicId: clinicNum,
+        version: nextVersion,
+        isActive: true,
+        enabled: true,
+        termsText: 'Standard 30-day late fee policy',
+        gracePeriodDays: 0,
+        paymentTermsDays: 30,
+        feeType: 'flat',
+        patientFeeAmount: 2500, // $2,500.00 in dollars
+        corporateFeePct: 0,
+        capPct: 100,
+        createdBy: BigInt(1),
+      },
+    });
+
+    // Record patient acceptance
+    await prisma.lateFeePolicyAcceptance.create({
+      data: {
+        policyId: policy.id,
+        patientId: patNum,
+        channel: 'portal_checkbox',
+      },
+    });
   });
 
   afterAll(async () => {
@@ -163,7 +212,7 @@ describe('applyLateFee (integration)', () => {
     const eligibility = await invoiceService.getLateFeeEligibility(patNum.toString(), 30);
     const row = eligibility.invoices.find((r) => r.alreadyCharged);
     expect(row).toBeDefined();
-    expect(row.daysOutstanding).toBeGreaterThanOrEqual(30);
+    expect(row?.daysOutstanding).toBeGreaterThanOrEqual(30);
   });
 
   it('refuses to charge a tier the invoice has not reached', async () => {
@@ -197,7 +246,7 @@ describe('applyLateFee (integration)', () => {
     const tier90 = await invoiceService.getLateFeeEligibility(patNum.toString(), 90);
     const found = tier90.invoices.find((r) => r.id === old.id);
     expect(found).toBeDefined();
-    expect(found.daysOutstanding).toBeGreaterThanOrEqual(90);
+    expect(found?.daysOutstanding).toBeGreaterThanOrEqual(90);
   });
 
   it('batches several invoices onto one statement, one line each', async () => {
@@ -290,14 +339,61 @@ describe('applyLateFee (integration)', () => {
 });
 describe('tier default rates (integration)', () => {
   let pat2: bigint;
+  let clinicNum2: bigint;
   const cleanup2: Array<() => Promise<unknown>> = [];
 
   beforeAll(async () => {
     pat2 = await getNextId('patient', 'PatNum');
+    clinicNum2 = await getNextId('clinic', 'ClinicNum');
+
+    await prisma.clinic.create({
+      data: {
+        ClinicNum: clinicNum2,
+        Description: 'Test Clinic 2',
+        features: {
+          path: ['lateFee', 'enabled'],
+          equals: true,
+        },
+      },
+    });
+
     await prisma.patient.create({
-      data: { PatNum: pat2, FName: 'Df', LName: `Default${pat2}`, Birthdate: new Date('1992-03-03') },
+      data: { PatNum: pat2, FName: 'Df', LName: `Default${pat2}`, Birthdate: new Date('1992-03-03'), ClinicNum: clinicNum2 },
     });
     cleanup2.push(() => destroyPatient(pat2));
+
+    // Create active late fee policy
+    const maxVersion = await prisma.lateFeePolicy.aggregate({
+      where: { clinicId: clinicNum2 },
+      _max: { version: true },
+    });
+    const nextVersion = (maxVersion._max.version ?? 0) + 1;
+
+    const policy = await prisma.lateFeePolicy.create({
+      data: {
+        clinicId: clinicNum2,
+        version: nextVersion,
+        isActive: true,
+        enabled: true,
+        termsText: 'Standard 30-day late fee policy',
+        gracePeriodDays: 0,
+        paymentTermsDays: 30,
+        feeType: 'flat',
+        patientFeeAmount: 2500,
+        corporateFeePct: 0,
+        capPct: 100,
+        createdBy: BigInt(1),
+      },
+    });
+
+    // Record patient acceptance
+    await prisma.lateFeePolicyAcceptance.create({
+      data: {
+        policyId: policy.id,
+        patientId: pat2,
+        channel: 'portal_checkbox',
+      },
+    });
   });
 
   afterAll(async () => {

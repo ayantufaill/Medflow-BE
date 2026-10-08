@@ -821,6 +821,11 @@ export class PatientInsuranceService {
         await cobService.evaluateAndSave(patientId, {
           triggerReason,
           userNum: userId ? BigInt(userId) : null,
+          // Record the suggestion, but do NOT touch patplan.Ordinal. This
+          // runs detached, so it can complete after a staff reorder and would
+          // silently revert the order a human just set. Ordinal stays owned by
+          // this service's own create/reorder/resequence paths.
+          writeOrdinals: false,
         });
       } catch (err) {
         console.error(

@@ -887,4 +887,13 @@ router.post(
   invoiceController.transferRejectedClaim.bind(invoiceController)
 );
 
+router.get(
+  '/:invoiceId/late-fee-terms',
+  authenticate,
+  denyPatientPortalUsers,
+  requirePermission('invoices.read'),
+  validate(invoiceIdValidator),
+  invoiceController.getLateFeeTerms.bind(invoiceController)
+);
+
 export default router;

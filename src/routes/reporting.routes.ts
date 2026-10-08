@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { reportingController } from '../controllers/reporting.controller';
+import { reportBuilderFields } from '../services/report-builder.service';
 import { authenticate } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
@@ -14,6 +15,10 @@ import {
 } from '../validators/reporting.validator';
 
 const router = Router();
+
+router.get('/fields', authenticate, resolveBranchAccess, enterTenantContext, requirePermission('reports.read'), (_req, res) => {
+  res.json({ success: true, data: reportBuilderFields() });
+});
 
 /**
  * @swagger
