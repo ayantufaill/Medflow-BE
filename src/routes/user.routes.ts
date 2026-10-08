@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { query } from 'express-validator';
+import { body, query } from 'express-validator';
 import { userController } from '../controllers/user.controller';
 import { roleController } from '../controllers/role.controller';
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
@@ -551,6 +551,84 @@ router.put(
  *       200:
  *         description: List of user permissions
  */
+/**
+ * @swagger
+ * /users/{userId}/module-access:
+ *   get:
+ *     summary: Team Access — a member's per-module overrides (Group / Branch Admin)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Overrides, and each module's role default and the caller's grant limit
+ *       403:
+ *         description: Caller is not a group/branch admin, or the member is an admin at or above them
+ *       404:
+ *         description: Member is outside the caller's branches
+ *   put:
+ *     summary: Team Access — replace a member's per-module overrides (Group / Branch Admin)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               moduleAccess:
+ *                 type: object
+ *                 additionalProperties:
+ *                   type: string
+ *                   enum: [none, view, full]
+ *                 example:
+ *                   finance: none
+ *                   appointments: view
+ *               featureAccess:
+ *                 type: object
+ *                 description: Per-feature switches inside a module; win over the module level
+ *                 additionalProperties: { type: boolean }
+ *                 example:
+ *                   patients.create: false
+ *                   finance.invoices_view: true
+ *     responses:
+ *       200:
+ *         description: Saved; the member's access refreshes without signing them out
+ *       400:
+ *         description: Unknown module or level
+ *       403:
+ *         description: Level above what the caller may grant, or member not manageable
+ */
+router.get(
+  '/:userId/module-access',
+  requireRoles('Admin', 'Group Admin', 'Branch Admin'),
+  validate(userIdValidator),
+  userController.getModuleAccess.bind(userController)
+);
+
+router.put(
+  '/:userId/module-access',
+  requireRoles('Admin', 'Group Admin', 'Branch Admin'),
+  validate([
+    ...userIdValidator,
+    body('moduleAccess').optional().isObject().withMessage('moduleAccess must be an object'),
+    body('featureAccess').optional().isObject().withMessage('featureAccess must be an object'),
+  ]),
+  userController.updateModuleAccess.bind(userController)
+);
+
 router.get(
   '/:userId/permissions',
   validate(userIdValidator),

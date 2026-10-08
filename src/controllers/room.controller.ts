@@ -10,12 +10,25 @@ export class RoomController {
       const search = req.query.search as string | undefined;
       const isActive = req.query.isActive === 'true' ? true : req.query.isActive === 'false' ? false : undefined;
 
+      // ?branchId= narrows to one branch (the schedule passes the header's
+      // selected branch), but only inside the caller's own branches — a branch
+      // outside them yields no rooms rather than widening the scope.
+      let clinicIds = req.branchAccess?.clinicIds;
+      const branchId = req.query.branchId as string | undefined;
+      if (branchId) {
+        if (!/^\d+$/.test(branchId)) {
+          return res.status(400).json({ success: false, error: { message: 'branchId must be a number' } });
+        }
+        const requested = BigInt(branchId);
+        clinicIds = !clinicIds || clinicIds.includes(requested) ? [requested] : [];
+      }
+
       const result = await roomService.getAllRooms(
         page,
         limit,
         search || undefined,
         isActive,
-        req.branchAccess?.clinicIds
+        clinicIds
       );
 
       res.status(200).json({

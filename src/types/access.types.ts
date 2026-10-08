@@ -31,6 +31,8 @@
  *                           a bug and must be rejected upstream, not widened
  *                           here. See enterTenantContext.
  */
+import type { ModuleLevel } from '../constants/team-modules';
+
 export type ClinicScope = bigint[] | '*' | undefined;
 
 /**
@@ -144,6 +146,17 @@ export interface AccessContext {
    * audited separately from tenant-scoped actions.
    */
   isPlatformAdmin: boolean;
+
+  /**
+   * Per-module overrides set by the member's group/branch admin (Team Access
+   * page). Already folded into `permissions`; kept here so `authenticate` can
+   * also refuse the module's role-gated routes. See constants/team-modules.ts.
+   */
+  moduleAccess: Record<string, ModuleLevel>;
+  /** Per-feature switches inside a module (more specific than moduleAccess). */
+  featureAccess: Record<string, boolean>;
+  /** Modules with any override: 'off' (hide) or 'granted' (open regardless of role). */
+  moduleStates: Record<string, 'off' | 'granted'>;
 
   // ── Cross-branch sharing ──
   sharing: SharingPolicy;

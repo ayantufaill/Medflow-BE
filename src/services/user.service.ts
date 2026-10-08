@@ -75,7 +75,7 @@ export const assertMayChangeRoles = async (actorUserId: string, roleNums: bigint
   }
 };
 
-const assertUserInScope = async (targetUserId: string, allowedClinicIds?: bigint[]): Promise<void> => {
+export const assertUserInScope = async (targetUserId: string, allowedClinicIds?: bigint[]): Promise<void> => {
   if (!allowedClinicIds || allowedClinicIds.length === 0) return;
 
   const targetUserNum = BigInt(targetUserId);
