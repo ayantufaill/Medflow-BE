@@ -32,7 +32,22 @@ const scripts = [
   'src/scripts/seedMedications.ts',
   'src/scripts/seedClinicalManagement.ts',
   'src/scripts/seedClinicalProducts.ts',
+  // The practice's real fee schedules: the office's own UCR guide plus a
+  // per-carrier PPO guide and a Medicaid guide. Must run BEFORE seedFees and
+  // seedProcedurePrices so those price schedules that actually exist.
+  //
+  // Order also decides the office default. Several places resolve "the"
+  // practice fee schedule as the lowest FeeSchedNum with IsHidden = 0 (see
+  // invoiceService.getDefaultFeeSchedNum), so on a fresh database the first
+  // schedule created wins — and it should be the office's own UCR guide, not
+  // an insurer's allowed-amount schedule.
+  'src/scripts/seedFeeSchedules.ts',
   'src/scripts/seedFees.ts',
+  // Prices every procedure code on every active fee schedule. seedFees above
+  // only sets 11 hand-listed PPO allowed amounts, so without this the office
+  // fee guide is empty: 847 procedure codes and no price on any of them, and
+  // every treatment-plan and invoice estimate falls back to zero.
+  'src/scripts/seedProcedurePrices.ts',
   'src/scripts/seedFormTemplates.ts',
   'src/scripts/seedRecareTypes.ts',
   // Two independent practice groups (Metro Dental Partners / Pacific Coast
