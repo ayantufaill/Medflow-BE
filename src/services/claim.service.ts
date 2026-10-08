@@ -12,6 +12,7 @@ import { agingService } from './aging.service';
 import { providerResolutionService } from './provider-resolution.service';
 import { getProviderMeta } from '../utils/opendental-auth.util';
 import { aggregateAppliedByRow } from './deductible.service';
+import { CLAIM_STATUS_CODE } from '../constants/claim-status';
 
 type ClaimStatus =
   | 'draft'
@@ -58,6 +59,20 @@ type ClaimMeta = {
   totalAmount?: number;
   paidAmount?: number;
   patientResponsibility?: number;
+  /**
+   * COB: the primary payer's adjudication, on a SECONDARY claim only.
+   * Snapshotted when the secondary was created so a later edit to the primary
+   * cannot retroactively change what we told the secondary payer. The
+   * authoritative copy is the cob_primary_payment_detail row.
+   */
+  primaryPayment?: {
+    primaryClaimId: string;
+    paidAmount: number;
+    allowedAmount: number;
+    patientResponsibility: number;
+    adjustments: Array<{ groupCode: string; reasonCode: string; amount: number }>;
+    remittanceDate: string | null;
+  };
   policyNumber?: string;
   notes?: string;
   submissionDate?: string;
@@ -178,35 +193,43 @@ const normalizeClaimStatus = (value?: string | null): ClaimStatus => {
   }
 };
 
+/**
+ * Maps the API's status vocabulary onto Open Dental's one-char ClaimStatus.
+ *
+ * The letters come from CLAIM_STATUS_CODE so that the groupings other modules
+ * reason about (ADJUDICATED_CLAIM_STATUS_CODES, CLOSED_CLAIM_STATUS_CODES)
+ * are derived from the same constants this function writes — previously the
+ * letters were spelled out in several files with nothing tying them together.
+ */
 const claimStatusToCode = (status?: string | null): string => {
   switch (normalizeClaimStatus(status)) {
     case 'readyForSubmission':
-      return 'W';
+      return CLAIM_STATUS_CODE.READY;
     case 'submitted':
     case 'inProcess':
     case 'manualClaim':
     case 'acceptedForProcessing':
-      return 'S';
+      return CLAIM_STATUS_CODE.SENT;
     case 'pending':
-      return 'P';
+      return CLAIM_STATUS_CODE.PENDING;
     case 'paid':
     case 'accepted':
     case 'acceptedPaid':
     case 'eobUploaded':
-      return 'R';
+      return CLAIM_STATUS_CODE.RECEIVED;
     case 'partial':
     case 'partially_paid':
-      return 'T';
+      return CLAIM_STATUS_CODE.PARTIAL;
     case 'denied':
-      return 'D';
+      return CLAIM_STATUS_CODE.DENIED;
     case 'rejected':
     case 'error':
     case 'validationError':
-      return 'X';
+      return CLAIM_STATUS_CODE.REJECTED;
     case 'cancelled':
-      return 'C';
+      return CLAIM_STATUS_CODE.CANCELLED;
     default:
-      return 'H';
+      return CLAIM_STATUS_CODE.HOLD;
   }
 };
 
@@ -2044,6 +2067,39 @@ export class ClaimService {
     });
   }
 
+  /**
+   * Refuses to let a claim out while its coverage order is unsettled.
+   *
+   * Resolves the order by the claim's DATE OF SERVICE, never by "now": a
+   * claim keyed in today for a February visit has to be checked against
+   * February's order, because that is the order it will be billed under.
+   */
+  private async assertCobOrderReady(claimId: string, userId?: string): Promise<void> {
+    const claim = await prisma.claim.findUnique({
+      where: { ClaimNum: toBigInt(claimId) ?? BigInt(0) },
+      select: { PatNum: true, DateService: true, ClaimType: true },
+    });
+    if (!claim?.PatNum) return;
+
+    const { cobService } = await import('./cob/cob.service');
+    const dateOfService = (claim.DateService ?? new Date()).toISOString().slice(0, 10);
+
+    // Gate on the STORED order for this date of service, not on a fresh
+    // evaluation. The gate asks "is the order complete and undisputed", which
+    // is a property of the patient and the date; re-evaluating here would
+    // write a new order version on every submission and, worse, persist a
+    // claim-specific (injury-flagged) order as the patient's order for the
+    // whole date range, so the next non-injury claim would read it.
+    //
+    // The claim-specific order — the one that applies INJURY_RELATED from
+    // this claim's own flags — is computed read-only by
+    // cobService.getOrderForClaim, which claim creation uses to pick a payer.
+    await cobService.assertSubmittable(claim.PatNum.toString(), dateOfService, {
+      userNum: userId ? toBigInt(userId) ?? undefined : undefined,
+      claimId,
+    });
+  }
+
   async generateSecondaryClaim(primaryClaimId: string, userId?: string) {
     const claimNum = toBigInt(primaryClaimId);
     if (!claimNum) {
@@ -2069,6 +2125,26 @@ export class ClaimService {
     // A locked primary freezes the invoice: no secondary claim until it is paid.
     // The primary itself must stay in scope - it is usually the claim holding the lock.
     await this.assertInvoiceNotLocked(primaryMeta.invoiceId);
+
+    // COB: the primary's remittance must be POSTED before a secondary exists.
+    //
+    // Not a workflow preference. A secondary payer adjudicates against what
+    // the primary did, so the 837's 2320/2430 loops need the primary's paid
+    // amount, allowed amount, adjustment codes and patient responsibility.
+    // None of those exist until the primary adjudicates, and a secondary
+    // claim without them either denies or — worse — gets paid as a primary,
+    // which the practice then has to refund.
+    //
+    // A $0 denial counts as posted: the payer adjudicated and said no, and
+    // the secondary is entitled to see that. This also runs the coverage
+    // order check for the date of service, because if the order is unsettled
+    // we do not know this is the right second payer.
+    const { assertSecondaryClaimAllowed, recordPrimaryPaymentDetail } = await import(
+      './cob/claim-cob.service'
+    );
+    const primaryRemittance = await assertSecondaryClaimAllowed(primaryClaim.ClaimNum, {
+      userNum: userId ? toBigInt(userId) ?? undefined : undefined,
+    });
 
     // Check if secondary claim already exists
     const existingSecondary = await prisma.claim.findFirst({
@@ -2165,6 +2241,17 @@ export class ClaimService {
       patientResponsibility: 0,
       policyNumber: secondaryPolicyNumber ?? primaryMeta.policyNumber,
       notes: `Secondary claim generated from Primary Claim #${primaryClaim.ClaimNum}. Primary Paid: $${primaryPaid.toFixed(2)}`,
+      // The primary's adjudication, carried on the claim the payer will see.
+      // Duplicated into cob_primary_payment_detail below: this copy is for
+      // display and the row is what the 837 builder and the audit trail read.
+      primaryPayment: {
+        primaryClaimId: primaryClaim.ClaimNum.toString(),
+        paidAmount: primaryRemittance.paidAmount,
+        allowedAmount: primaryRemittance.allowedAmount,
+        patientResponsibility: primaryRemittance.patientResponsibility,
+        adjustments: primaryRemittance.adjustments,
+        remittanceDate: primaryRemittance.remittanceDate,
+      },
     };
 
     const createdSecondary = await prisma.claim.create({
@@ -2195,6 +2282,13 @@ export class ClaimService {
         },
       },
     });
+
+    await recordPrimaryPaymentDetail(
+      createdSecondary.ClaimNum,
+      primaryClaim.ClaimNum,
+      primaryRemittance,
+      userId ? toBigInt(userId) ?? undefined : undefined
+    );
 
     // Copy primary claim procedures to secondary claimproc records
     const primaryClaimProcs = await prisma.claimproc.findMany({
@@ -2640,6 +2734,15 @@ export class ClaimService {
   }
 
   async submitClaim(claimId: string, userId?: string) {
+    // Coordination of benefits gate. A claim must not leave the building
+    // while we are unsure which payer is first: a claim billed to the wrong
+    // payer comes back as a COB denial weeks later, and by then the timely
+    // filing clock has been running against the payer that should have had
+    // it. Blocks on NEEDS_INFO, NEEDS_REVIEW, DISPUTED, and on an unresolved
+    // PAYER_MISMATCH. Resolved by filling in the missing fact or resolving
+    // the flag — not by retrying.
+    await this.assertCobOrderReady(claimId, userId);
+
     const claim = await this.updateClaim(
       claimId,
       {

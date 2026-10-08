@@ -65,6 +65,7 @@ import notificationRoutes from './notification.routes';
 import branchRoutes from './branch.routes';
 import practiceGroupRoutes from './practice-group.routes';
 import coverageGroupRoutes from './coverage-group.routes';
+import cobRoutes from './cob.routes';
 import formTemplateRoutes from './form-template.routes';
 import publicBookingRoutes from './public-booking.routes';
 import taskRoutes from './task.routes';
@@ -76,6 +77,7 @@ import sharingRoutes from './sharing.routes';
 const router = Router();
 router.use('/sharing', sharingRoutes);
 router.use('/coverage-groups', coverageGroupRoutes);
+router.use('/cob', cobRoutes);
 router.use('/timeclock', timeclockRoutes);
 
 
