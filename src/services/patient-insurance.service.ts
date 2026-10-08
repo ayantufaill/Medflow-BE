@@ -790,7 +790,45 @@ export class PatientInsuranceService {
       }
     });
 
+    this.reEvaluateCoverageOrder(patientId, 'COVERAGE_ADDED', createdBy);
+
     return this.getPatientInsuranceById(patPlanNum.toString());
+  }
+
+
+  /**
+   * Re-runs the coordination-of-benefits pipeline after a coverage change.
+   *
+   * WHY THIS IS FIRE-AND-FORGET
+   * ---------------------------
+   * Adding a coverage must not fail because the COB pipeline hit bad data on
+   * some other coverage the patient holds. The order going stale is visible
+   * and fixable from the COB screen; a front desk unable to save an insurance
+   * card is not. The other async blocks in this file (claim generation,
+   * invoice recalculation) are detached for the same reason.
+   *
+   * The pipeline keeps a staff override if one exists and raises
+   * COVERAGE_CHANGED, so a human decision is never silently discarded here.
+   */
+  private reEvaluateCoverageOrder(
+    patientId: string,
+    triggerReason: string,
+    userId?: string
+  ): void {
+    Promise.resolve().then(async () => {
+      try {
+        const { cobService } = await import('./cob/cob.service');
+        await cobService.evaluateAndSave(patientId, {
+          triggerReason,
+          userNum: userId ? BigInt(userId) : null,
+        });
+      } catch (err) {
+        console.error(
+          `Failed to re-evaluate COB coverage order for patient ${patientId} (${triggerReason}):`,
+          err
+        );
+      }
+    });
   }
 
   /**
@@ -1014,6 +1052,8 @@ export class PatientInsuranceService {
       );
     }
 
+    this.reEvaluateCoverageOrder(patientId, 'COVERAGE_EDITED', updatedBy);
+
     return this.getPatientInsuranceById(patientInsuranceId);
   }
 
@@ -1030,6 +1070,24 @@ export class PatientInsuranceService {
     if (patplan.PatNum?.toString() !== patientId) {
     throw new NotFoundError('Insurance record does not belong to this patient');
   }
+
+    // COB facts for this coverage go with it.
+    //
+    // cob_coverage_detail is keyed by PatPlanNum and, following the
+    // app-native convention in this schema (patient_branch_grant,
+    // access_audit), carries no foreign key — so nothing in the database
+    // removes it when the patplan row is hard-deleted below. Left behind, it
+    // would be inherited by any future patplan that reuses the number, and
+    // the rule engine would silently read another patient's employer size,
+    // Medicare entitlement reason or custody arrangement.
+    //
+    // Coverage ORDERS are deliberately NOT deleted: they are the versioned,
+    // audited record of what we decided and billed, and they have to outlive
+    // the coverage. Their positions simply point at a patplan that is gone,
+    // which is what a historical record of a terminated policy looks like.
+    await prisma.cob_coverage_detail.deleteMany({
+      where: { patplan_num: BigInt(patientInsuranceId) },
+    });
 
     // Hard delete
     await prisma.patplan.delete({
@@ -1053,6 +1111,8 @@ export class PatientInsuranceService {
         'medium'
       );
     }
+
+    this.reEvaluateCoverageOrder(patientId, 'COVERAGE_TERMINATED', deletedBy);
 
     return { message: 'Patient insurance deleted successfully' };
   }

@@ -576,6 +576,27 @@ export class EraService {
           });
         }
 
+        // COB handling for this posted remittance. This is the non-835 path
+        // (a manually matched ERA row), so there are no CARC codes to read —
+        // the ledger entries and the last-payer liability finalization still
+        // apply, and a COB denial on this path has to be raised by a human
+        // from the COB screen.
+        if (item.claimId) {
+          try {
+            const { onRemittancePosted } = await import('./cob/claim-cob.service');
+            await onRemittancePosted({
+              claimNum: BigInt(item.claimId),
+              patNum: BigInt(patientId),
+              statementNum: item.invoiceId ? BigInt(item.invoiceId) : null,
+              paidAmount: Number(item.amount || 0),
+              adjustments: [],
+              userNum: _userId ? BigInt(_userId) : null,
+            });
+          } catch (err) {
+            console.error('COB post-remittance handling failed for ERA item', item.id, err);
+          }
+        }
+
         item.posted = true;
         postedNow += 1;
       }

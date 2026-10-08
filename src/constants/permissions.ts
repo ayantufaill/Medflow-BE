@@ -85,6 +85,21 @@ export const PERMISSIONS = {
     DELETE: 'prescriptions.delete',
   },
 
+  // Coordination of Benefits (COB)
+  //
+  // Read is separate from override because the whole front desk needs to SEE
+  // which payer is primary and why, while changing the order away from what
+  // the rules suggest is a billing decision that has to be attributable.
+  INSURANCE_COB: {
+    ORDER_READ: 'insurance.coverage_order.read',
+    ORDER_OVERRIDE: 'insurance.coverage_order.override',
+    FLAG_RESOLVE: 'insurance.coverage_order.resolve_flag',
+    COVERAGE_DETAIL_EDIT: 'insurance.coverage_detail.edit',
+    PAYER_REPORTED_WRITE: 'insurance.payer_reported.write',
+    PLAN_MASTER_READ: 'insurance.plan_master.read',
+    PLAN_MASTER_EDIT: 'insurance.plan_master.edit',
+  },
+
   // Billing & Invoices
   INVOICES: {
     CREATE: 'invoices.create',
