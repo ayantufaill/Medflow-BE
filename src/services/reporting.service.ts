@@ -1,29 +1,91 @@
 import { prisma } from '../config/db';
 import { getNextId } from '../utils/opendental-ids.util';
 import { NotFoundError } from '../utils/error.util';
+import { getTopDenialReasons } from '../utils/denial-reasons.util';
+import { submittedClaimPredicate } from '../utils/reporting-eligibility.util';
+import { reportingClinicIds } from '../utils/reporting-scope.util';
+import { runCustomReport } from './report-builder.service';
+import { validateReportDefinition } from '../utils/reporting-fields.util';
 
 export class ReportingService {
   async getDenialRates(branchId?: string) {
-    let branchFilter = '';
-    if (branchId && /^\d+$/.test(branchId)) {
-      branchFilter = ` AND cl."ClinicNum" = ${BigInt(branchId)}`;
-    }
+    const clinicIds = reportingClinicIds(branchId);
+    const branchFilter = clinicIds === null ? '' : clinicIds.length
+      ? ' AND COALESCE(NULLIF(cl."ClinicNum", 0), ownership."ClinicNum") IN (' + clinicIds.map(String).join(',') + ')'
+      : ' AND FALSE';
 
     const sql = `
-      SELECT 
-        COALESCE(c."CarrierName", 'Unknown Carrier') as "payerName",
-        COUNT(DISTINCT cl."ClaimNum") as "totalSubmitted",
-        SUM(CASE WHEN cp."Status" IN (4, 7) OR cl."ClaimStatus" = 'D' THEN 1 ELSE 0 END) as "deniedCount",
-        SUM(CASE WHEN cp."Status" IN (4, 7) OR cl."ClaimStatus" = 'D' THEN COALESCE(cp."FeeBilled", cl."ClaimFee", 0) ELSE 0 END) as "deniedValue",
-        STRING_AGG(DISTINCT CASE WHEN (cp."Status" IN (4, 7) OR cl."ClaimStatus" = 'D') AND cp."Remarks" IS NOT NULL AND cp."Remarks" != '' THEN cp."Remarks" ELSE NULL END, ', ') as "reasons"
-      FROM claim cl
-      LEFT JOIN insplan ip ON cl."PlanNum" = ip."PlanNum"
-      LEFT JOIN carrier c ON ip."CarrierNum" = c."CarrierNum"
-      LEFT JOIN claimproc cp ON cl."ClaimNum" = cp."ClaimNum"
-      WHERE (cl."ClaimStatus" IN ('S', 'R', 'U', 'D') OR cl."ClaimStatus" IS NULL)
-      ${branchFilter}
-      GROUP BY c."CarrierName"
-      ORDER BY "deniedValue" DESC, "totalSubmitted" DESC
+      WITH report_claims AS (
+        SELECT
+          cl."ClaimNum",
+          c."CarrierNum" AS "payerId",
+          COALESCE(c."CarrierName", 'Unknown Carrier') AS "payerName",
+          cl."ClaimStatus" = 'D' AS "isDenied",
+          COALESCE(billed."fee", cl."ClaimFee"::numeric, 0) AS "billedValue",
+          reasons."rows" AS "reasonRows"
+        FROM claim cl
+        LEFT JOIN insplan ip ON cl."PlanNum" = ip."PlanNum"
+        LEFT JOIN carrier c ON ip."CarrierNum" = c."CarrierNum"
+        LEFT JOIN LATERAL (
+          -- Older creation paths omitted claim.ClinicNum. Only infer ownership
+          -- when EVERY linked line has the same real clinic; never guess from
+          -- the selected branch or include all unassigned claims.
+          SELECT CASE
+            WHEN COUNT(*) = COUNT(NULLIF(cp."ClinicNum", 0))
+             AND COUNT(DISTINCT NULLIF(cp."ClinicNum", 0)) = 1
+            THEN MIN(NULLIF(cp."ClinicNum", 0))
+          END AS "ClinicNum"
+          FROM claimproc cp
+          WHERE cp."ClaimNum" = cl."ClaimNum"
+        ) ownership ON COALESCE(cl."ClinicNum", 0) = 0
+        LEFT JOIN LATERAL (
+          SELECT SUM(original."FeeBilled"::numeric) AS "fee"
+          FROM (
+            -- A procedure can have multiple claimproc payment records. Choose
+            -- one original billed line, never deduplicate by dollar amount.
+            SELECT DISTINCT ON (
+              COALESCE('proc:' || NULLIF(cp."ProcNum", 0)::text,
+                       'line:' || NULLIF(cp."LineNumber", 0)::text,
+                       'row:' || cp."ClaimProcNum"::text)
+            ) cp."FeeBilled"
+            FROM claimproc cp
+            WHERE cp."ClaimNum" = cl."ClaimNum"
+              AND cp."Status" IN (0, 1, 5)
+              AND COALESCE(cp."PaymentRow", 0) = 0
+              AND COALESCE(cp."IsTransfer", 0) = 0
+              AND COALESCE(cp."NoBillIns", 0) = 0
+            ORDER BY
+              COALESCE('proc:' || NULLIF(cp."ProcNum", 0)::text,
+                       'line:' || NULLIF(cp."LineNumber", 0)::text,
+                       'row:' || cp."ClaimProcNum"::text),
+              (cp."FeeBilled" IS NULL), cp."ClaimProcNum"
+          ) original
+        ) billed ON cl."ClaimStatus" = 'D'
+        LEFT JOIN LATERAL (
+          SELECT JSONB_AGG(DISTINCT JSONB_BUILD_OBJECT(
+            'claimNum', cl."ClaimNum"::text,
+            'narrative', cl."Narrative",
+            'reasonUnderPaid', cl."ReasonUnderPaid",
+            'adjustmentReasonCodes', cp."ClaimAdjReasonCodes"
+          )) AS "rows"
+          -- Keep a reason row even when a denied claim has no claimproc rows.
+          FROM (SELECT 1) anchor
+          LEFT JOIN claimproc cp ON cp."ClaimNum" = cl."ClaimNum"
+        ) reasons ON cl."ClaimStatus" = 'D'
+        -- Document this report as a current-state denial rate based on shared rules
+        WHERE ${submittedClaimPredicate}
+        ${branchFilter}
+      )
+      SELECT
+        "payerId"::text AS "payerId",
+        "payerName",
+        COUNT(*) AS "totalSubmitted",
+        COUNT(*) FILTER (WHERE "isDenied") AS "deniedCount",
+        COALESCE(SUM("billedValue") FILTER (WHERE "isDenied"), 0) AS "deniedValue",
+        COALESCE(JSONB_AGG("reasonRows") FILTER (WHERE "isDenied"), '[]'::jsonb) AS "reasonRows"
+      FROM report_claims
+      GROUP BY "payerId", "payerName"
+      ORDER BY "deniedValue" DESC, "totalSubmitted" DESC, "payerName", "payerId"
       LIMIT 50
     `;
 
@@ -36,25 +98,21 @@ export class ReportingService {
         const deniedValue = Number(row.deniedValue) || 0;
         const denialRate = totalSubmitted > 0 ? ((deniedCount / totalSubmitted) * 100).toFixed(1) + '%' : '0.0%';
 
-        let topReasons = ['None'];
-        if (row.reasons) {
-           const reasonsArray = String(row.reasons).split(',').map((r: string) => r.trim()).filter(Boolean);
-           if (reasonsArray.length > 0) {
-             topReasons = reasonsArray.filter((v, i, a) => a.indexOf(v) === i).slice(0, 3);
-           }
-        }
+        const reasons = getTopDenialReasons((row.reasonRows ?? []).flat());
+        const topReasons = reasons.length > 0 ? reasons : ['None'];
 
         return {
+          payerId: row.payerId ?? null,
           payerName: row.payerName || 'Unknown Carrier',
           denialRate,
           totalSubmitted,
+          deniedCount,
           deniedValue,
           topReasons,
         };
       });
     } catch (err) {
-      console.warn('[ReportingService] Failed to calculate denial rates with raw query, returning fallback:', err);
-      return [];
+      throw err;
     }
   }
 
@@ -104,6 +162,7 @@ export class ReportingService {
     data: { name: string; kind: string; filters: any[]; columns: string[] },
     userId?: string
   ) {
+    if (data.kind !== 'Financial') validateReportDefinition(data);
     const docNum = await getNextId('document', 'DocNum');
     const meta = {
       documentType: 'report_definition',
@@ -150,264 +209,8 @@ export class ReportingService {
     return { success: true };
   }
 
-  private mapPatientFieldValue(col: string, p: any): any {
-    const norm = col.trim().toLowerCase();
-    switch (norm) {
-      case 'id':
-        return p.PatNum?.toString() ?? '';
-      case 'first name':
-        return p.FName ?? '';
-      case 'last name':
-        return p.LName ?? '';
-      case 'middle name':
-        return p.MiddleI ?? '';
-      case 'dob': {
-        const dobStr = p.Birthdate ? p.Birthdate.toISOString().split('T')[0] : '';
-        return dobStr === '0001-01-01' ? '1985-05-12' : dobStr || '1985-05-12';
-      }
-      case 'email':
-        return p.Email ?? '';
-      case 'sex':
-        return p.Gender === 1 ? 'Female' : 'Male';
-      case 'inactive':
-        return p.PatStatus === 2 ? 'True' : 'False';
-      case 'home phone':
-        return p.HmPhone ?? '';
-      case 'mobile phone':
-        return p.WirelessPhone ?? '';
-      case 'street address':
-        return p.Address ?? '';
-      case 'additional address':
-        return p.Address2 ?? '';
-      case 'city':
-        return p.City ?? '';
-      case 'state':
-        return p.State ?? '';
-      case 'zip code':
-      case 'zip':
-        return p.Zip ?? '';
-      case 'country':
-        return 'USA';
-      case 'recalldate':
-        return '2026-09-12';
-      case 'payername':
-        return 'Blue Cross Blue Shield';
-      case 'ins remain':
-        return 1250.0;
-      case 'total outstanding balance':
-        return p.BalTotal ?? 0.0;
-      case 'lastappt':
-        return '2026-05-01';
-      case 'nexttreatmentappt':
-        return '2026-06-25';
-      case 'nextrecareappt':
-        return '2026-11-15';
-      case 'issubscriber(nonpatient)':
-        return 'False';
-      case 'householdheaduuid':
-        return p.Guarantor ? p.Guarantor.toString() : '';
-      case 'isheadofhousehold':
-        return p.Guarantor === p.PatNum ? 'True' : 'False';
-      case 'newpatientdate':
-        return p.DateFirstVisit ? p.DateFirstVisit.toISOString().split('T')[0] : '';
-      case 'preferred dds':
-        return p.PriProv ? p.PriProv.toString() : '';
-      case 'preferred hyg':
-        return p.SecProv ? p.SecProv.toString() : '';
-      case 'preferred dds first name':
-      case 'preferred dds last name':
-      case 'preferred hyg first name':
-      case 'preferred hyg last name':
-        return '';
-      case 'patient.policiespayers':
-        return '-';
-      case 'has mychart account':
-        return 'True';
-      case 'patient account credit':
-        return 0.0;
-      case 'flags':
-        return '-';
-      case 'created from mychart':
-        return 'False';
-      default:
-        if (p[col] !== undefined) return p[col];
-        return '-';
-    }
-  }
-
-  private mapProcedureFieldValue(col: string, proc: any): any {
-    const norm = col.trim().toLowerCase();
-    switch (norm) {
-      case 'id':
-        return proc.ProcNum?.toString() ?? '';
-      case 'first name':
-        return proc.patient?.FName ?? 'Test';
-      case 'last name':
-        return proc.patient?.LName ?? 'Patient';
-      case 'middle name':
-        return proc.patient?.MiddleI ?? '';
-      case 'code':
-        return proc.OldCode ?? 'D1110';
-      case 'fee':
-        return proc.ProcFee ?? 150.0;
-      case 'status':
-        return proc.ProcStatus === 2 ? 'Complete' : 'Planned';
-      case 'date':
-        return proc.ProcDate ? proc.ProcDate.toISOString().split('T')[0] : '';
-      case 'home phone':
-        return proc.patient?.HmPhone ?? '';
-      case 'mobile phone':
-        return proc.patient?.WirelessPhone ?? '';
-      case 'street address':
-        return proc.patient?.Address ?? '';
-      case 'additional address':
-        return proc.patient?.Address2 ?? '';
-      case 'city':
-        return proc.patient?.City ?? '';
-      case 'state':
-        return proc.patient?.State ?? '';
-      case 'zip code':
-      case 'zip':
-        return proc.patient?.Zip ?? '';
-      case 'dob': {
-        const dobStr = proc.patient?.Birthdate ? proc.patient.Birthdate.toISOString().split('T')[0] : '';
-        return dobStr === '0001-01-01' ? '1985-05-12' : dobStr || '1985-05-12';
-      }
-      case 'email':
-        return proc.patient?.Email ?? 'patient@example.com';
-      case 'sex':
-        return proc.patient?.Gender === 1 ? 'Female' : 'Male';
-      case 'inactive':
-        return proc.patient?.PatStatus === 2 ? 'True' : 'False';
-      case 'nexttreatmentappt':
-        return '-';
-      case 'nextrecareappt':
-        return '-';
-      case 'issubscriber(nonpatient)':
-        return 'False';
-      case 'lastappt':
-        return '-';
-      default:
-        if (proc[col] !== undefined) return proc[col];
-        if (proc.patient && proc.patient[col] !== undefined) return proc.patient[col];
-        return '-';
-    }
-  }
-
-  async runReport(options: {
-    kind: string;
-    filters: any[];
-    columns: string[];
-    page?: number;
-    limit?: number;
-  }) {
-    const page = options.page || 1;
-    const limit = options.limit || 50;
-    const skip = (page - 1) * limit;
-
-    if (options.kind === 'Procedures') {
-      const total = await prisma.procedurelog.count();
-      const procedures = await prisma.procedurelog.findMany({
-        take: limit,
-        skip,
-        include: { patient: true },
-      });
-
-      const colsToReturn =
-        options.columns && options.columns.length > 0
-          ? options.columns
-          : [
-              'ID',
-              'First Name',
-              'Last Name',
-              'Code',
-              'Fee',
-              'Status',
-              'Date',
-              'nextTreatmentAppt',
-              'nextRecareAppt',
-              'IsSubscriber(NonPatient)',
-              'Inactive',
-              'lastAppt',
-            ];
-
-      const data = procedures.map((proc) => {
-        const row: Record<string, any> = {};
-        for (const col of colsToReturn) {
-          row[col] = this.mapProcedureFieldValue(col, proc);
-        }
-        return row;
-      });
-
-      return { data, total: total || data.length };
-    }
-
-    // Patient dynamic builder
-    const where: any = {};
-
-    if (options.filters && Array.isArray(options.filters)) {
-      for (const f of options.filters) {
-        const field = String(f.field).toLowerCase();
-        const op = String(f.operator || f.Operator || 'equals').toLowerCase();
-        const val = f.value;
-
-        if (field === 'inactive') {
-          const isInactive = val === true || val === 'true' || val === 1 || val === '1' || val === 'false';
-          if (isInactive) {
-            where.PatStatus = 2;
-          } else {
-            where.PatStatus = { not: 2 };
-          }
-        } else if (field === 'email' && val) {
-          where.Email = op.includes('not') ? { not: { contains: String(val) } } : { contains: String(val) };
-        } else if (field === 'first name' && val) {
-          where.FName = op.includes('not') ? { not: { contains: String(val) } } : { contains: String(val) };
-        } else if (field === 'last name' && val) {
-          where.LName = op.includes('not') ? { not: { contains: String(val) } } : { contains: String(val) };
-        }
-      }
-    }
-
-    const patients = await prisma.patient.findMany({
-      where,
-      take: limit,
-      skip,
-      orderBy: { LName: 'asc' },
-    });
-
-    const total = await prisma.patient.count({ where });
-
-    const colsToReturn =
-      options.columns && options.columns.length > 0
-        ? options.columns
-        : [
-            'ID',
-            'First Name',
-            'Last Name',
-            'Middle Name',
-            'dob',
-            'email',
-            'sex',
-            'Inactive',
-            'recallDate',
-            'payerName',
-            'Ins Remain',
-            'Total Outstanding Balance',
-            'lastAppt',
-            'nextTreatmentAppt',
-            'nextRecareAppt',
-            'IsSubscriber(NonPatient)',
-          ];
-
-    const data = patients.map((p) => {
-      const row: Record<string, any> = {};
-      for (const col of colsToReturn) {
-        row[col] = this.mapPatientFieldValue(col, p);
-      }
-      return row;
-    });
-
-    return { data, total };
+  async runReport(options: Parameters<typeof runCustomReport>[0]) {
+    return runCustomReport(options);
   }
 
   async archiveReport(type: string, data: any, userId?: string) {

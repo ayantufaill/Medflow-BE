@@ -141,6 +141,11 @@ export const createPatientValidator: ValidationChain[] = [
     .withMessage('Please provide a valid email address')
     .normalizeEmail()
     .toLowerCase(),
+  body('address.country')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Country must be less than 100 characters'),
   body('address.line1')
     .optional()
     .trim()
@@ -405,6 +410,11 @@ export const updatePatientValidator: ValidationChain[] = [
     .withMessage('Please provide a valid email address')
     .normalizeEmail()
     .toLowerCase(),
+  body('address.country')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Country must be less than 100 characters'),
   body('address.line1')
     .optional()
     .trim()

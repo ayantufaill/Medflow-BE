@@ -927,6 +927,7 @@ async getPatientLastVisit(patientId: string) {
         city?: string;
         state?: string;
         postalCode?: string;
+        country?: string;
       };
       emergencyContact?: {
         name?: string;
@@ -1021,6 +1022,7 @@ async getPatientLastVisit(patientId: string) {
         City: data.address?.city?.trim() || null,
         State: data.address?.state?.trim() || null,
         Zip: data.address?.postalCode?.trim() || null,
+        Country: data.address?.country?.trim() || null,
         Language: data.preferredLanguage?.trim() || 'en',
         PreferContactMethod: mapContactPreferenceToDb(data.communicationPreference),
         PatStatus: 0,
@@ -1107,6 +1109,7 @@ async getPatientLastVisit(patientId: string) {
         city?: string;
         state?: string;
         postalCode?: string;
+        country?: string;
       };
       emergencyContact?: {
         name?: string;
@@ -1214,6 +1217,8 @@ async getPatientLastVisit(patientId: string) {
         State: updates.address !== undefined ? (updates.address.state?.trim() || null) : undefined,
         Zip:
           updates.address !== undefined ? (updates.address.postalCode?.trim() || null) : undefined,
+        Country:
+          updates.address !== undefined ? (updates.address.country?.trim() || null) : undefined,
         Language:
           updates.preferredLanguage !== undefined
             ? updates.preferredLanguage.trim() || 'en'
