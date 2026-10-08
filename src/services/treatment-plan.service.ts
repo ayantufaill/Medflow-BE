@@ -1,9 +1,7 @@
-<<<<<<< HEAD
-import { prisma, basePrisma, applyTenantContextToTransaction } from '../config/db.js';
-=======
 import { prisma, withTenantTransaction } from '../config/db.js';
 import type { Prisma } from '@prisma/client';
->>>>>>> e3a0544 (feat: implement treatment plan draft persistence with unit tests)
+import { prisma, withTenantTransaction } from '../config/db.js';
+import type { Prisma } from '@prisma/client';
 import { NotFoundError, UnprocessableEntityError } from '../utils/error.util.js';
 import { getNextId } from '../utils/opendental-ids.util.js';
 import { claimService } from './claim.service.js';
@@ -500,14 +498,7 @@ export class TreatmentPlanService {
     updates: Partial<{ title: string; notes: string; status: string; totalAmount: number; items: any[] }>,
     createdBy?: string,
   ) {
-<<<<<<< HEAD
-    // Base client on purpose: the RLS extension would run every tx.* call on
-    // its own connection, which then waits on the FOR UPDATE lock below
-    // forever. applyTenantContextToTransaction sets the tenant context here.
-    const result = await basePrisma.$transaction(async (tx) => {
-=======
     const result = await withTenantTransaction(async (tx) => {
->>>>>>> e3a0544 (feat: implement treatment plan draft persistence with unit tests)
       const newlyCompletedProcNums: bigint[] = [];
       const manualProcNums: bigint[] = [];
     // Serialize edits of the same plan so concurrent retries see the committed link.

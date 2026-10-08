@@ -12,6 +12,7 @@ import { agingService } from './aging.service';
 import { providerResolutionService } from './provider-resolution.service';
 import { getProviderMeta } from '../utils/opendental-auth.util';
 import { aggregateAppliedByRow } from './deductible.service';
+import { claimClinicFromLines } from '../utils/claim-clinic.util';
 import { CLAIM_STATUS_CODE } from '../constants/claim-status';
 import { claimClinicFromLines } from '../utils/claim-clinic.util';
 
