@@ -25,6 +25,12 @@
  * CREATE, CREATE ROLE guarded by an existence check). Safe on every deploy.
  */
 
+import dotenv from 'dotenv';
+// override: false — platform env vars (Docker, Render, etc.) take precedence
+// over the .env file, so DATABASE_URL=db:5432 in a container is never clobbered
+// by the localhost URL in the developer's local .env file.
+dotenv.config({ path: process.env.DOTENV_CONFIG_PATH || '.env', override: false });
+
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
