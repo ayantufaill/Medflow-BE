@@ -2240,6 +2240,89 @@ export class InvoiceService {
     return this.mapStatementToInvoice(updated, nextMeta);
   }
 
+  /**
+   * Plan-derived inputs for a coordination-of-benefits estimate.
+   *
+   * WHY THIS LIVES HERE AND NOT IN THE COB SERVICE
+   * ----------------------------------------------
+   * Everything below is resolved by this class's own pricing ladder:
+   * `resolvePlanAllowedFee` for the contracted amount, `resolveCoveragePercent`
+   * for the benefit percentage, and the plan's `DeductibleLedger` for what is
+   * left of the deductible. Re-deriving any of them elsewhere would give the
+   * COB estimate a second, divergent ladder — the exact failure
+   * `resolveCoveragePercent`'s own comment warns about ("a secondary plan
+   * priced by a different ladder would silently disagree with the primary on
+   * the same procedure").
+   *
+   * So this is a narrow public read-only seam over the existing machinery
+   * rather than new pricing logic.
+   *
+   * Returns null when the coverage is not priceable at all (no `insplan`),
+   * which the caller must surface rather than quietly substituting zero — a
+   * 0% benefit and an unknown benefit lead to very different conversations
+   * with a patient.
+   */
+  async getCobEstimateBasis(
+    patPlanNum: bigint | string,
+    procedureCode: string,
+  ): Promise<{
+    allowedAmount: number | null;
+    coveragePercent: number | null;
+    deductibleRemaining: number;
+    deductibleRowKey: string | null;
+    planType: string | null;
+    resolvedFrom: {
+      allowedAmount: 'ALLOWED_FEE_SCHEDULE' | 'PPO_PLAN_FEE_SCHEDULE' | 'NOT_ON_SCHEDULE';
+      coveragePercent: 'PLAN_COVERAGE_TABLE' | 'NOT_PRICEABLE';
+    };
+  } | null> {
+    const code = String(procedureCode || '').toUpperCase().trim();
+    if (!code) return null;
+
+    const patPlan = await prisma.patplan.findUnique({
+      where: { PatPlanNum: BigInt(patPlanNum as any) },
+      include: { inssub: { include: { insplan: true } } },
+    });
+    if (!patPlan?.inssub?.insplan) return null;
+
+    const ctx = await this.buildPlanPricingContext(patPlan);
+    if (!ctx) return null;
+
+    // Practice-wide, not per-plan — the same tables the invoice loop uses.
+    const covSpans = await prisma.covspan.findMany();
+    const covCats = await prisma.covcat.findMany();
+    const covCatMap = new Map<string, string>();
+    for (const cat of covCats) {
+      if (cat.Description) {
+        covCatMap.set(cat.CovCatNum.toString(), cat.Description.toLowerCase());
+      }
+    }
+
+    const isCdtCode = /^D\d{4}/i.test(code) || /^\d{4}$/.test(code);
+    const allowed = this.resolvePlanAllowedFee(code, ctx);
+    const coveragePercent = this.resolveCoveragePercent(code, isCdtCode, ctx, covSpans, covCatMap);
+
+    const { key: deductibleRowKey } = ctx.deductibleLedger.resolve(code);
+    const deductibleRemaining = ctx.deductibleLedger.remaining(deductibleRowKey);
+
+    return {
+      allowedAmount: allowed ?? null,
+      coveragePercent,
+      deductibleRemaining,
+      deductibleRowKey,
+      planType: ctx.insPlan?.PlanType ?? null,
+      resolvedFrom: {
+        allowedAmount:
+          allowed === undefined
+            ? 'NOT_ON_SCHEDULE'
+            : ctx.allowedFeeMap.has(code)
+              ? 'ALLOWED_FEE_SCHEDULE'
+              : 'PPO_PLAN_FEE_SCHEDULE',
+        coveragePercent: 'PLAN_COVERAGE_TABLE',
+      },
+    };
+  }
+
   async recalculateInvoice(invoiceId: string, insuranceCoveragePercent?: number, transaction?: Prisma.TransactionClient) {
     const db = transaction ?? prisma;
     const invoice = await db.statement.findUnique({ where: { StatementNum: BigInt(invoiceId) } });
