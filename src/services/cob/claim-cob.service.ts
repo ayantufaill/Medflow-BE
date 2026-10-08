@@ -27,7 +27,8 @@ import { toIsoDate } from './date.util';
 import { isAdjudicated } from '../../constants/claim-status';
 import type { AdjustmentCode } from './denial';
 import { cobService } from './cob.service';
-import type { ResponsibleParty } from './types';
+import { estimateSecondaryPayment, isEstimateRange } from './estimate';
+import type { CobPaymentMethod, ResponsibleParty } from './types';
 
 const round = (value: number): number => Math.round((Number(value) || 0) * 100) / 100;
 
@@ -576,4 +577,174 @@ export const onRemittancePosted = async (input: {
   }
 
   return outcome;
+};
+
+// ── Downstream payer estimates ────────────────────────────────────────────
+
+export interface DownstreamEstimate {
+  responsibleParty: ResponsibleParty;
+  position: number;
+  coverageId: string;
+  carrierName: string | null;
+  cobPaymentMethod: string;
+  cobInfoSource: string;
+  /** True when the method is UNKNOWN and only a range is honest. */
+  isRange: boolean;
+  low: number;
+  high: number;
+  patientResponsibilityLow: number;
+  patientResponsibilityHigh: number;
+  explanation: string;
+}
+
+/**
+ * What every payer AFTER the one that has paid is expected to pay on this
+ * claim — in one call, derived from the claim's own numbers.
+ *
+ * WHY THIS IS A SERVER CALL AND NOT ARITHMETIC IN THE UI
+ * -----------------------------------------------------
+ * Three reasons, and each one on its own would be enough:
+ *
+ *  1. The inputs are not on the claim screen. Billed, allowed and the
+ *     primary's paid/patient-responsibility split come from `claimproc` rows
+ *     and the 835's adjustment codes — the same derivation
+ *     `getPrimaryRemittanceStatus` already does once, correctly.
+ *  2. Which payer is "downstream" depends on the coverage order IN FORCE ON
+ *     THE DATE OF SERVICE, not today's, and on each plan's own
+ *     `cob_payment_method`. The client would have to fetch the order, the
+ *     coverages and every plan profile to work it out.
+ *  3. An UNKNOWN method must produce a RANGE. A client assembling this from
+ *     parts is one forgotten branch away from showing a midpoint, which is a
+ *     confidently wrong figure quoted to a patient and then taken back.
+ *
+ * Returns an empty map rather than an error when the primary has not paid:
+ * before a remittance there is nothing to estimate FROM, and a claim screen
+ * asking the question early is normal, not a failure.
+ */
+export const getDownstreamEstimates = async (
+  claimNum: bigint
+): Promise<{
+  claimId: string;
+  dateOfService: string | null;
+  basis: {
+    posted: boolean;
+    billedAmount: number;
+    allowedAmount: number;
+    primaryPaid: number;
+    primaryPatientResponsibility: number;
+  };
+  byParty: Record<string, DownstreamEstimate>;
+}> => {
+  const claim = await prisma.claim.findUnique({
+    where: { ClaimNum: claimNum },
+    include: { claimproc: true },
+  });
+  if (!claim) throw new NotFoundError('Claim not found');
+
+  const dateOfService = toIsoDate(claim.DateService);
+  const remittance = await getPrimaryRemittanceStatus(claimNum);
+
+  // `getPrimaryRemittanceStatus` holds allowed as billed-less-write-off; the
+  // billed total is recomputed here from the same source so the basis we
+  // report is the one the estimate actually used.
+  const billedAmount = round(
+    claim.claimproc.reduce((sum, cp) => sum + (Number(cp.FeeBilled) || 0), 0) ||
+      Number(claim.ClaimFee) ||
+      0
+  );
+
+  const basis = {
+    posted: remittance.posted,
+    billedAmount,
+    allowedAmount: remittance.allowedAmount,
+    primaryPaid: remittance.paidAmount,
+    primaryPatientResponsibility: remittance.patientResponsibility,
+  };
+
+  const empty = { claimId: claimNum.toString(), dateOfService, basis, byParty: {} };
+
+  // Nothing to estimate from until the payer ahead has adjudicated.
+  if (!remittance.posted || !claim.PatNum || !dateOfService) return empty;
+
+  const order = await cobService.getOrderForDate(claim.PatNum.toString(), dateOfService);
+  if (!order) return empty;
+
+  const ranked = order.positions
+    .filter((p): p is typeof p & { position: number } => p.position != null)
+    .sort((a, b) => a.position - b.position);
+  if (ranked.length < 2) return empty;
+
+  // Which position this claim is: the coverage it was billed under. Falling
+  // back to position 1 is right for the overwhelmingly common case of a
+  // primary claim whose InsSubNum we cannot match to a position.
+  const thisCoverage = claim.InsSubNum
+    ? await prisma.patplan.findFirst({
+        where: { PatNum: claim.PatNum, InsSubNum: claim.InsSubNum },
+        select: { PatPlanNum: true },
+      })
+    : null;
+  const thisPosition =
+    ranked.find((p) => p.coverageId === thisCoverage?.PatPlanNum?.toString())?.position ?? 1;
+
+  const downstream = ranked.filter((p) => p.position > thisPosition);
+  if (downstream.length === 0) return empty;
+
+  // Plan profile per downstream coverage, in two queries rather than per row.
+  const patPlans = await prisma.patplan.findMany({
+    where: { PatPlanNum: { in: downstream.map((p) => BigInt(p.coverageId)) } },
+    include: { inssub: { include: { insplan: { include: { carrier: true } } } } },
+  });
+  const planNums = patPlans
+    .map((pp) => pp.inssub?.insplan?.PlanNum)
+    .filter((v): v is bigint => v != null);
+  const profiles = planNums.length
+    ? await prisma.cob_plan_profile.findMany({ where: { plan_num: { in: planNums } } })
+    : [];
+  const profileBy = new Map(profiles.map((pr) => [pr.plan_num.toString(), pr]));
+  const patPlanBy = new Map(patPlans.map((pp) => [pp.PatPlanNum.toString(), pp]));
+
+  const byParty: Record<string, DownstreamEstimate> = {};
+
+  for (const position of downstream) {
+    const patPlan = patPlanBy.get(position.coverageId);
+    const insPlan = patPlan?.inssub?.insplan;
+    const profile = insPlan?.PlanNum ? profileBy.get(insPlan.PlanNum.toString()) : undefined;
+    const method = (profile?.cob_payment_method as CobPaymentMethod) || 'UNKNOWN';
+
+    const estimate = estimateSecondaryPayment(method, {
+      billedAmount,
+      allowedAmount: remittance.allowedAmount,
+      primaryPaid: remittance.paidAmount,
+      primaryPatientResponsibility: remittance.patientResponsibility,
+      // The plan's own benefit percentage is not modelled on insplan, and
+      // guessing one would make a point estimate look authoritative. Zero
+      // leaves the non-duplication/carve-out arms conservative, and an
+      // UNKNOWN method — the default — produces a range regardless.
+      secondaryCoveragePercent: 0,
+      secondaryDeductibleRemaining: 0,
+    });
+
+    const isRange = isEstimateRange(estimate);
+
+    byParty[partyForPosition(position.position)] = {
+      responsibleParty: partyForPosition(position.position),
+      position: position.position,
+      coverageId: position.coverageId,
+      carrierName: insPlan?.carrier?.CarrierName ?? null,
+      cobPaymentMethod: method,
+      cobInfoSource: profile?.cob_info_source ?? 'DEFAULT',
+      isRange,
+      low: isRange ? estimate.minPayment : estimate.estimatedPayment,
+      high: isRange ? estimate.maxPayment : estimate.estimatedPayment,
+      patientResponsibilityLow: isRange
+        ? estimate.minPatientResponsibility
+        : estimate.estimatedPatientResponsibility,
+      patientResponsibilityHigh: isRange
+        ? estimate.maxPatientResponsibility
+        : estimate.estimatedPatientResponsibility,
+      explanation: estimate.explanation,
+    };
+  }
+
+  return { claimId: claimNum.toString(), dateOfService, basis, byParty };
 };

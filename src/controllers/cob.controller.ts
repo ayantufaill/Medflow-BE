@@ -6,7 +6,10 @@ import {
   getPrimaryPaymentDetail,
   getBalanceByResponsibleParty,
   getPrimaryRemittanceStatus,
+  getDownstreamEstimates,
 } from '../services/cob/claim-cob.service';
+import { coverageCardService } from '../services/cob/coverage-card.service';
+import { planRequestService } from '../services/cob/plan-request.service';
 import {
   listEligibilityProviders,
   getEligibilityProvider,
@@ -365,6 +368,107 @@ export class CobController {
     try {
       const result = await getBalanceByResponsibleParty(BigInt(req.params.invoiceId));
       res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Every downstream payer's expected payment on this claim, in one call.
+   *
+   * The UI needs one number (or range) per responsible party to label its
+   * balance table; making it assemble that from the order, the coverages and
+   * each plan's payment method would be four round trips and one forgotten
+   * branch away from showing a midpoint for an unconfirmed plan.
+   */
+  async getClaimDownstreamEstimates(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await getDownstreamEstimates(BigInt(req.params.claimId));
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // ── Insurance card images ─────────────────────────────────────────────
+
+  async listCoverageCards(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await coverageCardService.list(req.params.coverageId);
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** One side per request, so re-shooting the front cannot drop the back. */
+  async uploadCoverageCard(req: Request, res: Response, next: NextFunction) {
+    try {
+      const file =
+        req.file ??
+        (Array.isArray(req.files) ? (req.files[0] as Express.Multer.File | undefined) : undefined);
+
+      const card = await coverageCardService.upload(
+        req.params.coverageId,
+        req.params.side,
+        file,
+        userNum(req),
+        { req }
+      );
+      res.status(201).json({ success: true, data: { card } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deleteCoverageCard(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await coverageCardService.remove(
+        req.params.coverageId,
+        req.params.side,
+        userNum(req),
+        { req }
+      );
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  // ── "The plan isn't in the list" ──────────────────────────────────────
+
+  async createPlanRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const request = await planRequestService.create(req.body || {}, userNum(req), { req });
+      res.status(201).json({ success: true, data: { request } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async listPlanRequests(req: Request, res: Response, next: NextFunction) {
+    try {
+      const result = await planRequestService.list({
+        status: req.query.status as string,
+        page: Number(req.query.page) || 1,
+        limit: Number(req.query.limit) || 25,
+      });
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** Close a request by pointing at the plan that was created, or declining it. */
+  async resolvePlanRequest(req: Request, res: Response, next: NextFunction) {
+    try {
+      const request = await planRequestService.resolve(
+        req.params.requestId,
+        req.body || {},
+        userNum(req),
+        { req }
+      );
+      res.status(200).json({ success: true, data: { request } });
     } catch (error) {
       next(error);
     }

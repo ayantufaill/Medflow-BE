@@ -154,3 +154,33 @@ export const evaluateOrderValidator: ValidationChain[] = [
     .isIn(['WORKERS_COMP', 'AUTO_LIABILITY'])
     .withMessage('injuryType must be WORKERS_COMP or AUTO_LIABILITY'),
 ];
+
+export const planRequestValidator: ValidationChain[] = [
+  // The only required field. Everything else on a card is a bonus — a plan
+  // name the admin can search for is the minimum that makes the request
+  // actionable.
+  body('planName')
+    .isString()
+    .withMessage('planName must be a string')
+    .bail()
+    .trim()
+    .isLength({ min: 2 })
+    .withMessage('planName is required — copy it from the card'),
+  body('carrierId').optional({ nullable: true }).isString(),
+  body('groupNumber').optional({ nullable: true }).isString(),
+  body('payerPhone').optional({ nullable: true }).isString(),
+  body('note').optional({ nullable: true }).isString(),
+  body('patientId').optional({ nullable: true }).isString(),
+  body('coverageId').optional({ nullable: true }).isString(),
+];
+
+export const planRequestResolveValidator: ValidationChain[] = [
+  body('status')
+    .isIn(['RESOLVED', 'REJECTED'])
+    .withMessage('status must be RESOLVED or REJECTED'),
+  // `planId` is required for RESOLVED and `resolutionNote` for REJECTED, but
+  // which one depends on the other field — so those two rules live in the
+  // service, where the dependency can be expressed. These only check shape.
+  body('planId').optional({ nullable: true }).isString(),
+  body('resolutionNote').optional({ nullable: true }).isString(),
+];

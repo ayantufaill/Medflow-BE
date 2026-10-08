@@ -51,6 +51,15 @@ export const PermType = {
   COB_DENIAL: 1067,
   COB_COVERAGE_DETAIL_CHANGED: 1068,
   COB_SUBMISSION_BLOCKED: 1069,
+  // A card image is PHI (member ID, subscriber name), so adding and removing
+  // one is audited the same way every other COB write is.
+  COB_COVERAGE_CARD_UPLOADED: 1070,
+  COB_COVERAGE_CARD_DELETED: 1071,
+  // A plan request is how a plan enters the master list, and the plan's COB
+  // fields rank every patient on it — so who asked and who resolved it is
+  // part of the same trail.
+  COB_PLAN_REQUESTED: 1072,
+  COB_PLAN_REQUEST_RESOLVED: 1073,
 } as const;
 
 export type PermTypeValue = (typeof PermType)[keyof typeof PermType];
