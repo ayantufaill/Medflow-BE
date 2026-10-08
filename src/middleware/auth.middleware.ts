@@ -5,6 +5,7 @@ import { AuthenticationError, AuthorizationError } from '../utils/error.util';
 import { basePrisma } from '../config/db';
 import { getUserMeta } from '../utils/opendental-auth.util';
 import { AccessContextService } from '../services/access-context.service';
+import { featureDecisionFor, moduleGateFor, moduleGrantFor } from '../constants/team-modules';
 import {
   type UserGroup,
   USER_GROUPS,
@@ -65,15 +66,47 @@ export const authenticate = async (req: Request, res: Response, next: NextFuncti
     req.user = decoded;
     req.userId = decoded.userId;
     req.access = await AccessContextService.load(decoded.userId, Number(decoded.tokenVersion ?? 0));
-
-    next();
   } catch (error) {
     if (error instanceof Error && (error.message.includes('token') || error.message.includes('Token'))) {
       next(new AuthenticationError(error.message));
     } else {
       next(new AuthenticationError('Invalid token'));
     }
+    return;
   }
+
+  // Team Access: a module the member's admin turned off (or made read-only)
+  // is refused here too, so role-gated routes honour it, not only the
+  // permission-gated ones that read the narrowed permission set.
+  // A feature switch is more specific than the module level, so it decides first.
+  const path = apiPathOf(req);
+  const feature = featureDecisionFor(path, req.method, req.access.featureAccess ?? {});
+  if (feature === 'deny') {
+    return next(new AuthorizationError('Your administrator has turned off this action for your account.'));
+  }
+  const blocked = feature === 'allow' ? null : moduleGateFor(path, req.method, req.access.moduleAccess ?? {});
+  if (blocked) {
+    return next(new AuthorizationError(
+      blocked.reason === 'none'
+        ? `Your administrator has turned off your access to ${blocked.module.label}.`
+        : `You have view-only access to ${blocked.module.label}.`
+    ));
+  }
+
+  next();
+};
+
+/** '/api/patients/12' (or '/api/v1/…') → '/patients/12'. */
+const apiPathOf = (req: Request): string =>
+  `${req.baseUrl}${req.path}`.replace(/^\/api(\/v\d+)?(?=\/)/, '').replace(/\/+$/, '') || '/';
+
+/** Team Access: the member's admin granted this module beyond their role. */
+const grantedByTeamAccess = (req: Request): boolean => {
+  if (!req.access || req.method.toUpperCase() === 'DELETE') return false;
+  const path = apiPathOf(req);
+  const feature = featureDecisionFor(path, req.method, req.access.featureAccess ?? {});
+  if (feature) return feature === 'allow';
+  return moduleGrantFor(path, req.method, req.access.moduleAccess ?? {});
 };
 
 /**
@@ -126,6 +159,8 @@ export const requireGroups = (...allowedGroups: UserGroup[]) => {
       return next();
     }
 
+    if (grantedByTeamAccess(req)) return next();
+
     const hasAllowedGroup = allowedGroups.some((group) => userGroups.includes(group));
     if (!hasAllowedGroup) {
       return next(new AuthorizationError(`Required group(s): ${allowedGroups.join(', ')}`));
@@ -167,6 +202,8 @@ export const requireRoles = (...allowedRoles: string[]) => {
     });
 
     const hasRole = expandedAllowed.some((role) => userRoles.includes(role));
+
+    if (!hasRole && grantedByTeamAccess(req)) return next();
 
     if (!hasRole) {
       return next(new AuthorizationError(`Required roles: ${allowedRoles.join(', ')}`));

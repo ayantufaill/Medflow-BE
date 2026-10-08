@@ -9,6 +9,13 @@ import {
   SHARING_MODES,
 } from '../types/access.types';
 import { GROUP_ADMIN_PERMISSIONS } from '../types/auth.types';
+import {
+  applyFeatureOverrides,
+  applyModuleOverrides,
+  moduleStatesFor,
+  sanitizeFeatureAccess,
+  sanitizeModuleAccess,
+} from '../constants/team-modules';
 import { getRolesMeta, getUserMeta, mapRole } from '../utils/opendental-auth.util';
 
 const TTL_MS = 60_000;
@@ -91,6 +98,19 @@ export class AccessContextService {
       }
     }
 
+    // Team Access overrides (set by the member's group/branch admin) narrow or
+    // widen the role's keys per module. Never applied over a '*' wildcard —
+    // admins can't be given overrides in the first place.
+    const meta = await getUserMeta(userNum);
+    const moduleAccess = sanitizeModuleAccess(meta.moduleAccess);
+    const featureAccess = sanitizeFeatureAccess(meta.featureAccess);
+    const isWildcard = permissions.has('*');
+    if (!isWildcard) {
+      applyModuleOverrides(permissions, moduleAccess);
+      applyFeatureOverrides(permissions, featureAccess);
+    }
+    const moduleStates = isWildcard ? {} : moduleStatesFor(permissions, moduleAccess, featureAccess);
+
     const ownClinicIds = new Set<bigint>();
     for (const assignment of assignments) {
       if (assignment.ClinicNum !== null) ownClinicIds.add(assignment.ClinicNum);
@@ -162,7 +182,6 @@ export class AccessContextService {
       }
     }
 
-    const meta = await getUserMeta(userNum);
     const access: AccessContext = {
       userId,
       tokenVersion,
@@ -176,6 +195,9 @@ export class AccessContextService {
       isGroupAdmin,
       accessAllClinics,
       isPlatformAdmin,
+      moduleAccess,
+      featureAccess,
+      moduleStates,
       sharing,
       sharingSpec: serializeSharing(sharing),
       builtAt: Date.now(),
