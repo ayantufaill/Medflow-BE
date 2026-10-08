@@ -5,10 +5,15 @@
 --   PATIENT-SCOPED  cob_coverage_order, its positions and flags,
 --                   cob_payer_reported_coverage, cob_coverage_detail,
 --                   cob_primary_payment_detail, cob_responsibility_ledger,
---                   cob_invoice_liability. These name a patient's insurers
---                   and what they paid, so they are PHI and are scoped the
---                   same way 07-patient-scoped-tables.sql scopes patplan and
---                   statement: visibility follows the patient's branch.
+--                   cob_invoice_liability, cob_coverage_card. These name a
+--                   patient's insurers and what they paid, so they are PHI
+--                   and are scoped the same way 07-patient-scoped-tables.sql
+--                   scopes patplan and statement: visibility follows the
+--                   patient's branch.
+--
+--   WORKLIST        cob_plan_request. Names a patient only incidentally (the
+--                   card that prompted it) and is worked by billing admins
+--                   across the group, so it is scoped loosely — see block 2a.
 --
 --   MASTER DATA     cob_plan_profile, cob_plan_profile_version,
 --                   cob_payer_profile. Properties of a plan or a carrier,
@@ -22,7 +27,7 @@
 --   pat_num           direct (cob_coverage_order, cob_payer_reported_coverage,
 --                     cob_responsibility_ledger)
 --   order_id          through cob_coverage_order (positions, flags)
---   patplan_num       through patplan (cob_coverage_detail)
+--   patplan_num       through patplan (cob_coverage_detail, cob_coverage_card)
 --   claim_num         through claim (cob_primary_payment_detail)
 --   statement_num     through statement (cob_invoice_liability)
 --
@@ -105,6 +110,10 @@ BEGIN
       ('cob_coverage_order_position', 'order_id',     'cob_coverage_order', 'id',            'pat_num'),
       ('cob_coverage_order_flag',     'order_id',     'cob_coverage_order', 'id',            'pat_num'),
       ('cob_coverage_detail',         'patplan_num',  'patplan',            'PatPlanNum',    'PatNum'),
+      -- A card image carries the member ID and the subscriber's name, so it
+      -- is scoped exactly like the coverage it belongs to. The `document`
+      -- row holding the bytes is scoped separately by file 07.
+      ('cob_coverage_card',           'patplan_num',  'patplan',            'PatPlanNum',    'PatNum'),
       ('cob_primary_payment_detail',  'claim_num',    'claim',              'ClaimNum',      'PatNum'),
       ('cob_invoice_liability',       'statement_num','statement',          'StatementNum',  'PatNum')
     ) AS t(child, child_col, parent, parent_key, parent_pat_col)
@@ -170,6 +179,71 @@ BEGIN
       'idx_' || spec.child || '_' || spec.child_col, spec.child, spec.child_col
     );
   END LOOP;
+END
+$$;
+
+-- ── 2a. The plan-request worklist ─────────────────────────────────────────
+--
+-- cob_plan_request is a queue, not a chart. It records what a receptionist
+-- read off a card so a billing admin can add the plan; `pat_num` is context
+-- for that job, not the subject of the row.
+--
+-- Scoped on pat_num WHEN THERE IS ONE, and left visible when there is not.
+-- The alternative — scoping it like a chart — would hide group-wide requests
+-- from the one admin who can resolve them, which is how a front desk ends up
+-- creating the duplicate plan this table exists to prevent.
+
+DO $$
+DECLARE
+  scope_expr text := $e$
+    cob_plan_request.pat_num IS NULL
+    OR EXISTS (
+      SELECT 1 FROM patient p
+      WHERE p."PatNum" = cob_plan_request.pat_num
+        AND (
+          p."ClinicNum" IS NULL
+          OR CASE
+               WHEN current_setting('app.clinic_ids', true) = '*' THEN true
+               WHEN current_setting('app.clinic_ids', true) IS NULL OR current_setting('app.clinic_ids', true) = '' THEN false
+               ELSE p."ClinicNum" = ANY(string_to_array(current_setting('app.clinic_ids', true), ',')::bigint[])
+             END
+        )
+    )
+  $e$;
+BEGIN
+  BEGIN
+    EXECUTE 'ALTER TABLE cob_plan_request ENABLE ROW LEVEL SECURITY';
+  EXCEPTION
+    WHEN undefined_table THEN
+      RETURN;
+  END;
+
+  EXECUTE 'DROP POLICY IF EXISTS own_branch_fallback ON cob_plan_request';
+  EXECUTE format(
+    'CREATE POLICY own_branch_fallback ON cob_plan_request FOR ALL USING (%s) WITH CHECK (%s)',
+    scope_expr, scope_expr
+  );
+
+  -- INSURANCE category rather than FINANCIAL: this is plan reference data in
+  -- the making, and the group's billing admins are its audience.
+  EXECUTE 'DROP POLICY IF EXISTS shared_read ON cob_plan_request';
+  EXECUTE $p$
+    CREATE POLICY shared_read ON cob_plan_request FOR SELECT
+    USING (
+      mf.shared_mode('INSURANCE') = 'GROUP_READ'
+      AND (
+        cob_plan_request.pat_num IS NULL
+        OR EXISTS (
+          SELECT 1 FROM patient p
+          WHERE p."PatNum" = cob_plan_request.pat_num
+            AND p."GroupNum"::text = current_setting('app.patient_group_id', true)
+            AND NOT p.cross_branch_restricted
+        )
+      )
+    )
+  $p$;
+
+  EXECUTE 'CREATE INDEX IF NOT EXISTS idx_cob_plan_request_patnum ON cob_plan_request (pat_num)';
 END
 $$;
 
