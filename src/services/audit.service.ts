@@ -35,8 +35,8 @@ export interface WriteAuditParams {
    */
   userNum: bigint | null;
   permType: number;
-  patNum?: bigint;
-  clinicNum?: bigint;
+  patNum?: bigint | null;
+  clinicNum?: bigint | null;
   text: string;
   source?: number;
   req?: Request;
@@ -88,7 +88,10 @@ export async function writeAudit(params: WriteAuditParams): Promise<boolean> {
         data: {
           SecurityLogNum: logNum,
           PermType: permType,
-          UserNum: userNum,
+          // securitylog has no "system" sentinel user: the late-fee scheduler
+          // passes 0n, which fails fk_securitylog_1_UserNum. UserNum is nullable,
+          // so a job (no human actor) is recorded as NULL instead.
+          UserNum: userNum === 0n ? null : userNum,
           PatNum: patNum ?? null,
           CompName: compName,
           LogSource: source ?? null,

@@ -8384,7 +8384,7 @@ model LateFeePolicy {
   gracePeriodDays      Int      @default(15)
   paymentTermsDays     Int      @default(30)
   feeType              String   // 'flat' | 'percentage'
-  patientFeeAmount     Decimal  @db.Decimal(12, 2) // Flat fee for individuals (in minor units/cents)
+  patientFeeAmount     Decimal  @db.Decimal(12, 2) // Flat fee for individuals, in DOLLARS (e.g. 50.00 = $50.00)
   corporateFeePct      Decimal  @db.Decimal(5, 2)  // Monthly % for corporate (e.g., 1.50 = 1.5%)
   capPct               Decimal  @db.Decimal(5, 2)  @default(10.00)
   enabled              Boolean  @default(false)

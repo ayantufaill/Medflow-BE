@@ -11,7 +11,6 @@ import { claimService } from './claim.service';
 import { patientInsuranceService } from './patient-insurance.service';
 import { agingService } from './aging.service';
 import { lateFee } from './late-fee.service';
-import { LateFeeGuardrails } from './late-fee-guardrails.service';
 import {
   DeductibleLedger,
   applyDeductible,
@@ -81,6 +80,7 @@ type StatementMeta = {
   dueDate?: string;
   voidReason?: string;
   claimId?: string; // Added to store generated claim ID
+  lateFeePolicyVersionId?: string;
   /**
    * Set when the invoice's deductible has been made permanent, i.e. when the
    * fully patient-responsible portion was folded into the plan's `metAmount`.
@@ -3003,6 +3003,7 @@ export class InvoiceService {
     const activePolicy = patient.ClinicNum
       ? await prisma.lateFeePolicy.findFirst({
           where: { clinicId: patient.ClinicNum, isActive: true, enabled: true },
+        orderBy: { version: 'desc' },
           select: { id: true },
         })
       : null;
@@ -3021,7 +3022,7 @@ export class InvoiceService {
       status: 'draft',
       createdBy,
       dueDate: dueDate.toISOString(),
-      lateFeePolicyVersionId: activePolicy?.toString(),
+      lateFeePolicyVersionId: activePolicy?.id.toString(),
     };
 
     const statement = await prisma.statement.create({
@@ -3342,10 +3343,12 @@ export class InvoiceService {
    */
   async applyLateFee(
     params: {
+      /** null/undefined = un-tiered adjustment (flat-rate / percentage menu items). */
+      tier?: number | null;
       patientId: string;
-      tier: number;
       invoiceIds: string[];
-      mode: 'flat' | 'percentage';
+      /** Omit for the flat default, which is what the dialog sends. */
+      mode?: 'flat' | 'percentage';
       /** Omit to charge the tier's default rate (see late-fee.service.ts). */
       rate?: number;
       basis: 'patient' | 'total';
@@ -3354,8 +3357,9 @@ export class InvoiceService {
     createdBy: string,
   ) {
     const {
-      invoiceIds, mode, basis, branchId,
+      invoiceIds, basis, branchId,
     } = params;
+    const mode: 'flat' | 'percentage' = params.mode ?? 'flat';
 
     const resolvedTier = lateFee.resolveTier(params.tier);
     if (resolvedTier === undefined) {
@@ -3365,6 +3369,9 @@ export class InvoiceService {
       throw new BadRequestError('Select at least one invoice to charge.');
     }
 
+    // The dialog no longer sends a rate: each tier has a fixed amount. An
+    // explicit rate is still honoured so the API stays usable from outside the
+    // UI, and so the un-tiered adjustments keep working.
     const tierDefault = lateFee.defaultRateFor(resolvedTier);
     const requestedRate = params.rate === undefined || params.rate === null ? undefined : Number(params.rate);
     let parsedRate: number;
@@ -3385,15 +3392,8 @@ export class InvoiceService {
     const patient = await prisma.patient.findUnique({ where: { PatNum: patientId } });
     if (!patient) throw new NotFoundError('Patient not found');
 
-    const clinicId = patient.ClinicNum ?? BigInt(0);
-    const activePolicy = await LateFeeGuardrails.getActivePolicy(clinicId);
-    if (!activePolicy) {
-      throw new ConflictError('No active late fee policy for this clinic');
-    }
-    if (!activePolicy.enabled) {
-      throw new ConflictError('Late fees are disabled for this clinic');
-    }
-
+    // Load the source invoices and rebuild them through the same mapper the rest
+    // of the billing code uses, so balances and DateSent can't drift.
     const sourceInvoices = [];
     for (const invoiceId of invoiceIds) {
       const statement = await this.getStatementById(invoiceId);
@@ -3403,25 +3403,27 @@ export class InvoiceService {
       }
       const meta = parseJson<StatementMeta>(statement.NoteBold);
       const mapped = this.mapStatementToInvoice(statement, meta);
+      // Same ledger split the dialog displays, so the previewed amounts and the
+      // charged basis cannot disagree.
       const split = lateFee.outstandingSplit({
         balTotal: statement.BalTotal,
         insEst: statement.InsEst,
         writeoffAmount: meta.writeoffAmount,
       });
       sourceInvoices.push({
-        id: statement.StatementNum,
-        invoiceNumber: statement.ShortGUID,
-        invoiceDate: statement.DateSent,
+        ...mapped,
         patientPortion: split.patientRemaining,
         patientRemaining: split.patientRemaining,
+        insuranceWriteOff: split.insuranceWriteOff,
+        insuranceBalance: split.insuranceRemaining,
         balanceDue: split.totalOwing,
-        totalAmount: Number(statement.BalTotal ?? 0),
-        patientLiabilityFinalizedAt: statement.patientLiabilityFinalizedAt,
-        lateFeePolicyVersionId: statement.lateFeePolicyVersionId ? BigInt(statement.lateFeePolicyVersionId) : null,
-        patientId,
-        clinicId,
       });
     }
+
+    const alreadyCharged = await lateFee.findChargedLateFees(patientId);
+    const chargedKeys = new Set(
+      alreadyCharged.map((c) => lateFee.chargeKey(c.sourceStatement, c.tier)),
+    );
 
     const accepted: Array<{
       sourceStatement: string;
@@ -3432,52 +3434,53 @@ export class InvoiceService {
     }> = [];
     const rejected: Array<{ invoiceId: string; reason: string }> = [];
 
-    const isCorporate = await LateFeeGuardrails.isCorporateClient(patientId);
-
     for (const invoice of sourceInvoices) {
-      const eligibility = await LateFeeGuardrails.checkEligibility(invoice, activePolicy, new Date());
-      if (!eligibility.eligible) {
-        rejected.push({ invoiceId: invoice.id.toString(), reason: eligibility.details ?? eligibility.skipReason ?? 'Not eligible' });
+      const days = lateFee.daysOutstanding(invoice.invoiceDate);
+      if (days === null) {
+        rejected.push({ invoiceId: invoice.id, reason: 'Invoice has not been sent yet.' });
+        continue;
+      }
+      const actualBucket = lateFee.bucketFor(days);
+      if (actualBucket === null) {
+        rejected.push({ invoiceId: invoice.id, reason: `Invoice is only ${days} days old and is not yet late.` });
+        continue;
+      }
+      if (resolvedTier !== null && actualBucket !== resolvedTier) {
+        rejected.push({
+          invoiceId: invoice.id,
+          reason: `Invoice is ${days} days old, which is in the ${actualBucket}-day tier, not ${resolvedTier}.`,
+        });
+        continue;
+      }
+      if (chargedKeys.has(lateFee.chargeKey(invoice.id, resolvedTier))) {
+        rejected.push({
+          invoiceId: invoice.id,
+          reason: resolvedTier
+            ? `A ${resolvedTier}-day late fee has already been charged for this invoice.`
+            : `A late fee has already been charged for this invoice.`,
+        });
         continue;
       }
 
-      const feeCalc = await LateFeeGuardrails.calculateFee(invoice, activePolicy, isCorporate);
-      if (feeCalc.feeAmount <= 0) {
-        rejected.push({ invoiceId: invoice.id.toString(), reason: 'Calculated fee is zero' });
+      const baseAmount = lateFee.basisAmount(invoice, basis);
+      const feeAmount = lateFee.feeAmountFor(baseAmount, mode, parsedRate);
+      if (feeAmount <= 0) {
+        rejected.push({
+          invoiceId: invoice.id,
+          reason: basis === 'patient'
+            ? 'Invoice has no outstanding patient balance to charge against.'
+            : 'Invoice has no outstanding balance to charge against.',
+        });
         continue;
       }
 
-      const capExceeded = await LateFeeGuardrails.wouldExceedCap(
-        invoice.id,
-        feeCalc.feeAmount,
-        activePolicy.capPct,
-        invoice.totalAmount
-      );
-      if (capExceeded) {
-        rejected.push({ invoiceId: invoice.id.toString(), reason: `Cap of ${activePolicy.capPct}% reached` });
-        continue;
-      }
-
-      const periodStart = new Date();
-      periodStart.setDate(1);
-      periodStart.setHours(0, 0, 0, 0);
-      const periodEnd = new Date(periodStart);
-      periodEnd.setMonth(periodEnd.getMonth() + 1);
-      periodEnd.setDate(0);
-      periodEnd.setHours(23, 59, 59, 999);
-      
-      const alreadyApplied = await LateFeeGuardrails.isFeeAlreadyApplied(invoice.id, periodStart, periodEnd, activePolicy.feeType);
-      if (alreadyApplied) {
-        rejected.push({ invoiceId: invoice.id.toString(), reason: 'Fee already applied for this period' });
-        continue;
-      }
-
+      chargedKeys.add(lateFee.chargeKey(invoice.id, resolvedTier));
       accepted.push({
-        sourceStatement: invoice.id.toString(),
-        invoiceNumber: invoice.invoiceNumber || invoice.id.toString(),
-        daysOutstanding: Math.floor((Date.now() - (invoice.invoiceDate?.getTime() ?? Date.now())) / (24 * 60 * 60 * 1000)),
-        baseAmount: feeCalc.baseAmount,
-        feeAmount: feeCalc.feeAmount,
+        sourceStatement: invoice.id,
+        invoiceNumber: invoice.invoiceNumber || invoice.id,
+        daysOutstanding: days,
+        baseAmount,
+        feeAmount,
       });
     }
 

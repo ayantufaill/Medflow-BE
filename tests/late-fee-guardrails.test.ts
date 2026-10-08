@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '../src/config/db';
 import { LateFeeGuardrails } from '../src/services/late-fee-guardrails.service';
+import { getNextId } from '../src/utils/opendental-ids.util';
 
 const roundCurrency = (value: number): number => Math.round((Number(value) || 0) * 100) / 100;
 
@@ -9,7 +10,7 @@ const cleanup: Array<() => Promise<unknown>> = [];
 
 describe('LateFeeGuardrails', () => {
   beforeAll(async () => {
-    patientId = await prisma.patient.count();
+    patientId = await getNextId('patient', 'PatNum');
     await prisma.patient.create({
       data: {
         PatNum: BigInt(patientId),

@@ -1,7 +1,11 @@
 import { Router } from 'express';
-import { lateFeePolicyController } from '../controllers/late-fee.controller';
-import { lateFeeAcceptanceController } from '../controllers/late-fee.controller';
-import { lateFeeWaiverController } from '../controllers/late-fee.controller';
+import {
+  lateFeePolicyController,
+  lateFeeAcceptanceController,
+  lateFeeWaiverController,
+  lateFeeApplicationController,
+  lateFeeJobController,
+} from '../controllers/late-fee.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
@@ -13,9 +17,41 @@ import {
   waiverReportValidator,
   policyTermsValidator,
   patientAcceptanceHistoryValidator,
+  lateFeeApplicationsValidator,
+  lateFeeSettingsValidator,
 } from '../validators/late-fee.validator';
 
 const router = Router();
+
+router.get(
+  '/clinics/:clinicId/settings',
+  authenticate,
+  requirePermission('billing.late_fee.view'),
+  lateFeePolicyController.getSettings.bind(lateFeePolicyController)
+);
+
+router.patch(
+  '/clinics/:clinicId/settings',
+  authenticate,
+  requirePermission('billing.late_fee.policy_manage'),
+  validate(lateFeeSettingsValidator),
+  lateFeePolicyController.updateSettings.bind(lateFeePolicyController)
+);
+
+router.get(
+  '/applications',
+  authenticate,
+  requirePermission('billing.late_fee.view'),
+  validate(lateFeeApplicationsValidator),
+  lateFeeApplicationController.list.bind(lateFeeApplicationController)
+);
+
+router.post(
+  '/run-job',
+  authenticate,
+  requirePermission('billing.late_fee.policy_manage'),
+  lateFeeJobController.runJob.bind(lateFeeJobController)
+);
 
 router.post(
   '/clinics/:clinicId/late-fee-policy',

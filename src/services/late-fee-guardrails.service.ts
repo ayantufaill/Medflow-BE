@@ -107,21 +107,21 @@ export const LateFeeGuardrails = {
   },
 
   async hasPendingInsurance(invoiceId: bigint): Promise<boolean> {
-    const claims = await prisma.claim.findMany({
+    const claimProcs = await prisma.claimproc.findMany({
       where: {
-        OR: [
-          { ClaimStatus: 'P' },
-          { ClaimStatus: 'S' },
-          { ClaimStatus: 'U' },
-        ],
-        procedurelog: {
-          some: { StatementNum: invoiceId },
+        procedurelog: { StatementNum: invoiceId },
+        claim: {
+          OR: [
+            { ClaimStatus: 'P' },
+            { ClaimStatus: 'S' },
+            { ClaimStatus: 'U' },
+          ],
         },
       },
       select: { ClaimNum: true },
       take: 1,
     });
-    return claims.length > 0;
+    return claimProcs.length > 0;
   },
 
   async getPatientLiabilityFinalizedAt(invoiceId: bigint): Promise<Date | null> {
@@ -133,19 +133,21 @@ export const LateFeeGuardrails = {
   },
 
   async isClaimPendingOrReopened(invoiceId: bigint): Promise<boolean> {
-    const claims = await prisma.claim.findMany({
+    const claimProcs = await prisma.claimproc.findMany({
       where: {
-        procedurelog: { some: { StatementNum: invoiceId } },
-        OR: [
-          { ClaimStatus: 'P' },
-          { ClaimStatus: 'S' },
-          { ClaimStatus: 'U' },
-        ],
+        procedurelog: { StatementNum: invoiceId },
+        claim: {
+          OR: [
+            { ClaimStatus: 'P' },
+            { ClaimStatus: 'S' },
+            { ClaimStatus: 'U' },
+          ],
+        },
       },
       select: { ClaimNum: true },
       take: 1,
     });
-    return claims.length > 0;
+    return claimProcs.length > 0;
   },
 
   async getCumulativeFees(invoiceId: bigint): Promise<number> {
@@ -187,7 +189,7 @@ export const LateFeeGuardrails = {
       where: { PatNum: patientId },
       select: { CreditType: true, Guarantor: true },
     });
-    return patient?.CreditType === 'C' || (patient?.Guarantor && patient.Guarantor !== patientId);
+    return patient?.CreditType === 'C' || Boolean(patient?.Guarantor && patient.Guarantor !== patientId);
   },
 
   calculatePatientFee(baseAmount: number, flatFee: number): FeeCalculationResult {
@@ -196,7 +198,9 @@ export const LateFeeGuardrails = {
       feeAmount,
       baseAmount,
       feeType: 'flat',
-      details: `Flat fee $${(flatFee / 100).toFixed(2)} on patient balance $${(baseAmount / 100).toFixed(2)}`,
+      // All money in this module is DOLLARS (same convention as every other
+      // money column: BalTotal, ProcFee, payments). patientFeeAmount: 50 = $50.
+      details: `Flat fee $${flatFee.toFixed(2)} on patient balance $${baseAmount.toFixed(2)}`,
     };
   },
 
@@ -207,7 +211,7 @@ export const LateFeeGuardrails = {
       feeAmount,
       baseAmount: outstandingPrincipal,
       feeType: 'percentage',
-      details: `${monthlyPct}%/month on principal $${(outstandingPrincipal / 100).toFixed(2)} for ${monthsOverdue} month(s)`,
+      details: `${monthlyPct}%/month on principal $${outstandingPrincipal.toFixed(2)} for ${monthsOverdue} month(s)`,
     };
   },
 

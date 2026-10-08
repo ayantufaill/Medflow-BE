@@ -49,7 +49,12 @@ const envPath = fs.existsSync(testEnv)
     : defaultEnv;
 
 process.env.DOTENV_CONFIG_PATH = envPath;
-dotenv.config({ path: envPath });
+// `override` is required: importing src/config/db.ts pulls in @prisma/client,
+// which has already loaded the project `.env` by the time this module body
+// runs (ESM hoists the import above). Without override, `.env`'s stale
+// DATABASE_URL wins for every key the two files share, and the suite silently
+// connects to the wrong database. See docs/TEST-BASELINE.md.
+dotenv.config({ path: envPath, override: true });
 
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 process.env.EMAIL_PROVIDER = process.env.EMAIL_PROVIDER || 'console';

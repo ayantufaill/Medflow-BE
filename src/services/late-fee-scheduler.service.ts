@@ -1,8 +1,11 @@
 import { prisma } from '../config/db';
 import { LateFeeGuardrails, LateFeePolicyConfig, LateFeeSkipReason, InvoiceForLateFee } from './late-fee-guardrails.service';
 import { notificationService } from './notification.service';
+import { emailService } from './email.service';
+import { smsService } from './sms.service';
 import { writeAudit } from './audit.service';
 import { roundCurrency } from './late-fee.service';
+import { getNextId } from '../utils/opendental-ids.util';
 
 export interface LateFeeJobResult {
   runDate: string;
@@ -130,7 +133,7 @@ export class LateFeeSchedulerService {
     const statements = await prisma.statement.findMany({
       where: {
         IsInvoice: 1,
-        clinic: { ClinicNum: clinicId },
+        patient_statement_PatNumTopatient: { ClinicNum: clinicId },
         DateSent: { not: null, lt: runDate },
         PatNum: { not: null },
       },
@@ -152,6 +155,8 @@ export class LateFeeSchedulerService {
       const meta = JSON.parse(stmt.NoteBold || '{}');
       const split = this.calculateSplit(stmt.BalTotal, stmt.InsEst, meta.writeoffAmount);
 
+      // All monetary fields (LateFeeApplication, statements, guardrails) are
+      // DOLLARS, matching BalTotal/ProcFee — no scaling needed here.
       invoices.push({
         id: stmt.StatementNum,
         invoiceNumber: stmt.ShortGUID,
@@ -185,7 +190,7 @@ export class LateFeeSchedulerService {
       where: { PatNum: patientId },
       select: { CreditType: true, Guarantor: true },
     });
-    return patient?.CreditType === 'C' || (patient?.Guarantor && patient.Guarantor !== patientId);
+    return patient?.CreditType === 'C' || Boolean(patient?.Guarantor && patient.Guarantor !== patientId);
   }
 
   private async recordApplication(
@@ -264,7 +269,7 @@ export class LateFeeSchedulerService {
       permType: 999,
       patNum: invoice.patientId,
       clinicNum: invoice.clinicId,
-      text: `Late fee applied: $${(feeCalc.feeAmount / 100).toFixed(2)} on invoice ${invoice.invoiceNumber} (${feeCalc.details})`,
+      text: `Late fee applied: $${feeCalc.feeAmount.toFixed(2)} on invoice ${invoice.invoiceNumber} (${feeCalc.details})`,
       source: 1,
     });
 
@@ -279,10 +284,14 @@ export class LateFeeSchedulerService {
     runDate: Date
   ): Promise<void> {
     const invoiceNumber = await this.generateInvoiceNumber(invoice.clinicId);
+    // No sequence exists for statement.ProcNum/StatementNum in this schema
+    // (both columns are plain bigints), so nextval() always fails here —
+    // allocate through the same id allocator the rest of the billing code uses.
+    const statementNum = await getNextId('statement', 'StatementNum');
 
     await prisma.statement.create({
       data: {
-        StatementNum: await this.getNextStatementNum(),
+        StatementNum: statementNum,
         PatNum: invoice.patientId,
         DateSent: runDate,
         DateRangeFrom: runDate,
@@ -299,30 +308,34 @@ export class LateFeeSchedulerService {
         StatementType: 'late_fee',
         ShortGUID: invoiceNumber,
         InsEst: 0,
-        BalTotal: feeCalc.feeAmount / 100,
-        ClinicNum: invoice.clinicId,
+        BalTotal: feeCalc.feeAmount,
       },
     });
 
     await prisma.procedurelog.create({
       data: {
-        ProcNum: await this.getNextProcNum(),
+        ProcNum: await getNextId('procedurelog', 'ProcNum'),
         PatNum: invoice.patientId,
         ProcDate: runDate,
-        ProcFee: feeCalc.feeAmount / 100,
+        ProcFee: feeCalc.feeAmount,
         ProcStatus: 2,
-        StatementNum: applicationId,
+        // FK fk_procedurelog_15_StatementNum points at statement, so this must
+        // be the fee invoice just created — applicationId is a LateFeeApplication
+        // id and would violate the constraint.
+        StatementNum: statementNum,
         BillingNote: JSON.stringify({
           isPatientPenalty: true,
           lateFeeApplicationId: applicationId.toString(),
           lateFeePolicyVersion: policy.version,
           originalInvoiceId: invoice.id.toString(),
-          feeAmount: feeCalc.feeAmount / 100,
-          baseAmount: feeCalc.baseAmount / 100,
+          feeAmount: feeCalc.feeAmount,
+          baseAmount: feeCalc.baseAmount,
           feeType: feeCalc.feeType,
         }),
         ClinicNum: invoice.clinicId,
-        ProvNum: 1,
+        // Nullable (fk_procedurelog_4_ProvNum): a system-generated fee has no
+        // authoring provider, same as createStandaloneInvoice's fallback.
+        ProvNum: null,
       },
     });
   }
@@ -339,19 +352,19 @@ export class LateFeeSchedulerService {
 
     if (!patient) return;
 
-    const feeDollars = (feeCalc.feeAmount / 100).toFixed(2);
+    const feeDollars = feeCalc.feeAmount.toFixed(2);
     const message = `A late fee of $${feeDollars} has been applied to invoice ${invoice.invoiceNumber}. ${feeCalc.details}. Please contact the clinic with questions or to make a payment.`;
 
     try {
       if (patient.Email) {
-        await notificationService.sendEmail({
-          to: patient.Email,
-          subject: `Late Fee Applied - Invoice ${invoice.invoiceNumber}`,
-          body: message,
-        });
+        await emailService.sendBulkEmail(
+          patient.Email,
+          `Late Fee Applied - Invoice ${invoice.invoiceNumber}`,
+          message
+        );
       }
       if (patient.WirelessPhone) {
-        await notificationService.sendSms(patient.WirelessPhone, message);
+        await smsService.sendSms(patient.WirelessPhone, message);
       }
     } catch (error) {
       console.error('Failed to send late fee notification:', error);
@@ -370,17 +383,9 @@ export class LateFeeSchedulerService {
     };
   }
 
-  private async getNextStatementNum(): Promise<bigint> {
-    return (await prisma.$queryRaw`SELECT nextval('statement_StatementNum_seq')`)[0].nextval as bigint;
-  }
-
-  private async getNextProcNum(): Promise<bigint> {
-    return (await prisma.$queryRaw`SELECT nextval('procedurelog_ProcNum_seq')`)[0].nextval as bigint;
-  }
-
   private async generateInvoiceNumber(clinicId: bigint): Promise<string> {
     const recent = await prisma.statement.findMany({
-      where: { ClinicNum: clinicId, ShortGUID: { startsWith: 'INV' } },
+      where: { patient_statement_PatNumTopatient: { ClinicNum: clinicId }, ShortGUID: { startsWith: 'INV' } },
       orderBy: { StatementNum: 'desc' },
       take: 50,
     });

@@ -1,8 +1,9 @@
 import type { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/db';
 import { LateFeeGuardrails } from '../services/late-fee-guardrails.service';
+import { lateFeeScheduler } from '../services/late-fee-scheduler.service';
 import { writeAudit } from '../services/audit.service';
-import { BadRequestError, NotFoundError, ForbiddenError } from '../utils/error.util';
+import { BadRequestError, NotFoundError } from '../utils/error.util';
 
 export class LateFeePolicyController {
   async getPolicy(req: Request, res: Response, next: NextFunction) {
@@ -188,36 +189,7 @@ export class LateFeePolicyController {
     }
   }
 
-  async activatePolicy(req: Request, res: Response, next: NextFunction) {
-    try {
-      const clinicId = BigInt(req.params.clinicId);
-      const version = BigInt(req.params.version);
-      const userId = BigInt(req.userId!);
 
-      await prisma.$transaction(async (tx) => {
-        await tx.lateFeePolicy.updateMany({
-          where: { clinicId, isActive: true },
-          data: { isActive: false },
-        });
-        await tx.lateFeePolicy.update({
-          where: { id: version },
-          data: { isActive: true },
-        });
-      });
-
-      await writeAudit({
-        userNum: userId,
-        permType: 999,
-        clinicNum: clinicId,
-        text: `Activated late fee policy v${version}`,
-        source: 1,
-      });
-
-      res.status(200).json({ success: true, message: 'Policy activated' });
-    } catch (error) {
-      next(error);
-    }
-  }
 
   async getTerms(req: Request, res: Response, next: NextFunction) {
     try {
@@ -226,6 +198,71 @@ export class LateFeePolicyController {
       if (!policy) throw new NotFoundError('Policy not found');
 
       res.status(200).json({ success: true, data: { termsText: policy.termsText, version: policy.version } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * GET /late-fee/clinics/:clinicId/settings — the per-clinic program switch
+   * the scheduler gates on (clinic.features.lateFee.enabled).
+   */
+  async getSettings(req: Request, res: Response, next: NextFunction) {
+    try {
+      const clinicId = BigInt(req.params.clinicId);
+      const clinic = await prisma.clinic.findUnique({
+        where: { ClinicNum: clinicId },
+        select: { features: true },
+      });
+      if (!clinic) throw new NotFoundError('Clinic not found');
+
+      const lateFee = ((clinic.features as Record<string, any>) ?? {}).lateFee as Record<string, any> | undefined;
+      res.status(200).json({ success: true, data: { enabled: lateFee?.enabled === true, features: clinic.features ?? {} } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * PATCH /late-fee/clinics/:clinicId/settings — flip clinic.features.lateFee.enabled.
+   * A policy still has to exist and be active+enabled for the job to charge;
+   * this switch is the master gate that stops all charging.
+   */
+  async updateSettings(req: Request, res: Response, next: NextFunction) {
+    try {
+      const clinicId = BigInt(req.params.clinicId);
+      const enabled = req.body.enabled === true;
+      const userId = BigInt(req.userId!);
+
+      const clinic = await prisma.clinic.findUnique({
+        where: { ClinicNum: clinicId },
+        select: { features: true },
+      });
+      if (!clinic) throw new NotFoundError('Clinic not found');
+
+      const features = {
+        ...((clinic.features as Record<string, any>) ?? {}),
+        lateFee: { enabled },
+      };
+      const updated = await prisma.clinic.update({
+        where: { ClinicNum: clinicId },
+        data: { features: features as any },
+        select: { features: true },
+      });
+
+      await writeAudit({
+        userNum: userId,
+        permType: 999,
+        clinicNum: clinicId,
+        text: `Late fees ${enabled ? 'enabled' : 'disabled'} for clinic ${clinicId}`,
+        source: 1,
+      });
+
+      const lateFee = ((updated.features as Record<string, any>) ?? {}).lateFee as Record<string, any> | undefined;
+      res.status(200).json({
+        success: true,
+        data: { enabled: lateFee?.enabled === true, features: updated.features ?? {} },
+      });
     } catch (error) {
       next(error);
     }
@@ -241,7 +278,7 @@ export class LateFeePolicyController {
       gracePeriodDays: p.gracePeriodDays,
       paymentTermsDays: p.paymentTermsDays,
       feeType: p.feeType,
-      patientFeeAmount: Number(p.patientFeeAmount) / 100,
+      patientFeeAmount: Number(p.patientFeeAmount),
       corporateFeePct: Number(p.corporateFeePct),
       capPct: Number(p.capPct),
       enabled: p.enabled,
@@ -283,7 +320,19 @@ export class LateFeeAcceptanceController {
         source: 1,
       });
 
-      res.status(201).json({ success: true, data: acceptance });
+      res.status(201).json({
+        success: true,
+        data: {
+          id: acceptance.id.toString(),
+          policyId: acceptance.policyId.toString(),
+          policyVersion: policy.version,
+          patientId: acceptance.patientId?.toString() ?? null,
+          corporateClientId: acceptance.corporateClientId?.toString() ?? null,
+          channel: acceptance.channel,
+          acceptedBy: acceptance.acceptedBy?.toString() ?? null,
+          acceptedAt: acceptance.acceptedAt,
+        },
+      });
     } catch (error) {
       next(error);
     }
@@ -366,11 +415,23 @@ export class LateFeeWaiverController {
         permType: 999,
         patNum: application.patientId,
         clinicNum: application.clinicId,
-        text: `Waived late fee $${(Number(waivedAmount) / 100).toFixed(2)} on invoice ${application.invoiceId} (${reasonCode})`,
+        text: `Waived late fee $${Number(waivedAmount).toFixed(2)} on invoice ${application.invoiceId} (${reasonCode})`,
         source: 1,
       });
 
-      res.status(201).json({ success: true, data: waiver });
+      res.status(201).json({
+        success: true,
+        data: {
+          id: waiver.id.toString(),
+          applicationId: waiver.applicationId.toString(),
+          waivedAmount: Number(waiver.waivedAmount),
+          reasonCode: waiver.reasonCode,
+          reasonNote: waiver.reasonNote,
+          waivedBy: waiver.waivedBy.toString(),
+          waivedAt: waiver.waivedAt,
+          newStatus,
+        },
+      });
     } catch (error) {
       next(error);
     }
@@ -404,7 +465,7 @@ export class LateFeeWaiverController {
           id: w.id.toString(),
           applicationId: w.applicationId.toString(),
           invoiceId: w.application.invoiceId.toString(),
-          waivedAmount: Number(w.waivedAmount) / 100,
+          waivedAmount: Number(w.waivedAmount),
           reasonCode: w.reasonCode,
           reasonNote: w.reasonNote,
           waivedBy: w.waivedBy.toString(),
@@ -419,6 +480,113 @@ export class LateFeeWaiverController {
   }
 }
 
+/**
+ * GET /late-fee/applications — list late-fee applications with patient names
+ * and waiver state. Backs the admin "Late Fee Waivers" screen.
+ */
+export class LateFeeApplicationController {
+  async list(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { patientId, clinicId, status, page = 1, limit = 50 } = req.query;
+      const skip = (Number(page) - 1) * Number(limit);
+
+      const where: any = {};
+      if (patientId) where.patientId = BigInt(patientId as string);
+      if (clinicId) where.clinicId = BigInt(clinicId as string);
+      if (status) where.status = status;
+
+      const [applications, total] = await Promise.all([
+        prisma.lateFeeApplication.findMany({
+          where,
+          include: {
+            policy: { select: { version: true, termsText: true } },
+            waivers: true,
+          },
+          orderBy: { appliedAt: 'desc' },
+          skip,
+          take: Number(limit),
+        }),
+        prisma.lateFeeApplication.count({ where }),
+      ]);
+
+      const patientIds = [...new Set(applications.map(a => a.patientId))];
+      const patients = patientIds.length
+        ? await prisma.patient.findMany({
+            where: { PatNum: { in: patientIds } },
+            select: { PatNum: true, FName: true, LName: true },
+          })
+        : [];
+      const patientMap = new Map(patients.map(p => [p.PatNum, p]));
+
+      res.status(200).json({
+        success: true,
+        data: applications.map(a => {
+          const patient = patientMap.get(a.patientId);
+          const totalWaived = a.waivers.reduce((sum, w) => sum + Number(w.waivedAmount), 0);
+          return {
+            id: a.id.toString(),
+            invoiceId: a.invoiceId.toString(),
+            policyId: a.policyId.toString(),
+            patientId: a.patientId.toString(),
+            clinicId: a.clinicId.toString(),
+            patientName: patient ? `${patient.FName} ${patient.LName}`.trim() : null,
+            feeAmount: Number(a.feeAmount),
+            baseAmount: Number(a.baseAmount),
+            feeType: a.feeType,
+            status: a.status,
+            skipReason: a.skipReason,
+            appliedAt: a.appliedAt,
+            periodStart: a.periodStart,
+            periodEnd: a.periodEnd,
+            originalInvoiceAmount: Number(a.originalInvoiceAmount),
+            cumulativeFees: Number(a.cumulativeFees),
+            policyVersion: a.policy?.version ?? null,
+            policyTerms: a.policy?.termsText ?? null,
+            totalWaived,
+            waivers: a.waivers.map(w => ({
+              id: w.id.toString(),
+              waivedAmount: Number(w.waivedAmount),
+              reasonCode: w.reasonCode,
+              reasonNote: w.reasonNote,
+              waivedBy: w.waivedBy.toString(),
+              waivedAt: w.waivedAt,
+            })),
+          };
+        }),
+        meta: { total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+}
+
+/**
+ * POST /late-fee/run-job — manually trigger the daily late-fee job (admin /
+ * testing). Same code path as the cron, same result shape.
+ */
+export class LateFeeJobController {
+  async runJob(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = BigInt(req.userId!);
+      const result = await lateFeeScheduler.runDailyJob(new Date());
+
+      await writeAudit({
+        userNum: userId,
+        permType: 999,
+        text: `Manually ran late-fee job: ${result.totalFeesApplied} applied, ${result.totalFeesSkipped} skipped, ${result.errors.length} errors`,
+        source: 1,
+      });
+
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  }
+}
+
 export const lateFeePolicyController = new LateFeePolicyController();
 export const lateFeeAcceptanceController = new LateFeeAcceptanceController();
 export const lateFeeWaiverController = new LateFeeWaiverController();
+export const lateFeeApplicationController = new LateFeeApplicationController();
+export const lateFeeJobController = new LateFeeJobController();

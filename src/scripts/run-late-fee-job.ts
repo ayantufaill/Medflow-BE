@@ -8,7 +8,7 @@
  * Usage: node dist/scripts/run-late-fee-job.js
  */
 
-import { connectDB } from '../config/db';
+import connectDB from '../config/db';
 import { lateFeeScheduler } from '../services/late-fee-scheduler.service';
 
 async function main() {

@@ -54,3 +54,16 @@ export const policyTermsValidator = [
 export const patientAcceptanceHistoryValidator = [
   param('patientId').isInt().withMessage('patientId is required'),
 ];
+
+export const lateFeeApplicationsValidator = [
+  query('patientId').optional().isInt().withMessage('patientId must be an integer'),
+  query('clinicId').optional().isInt().withMessage('clinicId must be an integer'),
+  query('status').optional().isIn(['applied', 'waived', 'skipped']).withMessage('Invalid status'),
+  query('page').optional().isInt({ min: 1 }).withMessage('page must be >= 1'),
+  query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('limit must be 1-100'),
+];
+
+export const lateFeeSettingsValidator = [
+  param('clinicId').isInt().withMessage('clinicId is required'),
+  body('enabled').isBoolean().withMessage('enabled (boolean) is required'),
+];
