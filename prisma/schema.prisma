@@ -8289,6 +8289,75 @@ model cob_responsibility_ledger {
   @@index([pat_num, created_at])
 }
 
+/// Front and back of a patient's insurance card, per coverage.
+///
+/// WHY THIS IS A LINK TABLE AND NOT A BLOB COLUMN
+/// ----------------------------------------------
+/// The bytes live wherever `document` already puts them (S3, or the local
+/// stand-in), and this row only records which document is which side of which
+/// coverage's card. That buys the whole existing pipeline for free —
+/// checksums, mime validation, the signed-URL reader, the delete path, and the
+/// RLS the `document` table already carries — instead of a second, weaker
+/// copy of it inside COB.
+///
+/// `side` is part of the primary key rather than a plain column so a re-shoot
+/// of the front can never overwrite the back: the front desk routinely
+/// re-takes one side, and an upsert keyed on coverage alone would silently
+/// destroy the other image.
+model cob_coverage_card {
+  patplan_num BigInt
+  /// FRONT | BACK
+  side        String   @db.VarChar(10)
+  /// document.DocNum holding the image.
+  doc_num     BigInt
+  uploaded_by BigInt?
+  uploaded_at DateTime @default(now())
+
+  @@id([patplan_num, side])
+  @@index([doc_num])
+}
+
+/// "The plan isn't in the list" — a front-desk request for a plan the master
+/// list doesn't have yet.
+///
+/// WHY THIS IS A REQUEST AND NOT A PLAN
+/// ------------------------------------
+/// A plan carries the coordination settings every patient on it inherits, so
+/// a plan created at the front desk is a plan with unconfirmed defaults that
+/// silently ranks every one of those patients. Routing it through a request
+/// means a billing admin creates the plan and records its COB fields in the
+/// same action, and the duplicate-plan problem never starts.
+///
+/// The coverage can still be saved meanwhile: the request id travels with it,
+/// so the order comes back NEEDS_INFO instead of blocking a patient at the
+/// desk.
+model cob_plan_request {
+  id            BigInt    @id @default(autoincrement())
+  /// The carrier the front desk could identify, when they could.
+  carrier_num   BigInt?
+  /// Copied off the card. The only required field — everything else is a bonus.
+  plan_name     String    @db.VarChar(255)
+  group_number  String?   @db.VarChar(100)
+  payer_phone   String?   @db.VarChar(50)
+  note          String?   @db.Text
+  /// The patient whose card prompted this, for context when the admin works it.
+  pat_num       BigInt?
+  /// The coverage saved against this request, if one was.
+  patplan_num   BigInt?
+  /// OPEN | RESOLVED | REJECTED
+  status        String    @default("OPEN") @db.VarChar(20)
+  /// Set when an admin resolves it by pointing at the plan they created.
+  resolved_plan_num BigInt?
+  resolution_note   String?  @db.Text
+  resolved_by       BigInt?
+  resolved_at       DateTime?
+  created_by    BigInt?
+  created_at    DateTime  @default(now())
+
+  @@index([status, created_at(sort: Desc)])
+  @@index([pat_num])
+}
+
 /// When the last payer in the order has paid, the patient's balance is final.
 /// `patient_liability_finalized_at` is that moment. Kept in its own table
 /// because `statement` is an Open Dental table.

@@ -6,6 +6,7 @@ import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePhiAccess } from '../middleware/phi.middleware';
 import { validate } from '../middleware/validation.middleware';
+import { uploadDocument } from '../middleware/upload.middleware';
 import {
   coverageDetailValidator,
   evaluateOrderValidator,
@@ -13,6 +14,8 @@ import {
   payerReportedCoverageValidator,
   payerTypeValidator,
   planCobFieldsValidator,
+  planRequestResolveValidator,
+  planRequestValidator,
   resolveFlagValidator,
   secondaryEstimateValidator,
 } from '../validators/cob.validator';
@@ -91,6 +94,31 @@ router.patch(
   cobController.updatePlanCobFields.bind(cobController)
 );
 
+// ── "The plan isn't in the list" ──────────────────────────────────────────
+//
+// Raising a request needs only coverage_detail.edit — it is the front desk
+// saying what is on the card. RESOLVING one needs plan_master.edit, because
+// that is the action that creates a plan whose COB fields rank every patient
+// on it. Deliberately asymmetric: the person who finds the gap is not the
+// person who should fill it.
+router.post(
+  '/plan-requests',
+  requirePermission('insurance.coverage_detail.edit'),
+  validate(planRequestValidator),
+  cobController.createPlanRequest.bind(cobController)
+);
+router.get(
+  '/plan-requests',
+  requirePermission('insurance.plan_master.read'),
+  cobController.listPlanRequests.bind(cobController)
+);
+router.patch(
+  '/plan-requests/:requestId',
+  requirePermission('insurance.plan_master.edit'),
+  validate(planRequestResolveValidator),
+  cobController.resolvePlanRequest.bind(cobController)
+);
+
 // ── Carrier payer type ────────────────────────────────────────────────────
 router.patch(
   '/carriers/:carrierId/payer-type',
@@ -111,6 +139,32 @@ router.patch(
   validate(coverageDetailValidator),
   cobController.updateCoverageDetail.bind(cobController)
 );
+// ── Insurance card images ─────────────────────────────────────────────────
+//
+// A card image is a document: the bytes go through the same S3 helper, the
+// same mime filter and the same `document` row (confidential, checksummed) as
+// any other patient document. These routes only say which document is which
+// side of which coverage's card — see coverage-card.service.ts.
+//
+// One side per request, because staff routinely re-shoot one and a combined
+// upload keyed on the coverage would silently drop the other.
+router.get(
+  '/coverages/:coverageId/cards',
+  canRead,
+  cobController.listCoverageCards.bind(cobController)
+);
+router.post(
+  '/coverages/:coverageId/cards/:side',
+  requirePermission('insurance.coverage_detail.edit'),
+  uploadDocument.single('file'),
+  cobController.uploadCoverageCard.bind(cobController)
+);
+router.delete(
+  '/coverages/:coverageId/cards/:side',
+  requirePermission('insurance.coverage_detail.edit'),
+  cobController.deleteCoverageCard.bind(cobController)
+);
+
 router.post(
   '/coverages/:coverageId/secondary-estimate',
   canRead,
@@ -176,6 +230,13 @@ router.get(
   '/claims/:claimId/secondary-readiness',
   canRead,
   cobController.getSecondaryReadiness.bind(cobController)
+);
+// Every downstream payer's expected payment on one claim, so the balance view
+// can label its estimates in a single request instead of one per payer.
+router.get(
+  '/claims/:claimId/downstream-estimates',
+  canRead,
+  cobController.getClaimDownstreamEstimates.bind(cobController)
 );
 router.get(
   '/claims/:claimId/primary-payment',
