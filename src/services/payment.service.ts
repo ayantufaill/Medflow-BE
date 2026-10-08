@@ -45,8 +45,9 @@ type PaymentMeta = {
   depositType?: string;
   isAccountCredit?: boolean;
   appliedCreditAmount?: number;
-  isPartialPayment?: boolean;
-  overpaymentAmount?: number;
+      isPartialPayment?: boolean;
+      claimStatus?: string;
+      overpaymentAmount?: number;
   overpaymentAction?: 'credit' | 'refund' | null;
 };
 
@@ -273,6 +274,7 @@ export class PaymentService {
         insPay?: number;
         ded?: number;
         deductible?: number;
+        excess?: number;
         updateAllowedFee?: boolean;
         updateInsFlatPortion?: boolean;
         moveToNewClaim?: boolean;
@@ -349,6 +351,7 @@ export class PaymentService {
           isAccountCredit,
           appliedCreditAmount: isAccountCredit ? data.amount : undefined,
           isPartialPayment: Boolean((data as any).isPartialPayment),
+          claimStatus: (data as any).claimStatus ?? null,
           overpaymentAmount: data.overpaymentAmount ?? 0,
           overpaymentAction: data.overpaymentAction ?? null,
         }),
@@ -442,14 +445,21 @@ export class PaymentService {
 
           if (targetInvoiceId) {
             try {
-              await invoiceService.markItemPaid(targetInvoiceId, procId, pay);
+              await invoiceService.markItemPaid(targetInvoiceId, procId, pay, data.paymentSource);
             } catch (e) {
               // If markItemPaid fails, fallback to direct update
               if (procItemRecord) {
                 const itemMeta = parseJson<Record<string, any>>(procItemRecord.BillingNote);
+                const isInsPayment = data.paymentSource === 'insurance_company';
                 const updatedMeta = {
                   ...itemMeta,
                   paidAmount: Math.round(((Number(itemMeta.paidAmount) || 0) + pay) * 100) / 100,
+                  insurancePaidAmount: isInsPayment
+                    ? Math.round(((Number(itemMeta.insurancePaidAmount) || 0) + pay) * 100) / 100
+                    : Number(itemMeta.insurancePaidAmount || 0),
+                  patientPaidAmount: isInsPayment
+                    ? Number(itemMeta.patientPaidAmount || 0)
+                    : Math.round(((Number(itemMeta.patientPaidAmount) || 0) + pay) * 100) / 100,
                 };
                 await prisma.procedurelog.update({
                   where: { ProcNum: procNum },
@@ -459,9 +469,16 @@ export class PaymentService {
             }
           } else if (procItemRecord) {
             const itemMeta = parseJson<Record<string, any>>(procItemRecord.BillingNote);
+            const isInsPayment = data.paymentSource === 'insurance_company';
             const updatedMeta = {
               ...itemMeta,
               paidAmount: Math.round(((Number(itemMeta.paidAmount) || 0) + pay) * 100) / 100,
+              insurancePaidAmount: isInsPayment
+                ? Math.round(((Number(itemMeta.insurancePaidAmount) || 0) + pay) * 100) / 100
+                : Number(itemMeta.insurancePaidAmount || 0),
+              patientPaidAmount: isInsPayment
+                ? Number(itemMeta.patientPaidAmount || 0)
+                : Math.round(((Number(itemMeta.patientPaidAmount) || 0) + pay) * 100) / 100,
             };
             await prisma.procedurelog.update({
               where: { ProcNum: procNum },
@@ -478,6 +495,14 @@ export class PaymentService {
           const insPay = pay !== undefined && !isNaN(pay) ? pay : 0;
           const validWo = wo !== undefined && !isNaN(wo) ? Math.max(0, wo) : 0;
 
+          // Write-off that is finally recorded for this procedure. Resolved
+          // against the procedure's own priced write-off below: a client that
+          // posts `wo: 0` (the insurance payment dialog reads the WO column
+          // from claimproc, which claim creation leaves at 0) must never erase
+          // a priced contract write-off, because every dollar the write-off
+          // loses is pushed onto the patient portion by the transfer below.
+          let appliedWo = validWo;
+
           // Update procedurelog BillingNote:
           // If patient already paid their portion in full (Scenario 2), preserve ptPortion and
           // leave the underpayment with insurance. Otherwise (Scenario 1), remaining procedure charge
@@ -486,6 +511,16 @@ export class PaymentService {
           if (currentProc) {
             const itemMeta = parseJson<Record<string, any>>(currentProc.BillingNote);
             const fee = Number(currentProc.ProcFee || itemMeta.charge || 0);
+
+            // The write-off the procedure was priced with: whatever BillingNote
+            // recorded, plus the contractual discount the pricing engine derives
+            // from `charge - allowedFee` (invoice.service.ts) when the stored
+            // value was clobbered by an earlier payment.
+            const storedWo = Math.max(0, roundCurrency(Number(itemMeta.writeoff ?? itemMeta.estimatedWriteOff ?? 0)));
+            const allowedFeeNum = Number(itemMeta.allowedFee || 0);
+            const contractWo = allowedFeeNum > 0 && fee > allowedFeeNum ? roundCurrency(fee - allowedFeeNum) : 0;
+            const recordedWo = Math.max(storedWo, contractWo);
+            appliedWo = validWo > 0 ? validWo : recordedWo;
 
             // Check how much patient has paid on this procedure (excluding insurance payments)
             const procSplits = await prisma.paysplit.findMany({
@@ -503,11 +538,44 @@ export class PaymentService {
               })
               .reduce((s, ps) => s + (Number(ps.SplitAmt) || 0), 0);
 
+            // Payments are claim-specific. Sum only the paid amount belonging
+            // to the claim being adjudicated, otherwise a primary payment can
+            // be mistaken for a secondary payment and vice versa.
+            const procClaimProcs = await prisma.claimproc.findMany({
+              where: { ProcNum: procNum },
+              include: {
+                claim: {
+                  select: { ClaimType: true, Narrative: true },
+                },
+              },
+            });
+
+            const cpIsSecondary = (cp: any) => {
+              const cType = String(cp.claim?.ClaimType || '').toLowerCase();
+              const cMeta = parseJson<any>(cp.claim?.Narrative || '{}');
+              const cMetaType = String(cMeta?.claimType || '').toLowerCase();
+              const cInsType = String(cMeta?.insuranceType || '').toLowerCase();
+              return cType === 'secondary' || cType === 's' || cMetaType === 'secondary' || cInsType === 'secondary';
+            };
+
+            let primaryPaidBeforeOnProc = 0;
+            let secondaryPaidBeforeOnProc = 0;
+            for (const cp of procClaimProcs) {
+              const cPay = Number(cp.InsPayAmt) || 0;
+              if (cpIsSecondary(cp)) {
+                secondaryPaidBeforeOnProc += cPay;
+              } else {
+                primaryPaidBeforeOnProc += cPay;
+              }
+            }
+
             const initialPtPortion = Number(itemMeta.ptPortion || 0);
             const initialInsPortion = Number(itemMeta.insPortion || 0);
             const initialPrimPortion = Number(itemMeta.primaryInsPortion || 0);
             const initialSecPortion = Number(itemMeta.secondaryInsPortion || 0);
             const isPartial = Boolean((data as any).isPartialPayment);
+            const normalizedClaimStatus = String((data as any).claimStatus ?? '').toLowerCase();
+            const isRejectedClaim = normalizedClaimStatus === 'rejected' || normalizedClaimStatus === 'denied';
 
             // Determine if the claim being paid is a secondary claim
             let isSecondaryClaim = false;
@@ -526,25 +594,50 @@ export class PaymentService {
               where: { PatNum: BigInt(data.patientId), Ordinal: 2, OR: [{ IsPending: 0 }, { IsPending: null }] }
             });
             const hasSecondary = Boolean(secondaryPlan);
+            const primaryPaidOnProc = roundCurrency(primaryPaidBeforeOnProc + (isSecondaryClaim ? 0 : insPay));
+            const secondaryPaidOnProc = roundCurrency(secondaryPaidBeforeOnProc + (isSecondaryClaim ? insPay : 0));
+            const totalInsPaidOnProc = roundCurrency(primaryPaidOnProc + secondaryPaidOnProc);
 
             let newPtPortion = initialPtPortion;
             let newPrimaryInsPortion = initialPrimPortion;
             let newSecondaryInsPortion = initialSecPortion;
+            let underpaymentTransferAmt = 0;
+
+            // Scenario 2: the patient has already satisfied their ORIGINAL
+            // patient responsibility. The insurance underpayment must stay on
+            // the insurance side — ptPortion is preserved and no Income
+            // Transfer adjustment is created.
+            const patientAlreadyPaidInFull =
+              initialPtPortion > 0 && ptPaidOnProc >= initialPtPortion - 0.005;
 
             if (isSecondaryClaim) {
               // ── Payment on SECONDARY Claim ──
               const expectedSec = initialSecPortion > 0
                 ? initialSecPortion
-                : Math.max(0, roundCurrency(fee - validWo - (initialPrimPortion > 0 ? initialPrimPortion : initialInsPortion)));
+                : Math.max(0, roundCurrency(fee - appliedWo - (initialPrimPortion > 0 ? initialPrimPortion : initialInsPortion)));
+
+              const deltaWo = appliedWo - recordedWo;
+              const effExpectedSec = Math.max(0, roundCurrency(expectedSec - deltaWo));
 
               if (isPartial) {
-                newSecondaryInsPortion = expectedSec;
+                newSecondaryInsPortion = effExpectedSec;
                 newPtPortion = initialPtPortion;
+              } else if (isRejectedClaim) {
+                underpaymentTransferAmt = Math.max(0, roundCurrency(effExpectedSec - secondaryPaidBeforeOnProc));
+                newSecondaryInsPortion = secondaryPaidBeforeOnProc;
+                newPtPortion = roundCurrency(initialPtPortion + underpaymentTransferAmt);
               } else {
                 // Secondary claim finalized: transfer any secondary underpayment to patient balance
-                const secUnderpayment = Math.max(0, roundCurrency(expectedSec - insPay));
-                newSecondaryInsPortion = insPay;
-                newPtPortion = roundCurrency(initialPtPortion + secUnderpayment);
+                const secUnderpayment = Math.max(0, roundCurrency(effExpectedSec - secondaryPaidOnProc));
+                if (patientAlreadyPaidInFull && secUnderpayment > 0) {
+                  // Patient paid in full — leave the underpayment with insurance
+                  newSecondaryInsPortion = expectedSec;
+                  newPtPortion = initialPtPortion;
+                } else {
+                  underpaymentTransferAmt = secUnderpayment;
+                  newSecondaryInsPortion = secondaryPaidOnProc;
+                  newPtPortion = roundCurrency(initialPtPortion + secUnderpayment);
+                }
               }
               const effPrimary = initialPrimPortion > 0 ? initialPrimPortion : Math.max(0, roundCurrency(initialInsPortion - expectedSec));
               newPrimaryInsPortion = effPrimary;
@@ -552,7 +645,7 @@ export class PaymentService {
               // ── Payment on PRIMARY Claim ──
               let expectedPrim = initialPrimPortion > 0 ? initialPrimPortion : initialInsPortion;
               if (expectedPrim === 0 && (initialPtPortion > 0 || initialSecPortion > 0)) {
-                expectedPrim = Math.max(0, roundCurrency(fee - validWo - initialPtPortion - initialSecPortion));
+                expectedPrim = Math.max(0, roundCurrency(fee - appliedWo - initialPtPortion - initialSecPortion));
               }
               if (expectedPrim === 0 && insPay > 0) {
                 expectedPrim = insPay;
@@ -560,17 +653,34 @@ export class PaymentService {
 
               // If patient has secondary insurance but secondaryInsPortion was not yet set, set it from the remainder
               if (hasSecondary && newSecondaryInsPortion === 0) {
-                newSecondaryInsPortion = Math.max(0, roundCurrency(fee - validWo - expectedPrim));
+                newSecondaryInsPortion = Math.max(0, roundCurrency(fee - appliedWo - expectedPrim));
               }
 
+              const deltaWo = appliedWo - recordedWo;
+              const effExpectedPrim = Math.max(0, roundCurrency(expectedPrim - deltaWo));
+
               if (isPartial) {
-                newPrimaryInsPortion = expectedPrim;
+                newPrimaryInsPortion = effExpectedPrim;
                 newPtPortion = initialPtPortion;
+              } else if (isRejectedClaim) {
+                underpaymentTransferAmt = Math.max(0, roundCurrency(effExpectedPrim - primaryPaidBeforeOnProc));
+                newPrimaryInsPortion = primaryPaidBeforeOnProc;
+                newPtPortion = roundCurrency(initialPtPortion + underpaymentTransferAmt);
               } else {
-                // Primary claim finalized: transfer any primary underpayment to patient balance
-                const primUnderpayment = Math.max(0, roundCurrency(expectedPrim - insPay));
-                newPrimaryInsPortion = insPay;
-                newPtPortion = roundCurrency(initialPtPortion + primUnderpayment);
+              // Primary claim finalized: transfer any primary underpayment to patient balance
+              const primUnderpayment = Math.max(0, roundCurrency(effExpectedPrim - primaryPaidOnProc));
+              if (patientAlreadyPaidInFull && primUnderpayment > 0) {
+                  // Patient paid in full — keep their portion at the original
+                  // responsibility and leave the insurance portion at the
+                  // expected amount, so the unpaid remainder stays an
+                  // insurance balance (expected − paid).
+                  newPrimaryInsPortion = expectedPrim;
+                  newPtPortion = initialPtPortion;
+                } else {
+                  underpaymentTransferAmt = primUnderpayment;
+                  newPrimaryInsPortion = primaryPaidOnProc;
+                  newPtPortion = roundCurrency(initialPtPortion + primUnderpayment);
+                }
               }
             }
 
@@ -580,6 +690,10 @@ export class PaymentService {
               primaryInsPortion: newPrimaryInsPortion,
               secondaryInsPortion: newSecondaryInsPortion,
               totalInsPortion: newTotalInsPortion,
+              insuranceExpected: newTotalInsPortion,
+              insurancePaidAmount: totalInsPaidOnProc,
+              patientPaidAmount: ptPaidOnProc,
+              insuranceBalance: Math.max(0, roundCurrency(newTotalInsPortion - totalInsPaidOnProc)),
               // PRIMARY portion, not the total. `insPortion` is read back by
               // invoice.service.ts's recalculateInvoice, whose isManuallyAdjusted
               // branch (set just below) does
@@ -594,14 +708,43 @@ export class PaymentService {
               // (`originalMeta.insPortion = enrichedPrim`); this makes the two
               // paths agree. The combined figure remains on totalInsPortion.
               insPortion: newPrimaryInsPortion,
-              writeoff: validWo,
+              writeoff: appliedWo,
               ptPortion: newPtPortion,
               isManuallyAdjusted: true,
+              isClaimRejected: isRejectedClaim && !isPartial,
+              rejectionClaimStatus: isRejectedClaim && !isPartial ? normalizedClaimStatus : null,
+              rejectedInsuranceAmount: isRejectedClaim && !isPartial ? underpaymentTransferAmt : 0,
             };
             await prisma.procedurelog.update({
               where: { ProcNum: procNum },
               data: { BillingNote: buildJson(updatedMeta) },
             });
+
+            // Insurance underpayment was shifted to the patient portion above —
+            // leave an Income Transfer adjustment row so it appears on the
+            // invoice's ledger, matching the magic-stick transfer flow
+            // (invoice.service.ts) and its delete reversal (adjustment.service.ts).
+            if (underpaymentTransferAmt > 0.005 && currentProc.PatNum) {
+              const adjNum = await getNextId('adjustment', 'AdjNum');
+              const adjNote = isRejectedClaim
+                ? `Invoice #${currentProc.StatementNum ?? ''} - Insurance Rejected: $${underpaymentTransferAmt.toFixed(2)} shifted from Insurance to Patient`
+                : `Invoice #${currentProc.StatementNum ?? ''} - Income Transfer: $${underpaymentTransferAmt.toFixed(2)} shifted from Insurance to Patient`;
+              await prisma.adjustment.create({
+                data: {
+                  AdjNum: adjNum,
+                  PatNum: currentProc.PatNum,
+                  ProvNum: currentProc.ProvNum ?? undefined,
+                  ProcNum: procNum,
+                  StatementNum: currentProc.StatementNum ?? undefined,
+                  AdjAmt: 0,
+                  AdjDate: new Date(),
+                  ProcDate: currentProc.ProcDate ?? new Date(),
+                  DateEntry: new Date(),
+                  AdjNote: adjNote,
+                  SecUserNumEntry: isNaN(Number(userId)) ? undefined : BigInt(userId),
+                },
+              });
+            }
           }
 
           const claimProcWhere: any = { ProcNum: procNum };
@@ -617,7 +760,11 @@ export class PaymentService {
                 data: {
                   Status: 1, // 1 = Received / Paid
                   InsPayAmt: pay !== undefined && !isNaN(pay) ? Math.round(((Number(ecp.InsPayAmt) || 0) + pay) * 100) / 100 : ecp.InsPayAmt,
-                  WriteOff: wo !== undefined && !isNaN(wo) ? Math.round(((Number(ecp.WriteOff) || 0) + wo) * 100) / 100 : ecp.WriteOff,
+                  // The write-off is a contract amount for this claim/proc, not a
+                  // running total: every payment posts the same priced write-off, so
+                  // accumulating it doubled it on a second payment and, once doubled,
+                  // shrank the insurance expectation twice on the next recalculation.
+                  WriteOff: appliedWo > 0 ? appliedWo : ecp.WriteOff,
                   DedApplied: ded !== undefined && !isNaN(ded) ? ded : ecp.DedApplied,
                   DateCP: resolvedPaidAt,
                 },
@@ -648,7 +795,7 @@ export class PaymentService {
                 Status: 1,
                 FeeBilled: proc?.ProcFee ?? 0,
                 InsPayAmt: pay !== undefined && !isNaN(pay) ? pay : 0,
-                WriteOff: wo !== undefined && !isNaN(wo) ? wo : 0,
+                WriteOff: appliedWo,
                 DedApplied: ded !== undefined && !isNaN(ded) ? ded : 0,
               },
             });
@@ -718,9 +865,16 @@ export class PaymentService {
                 },
               });
 
+              const isInsurancePayment = data.paymentSource === 'insurance_company';
               const updatedBn = {
                 ...item.bn,
                 paidAmount: Math.round(((Number(item.bn?.paidAmount) || 0) + alloc) * 100) / 100,
+                insurancePaidAmount: isInsurancePayment
+                  ? Math.round(((Number(item.bn?.insurancePaidAmount) || 0) + alloc) * 100) / 100
+                  : Number(item.bn?.insurancePaidAmount || 0),
+                patientPaidAmount: isInsurancePayment
+                  ? Number(item.bn?.patientPaidAmount || 0)
+                  : Math.round(((Number(item.bn?.patientPaidAmount) || 0) + alloc) * 100) / 100,
               };
               await prisma.procedurelog.update({
                 where: { ProcNum: item.proc.ProcNum },
@@ -754,9 +908,16 @@ export class PaymentService {
               },
             });
 
+            const isInsurancePayment = data.paymentSource === 'insurance_company';
             const updatedBn = {
               ...lastItem.bn,
               paidAmount: Math.round(((Number(lastItem.bn?.paidAmount) || 0) + remainingToAllocate) * 100) / 100,
+              insurancePaidAmount: isInsurancePayment
+                ? Math.round(((Number(lastItem.bn?.insurancePaidAmount) || 0) + remainingToAllocate) * 100) / 100
+                : Number(lastItem.bn?.insurancePaidAmount || 0),
+              patientPaidAmount: isInsurancePayment
+                ? Number(lastItem.bn?.patientPaidAmount || 0)
+                : Math.round(((Number(lastItem.bn?.patientPaidAmount) || 0) + remainingToAllocate) * 100) / 100,
             };
             await prisma.procedurelog.update({
               where: { ProcNum: lastItem.proc.ProcNum },
@@ -797,21 +958,98 @@ export class PaymentService {
       : 0;
 
     if (overpayAmt > 0 && data.overpaymentAction === 'credit') {
-      // Save overpayment as Patient Account Credit (UnearnedType=1 paysplit)
-      const creditSplitNum = await getNextId('paysplit', 'SplitNum');
-      await prisma.paysplit.create({
-        data: {
-          SplitNum: creditSplitNum,
-          PatNum: BigInt(data.patientId),
-          PayNum: payment.PayNum,
-          SplitAmt: overpayAmt,
-          UnearnedType: BigInt(1), // 1 = Patient account credit
-          DatePay: resolvedPaidAt,
-          DateEntry: new Date(),
-          SecUserNumEntry: BigInt(userId),
-        },
-      });
-      console.log(`[PaymentService] Overpayment $${overpayAmt} saved as Patient Account Credit (UnearnedType=1) for patient ${data.patientId}`);
+      // When the patient has NOT yet paid their portion on the overpaid
+      // procedures, the excess insurance payment is applied against the
+      // patient's portion (reduces what the patient owes) instead of being
+      // parked as a Patient Account Credit. Only the remaining excess after
+      // that reduction — or the full amount when the patient already paid
+      // their portion — is saved as Patient Account Credit (UnearnedType=1).
+      let remainingCredit = overpayAmt;
+      let entryTotalExcess = 0;
+      const reductionInvoices = new Set<string>();
+
+      if (data.procedures && data.procedures.length > 0) {
+        for (const procItem of data.procedures) {
+          const procId = procItem.id || procItem.procId || procItem.procedureId;
+          const excess = Math.max(0, Math.round(Number(procItem.excess || 0) * 100) / 100);
+          if (!procId) continue;
+          if (excess > 0.005) entryTotalExcess = Math.round((entryTotalExcess + excess) * 100) / 100;
+          if (remainingCredit <= 0.005 || !(excess > 0.005)) continue;
+
+          const procNum = toBigInt(procId);
+          if (!procNum) continue;
+          const proc = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
+          if (!proc?.BillingNote) continue;
+          const itemMeta = parseJson<Record<string, any>>(proc.BillingNote);
+          const ptPortion = Number(itemMeta.ptPortion || 0);
+          if (ptPortion <= 0.005) continue; // no patient responsibility to reduce
+
+          // Patient-paid amount on this procedure (excluding insurance payments)
+          const procSplits = await prisma.paysplit.findMany({
+            where: { ProcNum: procNum },
+            include: { payment: true },
+          });
+          const ptPaidOnProc = procSplits
+            .filter(ps => {
+              const pNote = parseJson<PaymentMeta>(ps.payment?.PayNote);
+              const isIns = ps.payment?.PayNote?.includes('"insurance_company"') ||
+                String(pNote?.paymentSource || '').toLowerCase() === 'insurance_company' ||
+                String(pNote?.method || '').toLowerCase() === 'insurance';
+              const st = String(pNote?.status || '').toLowerCase();
+              return !isIns && st !== 'void' && st !== 'voided' && st !== 'reversed';
+            })
+            .reduce((s, ps) => s + (Number(ps.SplitAmt) || 0), 0);
+
+          // Patient already paid their portion → keep the excess for account credit
+          const unpaidPt = Math.max(0, Math.round((ptPortion - ptPaidOnProc) * 100) / 100);
+          if (unpaidPt <= 0.005) continue;
+
+          const deduct = Math.min(excess, unpaidPt, remainingCredit);
+          if (deduct <= 0.005) continue;
+
+          const newPtPortion = Math.max(0, Math.round((ptPortion - deduct) * 100) / 100);
+          await prisma.procedurelog.update({
+            where: { ProcNum: procNum },
+            data: { BillingNote: buildJson({ ...itemMeta, ptPortion: newPtPortion, isManuallyAdjusted: true }) },
+          });
+          if (proc.StatementNum) reductionInvoices.add(proc.StatementNum.toString());
+          remainingCredit = Math.round((remainingCredit - deduct) * 100) / 100;
+        }
+      }
+
+      // Never create a credit larger than the excess actually present on this
+      // invoice's procedures (overpaymentAmount is summed across all invoices).
+      if (entryTotalExcess > 0.005) {
+        remainingCredit = Math.min(remainingCredit, Math.max(0, Math.round((entryTotalExcess - (overpayAmt - remainingCredit)) * 100) / 100));
+      }
+
+      for (const invId of reductionInvoices) {
+        try {
+          await invoiceService.recalculateInvoice(invId);
+        } catch (err) {
+          console.error(`[PaymentService] Error recalculating invoice ${invId} after patient portion reduction:`, err);
+        }
+      }
+
+      if (remainingCredit > 0.005) {
+        // Save remaining overpayment as Patient Account Credit (UnearnedType=1 paysplit)
+        const creditSplitNum = await getNextId('paysplit', 'SplitNum');
+        await prisma.paysplit.create({
+          data: {
+            SplitNum: creditSplitNum,
+            PatNum: BigInt(data.patientId),
+            PayNum: payment.PayNum,
+            SplitAmt: remainingCredit,
+            UnearnedType: BigInt(1), // 1 = Patient account credit
+            DatePay: resolvedPaidAt,
+            DateEntry: new Date(),
+            SecUserNumEntry: BigInt(userId),
+          },
+        });
+        console.log(`[PaymentService] Overpayment $${remainingCredit} saved as Patient Account Credit (UnearnedType=1) for patient ${data.patientId}`);
+      } else {
+        console.log(`[PaymentService] Overpayment $${overpayAmt} applied to patient's portion (no Patient Account Credit created) for patient ${data.patientId}`);
+      }
     } else if (overpayAmt > 0 && data.overpaymentAction === 'refund') {
       // Record overpayment refund as a negative adjustment
       const adjNum = await getNextId('adjustment', 'AdjNum');

@@ -127,6 +127,53 @@ router.post(
 
 /**
  * @swagger
+ * /invoices/late-fee:
+ *   post:
+ *     summary: Apply late fees to overdue invoices
+ *     description: >-
+ *       Charges a late fee tier (30/60/90) against one or more of a patient's
+ *       invoices. Ages, tier buckets, balances and the one-fee-per-invoice-per-tier
+ *       rule are all recomputed server-side from the database; ineligible
+ *       invoices are reported back under `rejected` rather than being charged.
+ *       All accepted fees land on a single new standalone invoice with one line
+ *       per source invoice.
+ *     tags: [Invoices]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [patientId, tier, invoiceIds, mode, rate, basis]
+ *             properties:
+ *               patientId: { type: integer }
+ *               tier: { type: integer, enum: [30, 60, 90] }
+ *               invoiceIds: { type: array, items: { type: string } }
+ *               mode: { type: string, enum: [flat, percentage] }
+ *               rate: { type: number, description: "Flat dollars, or percent when mode is percentage" }
+ *               basis: { type: string, enum: [patient, total] }
+ *               branchId: { type: string }
+ *     responses:
+ *       201:
+ *         description: Late fee applied
+ *       400:
+ *         description: Validation error
+ *       409:
+ *         description: No eligible invoices
+ */
+router.post(
+  '/late-fee',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('invoices.create'),
+  invoiceController.applyLateFee.bind(invoiceController)
+);
+
+/**
+ * @swagger
  * /invoices/patient/{patientId}:
  *   get:
  *     summary: Get invoices by patient ID
@@ -210,6 +257,44 @@ router.get(
   requirePermission('invoices.read'),
   validate(patientIdParamValidator),
   invoiceController.getPatientBalance.bind(invoiceController)
+);
+
+/**
+ * @swagger
+ * /invoices/patient/{patientId}/late-fee-eligibility:
+ *   get:
+ *     summary: Invoices eligible for a late-fee tier
+ *     description: >-
+ *       Returns the patient's invoices bucketed for the requested tier, each
+ *       with its age in days and both balance bases, plus an `alreadyCharged`
+ *       flag. The duplicate flag is computed here because the provenance that
+ *       backs it lives on the penalty procedure's BillingNote and is not part
+ *       of the standard invoice shape — so the dialog cannot derive it itself.
+ *     tags: [Invoices]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: tier
+ *         required: true
+ *         schema: { type: integer, enum: [30, 60, 90] }
+ *     responses:
+ *       200:
+ *         description: Eligible invoices
+ *       400:
+ *         description: Invalid tier
+ */
+router.get(
+  '/patient/:patientId/late-fee-eligibility',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('invoices.read'),
+  invoiceController.getLateFeeEligibility.bind(invoiceController)
 );
 
 /**

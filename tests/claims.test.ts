@@ -181,7 +181,7 @@ describe('Claims Procedures Fallback', () => {
       data: {
         CarrierNum: carrierNum,
         CarrierName: `Carrier-${alphanumericToken}`,
-        ElectID: `EL${alphanumericToken.substring(0, 3)}`,
+        ElectID: `EL${alphanumericToken}`,
       },
     });
 
