@@ -118,6 +118,22 @@ const toBigInt = (value?: string | null): bigint | null => {
   return /^\d+$/.test(value) ? BigInt(value) : null;
 };
 
+/**
+ * Parse a calendar date (YYYY-MM-DD, as sent by the invoice modal) as LOCAL
+ * midnight. Parsing such a string with `new Date("YYYY-MM-DD")` yields UTC
+ * midnight, which displays as the previous day in UTC-negative timezones —
+ * so the date a user picked in the UI would round-trip one day early.
+ */
+const parseLocalDate = (value?: string | null): Date | null => {
+  if (!value) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (match) {
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  }
+  const fallback = new Date(value);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
+};
+
 const getInvoiceNumber = async (db: Prisma.TransactionClient | typeof prisma = prisma): Promise<string> => {
   const recent = await db.statement.findMany({
     where: { ShortGUID: { startsWith: 'INV' } },
@@ -2949,7 +2965,17 @@ export class InvoiceService {
 
     const invoiceNumber = await getInvoiceNumber();
     const statementNum = await getNextId('statement', 'StatementNum');
-    const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    // The invoice's date is the LATEST procedure date on it (the most recent
+    // service rendered), falling back to now when no row carries a date. Derived
+    // as local midnight so a date picked in the invoice modal's DATE column
+    // round-trips to the same calendar day on the ledger card.
+    const invoiceDate =
+      data.items
+        .map((item) => parseLocalDate(item.date))
+        .filter((d): d is Date => d !== null)
+        .sort((a, b) => b.getTime() - a.getTime())[0] ?? new Date();
+    const dueDate = new Date(invoiceDate.getTime() + 30 * 24 * 60 * 60 * 1000);
 
     const secondaryPlan = await prisma.patplan.findFirst({
       where: { PatNum: patientId, Ordinal: 2, OR: [{ IsPending: 0 }, { IsPending: null }] }
@@ -3030,8 +3056,8 @@ export class InvoiceService {
       data: {
         StatementNum: statementNum,
         PatNum: patientId,
-        DateSent: new Date(),
-        DateRangeFrom: new Date(),
+        DateSent: invoiceDate,
+        DateRangeFrom: invoiceDate,
         DateRangeTo: dueDate,
         Note: data.notes || 'Standalone Invoice',
         NoteBold: buildJson(meta),
@@ -3189,7 +3215,11 @@ export class InvoiceService {
       }
 
       if (existingRecord) {
-        // Link the existing record to the new invoice — marks it as "billed"
+        // Link the existing record to the new invoice — marks it as "billed".
+        // Also update ProcDate to the date the user selected in the modal so
+        // each procedure keeps its own chosen date rather than whatever was
+        // previously stored on the record.
+        const itemProcDate = item.date ? parseLocalDate(item.date) : null;
         await prisma.procedurelog.update({
           where: { ProcNum: existingRecord.ProcNum },
           data: {
@@ -3199,6 +3229,7 @@ export class InvoiceService {
             ProvNum: provNum ?? existingRecord.ProvNum,
             BillingNote: billingNote,
             NoBillIns: isPenalty ? 1 : existingRecord.NoBillIns,
+            ...(itemProcDate ? { ProcDate: itemProcDate } : {}),
           },
         });
       } else {

@@ -8375,6 +8375,8 @@ model cob_invoice_liability {
   /// The claim whose remittance finalized it (the last payer's).
   last_payer_claim_num           BigInt?
   updated_at                     DateTime  @default(now()) @updatedAt
+}
+
 model LateFeePolicy {
   id                   BigInt   @id @default(autoincrement())
   clinicId             BigInt
