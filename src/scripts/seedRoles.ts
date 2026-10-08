@@ -49,6 +49,9 @@ const CLINICAL_GROUP_PERMISSIONS = {
   'authorizations.create': true,
   'services.read': true,
   'insurance.read': true,
+  // COB: read-only. A provider or hygienist needs to see which payer is
+  // primary and why; nothing in the clinical group changes a billing order.
+  'insurance.coverage_order.read': true,
   'invoices.read': true,
 };
 
@@ -89,6 +92,26 @@ const OPERATIONS_GROUP_PERMISSIONS = {
   'insurance.create': true,
   'insurance.update': true,
   'insurance.delete': true,
+
+  // ─── Coordination of Benefits ──────────────────────────────────────────
+  //
+  // Granted to the whole operations group because Front Desk, Receptionist,
+  // Biller and Billing Staff deliberately share one permission set in this
+  // model (see the matrix assertions in tests/rbac-matrix.test.ts).
+  //
+  // NOTE: the COB spec distinguishes a BILLING ADMIN, who may edit plan
+  // master COB fields and override a coverage order, from a front-desk user
+  // who may only read them. That distinction cannot be expressed until this
+  // group is split, so the keys are deliberately separate
+  // (`insurance.plan_master.edit`, `insurance.coverage_order.override`) and
+  // can be withheld from a narrower role the moment one exists.
+  'insurance.coverage_order.read': true,
+  'insurance.coverage_order.override': true,
+  'insurance.coverage_order.resolve_flag': true,
+  'insurance.coverage_detail.edit': true,
+  'insurance.payer_reported.write': true,
+  'insurance.plan_master.read': true,
+  'insurance.plan_master.edit': true,
   'authorizations.read': true,
   'authorizations.create': true,
   'authorizations.update': true,
