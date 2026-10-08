@@ -36,6 +36,21 @@ export const PermType = {
   // ── Patient record access (every read, and every refused attempt) ─
   PATIENT_RECORD_READ: 1051,
   PATIENT_ACCESS_DENIED: 1052,
+
+  // ── Coordination of Benefits ──────────────────────────────────────
+  // Every COB decision is auditable because every one of them can change
+  // which payer is billed, and a payer dispute six months later is settled
+  // by showing what we decided, when, and on what facts.
+  COB_ORDER_SUGGESTED: 1060,
+  COB_ORDER_OVERRIDDEN: 1061,
+  COB_FLAG_RAISED: 1062,
+  COB_FLAG_RESOLVED: 1063,
+  COB_VERIFIED: 1064,
+  COB_PAYER_REPORTED: 1065,
+  COB_PLAN_FIELD_CHANGED: 1066,
+  COB_DENIAL: 1067,
+  COB_COVERAGE_DETAIL_CHANGED: 1068,
+  COB_SUBMISSION_BLOCKED: 1069,
 } as const;
 
 export type PermTypeValue = (typeof PermType)[keyof typeof PermType];
