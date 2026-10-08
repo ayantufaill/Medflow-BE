@@ -1,3 +1,5 @@
+import { reportingClinicIds } from '../utils/reporting-scope.util';
+import { workingHoursInRange, productionGoal, collectionGoal, goalIsConfigured } from '../utils/reporting-goals.util';
 import { prisma } from '../config/db';
 import { dashboardMetricsService } from './dashboard-metrics.service';
 import { getProvidersMeta } from '../utils/opendental-auth.util';
@@ -12,6 +14,8 @@ export interface PanelRow {
 
 export interface PanelSection {
   title: string;
+  goalConfigured?: boolean;
+  visitGoalConfigured?: boolean;
   scheduled: number;
   scheduledVisits?: number;
   rows: PanelRow[];
@@ -105,6 +109,8 @@ export class ProductivityService {
     const startDate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
     const endDate = new Date(Date.UTC(year, month - 1, day, 23, 59, 59, 999));
 
+    const clinicIds = reportingClinicIds(clinicNum?.toString());
+
     // 1. Fetch practice goals
     const goals = await dashboardMetricsService.getDashboardGoals();
 
@@ -122,8 +128,8 @@ export class ProductivityService {
     const providerMap = new Map<string, { isHygienist: boolean; provNum: bigint }>();
 
     for (const p of providers) {
-      if (clinicNum && p.providerclinic.length > 0) {
-        const matchesClinic = p.providerclinic.some(pc => pc.ClinicNum === clinicNum);
+      if (clinicIds !== null) {
+        const matchesClinic = p.providerclinic.some(pc => pc.ClinicNum != null && clinicIds.includes(pc.ClinicNum));
         if (!matchesClinic) continue;
       }
 
@@ -166,8 +172,9 @@ export class ProductivityService {
       }
     }
 
-    const provWhere = targetProvNums.length > 0 ? { ProvNum: { in: targetProvNums } } : {};
-    const clinicWhere = clinicNum ? { ClinicNum: clinicNum } : {};
+    if (!providerId || providerId.toLowerCase() === 'all') targetProvNums = [...providerMap.values()].map(p => p.provNum);
+    const provWhere = { ProvNum: { in: targetProvNums } };
+    const clinicWhere = clinicIds === null ? {} : { ClinicNum: { in: clinicIds } };
 
     // 4. Query completed procedures (P)
     const completedProcs = await prisma.procedurelog.findMany({
@@ -260,7 +267,7 @@ export class ProductivityService {
     const scheduledAppts = await prisma.appointment.findMany({
       where: {
         AptDateTime: { gte: startDate, lte: endDate },
-        AptStatus: { notIn: [3, 4, 6] }, // Exclude no-show, cancelled, unscheduled
+        AptStatus: { in: [1, 2, 5] }, // Same visit scope as the reports dashboard
         ...provWhere,
         ...clinicWhere,
       },
@@ -314,21 +321,11 @@ export class ProductivityService {
     const providersMeta = await getProvidersMeta(providerNums);
 
     for (const p of providers) {
-      if (targetProvNums.length > 0 && !targetProvNums.includes(p.ProvNum)) continue;
+      if (!targetProvNums.includes(p.ProvNum)) continue;
 
       const meta = providersMeta[p.ProvNum.toString()] ?? {};
-      let pHours = 0;
-
-      if (meta.workingHours && Array.isArray(meta.workingHours)) {
-        const item = meta.workingHours.find((wh: any) => wh.dayOfWeek === dayOfWeek);
-        if (item && item.isAvailable && item.startTime && item.endTime) {
-          const [sh, sm] = item.startTime.split(':').map(Number);
-          const [eh, em] = item.endTime.split(':').map(Number);
-          pHours = Math.max(0, ((eh * 60 + em) - (sh * 60 + sm)) / 60);
-        }
-      } else if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-        pHours = 8; // Standard 8h weekday default
-      }
+      if (!providerMap.has(p.ProvNum.toString())) continue;
+      const pHours = workingHoursInRange(meta, startDate, endDate);
 
       const prov = providerMap.get(p.ProvNum.toString());
       if (prov?.isHygienist) {
@@ -360,21 +357,21 @@ export class ProductivityService {
     }
 
     // 10. Goals calculations
-    const dentistHourlyGoal = goals.dentistHourlyGoal || 300;
-    const hygienistHourlyGoal = goals.hygienistHourlyGoal || 120;
-    const dentistVisitGoal = goals.dentistVisitGoal || 250;
-    const hygienistVisitGoal = goals.hygienistVisitGoal || 150;
+    const dentistHourlyGoal = goals.dentistHourlyGoal;
+    const hygienistHourlyGoal = goals.hygienistHourlyGoal;
+    const dentistVisitGoal = goals.dentistVisitGoal;
+    const hygienistVisitGoal = goals.hygienistVisitGoal;
 
-    const dentistPGoal = dentistHours > 0 ? dentistHours * dentistHourlyGoal : dentistHourlyGoal * 8;
-    const hygienistPGoal = hygienistHours > 0 ? hygienistHours * hygienistHourlyGoal : hygienistHourlyGoal * 8;
+    const dentistPGoal = productionGoal(dentistHours, dentistHourlyGoal);
+    const hygienistPGoal = productionGoal(hygienistHours, hygienistHourlyGoal);
     const totalPGoal = dentistPGoal + hygienistPGoal;
 
-    const totalCGoal = totalPGoal * (goals.collectionPercentGoal ? goals.collectionPercentGoal / 100 : 0.95);
-    const dentistCGoal = dentistPGoal * 0.95;
-    const hygienistCGoal = hygienistPGoal * 0.95;
+    const totalCGoal = collectionGoal(totalPGoal, goals.collectionPercentGoal);
+    const dentistCGoal = collectionGoal(dentistPGoal, goals.collectionPercentGoal);
+    const hygienistCGoal = collectionGoal(hygienistPGoal, goals.collectionPercentGoal);
 
-    const totalPerHourGoal = totalHours > 0 ? totalPGoal / totalHours : (dentistHourlyGoal + hygienistHourlyGoal) / 2;
-    const totalVisitGoal = goals.totalVisitGoal || (dentistVisitGoal + hygienistVisitGoal) / 2;
+    const totalPerHourGoal = totalHours > 0 ? totalPGoal / totalHours : 0;
+    const totalVisitGoal = goals.totalVisitGoal;
 
     // Gross production and collections
     const totalGP = totalP + totalPlanned;
@@ -399,13 +396,15 @@ export class ProductivityService {
     const formatRows = (p: number, c: number, gp: number, gc: number, pGoal: number, cGoal: number): PanelRow[] => [
       { id: 'P', label: 'P', value: Number(p.toFixed(2)), goal: Number(pGoal.toFixed(2)), color: '#7cb342' },
       { id: 'C', label: 'C', value: Number(c.toFixed(2)), goal: Number(cGoal.toFixed(2)), color: '#7cb342' },
-      { id: 'GP', label: 'GP', value: Number(gp.toFixed(2)), color: '#545454' },
-      { id: 'GC', label: 'GC', value: Number(gc.toFixed(2)), color: '#a8a8a8' },
+      { id: 'GP', label: 'GP', value: Number(gp.toFixed(2)), goal: Number(pGoal.toFixed(2)), color: '#545454' },
+      { id: 'GC', label: 'GC', value: Number(gc.toFixed(2)), goal: Number(cGoal.toFixed(2)), color: '#a8a8a8' },
     ];
 
     return {
       total: {
         title: 'Total',
+        visitGoalConfigured: goalIsConfigured(goals, 'totalVisitGoal'),
+        goalConfigured: goalIsConfigured(goals, 'dentistHourlyGoal') || goalIsConfigured(goals, 'hygienistHourlyGoal'),
         scheduled: Number(totalScheduledFee.toFixed(2)),
         scheduledVisits: totalScheduledVisits,
         rows: formatRows(totalP, totalC, totalGP, totalGC, totalPGoal, totalCGoal),
@@ -416,6 +415,8 @@ export class ProductivityService {
       },
       dentist: {
         title: 'Dentist',
+        visitGoalConfigured: goalIsConfigured(goals, 'dentistVisitGoal'),
+        goalConfigured: goalIsConfigured(goals, 'dentistHourlyGoal'),
         scheduled: Number(dentistScheduledFee.toFixed(2)),
         scheduledVisits: dentistScheduledVisits,
         rows: formatRows(dentistP, dentistC, dentistGP, dentistGC, dentistPGoal, dentistCGoal),
@@ -426,6 +427,8 @@ export class ProductivityService {
       },
       hygienist: {
         title: 'Hygienist',
+        visitGoalConfigured: goalIsConfigured(goals, 'hygienistVisitGoal'),
+        goalConfigured: goalIsConfigured(goals, 'hygienistHourlyGoal'),
         scheduled: Number(hygienistScheduledFee.toFixed(2)),
         scheduledVisits: hygienistScheduledVisits,
         rows: formatRows(hygienistP, hygienistC, hygienistGP, hygienistGC, hygienistPGoal, hygienistCGoal),
