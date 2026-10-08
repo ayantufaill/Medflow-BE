@@ -8004,3 +8004,304 @@ model access_audit {
   log_text   Json
   created_at DateTime @default(now())
 }
+
+// ─── Coordination of Benefits (COB) ───────────────────────────────────────
+//
+// WHY THESE ARE EXTENSION TABLES AND NOT NEW Payer/Plan/Coverage TABLES
+// ---------------------------------------------------------------------
+// The COB spec asks for Payer / Plan / Coverage / CoverageOrder entities.
+// Three of the four already exist in the Open Dental core we inherited:
+//
+//   Payer    -> carrier  (CarrierName, ElectID = the clearinghouse payer ID)
+//   Plan     -> insplan  (CarrierNum, GroupNum, GroupName, IsMedical)
+//   Coverage -> patplan  (PatNum, Relationship, Ordinal) + inssub
+//               (Subscriber, SubscriberID, DateEffective, DateTerm)
+//
+// Creating parallel tables would fork the insurance model: claims, EDI 837,
+// the ERA poster, the invoice estimator and the deductible engine all read
+// patplan/inssub/insplan today. So COB-specific facts live in these keyed
+// extension tables instead, and the legacy tables stay untouched.
+//
+// WHY patplan.Ordinal SURVIVES
+// ----------------------------
+// Ordinal (1=primary, 2=secondary, ...) is read in ~10 services. It stays as
+// the DENORMALIZED CURRENT ORDER — the fast path every existing consumer
+// already uses. cob_coverage_order is the versioned, explained, auditable
+// DECISION RECORD behind it. The pipeline writes both: positions here and a
+// matching Ordinal on patplan. A claim for a past date of service resolves
+// through cob_coverage_order (which is versioned), never through Ordinal
+// (which is only ever "now").
+//
+// NO PRISMA RELATIONS TO LEGACY TABLES
+// ------------------------------------
+// Deliberate, and the same choice patient_branch_grant / access_audit made:
+// adding back-relations would mean editing carrier/insplan/patplan/patient,
+// which are regenerated from the Open Dental schema.
+
+/// COB-relevant facts about a carrier. Only payer TYPE, which the Medicare,
+/// Medicaid, TRICARE and injury rules branch on. Absent row = COMMERCIAL.
+model cob_payer_profile {
+  carrier_num BigInt   @id
+  /// COMMERCIAL | MEDICARE | MEDICAID | TRICARE | WORKERS_COMP | AUTO_LIABILITY
+  payer_type  String   @default("COMMERCIAL") @db.VarChar(30)
+  updated_by  BigInt?
+  updated_at  DateTime @default(now()) @updatedAt
+}
+
+/// The "COB provision" and payment method for a plan. Master data, managed by
+/// billing admins under `insurance.plan_master.edit` — NOT per patient.
+///
+/// `coordinates_benefits` defaults TRUE because that is what the overwhelming
+/// majority of group plans do; the NO_COB_PROVISION rule only fires when a
+/// human has positively recorded a plan that does not coordinate.
+/// `cob_payment_method` defaults UNKNOWN because guessing it would produce a
+/// confidently wrong secondary estimate — UNKNOWN makes the estimator return
+/// a range instead of a number.
+model cob_plan_profile {
+  plan_num             BigInt   @id
+  /// MEDICAL | FIXED_INDEMNITY | DENTAL | VISION | OTHER
+  benefit_category     String   @default("MEDICAL") @db.VarChar(30)
+  coordinates_benefits Boolean  @default(true)
+  /// STANDARD | NON_DUPLICATION | CARVE_OUT | REMAINING_BALANCE | UNKNOWN
+  cob_payment_method   String   @default("UNKNOWN") @db.VarChar(30)
+  /// DEFAULT | PAYER_CONFIRMED | PLAN_DOCUMENT
+  cob_info_source      String   @default("DEFAULT") @db.VarChar(30)
+  version              Int      @default(1)
+  updated_by           BigInt?
+  updated_at           DateTime @default(now()) @updatedAt
+}
+
+/// Immutable snapshot per version of a plan's COB fields. Never updated or
+/// deleted — a change writes a new row. This is what lets a biller answer
+/// "what did we think this plan's COB provision was when we billed in March?"
+model cob_plan_profile_version {
+  id          BigInt   @id @default(autoincrement())
+  plan_num    BigInt
+  version     Int
+  /// Full field snapshot AFTER the change, plus `changed` listing the diff.
+  snapshot    Json
+  changed_by  BigInt?
+  change_note String?  @db.Text
+  changed_at  DateTime @default(now())
+
+  @@unique([plan_num, version])
+  @@index([plan_num, changed_at(sort: Desc)])
+}
+
+/// COB facts about one patient coverage (one patplan row) that Open Dental
+/// has nowhere to put. Everything already on patplan/inssub/insplan is read
+/// from there: relationship (patplan.Relationship), member ID
+/// (inssub.SubscriberID), group number (insplan.GroupNum), effective and
+/// termination dates (inssub.DateEffective / DateTerm).
+///
+/// Subscriber DOB: read from patient.Birthdate when inssub.Subscriber points
+/// at a patient record. `subscriber_birthdate` here is the override for a
+/// subscriber who is not a patient of the practice (the classic case — a
+/// child's other parent), which is exactly when the birthday rule would
+/// otherwise have nothing to compare.
+///
+/// Custody fields describe the PATIENT's parents, so they are logically
+/// per-patient, but they are recorded per coverage because that is where the
+/// front desk enters them (on the dependent's policy). The CUSTODY rule
+/// cross-checks the two coverages and returns NEEDS_INFO if they disagree,
+/// rather than trusting one side.
+model cob_coverage_detail {
+  patplan_num                     BigInt    @id
+  /// EMPLOYER_GROUP | INDIVIDUAL | MEDICARE | MEDICAID | TRICARE | COBRA |
+  /// RETIREE | WORKERS_COMP | AUTO_LIABILITY
+  coverage_basis                  String?   @db.VarChar(30)
+  /// ACTIVE | RETIRED | LAID_OFF | COBRA
+  subscriber_employment_status    String?   @db.VarChar(20)
+  /// UNDER_20 | 20_TO_99 | 100_PLUS
+  employer_size_band              String?   @db.VarChar(20)
+  /// AGE | DISABILITY | ESRD
+  medicare_entitlement_reason     String?   @db.VarChar(20)
+  esrd_entitlement_date           DateTime? @db.Date
+  subscriber_name                 String?   @db.VarChar(255)
+  subscriber_birthdate            DateTime? @db.Date
+  /// TOGETHER | SEPARATED | DIVORCED | JOINT_CUSTODY
+  custody_arrangement             String?   @db.VarChar(30)
+  /// CUSTODIAL | CUSTODIAL_SPOUSE | NON_CUSTODIAL | NON_CUSTODIAL_SPOUSE
+  custody_role                    String?   @db.VarChar(30)
+  court_order_exists              Boolean   @default(false)
+  /// True on the ONE coverage whose subscriber the court order names.
+  court_order_names_this_coverage Boolean   @default(false)
+  /// TRICARE supplements are not ranked ahead of TRICARE by the TRICARE rule.
+  is_tricare_supplement           Boolean   @default(false)
+  updated_by                      BigInt?
+  updated_at                      DateTime  @default(now()) @updatedAt
+}
+
+/// One versioned coverage-order decision for a patient. Never overwritten: a
+/// re-evaluation closes the previous row's effective range and inserts a new
+/// version. Claims resolve the version whose range contains the DATE OF
+/// SERVICE, so backdated claims keep billing the order that was true then.
+model cob_coverage_order {
+  id             BigInt    @id @default(autoincrement())
+  pat_num        BigInt
+  version        Int
+  /// SUGGESTED | NEEDS_INFO | NEEDS_REVIEW | CONFIRMED | STAFF_OVERRIDE | DISPUTED
+  status         String    @db.VarChar(20)
+  effective_from DateTime  @db.Date
+  /// NULL = still the current order. Set to (next version's start - 1 day).
+  effective_to   DateTime? @db.Date
+  /// UNVERIFIED | VERIFIED_WITH_PAYER
+  verification_status String   @default("UNVERIFIED") @db.VarChar(30)
+  /// ELIGIBILITY_271 | PHONE | PORTAL
+  verification_source String?  @db.VarChar(30)
+  verification_date   DateTime? @db.Date
+  override_user_num   BigInt?
+  override_reason     String?  @db.Text
+  override_at         DateTime?
+  /// Field paths the pipeline needed and could not find (NEEDS_INFO only).
+  missing_fields      Json?
+  /// What caused this evaluation: COVERAGE_ADDED, PLAN_COB_CHANGED, ...
+  trigger_reason      String?  @db.VarChar(100)
+  created_by          BigInt?
+  created_at          DateTime @default(now())
+
+  positions cob_coverage_order_position[]
+  flags     cob_coverage_order_flag[]
+
+  @@unique([pat_num, version])
+  @@index([pat_num, effective_from(sort: Desc)])
+}
+
+/// One coverage's place in an order, with the rule that put it there.
+/// `is_excluded` rows are the fixed-benefit / non-medical policies: carried so
+/// the UI can list them separately, with `position` NULL because they take no
+/// part in the claim's coordination.
+model cob_coverage_order_position {
+  id          BigInt  @id @default(autoincrement())
+  order_id    BigInt
+  position    Int?
+  patplan_num BigInt
+  rule_code   String  @db.VarChar(40)
+  explanation String  @db.Text
+  is_excluded Boolean @default(false)
+
+  order cob_coverage_order @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  @@unique([order_id, patplan_num])
+  @@index([order_id, position])
+}
+
+/// A reason a human has to look at this order. Raised by the pipeline,
+/// resolved by staff with a note. An unresolved PAYER_MISMATCH blocks claim
+/// submission; the others block or inform per cob.service.assertSubmittable.
+model cob_coverage_order_flag {
+  id              BigInt    @id @default(autoincrement())
+  order_id        BigInt
+  /// NEITHER_PLAN_COORDINATES | RANKING_CYCLE | PAYER_MISMATCH | COB_DENIAL |
+  /// COVERAGE_CHANGED
+  flag            String    @db.VarChar(40)
+  detail          Json?
+  raised_at       DateTime  @default(now())
+  resolved_at     DateTime?
+  resolved_by     BigInt?
+  resolution_note String?   @db.Text
+
+  order cob_coverage_order @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  @@index([order_id, flag])
+}
+
+/// What an insurer told us about this patient's other coverage — from a 271
+/// eligibility response, or from a biller who phoned the payer. This is the
+/// INSURER's version of the truth. The pipeline compares it against our own
+/// suggestion and raises PAYER_MISMATCH on disagreement; it never silently
+/// adopts either side.
+///
+/// `reported_self_order` is the position the REPORTING payer claims for
+/// itself (1 = "we are primary"); `other_payer_reported_order` is the
+/// position it assigns to the other coverage it knows about.
+model cob_payer_reported_coverage {
+  id                      BigInt   @id @default(autoincrement())
+  pat_num                 BigInt
+  /// The patient coverage this report is about, when we could match it.
+  patplan_num             BigInt?
+  reporting_carrier_num   BigInt?
+  reported_self_order     Int?
+  reported_is_active      Boolean?
+  other_payer_name        String?  @db.VarChar(255)
+  other_payer_carrier_num BigInt?
+  other_payer_reported_order Int?
+  reported_date           DateTime @db.Date
+  /// ELIGIBILITY_271 | PHONE | PORTAL
+  source                  String   @db.VarChar(20)
+  /// Verbatim provider payload (271 segments, or the biller's call notes).
+  raw                     Json?
+  note                    String?  @db.Text
+  created_by              BigInt?
+  created_at              DateTime @default(now())
+
+  @@index([pat_num, reported_date(sort: Desc)])
+}
+
+/// The primary payer's remittance detail that a secondary claim must carry.
+/// A secondary claim is not submittable without it (CMS-1500 box 29 / the
+/// 837's 2320 loop), which is why it is a row and not a note: the gate in
+/// claim.service checks for its existence.
+model cob_primary_payment_detail {
+  id                     BigInt    @id @default(autoincrement())
+  /// The SECONDARY claim this detail is attached to.
+  claim_num              BigInt    @unique
+  primary_claim_num      BigInt
+  primary_carrier_num    BigInt?
+  paid_amount            Float     @default(0)
+  allowed_amount         Float     @default(0)
+  patient_responsibility Float     @default(0)
+  /// [{ groupCode, reasonCode, amount }] straight off the 835.
+  adjustments            Json
+  remittance_date        DateTime? @db.Date
+  created_by             BigInt?
+  created_at             DateTime  @default(now())
+
+  @@index([primary_claim_num])
+}
+
+/// Additive ledger of who owes what on an invoice. Contractual adjustments
+/// land here as their own entries with the payer's group/reason codes and
+/// `billable_to_patient = false` — they are a write-off of the contracted
+/// difference, never a discount and never the patient's money.
+///
+/// This does not replace the invoice's existing portion math (BillingNote
+/// splits + the adjustment table); it records the COB-side truth that math
+/// has no place for, namely WHICH payer a balance is sitting with.
+model cob_responsibility_ledger {
+  id                  BigInt   @id @default(autoincrement())
+  statement_num       BigInt?
+  pat_num             BigInt
+  claim_num           BigInt?
+  /// CHARGE | PAYMENT | CONTRACTUAL_ADJUSTMENT | TRANSFER
+  entry_type          String   @db.VarChar(30)
+  /// PRIMARY | SECONDARY | TERTIARY | PATIENT
+  responsible_party   String   @db.VarChar(20)
+  amount              Float
+  group_code          String?  @db.VarChar(5)
+  reason_code         String?  @db.VarChar(10)
+  billable_to_patient Boolean  @default(false)
+  source              String?  @db.VarChar(40)
+  created_by          BigInt?
+  created_at          DateTime @default(now())
+
+  @@index([statement_num])
+  @@index([pat_num, created_at])
+}
+
+/// When the last payer in the order has paid, the patient's balance is final.
+/// `patient_liability_finalized_at` is that moment. Kept in its own table
+/// because `statement` is an Open Dental table.
+///
+/// NOTE: the late-fee feature does NOT read this yet — it ages from
+/// statement.DateSent (see late-fee.service.ts). Wiring it is a product
+/// decision about when the dunning clock should start, so this records the
+/// timestamp and leaves that switch alone.
+model cob_invoice_liability {
+  statement_num                  BigInt    @id
+  patient_liability_finalized_at DateTime?
+  finalized_by                   BigInt?
+  /// The claim whose remittance finalized it (the last payer's).
+  last_payer_claim_num           BigInt?
+  updated_at                     DateTime  @default(now()) @updatedAt
+}

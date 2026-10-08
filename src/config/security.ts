@@ -12,6 +12,16 @@ const defaultDevOrigins = [
   `http://127.0.0.1:${apiPort}`,
 ];
 
+// In development the Vite dev server falls back to the next free port when its
+// preferred one is taken (5173 -> 5174 -> ...), and `host: true` in vite.config
+// also exposes it on the machine's LAN address. Pinning the allowlist to a
+// single port lets a stale dev server silently break CORS, so accept any port
+// on a loopback or private-network host instead.
+const devHostPattern =
+  /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?$/;
+
+const isDevelopment = (): boolean => process.env.NODE_ENV !== 'production';
+
 export const getAllowedOrigins = (): string[] => {
   if (process.env.CORS_ORIGIN) {
     return process.env.CORS_ORIGIN.split(',').map((origin) => origin.trim()).filter(Boolean);
@@ -26,7 +36,9 @@ export const getAllowedOrigins = (): string[] => {
 
 export const isAllowedOrigin = (origin: string | undefined): boolean => {
   if (!origin) return true;
-  return getAllowedOrigins().includes(origin);
+  if (getAllowedOrigins().includes(origin)) return true;
+  // Loopback/LAN origins only, and never in production.
+  return isDevelopment() && devHostPattern.test(origin);
 };
 
 export const corsOptions: cors.CorsOptions = {
@@ -35,7 +47,10 @@ export const corsOptions: cors.CorsOptions = {
       callback(null, true);
       return;
     }
-    callback(new Error('Origin not allowed by CORS'));
+    // Reject by omitting the CORS headers rather than throwing: an Error here
+    // propagates to the error handler and surfaces as a misleading 500, when
+    // the actual outcome is simply "this origin is not allowed".
+    callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],

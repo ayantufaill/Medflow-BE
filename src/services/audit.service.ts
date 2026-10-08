@@ -23,7 +23,17 @@ import { getNextId } from '../utils/opendental-ids.util';
 import { getClientIp } from '../utils/activity-logger.util';
 
 export interface WriteAuditParams {
-  userNum: bigint;
+  /**
+   * The acting user, or null when there is none.
+   *
+   * null is written as NULL (securitylog.UserNum is nullable), which is the
+   * correct record for a system-triggered event — an ERA auto-post, a
+   * scheduled job, a fan-out across patients. The alternative, a sentinel
+   * like 0, violates fk_securitylog_1_UserNum and the whole audit row is
+   * then lost to the catch below: the event goes unrecorded precisely when
+   * nobody is watching.
+   */
+  userNum: bigint | null;
   permType: number;
   patNum?: bigint;
   clinicNum?: bigint;

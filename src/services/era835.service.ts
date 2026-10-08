@@ -457,6 +457,10 @@ export class Era835Service {
         heldByRow = await collectPostedDeductibleByRow(claimNum);
       }
 
+      // Hoisted out of the transaction below so the COB hook, which runs
+      // AFTER the commit, can read what was actually posted.
+      let postedPaidAmount = 0;
+
       await prisma.$transaction(async (tx) => {
         let totalPaidOnClaim = 0;
         let totalWriteOffOnClaim = 0;
@@ -539,6 +543,7 @@ export class Era835Service {
             DedApplied: totalDedOnClaim,
           },
         });
+        postedPaidAmount = totalPaidOnClaim;
 
         // Record patient ledger payment entry
         if (claim.PatNum && totalPaidOnClaim > 0) {
@@ -561,6 +566,44 @@ export class Era835Service {
           });
         }
       });
+
+      // COB handling for this posted remittance: detect a coordination-of-
+      // benefits denial, write the responsibility-ledger entries (including
+      // the contractual adjustments, which are never the patient's money),
+      // and finalize patient liability if this was the last payer in the
+      // order.
+      //
+      // Deliberately after the posting transaction and deliberately
+      // swallowing its own errors: the money has already been posted
+      // correctly, and a ledger or task failure must not unwind a payment
+      // the payer has actually made.
+      if (claim.PatNum) {
+        try {
+          const { onRemittancePosted } = await import('./cob/claim-cob.service');
+          const claimMeta = (() => {
+            try {
+              return claim.Narrative ? JSON.parse(claim.Narrative) : null;
+            } catch {
+              return null;
+            }
+          })();
+          await onRemittancePosted({
+            claimNum: claim.ClaimNum,
+            patNum: claim.PatNum,
+            statementNum: claimMeta?.invoiceId ? BigInt(claimMeta.invoiceId) : null,
+            paidAmount: postedPaidAmount,
+            // Claim-level adjustments plus every service line's, which is
+            // where CARC 22 actually lands on a COB denial.
+            adjustments: [
+              ...claimItem.adjustments,
+              ...claimItem.serviceLines.flatMap((line) => line.adjustments),
+            ],
+            userNum: userId ? BigInt(userId) : null,
+          });
+        } catch (err) {
+          console.error('COB post-remittance handling failed for claim', claim.ClaimNum, err);
+        }
+      }
 
       // Reconcile the deductible against what the payer actually applied.
       // Without this the estimate is never corrected: a payer applying less than
