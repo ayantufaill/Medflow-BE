@@ -114,6 +114,9 @@ export class AuthController {
         sharing: req.access.sharing,
         accessVersion: req.access.tokenVersion,
         isPlatformAdmin: req.access.isPlatformAdmin,
+        // Team Access overrides; the frontend hides a module set to 'none'.
+        moduleAccess: req.access.moduleAccess,
+        moduleStates: req.access.moduleStates,
         // Branches where this user may present treatment plans (Treatment
         // Coordinator flag); the frontend shows "Present Treatment Plan" there.
         treatmentCoordinatorBranchIds: (
