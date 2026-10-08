@@ -11,6 +11,7 @@ import { claimService } from './claim.service';
 import { patientInsuranceService } from './patient-insurance.service';
 import { agingService } from './aging.service';
 import { lateFee } from './late-fee.service';
+import { LateFeeGuardrails } from './late-fee-guardrails.service';
 import {
   DeductibleLedger,
   applyDeductible,
@@ -3303,11 +3304,44 @@ export class InvoiceService {
     const charged = await lateFee.findChargedLateFees(patNum);
     const eligible = lateFee.eligibleInvoices(invoices, resolved, charged);
 
+    // Active policy for the patient's clinic, when one is enabled. The dialog
+    // reads the amount and terms from here (or falls back to the legacy tier
+    // default below) so it displays exactly what the charge will apply.
+    const policy = patient.ClinicNum
+      ? await LateFeeGuardrails.getActivePolicy(BigInt(patient.ClinicNum))
+      : null;
+    const policyRate = policy
+      ? policy.feeType === 'flat' ? policy.patientFeeAmount : policy.corporateFeePct
+      : null;
+    const policyMode = policy?.feeType ?? 'flat';
+    const projectedFee = (basis: number) => {
+      const rate = policyRate ?? lateFee.defaultRateFor(resolved);
+      if (rate === null || rate <= 0) return null;
+      return lateFee.feeAmountFor(basis, policyMode, rate);
+    };
+
     return {
       tier: resolved,
+      // Legacy tier default, still returned so old callers keep working; new
+      // dialog code should read `policy` + per-invoice `feePatient/feeTotal`.
+      defaultRate: lateFee.defaultRateFor(resolved),
+      // Backend-provided terms: amount and policy terms the dialog displays and
+      // re-sends on submit — never computed in the frontend.
+      policy: policy
+        ? {
+            policyVersion: policy.version,
+            termsText: policy.termsText,
+            feeType: policy.feeType,
+            patientFeeAmount: policy.patientFeeAmount,
+            corporateFeePct: policy.corporateFeePct,
+            capPct: policy.capPct,
+            paymentTermsDays: policy.paymentTermsDays,
+            gracePeriodDays: policy.gracePeriodDays,
+            enabled: policy.enabled,
+          }
+        : null,
       // Sent to the dialog so the amount it previews is the amount the server
       // will charge, rather than a second copy of these numbers in the UI.
-      defaultRate: lateFee.defaultRateFor(resolved),
       invoices: eligible.map((row) => ({
         id: row.id,
         invoiceNumber: row.invoiceNumber,
@@ -3321,6 +3355,10 @@ export class InvoiceService {
         insuranceBalance: row.insuranceBalance ?? 0,
         totalBalance: row.basisTotal,
         alreadyCharged: row.alreadyCharged,
+        // Amount that WILL be charged for this invoice on each basis, computed
+        // on the backend (flat fee, or % of the basis balance).
+        feePatient: projectedFee(row.basisPatient),
+        feeTotal: projectedFee(row.basisTotal),
       })),
       // Everything sent, so the dialog can explain why nothing is eligible.
       totalInvoices: invoices.length,
