@@ -2,6 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 const db = vi.hoisted(() => ({
   statement: { findUnique: vi.fn() }, claim: { findFirst: vi.fn(), create: vi.fn() },
   procedurelog: { findMany: vi.fn() }, patplan: { findFirst: vi.fn() },
+  // createClaimFromInvoice falls back to the patient's PriProv when provider
+  // resolution throws, and picks a default provider when it still has none —
+  // so both models have to exist on the mock or the fallback path dies with
+  // "Cannot read properties of undefined" instead of reaching claim.create.
+  patient: { findUnique: vi.fn() }, provider: { findFirst: vi.fn() },
+  claimproc: { create: vi.fn() },
 }));
 vi.mock('../src/config/db', () => ({ prisma: db }));
 vi.mock('../src/utils/opendental-ids.util', () => ({ getNextId: vi.fn().mockResolvedValue(200n) }));
@@ -24,6 +30,8 @@ describe('invoice-created claim branch persistence', () => {
     db.statement.findUnique.mockResolvedValue({ StatementNum: 10n, PatNum: 20n, NoteBold: '{}', BalTotal: 200 });
     db.claim.findFirst.mockResolvedValue(null);
     db.patplan.findFirst.mockResolvedValue(null);
+    db.patient.findUnique.mockResolvedValue({ PatNum: 20n, PriProv: 1n });
+    db.provider.findFirst.mockResolvedValue({ ProvNum: 1n });
     db.procedurelog.findMany.mockResolvedValue([
       ...clinics.map((ClinicNum, i) => ({ ProcNum: BigInt(i + 1), ClinicNum, ProcFee: 100, BillingNote: '{"insPortion":50,"ptPortion":50}' })),
       // Non-insurable invoice items must not change insurance-claim ownership.

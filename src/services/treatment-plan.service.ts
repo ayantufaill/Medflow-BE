@@ -1,5 +1,7 @@
 import { prisma, withTenantTransaction } from '../config/db.js';
 import type { Prisma } from '@prisma/client';
+import { prisma, withTenantTransaction } from '../config/db.js';
+import type { Prisma } from '@prisma/client';
 import { NotFoundError, UnprocessableEntityError } from '../utils/error.util.js';
 import { getNextId } from '../utils/opendental-ids.util.js';
 import { claimService } from './claim.service.js';

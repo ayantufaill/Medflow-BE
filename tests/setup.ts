@@ -1,3 +1,35 @@
+// MUST be the first import: enters an unrestricted tenant context for the
+// whole test process, before any module can issue a query.
+//
+// WHY TESTS NEED THIS
+// -------------------
+// The app connects as `medflow_app`, a role with no BYPASSRLS, so every write
+// goes through the policies in prisma/rls/. Those policies read
+// `app.clinic_ids`, which the Prisma extension in src/config/db.ts only sets
+// when a tenant context is present. A test that calls Prisma DIRECTLY — which
+// every fixture in tests/helpers/fixtures.ts does — has no context, so
+// `app.clinic_ids` is unset, which every policy correctly reads as "no
+// branches". The fixture's INSERT then dies with:
+//
+//   42501 new row violates row-level security policy for table "patient"
+//
+// That is the single cause behind the bulk of the suite's failures: the test
+// never gets as far as the behaviour it is asserting, because it cannot
+// create the patient it needs.
+//
+// WHY THIS DOES NOT WEAKEN THE ISOLATION TESTS
+// --------------------------------------------
+// This is deliberately safe for the cross-tenant tests. Requests made through
+// supertest go through tenantContext.middleware.ts, which calls
+// `tenantContextStorage.run({...})` — `run` creates a NESTED context that
+// overrides this ambient one for the duration of that request. So an HTTP
+// caller is still scoped to its own branches and
+// tests/client-demo-multitenant.test.ts keeps proving real isolation. Only
+// direct Prisma calls from test bodies and fixtures see the unrestricted
+// context, which is exactly the setup code that needs it.
+//
+// Production is unaffected: nothing imports this file outside the test run.
+import '../src/config/seed-context';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

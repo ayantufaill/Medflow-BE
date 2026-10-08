@@ -4,7 +4,7 @@ import app from '../src/app';
 import { prisma } from '../src/config/db';
 import { getAdminAuthHeader } from './helpers/auth';
 import { uniqueToken } from './helpers/unique';
-import { createPatientRecord } from './helpers/fixtures';
+import { createPatientRecord, deletePatientRecord } from './helpers/fixtures';
 
 describe('Patient Insurance Reordering', () => {
   let authHeader: { Authorization: string };
@@ -105,6 +105,10 @@ describe('Patient Insurance Reordering', () => {
     }
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum1 } });
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum2 } });
-    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    // Adding insurance through the API writes audit rows tied to this patient
+    // (the PHI read audit, plus the coordination-of-benefits evaluation that
+    // runs when a coverage is added), so the patient cannot be deleted until
+    // those are cleared — see deletePatientRecord.
+    await deletePatientRecord(patient.PatNum);
   });
 });
