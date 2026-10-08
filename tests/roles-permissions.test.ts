@@ -112,9 +112,12 @@ describe('Roles & Permissions', () => {
     const targetUser = usersRes.body.data.users[0];
 
     if (roleId && targetUser) {
+      // Role chips are Super Admin only (assertMayChangeRoles in
+      // src/services/user.service.ts) — a plain 'Admin' gets a 403 there by
+      // design, same as the role CRUD endpoints above.
       const res = await request(app)
         .post(`/api/users/${targetUser._id}/roles`)
-        .set(authHeader)
+        .set(platformAdminHeader)
         .send({ roleIds: [roleId] });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);

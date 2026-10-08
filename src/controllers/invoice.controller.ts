@@ -520,6 +520,22 @@ export class InvoiceController {
       next(error);
     }
   }
+
+  async getLateFeeTerms(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { invoiceId } = req.params;
+      const terms = await invoiceService.getLateFeeTerms(invoiceId);
+      if (!terms) {
+        return res.status(404).json({
+          success: false,
+          error: { message: 'No late fee policy found for this invoice' },
+        });
+      }
+      res.status(200).json({ success: true, data: terms });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export const invoiceController = new InvoiceController();

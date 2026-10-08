@@ -2633,6 +2633,45 @@ export class ClaimService {
       );
     }
 
+    // When claim is marked as paid/denied/resolved, update patientLiabilityFinalizedAt on linked invoice
+    const resolvedStatuses = ['paid', 'denied', 'partial', 'rejected'];
+    const pendingStatuses = ['submitted', 'pending', 'under_review', 'readyForSubmission'];
+    if (resolvedStatuses.includes(nextStatus) && !resolvedStatuses.includes(previousStatus)) {
+      const targetInvId = nextMeta.invoiceId || existing.ClaimNote?.match(/Invoice #(\d+)/)?.[1];
+      if (targetInvId) {
+        try {
+          await prisma.statement.update({
+            where: { StatementNum: BigInt(targetInvId) },
+            data: { patientLiabilityFinalizedAt: new Date() },
+          });
+          const { invoiceService } = await import('./invoice.service');
+          await invoiceService.recalculateInvoice(targetInvId);
+        } catch (err) {
+          console.error(`[ClaimService] Error updating liability finalized for invoice ${targetInvId}:`, err);
+        }
+      }
+      if (updated.PatNum) {
+        await agingService.updatePatientAging(updated.PatNum).catch(() => {});
+      }
+    }
+
+    // When claim is reopened/appealed (resolved -> pending), clear patientLiabilityFinalizedAt
+    if (pendingStatuses.includes(nextStatus) && resolvedStatuses.includes(previousStatus)) {
+      const targetInvId = nextMeta.invoiceId || existing.ClaimNote?.match(/Invoice #(\d+)/)?.[1];
+      if (targetInvId) {
+        try {
+          await prisma.statement.update({
+            where: { StatementNum: BigInt(targetInvId) },
+            data: { patientLiabilityFinalizedAt: null },
+          });
+          const { invoiceService } = await import('./invoice.service');
+          await invoiceService.recalculateInvoice(targetInvId);
+        } catch (err) {
+          console.error(`[ClaimService] Error clearing liability finalized for invoice ${targetInvId}:`, err);
+        }
+      }
+    }
+
     // When claim is marked as paid, update associated claimproc items to status 1 (Received)
     if (nextStatus === 'paid') {
       const paidDateObj = nextMeta.paidDate ? new Date(nextMeta.paidDate) : new Date();

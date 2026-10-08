@@ -65,7 +65,7 @@ export const isLateFeeTier = (value: unknown): value is LateFeeTier =>
   typeof value === 'number' &&
   (LATE_FEE_TIERS as readonly number[]).includes(value);
 
-const roundCurrency = (value: number): number =>
+export const roundCurrency = (value: number): number =>
   Math.round((Number(value) || 0) * 100) / 100;
 
 /**
