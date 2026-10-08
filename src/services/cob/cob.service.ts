@@ -182,6 +182,31 @@ export interface EvaluateOptions {
   claimContext?: Partial<ClaimContext>;
   userNum?: bigint | null;
   req?: Request;
+  /**
+   * Write the suggested sequence back onto patplan.Ordinal.
+   *
+   * Defaults TRUE for a deliberate call (a biller pressing evaluate), and is
+   * set FALSE by the automatic triggers — the fire-and-forget hooks in
+   * patient-insurance.service and the plan-level fan-out.
+   *
+   * WHY THE AUTOMATIC TRIGGERS MUST NOT WRITE IT
+   * --------------------------------------------
+   * `Ordinal` is owned by the insurance code: createPatientInsurance assigns
+   * the next one, reorderInsurances and setPrimaryInsurance rewrite them on an
+   * explicit staff action, and deletePatientInsurance resequences. A
+   * detached COB evaluation writing the same column races all of them, and
+   * because it is detached it can land AFTER a staff reorder and silently
+   * revert the order a human just chose. That showed up as a flaky
+   * "expected 1000 to be 1" in the reorder test, but the real cost is a
+   * front desk whose reordering sometimes does not stick.
+   *
+   * The suggestion is not lost by skipping the write: it is persisted in
+   * cob_coverage_order with its reasoning and flags, which is what the COB
+   * screen and the claim gate read. Ordinal changes when a human confirms
+   * the suggestion (overrideOrder) — which is the point of a system that
+   * suggests rather than decides.
+   */
+  writeOrdinals?: boolean;
 }
 
 export class CobService {
@@ -448,8 +473,10 @@ export class CobService {
     });
 
     // Keep the fast path every other service reads in step with the new
-    // current order. Only ever for the order in force now.
-    if (!saved.effective_to) {
+    // current order. Only ever for the order in force now, and only when the
+    // caller is a deliberate action rather than an automatic trigger — see
+    // `writeOrdinals`.
+    if (!saved.effective_to && options.writeOrdinals !== false) {
       await this.syncOrdinals(patNum, positions.map((p) => p.coverageId));
     }
 
@@ -500,26 +527,38 @@ export class CobService {
       select: { PatPlanNum: true },
     });
 
+    // Every row's FINAL ordinal, computed before anything is written.
+    const ranked = new Set(orderedCoverageIds);
+    const finalOrdinal = new Map<string, number>();
+    orderedCoverageIds.forEach((id, index) => finalOrdinal.set(id, index + 1));
+    let trailing = orderedCoverageIds.length + 1;
+    for (const row of all) {
+      const key = row.PatPlanNum.toString();
+      if (!ranked.has(key)) finalOrdinal.set(key, trailing++);
+    }
+
     await prisma.$transaction(async (tx) => {
-      for (let i = 0; i < all.length; i++) {
-        await tx.patplan.update({
-          where: { PatPlanNum: all[i].PatPlanNum },
-          data: { Ordinal: 1000 + i },
-        });
-      }
-      for (let i = 0; i < orderedCoverageIds.length; i++) {
-        await tx.patplan.update({
-          where: { PatPlanNum: asBigInt(orderedCoverageIds[i]) },
-          data: { Ordinal: i + 1 },
-        });
-      }
-      const ranked = new Set(orderedCoverageIds);
-      let trailing = orderedCoverageIds.length + 1;
+      // Serialize ordinal rewrites for this patient. Two evaluations can be
+      // in flight at once — the hook in patient-insurance.service is
+      // fire-and-forget, and a plan-level COB change fans out across patients
+      // — and interleaving two rewrites of the same rows produces an order
+      // that matches neither. Keyed on the patient so unrelated patients
+      // never block each other. Same mechanism audit.service.ts uses.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${patNum})`;
+
+      // SINGLE PHASE. This used to park every row at `1000 + i` first and
+      // then assign real values, to dodge a uniqueness clash while the
+      // sequence was being rewritten. `patplan` has NO unique index on
+      // Ordinal (only the PatPlanNum primary key), so there was never a
+      // clash to dodge — and the parking phase meant a concurrent writer
+      // could leave rows sitting at 1000+, which is what
+      // "expected 1000 to be 1" looked like from the reorder endpoint.
       for (const row of all) {
-        if (ranked.has(row.PatPlanNum.toString())) continue;
+        const next = finalOrdinal.get(row.PatPlanNum.toString());
+        if (next === undefined) continue;
         await tx.patplan.update({
           where: { PatPlanNum: row.PatPlanNum },
-          data: { Ordinal: trailing++ },
+          data: { Ordinal: next },
         });
       }
     });

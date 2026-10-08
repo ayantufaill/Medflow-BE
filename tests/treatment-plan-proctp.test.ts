@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { prisma } from '../src/config/db.js';
 import { treatmentPlanService } from '../src/services/treatment-plan.service.js';
 import { uniqueToken } from './helpers/unique.js';
-import { createPatientRecord } from './helpers/fixtures.js';
+import { createPatientRecord, deletePatientRecord } from './helpers/fixtures.js';
 import { getNextId } from '../src/utils/opendental-ids.util.js';
 
 describe('Phase 2: Relational proctp Treatment Plan Items', () => {
@@ -61,7 +61,7 @@ describe('Phase 2: Relational proctp Treatment Plan Items', () => {
 
     // Clean up
     await treatmentPlanService.deleteTreatmentPlan(created._id);
-    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    await deletePatientRecord(patient.PatNum);
   });
 
   it('restores the dropped link: completing an item creates procedurelog and sets ProcNumOrig', async () => {
@@ -135,7 +135,12 @@ describe('Phase 2: Relational proctp Treatment Plan Items', () => {
     await treatmentPlanService.deleteTreatmentPlan(created._id);
     await prisma.procedurelog.delete({ where: { ProcNum: linkedProcNum } });
     await prisma.provider.delete({ where: { ProvNum: provNum } });
-    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    // Completing an item bills it, which creates a statement for the patient.
+    // Not deleted by deletePatientRecord on purpose: that helper only clears
+    // invisible bookkeeping rows (audit, aging), never financial records.
+    // Safe here because the procedurelog pointing at it is already gone.
+    await prisma.statement.deleteMany({ where: { PatNum: patient.PatNum } });
+    await deletePatientRecord(patient.PatNum);
   });
 
   it('provides backwards compatibility: reads legacy plans from Note JSON when proctp has no rows', async () => {
@@ -192,6 +197,6 @@ describe('Phase 2: Relational proctp Treatment Plan Items', () => {
 
     // Clean up
     await prisma.treatplan.delete({ where: { TreatPlanNum: planNum } });
-    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    await deletePatientRecord(patient.PatNum);
   });
 });

@@ -389,6 +389,10 @@ export class PlanMasterService {
           triggerReason: `PLAN_COB_CHANGED:${planNum}`,
           userNum,
           req,
+          // A plan edit fans out across many patients; it records a new
+          // suggestion for each but must not rewrite anyone's billing order
+          // behind their back. See EvaluateOptions.writeOrdinals.
+          writeOrdinals: false,
         });
         results.push({
           patientId: claim.PatNum.toString(),
