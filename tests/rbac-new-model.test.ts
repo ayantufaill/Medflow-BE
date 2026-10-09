@@ -91,12 +91,14 @@ describe('New RBAC model (group_admin/branch_admin/front_desk/etc.)', () => {
     // have to go first, youngest first. writeAudit serializes its inserts
     // behind a pg advisory lock, so one can still commit after the first purge
     // — hence the retry rather than a single pass.
+    // All three deletes sit inside the retry: a hash committed between the
+    // first two makes the securitylog delete itself fail the foreign key.
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      await prisma.securityloghash.deleteMany({
-        where: { securitylog: { UserNum: { in: userNums } } },
-      });
-      await prisma.securitylog.deleteMany({ where: { UserNum: { in: userNums } } });
       try {
+        await prisma.securityloghash.deleteMany({
+          where: { securitylog: { UserNum: { in: userNums } } },
+        });
+        await prisma.securitylog.deleteMany({ where: { UserNum: { in: userNums } } });
         await prisma.userod.deleteMany({ where: { UserNum: { in: userNums } } });
         break;
       } catch (error) {
