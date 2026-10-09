@@ -20,10 +20,20 @@ const COB_FULL = [
 
 const ADDITIONS: Record<string, string[]> = {
   // Finance page: the adjustments panel was 403 ("part"); the matrix says full.
-  'Front Desk': ['adjustments.read'],
-  Receptionist: ['adjustments.read'],
-  Biller: ['adjustments.read'],
-  'Billing Staff': ['adjustments.read'],
+  // COB: seedRoles.ts gives the operations group every COB key, but roles
+  // seeded before COB shipped never got them (biller couldn't override).
+  'Front Desk': ['adjustments.read', ...COB_FULL],
+  Receptionist: ['adjustments.read', ...COB_FULL],
+  Biller: ['adjustments.read', ...COB_FULL],
+  'Billing Staff': ['adjustments.read', ...COB_FULL],
+  // COB: clinical roles read the insurance order (seedRoles.ts
+  // CLINICAL_GROUP_PERMISSIONS); missing on roles seeded before COB shipped.
+  Provider: ['insurance.coverage_order.read'],
+  Doctor: ['insurance.coverage_order.read'],
+  Hygienist: ['insurance.coverage_order.read'],
+  Assistant: ['insurance.coverage_order.read'],
+  'Dental Assistant': ['insurance.coverage_order.read'],
+  'Clinical Staff': ['insurance.coverage_order.read'],
   // Admin console → Patient Communication settings was empty (403).
   'Group Admin': ['settings.read', 'settings.update'],
   // Insurance and authorizations are "read" for Lab in the matrix, which
