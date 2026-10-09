@@ -26,7 +26,27 @@ import { prisma } from '../config/db';
 import { getNextId } from '../utils/opendental-ids.util';
 import { setRoleMeta } from '../utils/opendental-auth.util';
 
+// Coordination of Benefits (cob.routes.ts). The insurance-order panel on a
+// patient's Insurance tab needs coverage_order.read; without it every
+// new-model role saw "You don't have permission to see the insurance order".
+// Per the screen access matrix, roles with Insurance "View" get read only,
+// roles with Insurance "Full" (branch_admin — and so group_admin — and
+// billing) also override the order, resolve flags and edit plan COB data.
+const COB_READ_PERMISSIONS = {
+  'insurance.coverage_order.read': true,
+};
+const COB_FULL_PERMISSIONS = {
+  ...COB_READ_PERMISSIONS,
+  'insurance.coverage_order.override': true,
+  'insurance.coverage_order.resolve_flag': true,
+  'insurance.coverage_detail.edit': true,
+  'insurance.payer_reported.write': true,
+  'insurance.plan_master.read': true,
+  'insurance.plan_master.edit': true,
+};
+
 const DENTIST_PERMISSIONS = {
+  ...COB_READ_PERMISSIONS,
   // Without this, requirePhiAccess rejects every patient/clinical route —
   // same bug class fixed on the legacy roles earlier; the new-model roles
   // need the same grant since own-branch access depends on it too, not just
@@ -73,6 +93,7 @@ const HYGIENIST_PERMISSIONS: Record<string, boolean> = { ...DENTIST_PERMISSIONS 
 delete HYGIENIST_PERMISSIONS['treatment-plans.sign'];
 
 const DENTAL_ASSISTANT_PERMISSIONS = {
+  ...COB_READ_PERMISSIONS,
   'clinical.cross_branch.view': true,
   'patients.read': true,
   'appointments.read': true,
@@ -93,6 +114,7 @@ const DENTAL_ASSISTANT_PERMISSIONS = {
 };
 
 const FRONT_DESK_PERMISSIONS = {
+  ...COB_READ_PERMISSIONS,
   'clinical.cross_branch.view': true,
   'patients.read': true,
   'patients.create': true,
@@ -117,6 +139,7 @@ const FRONT_DESK_PERMISSIONS = {
 };
 
 const BILLING_PERMISSIONS = {
+  ...COB_FULL_PERMISSIONS,
   'clinical.cross_branch.view': true,
   'patients.read': true,
   'invoices.read': true,
@@ -159,6 +182,7 @@ const BILLING_PERMISSIONS = {
 // branch_admin is a named permission set, unlike the legacy Branch Admin
 // role which holds the full wildcard.
 const BRANCH_ADMIN_PERMISSIONS = {
+  ...COB_FULL_PERMISSIONS,
   'patients.read': true,
   'patients.create': true,
   'patients.update': true,
