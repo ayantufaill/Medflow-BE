@@ -1,4 +1,4 @@
-import { prisma } from '../config/db';
+import { prisma, withTenantTransaction } from '../config/db';
 
 export class AgingService {
   async updatePatientAging(patNum: bigint) {
@@ -118,26 +118,33 @@ export class AgingService {
       balOver90 = Math.round(balOver90 * 100) / 100;
     }
 
-    // 5. Upsert into famaging table using Raw SQL (Prisma ignores famaging due to no PK)
-    const checkExisting = await prisma.$queryRawUnsafe<any[]>(
-      `SELECT "PatNum" FROM famaging WHERE "PatNum" = $1 LIMIT 1`, 
-      patNum
-    );
+    // 5. Upsert into famaging table using Raw SQL (Prisma ignores famaging due to no PK).
+    // Raw queries skip the client's tenant extension (it wraps model queries
+    // only), so on their own they run with app.clinic_ids unset and RLS on
+    // famaging refuses the row — invoice creation then failed with "You do not
+    // have access to this branch". withTenantTransaction sets the caller's
+    // branch scope on the connection first.
+    await withTenantTransaction(async (tx) => {
+      const checkExisting = await tx.$queryRawUnsafe<any[]>(
+        `SELECT "PatNum" FROM famaging WHERE "PatNum" = $1 LIMIT 1`,
+        patNum
+      );
 
-    if (checkExisting.length > 0) {
-      await prisma.$executeRawUnsafe(
-        `UPDATE famaging 
-         SET "Bal_0_30" = $1, "Bal_31_60" = $2, "Bal_61_90" = $3, "BalOver90" = $4, "InsEst" = $5, "BalTotal" = $6, "PayPlanDue" = $7 
-         WHERE "PatNum" = $8`,
-        bal_0_30, bal_31_60, bal_61_90, balOver90, totalInsEst, totalBalance, payPlanDue, patNum
-      );
-    } else {
-      await prisma.$executeRawUnsafe(
-        `INSERT INTO famaging ("PatNum", "Bal_0_30", "Bal_31_60", "Bal_61_90", "BalOver90", "InsEst", "BalTotal", "PayPlanDue") 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        patNum, bal_0_30, bal_31_60, bal_61_90, balOver90, totalInsEst, totalBalance, payPlanDue
-      );
-    }
+      if (checkExisting.length > 0) {
+        await tx.$executeRawUnsafe(
+          `UPDATE famaging 
+           SET "Bal_0_30" = $1, "Bal_31_60" = $2, "Bal_61_90" = $3, "BalOver90" = $4, "InsEst" = $5, "BalTotal" = $6, "PayPlanDue" = $7 
+           WHERE "PatNum" = $8`,
+          bal_0_30, bal_31_60, bal_61_90, balOver90, totalInsEst, totalBalance, payPlanDue, patNum
+        );
+      } else {
+        await tx.$executeRawUnsafe(
+          `INSERT INTO famaging ("PatNum", "Bal_0_30", "Bal_31_60", "Bal_61_90", "BalOver90", "InsEst", "BalTotal", "PayPlanDue") 
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          patNum, bal_0_30, bal_31_60, bal_61_90, balOver90, totalInsEst, totalBalance, payPlanDue
+        );
+      }
+    });
   }
 }
 
