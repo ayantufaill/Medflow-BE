@@ -119,11 +119,19 @@ export class RxService {
     // description if the caller also supplied additional detail (e.g. dosage form)
     drugText = data.description || medication.MedName || '';
   }
+  
+    const patient = await prisma.patient.findUnique({
+      where: { PatNum: BigInt(data.patientId) },
+      select: { ClinicNum: true }
+    });
+    const clinicNum = patient?.ClinicNum ?? BigInt(0);
+
     const rx = await prisma.rxpat.create({
       data: {
         RxNum: nextId,
         PatNum: BigInt(data.patientId),
         ProvNum: data.providerId ? BigInt(data.providerId) : null,
+        ClinicNum: clinicNum,
         Drug: drugText,
         RxCui: rxCui,
         RxDate: rxDate,

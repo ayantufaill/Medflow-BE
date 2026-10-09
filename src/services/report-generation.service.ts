@@ -1,5 +1,5 @@
 import { prisma } from '../config/db';
-import { getPatientsMeta, PATIENT_META_FKEYTYPE } from '../utils/opendental-auth.util';
+import { getPatientsMeta, PATIENT_META_FKEYTYPE, getRxsMeta } from '../utils/opendental-auth.util';
 import { BadRequestError } from '../utils/error.util';
 import { clinicalNoteService } from './clinical-note.service';
 import { recarePatientRows } from './recare-reporting.service';
@@ -2880,23 +2880,29 @@ export class ReportGenerationService {
       include: { patient: true, provider: true }
     });
 
-    const report = prescriptions.map(r => ({
-      id: Number(r.RxNum),
-      provider: r.provider ? [r.provider.FName, r.provider.LName].filter(Boolean).join(' ') : null,
-      patient: r.patient ? `${r.patient.FName} ${r.patient.LName}` : 'Patient',
-      startDate: r.RxDate ? (r.RxDate as Date).toLocaleDateString() : '',
-      dose: r.Sig ?? null,
-      refills: r.Refills?.trim() && Number.isFinite(Number(r.Refills)) ? Number(r.Refills) : null,
-      duration: r.DaysOfSupply == null ? null : `${r.DaysOfSupply} Days`,
-      longTerm: null,
-      prints: null,
-      notes: r.Notes ?? '',
-      drugName: r.Drug ?? null
-    }));
-
-    if (report.length === 0) {
+    if (prescriptions.length === 0) {
       return [];
     }
+
+    const rxNums = prescriptions.map((r) => r.RxNum);
+    const rxsMetaMap = await getRxsMeta(rxNums);
+
+    const report = prescriptions.map(r => {
+      const meta = rxsMetaMap[r.RxNum.toString()] ?? {};
+      return {
+        id: Number(r.RxNum),
+        provider: r.provider ? [r.provider.FName, r.provider.LName].filter(Boolean).join(' ') : null,
+        patient: r.patient ? `${r.patient.FName} ${r.patient.LName}` : 'Patient',
+        startDate: r.RxDate ? (r.RxDate as Date).toLocaleDateString() : '',
+        dose: r.Disp || '',
+        refills: r.Refills || '',
+        duration: meta.duration || '',
+        longTerm: meta.longTerm || '',
+        prints: meta.prints || '0',
+        notes: r.Sig || r.PatientInstruction || '',
+        drugName: r.Drug ?? null
+      };
+    });
 
     return report;
   }
