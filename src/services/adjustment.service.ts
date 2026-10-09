@@ -3,6 +3,7 @@ import { NotFoundError, BadRequestError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { mapPatientToApi } from '../utils/opendental-mappers.util';
+import { resolveUserDisplayNames } from '../utils/user-display.util';
 
 export class AdjustmentService {
   private mapAdjustmentToApi(row: any) {
@@ -26,18 +27,31 @@ export class AdjustmentService {
       isVoided,
       createdAt: row.DateEntry ?? null,
       updatedAt: row.SecDateTEdit ?? null,
+      createdBy: row.SecUserNumEntry?.toString() ?? null,
+      // The line item this adjustment was posted against, and the invoice that
+      // line belongs to. The ledger needs both to expand an adjustment into the
+      // procedure it hit; ProcNum is only null on adjustments that were never
+      // linked to a procedure (patient-level account adjustments).
+      procedureId: row.ProcNum?.toString() ?? null,
+      invoiceId: row.StatementNum?.toString() ?? null,
     };
   }
 
   private async enrichAdjustment(adjustment: any) {
-    const patient = adjustment.patientId
-      ? await prisma.patient.findUnique({
-          where: { PatNum: BigInt(adjustment.patientId) },
-        })
-      : null;
+    const [patient, createdByNameMap] = await Promise.all([
+      adjustment.patientId
+        ? prisma.patient.findUnique({
+            where: { PatNum: BigInt(adjustment.patientId) },
+          })
+        : null,
+      adjustment.createdBy && adjustment.createdByName === undefined
+        ? resolveUserDisplayNames([adjustment.createdBy])
+        : Promise.resolve({} as Record<string, string>),
+    ]);
 
     return {
       ...adjustment,
+      createdByName: adjustment.createdByName ?? (adjustment.createdBy ? createdByNameMap[adjustment.createdBy] ?? null : null),
       patient: patient ? mapPatientToApi(patient) : null,
     };
   }
@@ -72,8 +86,14 @@ export class AdjustmentService {
       prisma.adjustment.count({ where }),
     ]);
 
+    const mapped: any[] = rows.map((row) => this.mapAdjustmentToApi(row));
+    const createdByNameMap = await resolveUserDisplayNames(mapped.map((a) => a.createdBy));
+    for (const adjustment of mapped) {
+      adjustment.createdByName = adjustment.createdBy ? createdByNameMap[adjustment.createdBy] ?? null : null;
+    }
+
     const adjustments = await Promise.all(
-      rows.map((row) => this.enrichAdjustment(this.mapAdjustmentToApi(row)))
+      mapped.map((row) => this.enrichAdjustment(row))
     );
 
     return {

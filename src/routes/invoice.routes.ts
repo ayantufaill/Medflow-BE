@@ -578,6 +578,40 @@ router.delete(
 
 /**
  * @swagger
+ * /invoices/{invoiceId}/items/{itemId}/void:
+ *   patch:
+ *     summary: Void a single procedure on an invoice (kept, flagged, excluded from totals)
+ *     tags: [Invoices]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: invoiceId
+ *         required: true
+ *         schema: { type: string }
+ *       - in: path
+ *         name: itemId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Invoice item voided
+ *       404:
+ *         description: Invoice or item not found
+ */
+router.patch(
+  '/:invoiceId/items/:itemId/void',
+  authenticate,
+  denyPatientPortalUsers,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('invoices.update'),
+  validate([...invoiceIdValidator, ...invoiceItemIdValidator, ...voidInvoiceValidator]),
+  invoiceController.voidInvoiceItem.bind(invoiceController)
+);
+
+/**
+ * @swagger
  * /invoices/{invoiceId}/recalculate:
  *   post:
  *     summary: Recalculate invoice totals
