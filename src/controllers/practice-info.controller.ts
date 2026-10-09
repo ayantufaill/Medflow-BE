@@ -176,7 +176,7 @@ async updateCurrentPracticeInfo(req: Request, res: Response, next: NextFunction)
         logoPath: logoUrl || req.body.logoPath,
       };
 
-      const result = await practiceInfoService.createPracticeInfo(practiceData, req.userId);
+      const result = await practiceInfoService.createPracticeInfo(practiceData);
       res.status(201).json({
         success: true,
         data: { practiceInfo: result },
