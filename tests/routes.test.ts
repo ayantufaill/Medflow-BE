@@ -179,8 +179,9 @@ describe('Route Registration & Middleware', () => {
         .get('/api/rx/invalid-id/print')
         .set(authHeader);
 
-      // Route is registered — not a 404 from notFoundHandler
-      expect(res.status).not.toBe(404);
+      // Registered (not the notFoundHandler's 404), and a bad id is a 400 —
+      // it used to reach BigInt() and answer 500.
+      expect(res.status).toBe(400);
     });
   });
 

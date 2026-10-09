@@ -12,7 +12,10 @@ const meta = vi.hoisted(() => ({ patients: vi.fn(), policies: vi.fn(), providers
 vi.mock('../src/config/db', () => ({ prisma: db }));
 vi.mock('../src/utils/opendental-auth.util', () => ({ getPatientsMeta: meta.patients, getPatientInsurancesMeta: meta.policies, getProvidersMeta: meta.providers }));
 vi.mock('../src/services/clinical-note.service', () => ({ clinicalNoteService: {} }));
-vi.mock('../src/utils/opendental-ids.util', () => ({ getNextId: vi.fn().mockResolvedValue(999n) }));
+// vitest.config has restoreMocks: true, which wipes an implementation given at
+// creation time before every test — so the id is (re)set in beforeEach.
+const ids = vi.hoisted(() => ({ getNextId: vi.fn() }));
+vi.mock('../src/utils/opendental-ids.util', () => ({ getNextId: ids.getNextId }));
 import { compileReportFilters, validateReportDefinition } from '../src/utils/reporting-fields.util';
 import { normalizeReportingGoals, workingHoursInRange, productionGoal, collectionGoal, goalPercent, goalIsConfigured } from '../src/utils/reporting-goals.util';
 import { paymentPlanReport } from '../src/utils/payment-plan-report.util';
@@ -33,6 +36,7 @@ beforeEach(() => {
   meta.patients.mockReset().mockResolvedValue({});
   meta.policies.mockReset().mockResolvedValue({});
   meta.providers.mockReset().mockResolvedValue({});
+  ids.getNextId.mockReset().mockResolvedValue(999n);
 });
 const now = new Date('2026-10-08T12:00:00Z');
 const patient = { PatNum: 1n, FName: 'Fixture', LName: 'Person', PatStatus: 0, BalTotal: 0, Birthdate: null };
@@ -70,7 +74,8 @@ describe('typed report filters and persisted data', () => {
     db.patplan.findMany.mockResolvedValue([{ PatNum: 1n, PatPlanNum: 10n, InsSubNum: 20n, Ordinal: 1, inssub: { insplan: { carrier: { CarrierName: 'Saved Payer' } } } }]);
     meta.policies.mockResolvedValue({ '10': { annualMax: 2000, renewalMonth: 7 } });
     db.claimproc.findMany.mockResolvedValue([{ PatNum: 1n, InsSubNum: 20n, DateCP: new Date('2026-08-01'), InsPayAmt: 250 }]);
-    db.appointment.findMany.mockResolvedValue([{ PatNum: 1n, AptStatus: 2, AptDateTime: new Date('2026-09-01') }, { PatNum: 1n, AptStatus: 1, IsHygiene: 1, AptDateTime: new Date('2026-11-01') }]);
+    // App mapping (mapAppointmentStatusToDb): 0 = scheduled, 1 = completed.
+    db.appointment.findMany.mockResolvedValue([{ PatNum: 1n, AptStatus: 1, AptDateTime: new Date('2026-09-01') }, { PatNum: 1n, AptStatus: 0, IsHygiene: 1, AptDateTime: new Date('2026-11-01') }]);
     expect((await patientReportRows([patient], now)).get('1')).toMatchObject({ payerName: 'Saved Payer', 'Ins Remain': 1750, lastAppt: '2026-09-01', nextRecareAppt: '2026-11-01', nextTreatmentAppt: null });
   });
   it('applies patient filters before pagination and returns the exact matching total', async () => {
