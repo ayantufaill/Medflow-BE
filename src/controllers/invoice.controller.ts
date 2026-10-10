@@ -50,7 +50,10 @@ export class InvoiceController {
   async getInvoiceById(req: Request, res: Response, next: NextFunction) {
     try {
       const invoiceId = req.params.invoiceId as string;
-      const result = await invoiceService.getInvoiceById(invoiceId);
+      // Voided procedures are only listed when explicitly asked for, so the
+      // default view stays clean.
+      const includeVoided = req.query.includeVoided === 'true';
+      const result = await invoiceService.getInvoiceById(invoiceId, includeVoided);
 
       if (req.userId) {
         await logActivityFromRequest(req, 'viewed', 'invoices', invoiceId);
@@ -161,6 +164,30 @@ export class InvoiceController {
       res.status(200).json({
         success: true,
         data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async voidInvoiceItem(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const invoiceId = req.params.invoiceId as string;
+      const itemId = req.params.itemId as string;
+      const reason = req.body.reason as string | undefined;
+      const result = await invoiceService.voidInvoiceItem(invoiceId, itemId, reason, req.userId);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+        message: 'Invoice item voided successfully',
       });
     } catch (error) {
       next(error);

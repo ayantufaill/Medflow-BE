@@ -1,4 +1,5 @@
 import { prisma } from '../config/db';
+import { resolveUserDisplayNames } from '../utils/user-display.util';
 
 export class FinanceDashboardService {
   async getLedgerByPatient(patientId: string) {
@@ -24,6 +25,16 @@ export class FinanceDashboardService {
 
     const ledger: any[] = [];
 
+    const statementCreator = (noteBold: string | null): string | null => {
+      if (!noteBold) return null;
+      try {
+        const meta = JSON.parse(noteBold);
+        return meta?.createdBy ? String(meta.createdBy) : null;
+      } catch {
+        return null;
+      }
+    };
+
     invoices.forEach(inv => {
       ledger.push({
         id: `inv_${inv.StatementNum.toString()}`,
@@ -32,6 +43,7 @@ export class FinanceDashboardService {
         description: inv.Note || 'Invoice Generated',
         charges: Number(inv.BalTotal) || 0,
         credits: 0,
+        createdBy: statementCreator(inv.NoteBold),
       });
     });
 
@@ -52,6 +64,7 @@ export class FinanceDashboardService {
         description: `Payment - ${method}`,
         charges: 0,
         credits: Number(pay.PayAmt) || 0,
+        createdBy: pay.SecUserNumEntry ? pay.SecUserNumEntry.toString() : null,
       });
     });
 
@@ -64,8 +77,11 @@ export class FinanceDashboardService {
         description: adj.AdjNote || 'Adjustment',
         charges: amt > 0 ? amt : 0,
         credits: amt < 0 ? Math.abs(amt) : 0,
+        createdBy: adj.SecUserNumEntry ? adj.SecUserNumEntry.toString() : null,
       });
     });
+
+    const nameMap = await resolveUserDisplayNames(ledger.map(e => e.createdBy));
 
     // Sort ascending by date to calculate running balance
     ledger.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -75,6 +91,7 @@ export class FinanceDashboardService {
       balance += entry.charges - entry.credits;
       return {
         ...entry,
+        createdByName: entry.createdBy ? nameMap[entry.createdBy] ?? null : null,
         balance
       };
     });

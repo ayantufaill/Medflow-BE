@@ -3,6 +3,7 @@ import { NotFoundError, BadRequestError } from '../utils/error.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { mapPatientToApi } from '../utils/opendental-mappers.util';
+import { resolveUserDisplayNames } from '../utils/user-display.util';
 import { staffNotificationService } from './staffNotification.service';
 import { invoiceService } from './invoice.service';
 import { claimService } from './claim.service';
@@ -47,6 +48,8 @@ type PaymentMeta = {
   appliedCreditAmount?: number;
       isPartialPayment?: boolean;
       claimStatus?: string;
+      claimId?: string;
+      previousClaimStatus?: string;
       overpaymentAmount?: number;
   overpaymentAction?: 'credit' | 'refund' | null;
 };
@@ -87,12 +90,19 @@ export class PaymentService {
       branchNo: row.BankBranch ?? null,
       isAccountCredit: meta.isAccountCredit ?? false,
       appliedCreditAmount: meta.appliedCreditAmount ?? undefined,
+      splits: (row.paysplit || []).map((split: any) => ({
+        id: split.SplitNum?.toString() ?? null,
+        procedureId: split.ProcNum?.toString() ?? null,
+        amount: Number(split.SplitAmt) || 0,
+        date: split.DatePay ?? null,
+      })),
       isDeposit,
       isPatientDeposit,
       depositType: meta.depositType ?? (isDeposit ? 'patient' : null),
       voidReason: meta.voidReason ?? null,
       voidedAt: meta.voidedAt ?? null,
       isPartialPayment: Boolean(meta.isPartialPayment),
+      createdBy: row.SecUserNumEntry?.toString() ?? null,
     };
   }
 
@@ -109,17 +119,21 @@ export class PaymentService {
   }
 
   private async enrichPayment(payment: any) {
-    const [patient, invoice] = await Promise.all([
+    const [patient, invoice, createdByNameMap] = await Promise.all([
       payment.patientId && /^\d+$/.test(payment.patientId)
         ? prisma.patient.findUnique({ where: { PatNum: BigInt(payment.patientId) } })
         : null,
       payment.invoiceId && /^\d+$/.test(payment.invoiceId)
         ? prisma.statement.findUnique({ where: { StatementNum: BigInt(payment.invoiceId) } })
         : null,
+      payment.createdBy && payment.createdByName === undefined
+        ? resolveUserDisplayNames([payment.createdBy])
+        : Promise.resolve({} as Record<string, string>),
     ]);
 
     return {
       ...payment,
+      createdByName: payment.createdByName ?? (payment.createdBy ? createdByNameMap[payment.createdBy] ?? null : null),
       patient: patient ? mapPatientToApi(patient) : null,
       invoice: invoice ? this.mapInvoiceSummary(invoice) : null,
     };
@@ -213,8 +227,11 @@ export class PaymentService {
     const patientMap = new Map(patients.map((p) => [p.PatNum.toString(), p]));
     const invoiceMap = new Map(invoices.map((i) => [i.StatementNum.toString(), i]));
 
+    const createdByNameMap = await resolveUserDisplayNames(payments.map((p: any) => p.createdBy));
+
     payments = payments.map((payment: any) => ({
       ...payment,
+      createdByName: createdByNameMap[payment.createdBy] ?? null,
       patient: payment.patientId && patientMap.has(payment.patientId)
         ? mapPatientToApi(patientMap.get(payment.patientId)!)
         : null,
@@ -263,6 +280,10 @@ export class PaymentService {
       paymentDate?: string;
       overpaymentAmount?: number;
       overpaymentAction?: 'credit' | 'refund' | null;
+      isPartialPayment?: boolean;
+      claimStatus?: string;
+      claimId?: string;
+      previousClaimStatus?: string;
       procedures?: Array<{
         id?: string;
         procId?: string;
@@ -352,6 +373,8 @@ export class PaymentService {
           appliedCreditAmount: isAccountCredit ? data.amount : undefined,
           isPartialPayment: Boolean((data as any).isPartialPayment),
           claimStatus: (data as any).claimStatus ?? null,
+          claimId: (data as any).claimId ?? null,
+          previousClaimStatus: (data as any).previousClaimStatus ?? null,
           overpaymentAmount: data.overpaymentAmount ?? 0,
           overpaymentAction: data.overpaymentAction ?? null,
         }),
@@ -741,6 +764,56 @@ export class PaymentService {
                   ProcDate: currentProc.ProcDate ?? new Date(),
                   DateEntry: new Date(),
                   AdjNote: adjNote,
+                  SecUserNumEntry: isNaN(Number(userId)) ? undefined : BigInt(userId),
+                },
+              });
+            }
+
+            // Post the insurance write-off as a formal adjustment row so it
+            // shows up in the ledger as an "Insurance W/O" entry (exactly like
+            // the Income Transfer row above) and feeds the invoice's Applied
+            // W/O total. The claimproc WriteOff is a contract amount, not a
+            // running total, so re-adjudicating the same procedure with a
+            // DIFFERENT write-off must UPDATE the prior adjustment (or clear it
+            // when the write-off drops to $0) — never post a second one, which
+            // would inflate Applied W/O.
+            const woStatementNum = currentProc.StatementNum;
+            const existingInsWo = await prisma.adjustment.findFirst({
+              where: {
+                ProcNum: procNum,
+                AdjNote: { contains: 'Insurance W/O' },
+              },
+            });
+            if (existingInsWo && appliedWo <= 0.005) {
+              // Write-off eliminated on re-adjudication — remove the stale entry.
+              await prisma.adjustment.delete({ where: { AdjNum: existingInsWo.AdjNum } });
+            } else if (existingInsWo) {
+              await prisma.adjustment.update({
+                where: { AdjNum: existingInsWo.AdjNum },
+                data: {
+                  AdjAmt: -appliedWo,
+                  AdjDate: resolvedPaidAt,
+                  ProcDate: currentProc.ProcDate ?? new Date(),
+                  DateEntry: new Date(),
+                  AdjNote: `Invoice #${woStatementNum ?? existingInsWo.StatementNum ?? ''} - Insurance W/O: $${appliedWo.toFixed(2)}`,
+                  ...(woStatementNum ? { StatementNum: woStatementNum } : {}),
+                  SecUserNumEntry: isNaN(Number(userId)) ? undefined : BigInt(userId),
+                },
+              });
+            } else if (appliedWo > 0.005 && woStatementNum) {
+              const woAdjNum = await getNextId('adjustment', 'AdjNum');
+              await prisma.adjustment.create({
+                data: {
+                  AdjNum: woAdjNum,
+                  PatNum: currentProc.PatNum,
+                  ProvNum: currentProc.ProvNum ?? undefined,
+                  ProcNum: procNum,
+                  StatementNum: woStatementNum,
+                  AdjAmt: -appliedWo,
+                  AdjDate: resolvedPaidAt,
+                  ProcDate: currentProc.ProcDate ?? new Date(),
+                  DateEntry: new Date(),
+                  AdjNote: `Invoice #${woStatementNum} - Insurance W/O: $${appliedWo.toFixed(2)}`,
                   SecUserNumEntry: isNaN(Number(userId)) ? undefined : BigInt(userId),
                 },
               });
@@ -1258,22 +1331,64 @@ export class PaymentService {
       return depositService.voidDeposit(paymentId, { reason }, userId);
     }
 
-    // Deduct paysplit amounts from procedurelog BillingNote if present
+    const isInsurancePayment = meta.paymentSource === 'insurance_company';
+    const reopenedClaimIds = new Set<string>();
+
+    // Deduct paysplit amounts from procedurelog BillingNote if present. For
+    // insurance payments also reverse the claim-procedure rows the payment
+    // posted (InsPayAmt/Status) so procedures stop counting as paid.
     if (payment.paysplit && payment.paysplit.length > 0) {
       for (const ps of payment.paysplit) {
-        if (ps.ProcNum && Number(ps.SplitAmt) > 0) {
+        const splitAmt = Number(ps.SplitAmt);
+        if (ps.ProcNum && splitAmt > 0) {
           const proc = await prisma.procedurelog.findUnique({ where: { ProcNum: ps.ProcNum } });
           if (proc?.BillingNote) {
             const bn = parseJson<any>(proc.BillingNote);
             const currentPaid = Number(bn?.paidAmount || 0);
-            const newPaid = Math.max(0, Math.round((currentPaid - Number(ps.SplitAmt)) * 100) / 100);
+            const newPaid = Math.max(0, Math.round((currentPaid - splitAmt) * 100) / 100);
+            const nextBn: any = { ...bn, paidAmount: newPaid };
+            if (isInsurancePayment) {
+              const currentInsPaid = Number(bn?.insurancePaidAmount || 0);
+              nextBn.insurancePaidAmount = Math.max(0, Math.round((currentInsPaid - splitAmt) * 100) / 100);
+            }
             await prisma.procedurelog.update({
               where: { ProcNum: ps.ProcNum },
-              data: { BillingNote: buildJson({ ...bn, paidAmount: newPaid }) },
+              data: { BillingNote: buildJson(nextBn) },
             });
+          }
+
+          if (isInsurancePayment) {
+            const claimNumBig = meta.claimId ? toBigInt(meta.claimId) : null;
+            let claimProcs = await prisma.claimproc.findMany({
+              where: {
+                ProcNum: ps.ProcNum,
+                Status: 1,
+                ...(claimNumBig ? { ClaimNum: claimNumBig } : {}),
+              },
+            });
+            // Without a stored claim link, only reverse when the procedure maps
+            // to a single received claim — otherwise we could touch the wrong
+            // claim's procedures.
+            if (!meta.claimId && claimProcs.length !== 1) {
+              claimProcs = [];
+            }
+            for (const cp of claimProcs) {
+              const newInsPay = Math.max(0, Math.round(((Number(cp.InsPayAmt) || 0) - splitAmt) * 100) / 100);
+              await prisma.claimproc.update({
+                where: { ClaimProcNum: cp.ClaimProcNum },
+                data: newInsPay <= 0.005
+                  ? { InsPayAmt: 0, Status: 0, DateCP: null }
+                  : { InsPayAmt: newInsPay },
+              });
+              if (cp.ClaimNum) reopenedClaimIds.add(cp.ClaimNum.toString());
+            }
           }
         }
       }
+    }
+
+    if (isInsurancePayment && meta.claimId) {
+      reopenedClaimIds.add(String(meta.claimId));
     }
 
     const updatedPayment = await this.updatePayment(
@@ -1284,6 +1399,24 @@ export class PaymentService {
       },
       userId
     );
+
+    // Reopen any claim this payment had closed so its amount is offered again
+    // in the insurance payment dialog.
+    if (isInsurancePayment) {
+      for (const claimId of reopenedClaimIds) {
+        try {
+          await claimService.reopenClaimAfterVoid(claimId, {
+            previousStatus: meta.previousClaimStatus,
+            note: reason
+              ? `Claim reopened: insurance payment voided (${reason})`
+              : 'Claim reopened: insurance payment voided',
+            userId,
+          });
+        } catch (err) {
+          console.error(`[PaymentService] Error reopening claim ${claimId} after void:`, err);
+        }
+      }
+    }
 
     if (meta.invoiceId) {
       try {
