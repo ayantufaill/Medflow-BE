@@ -2910,24 +2910,43 @@ export class InvoiceService {
           include: { payment: true },
         })
       : [];
-    const paysplitByProcNum = new Map<string, number>();
+    // Split paysplits into insurance vs patient buckets so we can compute the
+    // correct outstanding patient balance independently of insurance payments.
+    const insPaidByProcNum = new Map<string, number>();
+    const ptPaidByProcNum = new Map<string, number>();
     procPaysplits.forEach((ps) => {
       if (ps.ProcNum) {
         const key = ps.ProcNum.toString();
         const pNote = parseJson<any>(ps.payment?.PayNote);
         const st = String(pNote?.status || '').toLowerCase();
-        if (st !== 'void' && st !== 'voided' && st !== 'reversed') {
-          paysplitByProcNum.set(key, (paysplitByProcNum.get(key) || 0) + (Number(ps.SplitAmt) || 0));
+        if (st === 'void' || st === 'voided' || st === 'reversed') return;
+        const isIns =
+          ps.payment?.PayNote?.includes('"insurance_company"') ||
+          String(pNote?.paymentSource || '').toLowerCase() === 'insurance_company' ||
+          String(pNote?.method || '').toLowerCase() === 'insurance';
+        const amt = Number(ps.SplitAmt) || 0;
+        if (isIns) {
+          insPaidByProcNum.set(key, (insPaidByProcNum.get(key) || 0) + amt);
+        } else {
+          ptPaidByProcNum.set(key, (ptPaidByProcNum.get(key) || 0) + amt);
         }
       }
     });
+    // Keep combined map for paidAmount on BillingNote (used by ledger display)
+    const paysplitByProcNum = new Map<string, number>();
+    for (const [k, v] of insPaidByProcNum) paysplitByProcNum.set(k, (paysplitByProcNum.get(k) || 0) + v);
+    for (const [k, v] of ptPaidByProcNum)  paysplitByProcNum.set(k, (paysplitByProcNum.get(k) || 0) + v);
 
     let totalPaid = 0;
+    let totalInsPaidFromSplits = 0;
+    let totalPtPaidFromSplits = 0;
     for (const item of items) {
       const itemMeta = parseJson<any>(item.BillingNote);
       const splitTotal = paysplitByProcNum.get(item.ProcNum.toString());
       const itemPaid = splitTotal !== undefined ? roundCurrency(splitTotal) : (Number(itemMeta.paidAmount) || 0);
       totalPaid += itemPaid;
+      totalInsPaidFromSplits += insPaidByProcNum.get(item.ProcNum.toString()) || 0;
+      totalPtPaidFromSplits  += ptPaidByProcNum.get(item.ProcNum.toString())  || 0;
       if (itemMeta.paidAmount !== itemPaid) {
         itemMeta.paidAmount = itemPaid;
         item.BillingNote = buildJson(itemMeta);
@@ -2938,6 +2957,8 @@ export class InvoiceService {
       }
     }
     totalPaid = roundCurrency(totalPaid);
+    totalInsPaidFromSplits = roundCurrency(totalInsPaidFromSplits);
+    totalPtPaidFromSplits  = roundCurrency(totalPtPaidFromSplits);
 
     // Fetch all formally posted adjustments associated with this invoice
     const adjustments = await db.adjustment.findMany({
@@ -2957,10 +2978,11 @@ export class InvoiceService {
       return sum + Math.abs(Number(adj.AdjAmt) || 0);
     }, 0);
 
-    // Balance due is the gross charge (subtotal) minus payments only.
-    // Write-offs/adjustments are tracked separately and shown as a separate payable line item.
-    // This shows the gross charge as the balance, with write-offs tracked as a separate payable amount.
-    const balanceDue = roundCurrency(Math.max(0, subtotal - totalPaid));
+    // Invoice balance = what the patient still owes.
+    // patientPortion is the patient's share of the charge after insurance and write-offs.
+    // We subtract only patient paysplits (not insurance payments) to get the true
+    // remaining balance the patient has to pay.
+    const balanceDue = roundCurrency(Math.max(0, patientPortion - totalPtPaidFromSplits));
     const nextMeta: StatementMeta = {
       ...meta,
       totalAmount: roundCurrency(totalAmount),
