@@ -90,6 +90,12 @@ export class PaymentService {
       branchNo: row.BankBranch ?? null,
       isAccountCredit: meta.isAccountCredit ?? false,
       appliedCreditAmount: meta.appliedCreditAmount ?? undefined,
+      splits: (row.paysplit || []).map((split: any) => ({
+        id: split.SplitNum?.toString() ?? null,
+        procedureId: split.ProcNum?.toString() ?? null,
+        amount: Number(split.SplitAmt) || 0,
+        date: split.DatePay ?? null,
+      })),
       isDeposit,
       isPatientDeposit,
       depositType: meta.depositType ?? (isDeposit ? 'patient' : null),

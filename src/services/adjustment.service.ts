@@ -127,6 +127,7 @@ export class AdjustmentService {
       providerId?: string;
       notes?: string;
       invoiceId?: string;
+      procedureId?: string;
     },
     userId: string
   ) {
@@ -168,8 +169,11 @@ export class AdjustmentService {
       }
     }
 
-    let finalProcNum: bigint | undefined = undefined;
-    if (statementNum) {
+    let finalProcNum: bigint | undefined =
+      data.procedureId && /^\d+$/.test(data.procedureId)
+        ? BigInt(data.procedureId)
+        : undefined;
+    if (statementNum && !finalProcNum) {
       const proc = await prisma.procedurelog.findFirst({
         where: { StatementNum: statementNum },
         orderBy: { ProcDate: 'desc' }

@@ -143,6 +143,10 @@ export const createInvoiceItemValidator: ValidationChain[] = [
     .optional()
     .isLength({ min: 1, max: 20 })
     .withMessage('CPT code format is invalid'),
+  body('addClaim')
+    .optional()
+    .isBoolean()
+    .withMessage('addClaim must be a boolean'),
 ];
 
 export const updateInvoiceItemValidator: ValidationChain[] = [

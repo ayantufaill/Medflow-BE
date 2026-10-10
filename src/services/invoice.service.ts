@@ -2156,6 +2156,7 @@ export class InvoiceService {
       unitPrice?: number;
       description?: string;
       cptCode?: string;
+      addClaim?: boolean;
     },
     userId: string
   ) {
@@ -2216,8 +2217,11 @@ export class InvoiceService {
     const updatedItem = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
     await logActivity(userId, 'created', 'invoice_items', item.ProcNum.toString(), undefined, updatedItem || item, undefined, undefined, 'low');
 
-    // AUTO-GENERATE CLAIM after adding item (if not already generated)
-    this.triggerClaimGeneration(invoice.StatementNum, invoice.PatNum, userId);
+    // Generate a claim only when the caller explicitly requests it. Adding a
+    // procedure to an existing invoice should not imply claim creation.
+    if (data.addClaim === true) {
+      this.triggerClaimGeneration(invoice.StatementNum, invoice.PatNum, userId);
+    }
 
     return this.mapProcedureLogToInvoiceItem(updatedItem || item, invoiceId, service);
   }

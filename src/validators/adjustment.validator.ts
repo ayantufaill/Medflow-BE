@@ -48,6 +48,14 @@ export const createAdjustmentValidator: ValidationChain[] = [
     .optional()
     .isInt({ min: 1 })
     .withMessage('Invalid type format (DefNum)'),
+  body('invoiceId')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Invalid invoice ID format'),
+  body('procedureId')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Invalid procedure ID format'),
   body('notes').optional().isString().withMessage('Notes must be a string'),
 ];
 

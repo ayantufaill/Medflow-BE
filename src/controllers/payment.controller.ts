@@ -175,6 +175,36 @@ export class PaymentController {
     }
   }
 
+  async updatePayment(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const paymentId = req.params.paymentId as string;
+      const existingPayment = await paymentService.getPaymentById(paymentId);
+      const paidAt = existingPayment.paidAt ? new Date(existingPayment.paidAt as unknown as string) : new Date();
+      await assertNotLocked(req.userId, 'payments.update', paidAt, req.branchAccess!);
+
+      const updates = {
+        ...req.body,
+        paidAt: req.body.paidAt ? new Date(req.body.paidAt) : undefined,
+      };
+      const payment = await paymentService.updatePayment(paymentId, updates, req.userId);
+
+      res.status(200).json({
+        success: true,
+        data: { payment },
+        message: 'Payment updated successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async voidPayment(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.userId) {
