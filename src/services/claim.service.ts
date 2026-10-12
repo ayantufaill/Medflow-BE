@@ -109,6 +109,8 @@ type ClaimMeta = {
   isLocked?: boolean;
   lockedDate?: string;
   lockedBy?: string | null;
+  updatedBy?: string | null;
+  updatedAt?: string | null;
 };
 
 type ClaimFilters = {
@@ -442,8 +444,9 @@ export class ClaimService {
       policyNumber: meta.policyNumber ?? row.RefNumString ?? null,
       notes: meta.notes ?? row.ClaimNote ?? null,
       createdAt: row.SecDateEntry ?? row.DateService ?? null,
-      updatedAt: row.SecDateTEdit ?? row.DateService ?? null,
+      updatedAt: meta.updatedAt ? new Date(meta.updatedAt) : row.SecDateTEdit ?? null,
       createdBy: row.SecUserNumEntry?.toString() ?? null,
+      updatedBy: meta.updatedBy ?? null,
       procedures: context.procedures ?? [],
       procedureIds: meta.procedureIds ?? (Array.isArray(meta.procedures) ? meta.procedures.map((p: any) => typeof p === 'string' ? p : p.code || p.id || p._id).filter(Boolean) : []),
       selectedItems: meta.selectedItems || [],
@@ -970,9 +973,11 @@ export class ClaimService {
     });
 
     const createdByNameMap = await resolveUserDisplayNames(claims.map((c: any) => c.createdBy));
+    const updatedByNameMap = await resolveUserDisplayNames(claims.map((c: any) => c.updatedBy));
     claims = claims.map((c: any) => ({
       ...c,
       createdByName: c.createdBy ? createdByNameMap[c.createdBy] ?? null : null,
+      updatedByName: c.updatedBy ? updatedByNameMap[c.updatedBy] ?? null : null,
     }));
 
     if (filters.invoiceId) {
@@ -1268,8 +1273,12 @@ export class ClaimService {
     });
 
     const createdByNameMap = await resolveUserDisplayNames([(claim as any).createdBy]);
+    const updatedByNameMap = await resolveUserDisplayNames([(claim as any).updatedBy]);
     (claim as any).createdByName = (claim as any).createdBy
       ? createdByNameMap[(claim as any).createdBy] ?? null
+      : null;
+    (claim as any).updatedByName = (claim as any).updatedBy
+      ? updatedByNameMap[(claim as any).updatedBy] ?? null
       : null;
 
     const attachments = await this.getClaimDocuments(claimId);
@@ -2605,6 +2614,8 @@ export class ClaimService {
       corrections: updates.corrections ?? currentMeta.corrections,
       remittanceDate: updates.remittanceDate ?? currentMeta.remittanceDate,
       insurancePaymentAmount: updates.insurancePaymentAmount ?? currentMeta.insurancePaymentAmount,
+      updatedAt: new Date().toISOString(),
+      updatedBy: userId ?? null,
     };
 
     // Deductible lifecycle is bound to the claim's status, not its creation.
@@ -2635,6 +2646,7 @@ export class ClaimService {
             ? (nextMeta.paidDate ? new Date(nextMeta.paidDate) : new Date())
             : existing.DateReceived,
         ClaimNote: updates.notes ?? undefined,
+        SecDateTEdit: new Date(),
         Narrative: buildJson({ ...nextMeta, ...dedFields }),
       },
       include: { patient: true },
@@ -2928,6 +2940,9 @@ export class ClaimService {
       uploadedBy: userId ?? null,
       checksum: crypto.createHash('sha256').update(file.buffer).digest('hex'),
     };
+    const claimMeta = parseJson<ClaimMeta>(claim.Narrative);
+    claimMeta.updatedAt = new Date().toISOString();
+    claimMeta.updatedBy = userId ?? null;
 
     const created = await prisma.document.create({
       data: {
@@ -2938,6 +2953,13 @@ export class ClaimService {
         Note: buildJson(meta),
         DateCreated: new Date(),
         UserNum: userId && /^\d+$/.test(userId) ? BigInt(userId) : null,
+      },
+    });
+    await prisma.claim.update({
+      where: { ClaimNum: claim.ClaimNum },
+      data: {
+        SecDateTEdit: new Date(),
+        Narrative: buildJson(claimMeta),
       },
     });
 
@@ -2962,7 +2984,7 @@ export class ClaimService {
       .map((doc) => mapDocument(doc, claimId));
   }
 
-  async removeClaimDocument(claimId: string, documentId: string) {
+  async removeClaimDocument(claimId: string, documentId: string, userId?: string) {
     const claim = await this.getClaimRecord(claimId);
 
     const doc = await prisma.document.findUnique({
@@ -2988,6 +3010,16 @@ export class ClaimService {
       });
       await deleteFromS3(String(meta.storagePath));
     }
+    const claimMeta = parseJson<ClaimMeta>(claim.Narrative);
+    claimMeta.updatedAt = new Date().toISOString();
+    claimMeta.updatedBy = userId ?? null;
+    await prisma.claim.update({
+      where: { ClaimNum: claim.ClaimNum },
+      data: {
+        SecDateTEdit: new Date(),
+        Narrative: buildJson(claimMeta),
+      },
+    });
 
     return { message: 'Document removed successfully' };
   }
@@ -3489,10 +3521,13 @@ export class ClaimService {
     };
 
     meta.eobs.push(newEob);
+    meta.updatedAt = new Date().toISOString();
+    meta.updatedBy = userId ?? null;
 
     await prisma.claim.update({
       where: { ClaimNum: claim.ClaimNum },
       data: {
+        SecDateTEdit: new Date(),
         Narrative: JSON.stringify(meta),
       },
     });
@@ -3500,7 +3535,7 @@ export class ClaimService {
     return { message: 'EOB uploaded successfully', storagePath, eob: newEob, eobs: meta.eobs };
   }
 
-  async deleteClaimEOB(claimId: string, eobId: string) {
+  async deleteClaimEOB(claimId: string, eobId: string, userId?: string) {
     const claim = await prisma.claim.findUnique({
       where: { ClaimNum: BigInt(claimId) },
     });
@@ -3513,10 +3548,13 @@ export class ClaimService {
     if (Array.isArray(meta.eobs)) {
       meta.eobs = meta.eobs.filter((e: any) => e.id !== eobId);
     }
+    meta.updatedAt = new Date().toISOString();
+    meta.updatedBy = userId ?? null;
 
     await prisma.claim.update({
       where: { ClaimNum: claim.ClaimNum },
       data: {
+        SecDateTEdit: new Date(),
         Narrative: JSON.stringify(meta),
       },
     });
@@ -4627,6 +4665,9 @@ export class ClaimService {
     const claim = await this.getClaimRecord(claimId);
 
     const attachments = [];
+    const claimMeta = parseJson<ClaimMeta>(claim.Narrative);
+    claimMeta.updatedAt = new Date().toISOString();
+    claimMeta.updatedBy = userId ?? null;
 
     for (const file of files) {
       // 1. Upload to S3
@@ -4671,6 +4712,13 @@ export class ClaimService {
 
       attachments.push(mapDocument(createdDoc, claimId));
     }
+    await prisma.claim.update({
+      where: { ClaimNum: claim.ClaimNum },
+      data: {
+        SecDateTEdit: new Date(),
+        Narrative: buildJson(claimMeta),
+      },
+    });
 
     return attachments;
   }

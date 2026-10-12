@@ -46,12 +46,13 @@ type PaymentMeta = {
   depositType?: string;
   isAccountCredit?: boolean;
   appliedCreditAmount?: number;
-      isPartialPayment?: boolean;
-      claimStatus?: string;
-      claimId?: string;
-      previousClaimStatus?: string;
-      overpaymentAmount?: number;
+  isPartialPayment?: boolean;
+  claimStatus?: string;
+  claimId?: string;
+  previousClaimStatus?: string;
+  overpaymentAmount?: number;
   overpaymentAction?: 'credit' | 'refund' | null;
+  suppressLedgerPaymentEntry?: boolean;
 };
 
 export class PaymentService {
@@ -102,6 +103,7 @@ export class PaymentService {
       voidReason: meta.voidReason ?? null,
       voidedAt: meta.voidedAt ?? null,
       isPartialPayment: Boolean(meta.isPartialPayment),
+      suppressLedgerPaymentEntry: Boolean(meta.suppressLedgerPaymentEntry),
       createdBy: row.SecUserNumEntry?.toString() ?? null,
     };
   }
@@ -188,7 +190,9 @@ export class PaymentService {
       prisma.payment.count({ where }),
     ]);
 
-    let payments = rows.map((row) => this.mapPaymentToApi(row));
+    let payments = rows
+      .map((row) => this.mapPaymentToApi(row))
+      .filter((payment: any) => !payment.suppressLedgerPaymentEntry);
     if (filters.paymentMethod) {
       payments = payments.filter((payment) => payment.method === filters.paymentMethod);
     }
@@ -280,6 +284,7 @@ export class PaymentService {
       paymentDate?: string;
       overpaymentAmount?: number;
       overpaymentAction?: 'credit' | 'refund' | null;
+      suppressLedgerPaymentEntry?: boolean;
       isPartialPayment?: boolean;
       claimStatus?: string;
       claimId?: string;
@@ -377,6 +382,7 @@ export class PaymentService {
           previousClaimStatus: (data as any).previousClaimStatus ?? null,
           overpaymentAmount: data.overpaymentAmount ?? 0,
           overpaymentAction: data.overpaymentAction ?? null,
+          suppressLedgerPaymentEntry: Boolean(data.suppressLedgerPaymentEntry),
         }),
         CheckNum: data.chequeNo ?? null,
         BankBranch: data.branchNo ?? null,
