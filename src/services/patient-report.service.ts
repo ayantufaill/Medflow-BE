@@ -105,17 +105,23 @@ function getTotalProbingSites(toothData: any): number {
 
 // ─── Section builders ───────────────────────────────────────────────
 
-function buildPeriodontalHealth(perioExam: any, radioExam: any) {
+export function buildPeriodontalHealth(perioExam: any, radioExam: any) {
   const defaultSection = {
-    score: 100,
-    status: 'good' as const,
+    score: null as number | null,
+    status: 'not_assessed',
     title: 'Gum & Bone Health',
     issues: [] as string[],
-    description: 'No significant periodontal concerns detected.',
+    description: 'No periodontal measurements or diagnosis have been recorded.',
     explanations: [] as string[],
   };
 
-  if (!perioExam?.examData) return defaultSection;
+  const source = perioExam ? {
+    examId: perioExam.id,
+    appointmentId: perioExam.appointmentId,
+    examDate: perioExam.examDate ?? null,
+    savedAt: perioExam.updatedAt ?? perioExam.createdAt ?? null,
+  } : null;
+  if (!perioExam?.examData) return { ...defaultSection, assessed: false, source };
 
   const chartData = perioExam.examData.chartData ?? perioExam.examData;
   const bleedingTeeth: string[] = [];
@@ -124,22 +130,72 @@ function buildPeriodontalHealth(perioExam: any, radioExam: any) {
   const mobilityTeeth: string[] = [];
   const missingTeeth: string[] = [];
 
+  const missing = perioExam.examData.missingTeeth ?? radioExam?.examData?.missingTeeth ?? [];
+  if (Array.isArray(missing)) {
+    missingTeeth.push(...new Set(missing.map(String).filter(t => TOOTH_NUMBERS.includes(t))));
+  }
+  const numberValue = (value: any): number | null => {
+    if ((typeof value !== 'string' && typeof value !== 'number') || String(value).trim() === '') return null;
+    return Number.isFinite(Number(value)) ? Number(value) : null;
+  };
+  const measurements: any[] = [];
+  let measuredSites = 0;
+  let bleedingSites = 0;
+  let recessionSites = 0;
+  let deepPocketSites = 0;
+  let maxProbingDepth: number | null = null;
+  const furcationTeeth: string[] = [];
+  const plaqueTeeth: string[] = [];
+  const calculusTeeth: string[] = [];
+  const suppurationTeeth: string[] = [];
+
   for (const tooth of TOOTH_NUMBERS) {
     const td = chartData[tooth];
-    if (!td) continue;
+    if (!td || missingTeeth.includes(tooth)) continue;
+    for (const side of ['facial', 'lingual']) {
+      const data = td[side];
+      if (!data) continue;
+      const values = (key: string) => Array.from({ length: 3 }, (_, i) => numberValue(data[key]?.[i]));
+      const probe = values('probe');
+      const recession = values('recession');
+      const attachment = values('attachment');
+      const bleeding = [0, 1, 2].filter(i => Array.isArray(data.bleeding) && data.bleeding.includes(i));
+      const pcs = ['P', 'C', 'S'].filter(v => Array.isArray(data.pcs) && data.pcs.includes(v));
+      const mobility = ['none', '0', '1', '2', '3'].includes(String(data.mobility)) ? String(data.mobility) : null;
+      const furcation = ['none', '0', '1', '2', '3'].includes(String(data.furcation)) ? String(data.furcation) : null;
+      // Empty arrays and unrecorded fields are not evidence of a normal exam.
+      if (![...probe, ...recession, ...attachment].some(v => v !== null) &&
+          !bleeding.length && !pcs.length && !mobility && !furcation) continue;
+      measurements.push({ tooth, side, probe, recession, attachment, bleeding, pcs, mobility, furcation });
+      for (const depth of probe) {
+        if (depth === null || depth < 0) continue;
+        measuredSites++;
+        maxProbingDepth = Math.max(maxProbingDepth ?? depth, depth);
+        if (depth >= 5) deepPocketSites++;
+      }
+      bleedingSites += bleeding.length;
+      recessionSites += recession.filter(v => v !== null && v > 0).length;
+      if (furcation && !['none', '0'].includes(furcation)) furcationTeeth.push(tooth);
+      if (pcs.includes('P')) plaqueTeeth.push(tooth);
+      if (pcs.includes('C')) calculusTeeth.push(tooth);
+      if (pcs.includes('S')) suppurationTeeth.push(tooth);
+    }
     if (hasBleedingOnTooth(td)) bleedingTeeth.push(tooth);
     if (hasRecessionOnTooth(td)) recessionTeeth.push(tooth);
     if (hasDeepProbingOnTooth(td)) boneLossTeeth.push(tooth);
     if (hasMobility(td)) mobilityTeeth.push(tooth);
   }
 
-  // Augment with radiographic missing teeth
-  if (radioExam?.examData?.missingTeeth) {
-    const mt = radioExam.examData.missingTeeth;
-    if (Array.isArray(mt)) {
-      missingTeeth.push(...mt.map(String));
-    }
-  }
+  const savedDiagnosis = perioExam.examData.diagnosis;
+  const diagnosis = ['healthy', 'gingivitis', 'periodontitis'].includes(savedDiagnosis?.type)
+    ? savedDiagnosis : null;
+  const assessed = measurements.length > 0 || diagnosis !== null;
+  const details = {
+    assessed, source, diagnosis, measurements, missingTeeth,
+    summary: { measuredSites, totalSites: (32 - missingTeeth.length) * 6,
+      bleedingSites, recessionSites, deepPocketSites, maxProbingDepth },
+  };
+  if (!assessed) return { ...defaultSection, ...details };
 
   const issues: string[] = [];
   const explanations: string[] = [];
@@ -163,17 +219,25 @@ function buildPeriodontalHealth(perioExam: any, radioExam: any) {
   if (missingTeeth.length > 0) {
     issues.push(`Missing teeth: ${missingTeeth.join(', ')}`);
   }
+  for (const [label, teeth] of [
+    ['Furcation involvement', furcationTeeth], ['Plaque', plaqueTeeth],
+    ['Calculus', calculusTeeth], ['Suppuration', suppurationTeeth],
+  ] as [string, string[]][]) {
+    if (teeth.length) issues.push(`${label}: teeth ${[...new Set(teeth)].join(', ')}`);
+  }
 
   const critical = boneLossTeeth.length + mobilityTeeth.length;
   const moderate = bleedingTeeth.length;
   const minor = recessionTeeth.length;
-  const score = calculateScore(critical, moderate, minor);
-  const status = getStatus(score);
+  const score = measurements.length ? calculateScore(critical, moderate, minor) : null;
+  const status = score === null ? 'recorded' : getStatus(score);
   const description = issues.length > 0
     ? 'Periodontal concerns were identified that require attention.'
-    : defaultSection.description;
+    : diagnosis
+      ? 'The clinician-recorded diagnosis is shown below. Unrecorded sites have not been assessed.'
+      : 'No concerns detected in the recorded measurements. Unrecorded sites have not been assessed.';
 
-  return { score, status, title: defaultSection.title, issues, description, explanations };
+  return { score, status, title: defaultSection.title, issues, description, explanations, ...details };
 }
 
 function buildToothStructure(toothExam: any, radioExam: any) {
@@ -551,7 +615,7 @@ function buildConcerns(riskAssessment: Record<string, any>) {
   };
 
   let lowestScore = 100;
-  let lowestKey = 'gumHealth';
+  let lowestKey = riskAssessment.gumHealth?.assessed === false ? '' : 'gumHealth';
 
   for (const key of sections) {
     const section = riskAssessment[key];
@@ -655,11 +719,12 @@ export class PatientReportService {
       }
     } else {
       // Fetch appointment date for the provided ID
-      const apt = await prisma.appointment.findUnique({
-        where: { AptNum: BigInt(aptId) },
+      const apt = await prisma.appointment.findFirst({
+        where: { AptNum: BigInt(aptId), PatNum: patNum },
         select: { AptDateTime: true },
       });
-      aptDateTime = apt?.AptDateTime ?? null;
+      if (!apt) throw new NotFoundError('Appointment not found for this patient');
+      aptDateTime = apt.AptDateTime;
     }
 
     // Step 2: Fetch all exams in parallel
@@ -706,7 +771,26 @@ export class PatientReportService {
     }
 
     // Step 5: Build report sections
-    const gumHealth = buildPeriodontalHealth(periodontal, radiographic);
+    // Periodontal reports have their own source. An unrelated newer exam must
+    // not hide a saved chart, and a requested appointment must never fall back.
+    const savedPerio = await prisma.examperiodontal.findFirst({
+      where: { PatNum: patNum, appointment: { PatNum: patNum },
+        ...(appointmentId ? { AptNum: BigInt(appointmentId) } : {}) },
+      orderBy: [{ UpdatedAt: 'desc' }, { ExamId: 'desc' }],
+      include: { appointment: { select: { AptDateTime: true } } },
+    });
+    const reportPerio = savedPerio ? {
+      id: savedPerio.ExamId.toString(),
+      appointmentId: savedPerio.AptNum.toString(),
+      examData: savedPerio.ExamData ? JSON.parse(savedPerio.ExamData) : null,
+      updatedAt: savedPerio.UpdatedAt,
+      createdAt: savedPerio.CreatedAt,
+      examDate: savedPerio.appointment.AptDateTime,
+    } : null;
+    const perioRadio = reportPerio && !Array.isArray(reportPerio.examData?.missingTeeth)
+      ? await clinicalExamService.getExamByAppointment('radiographic', reportPerio.appointmentId)
+      : null;
+    const gumHealth = buildPeriodontalHealth(reportPerio, perioRadio);
     const toothDecay = buildToothStructure(toothStructure, radiographic);
     const biteAlignment = buildBiteAlignment(tmj, morphological);
     const appearance = buildAppearance(dentofacial);
