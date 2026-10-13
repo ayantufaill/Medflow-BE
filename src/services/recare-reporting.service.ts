@@ -4,15 +4,17 @@ import { reportingClinicWhere } from '../utils/reporting-scope.util';
 import { reportDate } from '../utils/reporting-fields.util';
 import { calculateDueDate } from '../utils/recare-due-date.util';
 import { mapAppointmentStatusFromDb } from '../utils/opendental-mappers.util';
+import { getNextId } from '../utils/opendental-ids.util';
 
 const EXAM_CODES = new Set(['D0120', 'D0140', 'D0145', 'D0150', 'D0160', 'D0170', 'D0180']);
 const PROPHY_CODES = new Set(['D1110', 'D1120']);
 const DEFAULT_RECALL_CODES = ['D1110', 'D1120', 'D0120', 'D0150', 'D0274', 'D1206', 'D4910'];
 const parseNote = (value: string | null | undefined): Record<string, any> => {
+  if (!value?.trim()) return {};
   try {
-    const parsed = JSON.parse(value ?? '{}');
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch { return {}; }
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : { text: String(parsed) };
+  } catch { return { text: value }; }
 };
 const noteText = (value: string | null | undefined): string | null => {
   if (!value?.trim()) return null;
@@ -172,7 +174,11 @@ export async function recarePatientRows(options: { asOf?: Date; clinicIds?: bigi
       flags: flagged ? flags.map((f: any) => typeof f === 'string' ? f : f.name ?? f.label ?? f.id).filter(Boolean).join(', ') || 'Recare disabled' : '',
       age, contact: p.WirelessPhone || p.HmPhone || p.WkPhone || null, recallDate: due,
       lastExam, lastProphy, lastMaintenance, lastComm: reportDate(communicationTimes[0]),
-      note: noteText(noteRecall?.Note), contactAgain: reportDate(recallNote.contactAgainDate ?? recallNote.contactAgain), followUp,
+      note: noteText(noteRecall?.Note),
+      contactAgain: reportDate(recallNote.contactAgainDate ?? recallNote.contactAgain) ?? (recallNote.contactAgain ? String(recallNote.contactAgain) : null),
+      followUp: reportDate(recallNote.followUpDate ?? recallNote.followUp) ??
+        (recallNote.followUp ? String(recallNote.followUp) : null) ??
+        (followUpNote?.requiresFollowUp ? reportDate(followUpNote.followUpDate) : null),
       apptDate: reportDate(scheduled?.AptDateTime), contactCount: communicationTimes.length,
       dentistId: p.PriProv?.toString() ?? pm.preferredDentistId ?? null, hygienistId: p.SecProv?.toString() ?? pm.preferredHygienistId ?? null,
     };
@@ -182,4 +188,74 @@ export function countRecareCategories(rows: { categoryKey: RecareCategory }[]) {
   const counts = Object.fromEntries(Object.keys(recareCategories).map(key => [key, 0])) as Record<RecareCategory, number>;
   for (const row of rows) counts[row.categoryKey]++;
   return counts;
+}
+
+export async function resetRecarePatient(
+  patientId: string | number | bigint,
+  data: { note?: string; contactAgain?: string; followUp?: string } = {}
+) {
+  const patNum = BigInt(patientId);
+
+  const existingRecall =
+    (await prisma.recall.findFirst({
+      where: { PatNum: patNum, IsDisabled: 0 },
+      orderBy: { DateDue: 'desc' },
+    })) ||
+    (await prisma.recall.findFirst({
+      where: { PatNum: patNum },
+      orderBy: { DateDue: 'desc' },
+    }));
+
+  const noteMeta = parseNote(existingRecall?.Note);
+  const updatedNote = JSON.stringify({
+    ...noteMeta,
+    text: data.note !== undefined ? data.note : (noteMeta.text ?? ''),
+    note: data.note !== undefined ? data.note : (noteMeta.note ?? ''),
+    contactAgain: data.contactAgain !== undefined ? data.contactAgain : (noteMeta.contactAgain ?? ''),
+    contactAgainDate: data.contactAgain !== undefined ? data.contactAgain : (noteMeta.contactAgainDate ?? ''),
+    followUp: data.followUp !== undefined ? data.followUp : (noteMeta.followUp ?? ''),
+    followUpDate: data.followUp !== undefined ? data.followUp : (noteMeta.followUpDate ?? ''),
+    lastReminderSentAt: null,
+    lastResetAt: new Date().toISOString(),
+  });
+
+  if (existingRecall) {
+    const updated = await prisma.recall.update({
+      where: { RecallNum: existingRecall.RecallNum },
+      data: {
+        Note: updatedNote,
+        DateTStamp: new Date(),
+      },
+    });
+    return {
+      success: true,
+      recallNum: String(updated.RecallNum),
+      patientId: String(patNum),
+      note: data.note,
+      contactAgain: data.contactAgain,
+      followUp: data.followUp,
+    };
+  } else {
+    const nextId = await getNextId('recall', 'RecallNum');
+    const created = await prisma.recall.create({
+      data: {
+        RecallNum: nextId,
+        PatNum: patNum,
+        DateDue: new Date(),
+        DateDueCalc: new Date(),
+        RecallInterval: 180,
+        IsDisabled: 0,
+        Note: updatedNote,
+        DateTStamp: new Date(),
+      },
+    });
+    return {
+      success: true,
+      recallNum: String(created.RecallNum),
+      patientId: String(patNum),
+      note: data.note,
+      contactAgain: data.contactAgain,
+      followUp: data.followUp,
+    };
+  }
 }
