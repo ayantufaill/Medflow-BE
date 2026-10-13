@@ -5,6 +5,7 @@ import { appointmentController } from '../controllers/appointment.controller';
 import { patientController } from '../controllers/patient.controller';
 import { insurancePlanController } from '../controllers/insurance-plan.controller';
 import { allergyController } from '../controllers/allergy.controller';
+import { reportGenerationController } from '../controllers/report-generation.controller';
 import { authenticate, requireRoles } from '../middleware/auth.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
@@ -1023,6 +1024,7 @@ router.get('/:patientId/last-visit', requireRoles(...STAFF_READ_ROLES), validate
  *       403: { description: Forbidden }
  */
 router.get('/:patientId/recare-due-dates', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), patientController.getPatientRecareDueDates.bind(patientController));
+router.post('/:patientId/recare/reset', requireRoles(...STAFF_READ_ROLES), validate(patientIdValidator), reportGenerationController.resetRecarePatient.bind(reportGenerationController));
 
 /**
  * @swagger
