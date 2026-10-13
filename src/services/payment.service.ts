@@ -28,6 +28,16 @@ const buildJson = (value: Record<string, unknown>) => JSON.stringify(value);
 
 const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
+// Whether a payment came from the payer. Must stay identical to the test
+// invoiceService.markItemPaid uses, otherwise an insurance payment that fails
+// markItemPaid and falls through to these direct updates gets booked as money
+// the PATIENT paid — which is how a procedure ended up carrying an insurance
+// estimate in patientPaidAmount with no patient payment behind it.
+const isInsurancePaymentSource = (paymentSource?: string | null): boolean => {
+  const s = String(paymentSource ?? '').toLowerCase();
+  return s === 'insurance_company' || s === 'insurance';
+};
+
 type PaymentMeta = {
   invoiceId?: string;
   method?: string;
@@ -479,7 +489,7 @@ export class PaymentService {
               // If markItemPaid fails, fallback to direct update
               if (procItemRecord) {
                 const itemMeta = parseJson<Record<string, any>>(procItemRecord.BillingNote);
-                const isInsPayment = data.paymentSource === 'insurance_company';
+                const isInsPayment = isInsurancePaymentSource(data.paymentSource);
                 const updatedMeta = {
                   ...itemMeta,
                   paidAmount: Math.round(((Number(itemMeta.paidAmount) || 0) + pay) * 100) / 100,
@@ -498,7 +508,7 @@ export class PaymentService {
             }
           } else if (procItemRecord) {
             const itemMeta = parseJson<Record<string, any>>(procItemRecord.BillingNote);
-            const isInsPayment = data.paymentSource === 'insurance_company';
+            const isInsPayment = isInsurancePaymentSource(data.paymentSource);
             const updatedMeta = {
               ...itemMeta,
               paidAmount: Math.round(((Number(itemMeta.paidAmount) || 0) + pay) * 100) / 100,
@@ -944,7 +954,7 @@ export class PaymentService {
                 },
               });
 
-              const isInsurancePayment = data.paymentSource === 'insurance_company';
+              const isInsurancePayment = isInsurancePaymentSource(data.paymentSource);
               const updatedBn = {
                 ...item.bn,
                 paidAmount: Math.round(((Number(item.bn?.paidAmount) || 0) + alloc) * 100) / 100,
@@ -987,7 +997,7 @@ export class PaymentService {
               },
             });
 
-            const isInsurancePayment = data.paymentSource === 'insurance_company';
+            const isInsurancePayment = isInsurancePaymentSource(data.paymentSource);
             const updatedBn = {
               ...lastItem.bn,
               paidAmount: Math.round(((Number(lastItem.bn?.paidAmount) || 0) + remainingToAllocate) * 100) / 100,
