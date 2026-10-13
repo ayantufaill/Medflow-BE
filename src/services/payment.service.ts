@@ -316,6 +316,9 @@ export class PaymentService {
         moveToNewClaim?: boolean;
         claimId?: string;
       }>;
+      isAccountCredit?: boolean;
+      addFamilyCredit?: boolean;
+      useFamilyCredit?: boolean;
     },
     userId: string
   ) {
@@ -338,6 +341,8 @@ export class PaymentService {
       methodNormalized.includes('patient credit') ||
       methodNormalized === 'credit';
 
+    const shouldUseFamilyCredit = Boolean(data.addFamilyCredit || data.useFamilyCredit);
+
     const payNum = await getNextId('payment', 'PayNum');
 
     let paysplitData: any = undefined;
@@ -345,13 +350,65 @@ export class PaymentService {
     if (isAccountCredit) {
       const splitNum1 = await getNextId('paysplit', 'SplitNum');
       const splitNum2 = await getNextId('paysplit', 'SplitNum');
+
+      let deductionPatNum = BigInt(data.patientId);
+
+      if (shouldUseFamilyCredit) {
+        const patientObj = await prisma.patient.findUnique({
+          where: { PatNum: BigInt(data.patientId) },
+          select: { PatNum: true, Guarantor: true }
+        });
+        if (patientObj) {
+          const guarantorId = (patientObj.Guarantor && patientObj.Guarantor > 0n) ? patientObj.Guarantor : patientObj.PatNum;
+          const familyMembers = await prisma.patient.findMany({
+            where: {
+              OR: [
+                { Guarantor: guarantorId },
+                { PatNum: guarantorId }
+              ]
+            },
+            select: { PatNum: true }
+          });
+          const familyPatNums = Array.from(new Set(familyMembers.map(m => m.PatNum)));
+
+          // Check patient's own unearned credit
+          const patientCreditAgg = await prisma.paysplit.aggregate({
+            where: { PatNum: BigInt(data.patientId), UnearnedType: { gt: 0, not: 2 } },
+            _sum: { SplitAmt: true }
+          });
+          const patientOwnCredit = Number(patientCreditAgg._sum.SplitAmt) || 0;
+
+          if (patientOwnCredit < data.amount) {
+            // Find family member with unearned credit
+            const memberCredits = await prisma.paysplit.groupBy({
+              by: ['PatNum'],
+              where: {
+                PatNum: { in: familyPatNums },
+                UnearnedType: { gt: 0, not: 2 }
+              },
+              _sum: { SplitAmt: true },
+              having: {
+                SplitAmt: { _sum: { gt: 0 } }
+              }
+            });
+            const sortedMembers = memberCredits
+              .filter(m => m.PatNum)
+              .sort((a, b) => (Number(b._sum.SplitAmt) || 0) - (Number(a._sum.SplitAmt) || 0));
+
+            if (sortedMembers.length > 0 && sortedMembers[0].PatNum) {
+              deductionPatNum = sortedMembers[0].PatNum;
+            }
+          }
+        }
+      }
+
       paysplitData = {
         create: [
           {
             SplitNum: splitNum1,
-            PatNum: BigInt(data.patientId),
+            PatNum: deductionPatNum,
             SplitAmt: -data.amount,
-            UnearnedType: BigInt(1), // Deduction from patient deposit pool
+            UnearnedType: BigInt(1), // Deduction from patient/family deposit pool
             DatePay: resolvedPaidAt,
             DateEntry: new Date(),
             SecUserNumEntry: BigInt(userId),
@@ -385,6 +442,7 @@ export class PaymentService {
           status: data.status ?? 'completed',
           notes: data.notes ?? null,
           isAccountCredit,
+          addFamilyCredit: shouldUseFamilyCredit,
           appliedCreditAmount: isAccountCredit ? data.amount : undefined,
           isPartialPayment: Boolean((data as any).isPartialPayment),
           claimStatus: (data as any).claimStatus ?? null,
