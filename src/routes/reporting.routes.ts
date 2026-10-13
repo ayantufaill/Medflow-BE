@@ -421,6 +421,24 @@ router.get(
  *       200:
  *         description: Clinical report data compiled successfully
  */
+router.post(
+  '/clinical/recare/reset',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('reports.read'),
+  reportGenerationController.resetRecarePatient.bind(reportGenerationController)
+);
+
+router.post(
+  '/clinical/recare/:patientId/reset',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('reports.read'),
+  reportGenerationController.resetRecarePatient.bind(reportGenerationController)
+);
+
 router.get(
   '/clinical/:reportName',
   authenticate,
