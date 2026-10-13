@@ -160,3 +160,17 @@ export const voidPaymentValidator: ValidationChain[] = [
     .isLength({ max: 500 })
     .withMessage('reason must be less than 500 characters'),
 ];
+
+export const updatePaymentValidator: ValidationChain[] = [
+  body('notes').optional().isString().withMessage('Notes must be a string'),
+  body('amount')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Amount must be 0 or greater'),
+  body('method').optional().isString().withMessage('Method must be a string'),
+  body('status').optional().isString().withMessage('Status must be a string'),
+  body('paidAt')
+    .optional()
+    .isISO8601()
+    .withMessage('Paid date must be a valid date'),
+];

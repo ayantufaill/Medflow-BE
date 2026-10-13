@@ -336,7 +336,7 @@ export class ClaimController {
     try {
       const claimId = req.params.claimId as string;
       const documentId = req.params.documentId as string;
-      const result = await claimService.removeClaimDocument(claimId, documentId);
+      const result = await claimService.removeClaimDocument(claimId, documentId, req.userId);
 
       res.status(200).json({
         success: true,
@@ -569,7 +569,7 @@ export class ClaimController {
       const claimId = req.params.claimId as string;
       const eobId = req.params.eobId as string;
 
-      const result = await claimService.deleteClaimEOB(claimId, eobId);
+      const result = await claimService.deleteClaimEOB(claimId, eobId, req.userId);
 
       res.status(200).json({
         success: true,
