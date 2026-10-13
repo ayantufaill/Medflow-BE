@@ -11,6 +11,7 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
+import { authHeaderWithPermissions } from './helpers/roles';
 import app from '../src/app';
 import { PERMISSIONS } from '../src/constants/permissions';
 import { PERMISSION_CATALOG } from '../src/constants/permission-catalog';
@@ -128,8 +129,12 @@ describe('COB extra endpoints — permission gating', () => {
   });
 
   it('DENIES a role with no insurance permissions from reading card images', async () => {
-    const header = await loginAs('lab@medflow.com');
-    if (!header) return; // seeds not present in this database
+    // Seeded Lab now reads insurance (matrix: "View"), so probe with a role
+    // that holds no insurance key at all.
+    const header = await authHeaderWithPermissions(
+      { 'clinical.cross_branch.view': true, 'patients.read': true },
+      'cob-cards-no-ins'
+    );
     const res = await request(app).get('/api/cob/coverages/1/cards').set(header);
     expect(res.status).toBe(403);
   });

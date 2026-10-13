@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
+import { authHeaderWithPermissions } from './helpers/roles';
 import app from '../src/app';
 import { prisma } from '../src/config/db';
 import { getAdminAuthHeader } from './helpers/auth';
@@ -49,11 +50,15 @@ describe('COB API', () => {
   });
 
   describe('permission gating', () => {
+    /** Enough to open patient data (requirePhiAccess), and no insurance key. */
+    const PATIENT_ACCESS_ONLY = { 'clinical.cross_branch.view': true, 'patients.read': true };
+
     /**
-     * Lab is the narrowest seeded role — lab cases and basic patient
-     * identification only, with no insurance permissions at all. It is the
-     * right probe for "is this endpoint actually gated", because a role that
-     * happens to hold the permission proves nothing.
+     * Lab is the narrowest seeded role: Insurance is "View" in the screen
+     * access matrix, so it reads an order but must not change one. "Is the
+     * read itself gated" is probed with a throwaway role holding no insurance
+     * key at all, because a role that happens to hold the permission proves
+     * nothing.
      */
     const loginAs = async (email: string, password = 'Password123!') => {
       const res = await request(app).post('/api/auth/login').send({ email, password });
@@ -62,10 +67,19 @@ describe('COB API', () => {
     };
 
     it('DENIES a role with no insurance permissions from reading a coverage order', async () => {
+      // Every seeded staff role can at least read the order (screen access
+      // matrix: Insurance is "View" or better), so probe with a role that
+      // holds only what opening patient data needs.
+      const header = await authHeaderWithPermissions(PATIENT_ACCESS_ONLY, 'cob-no-ins');
+      const res = await request(app).get('/api/cob/patients/1/coverage-order').set(header);
+      expect(res.status).toBe(403);
+    });
+
+    it('ALLOWS Lab (Insurance "View" in the matrix) to read an order', async () => {
       const header = await loginAs('lab@medflow.com');
       if (!header) return; // seeds not present in this database
       const res = await request(app).get('/api/cob/patients/1/coverage-order').set(header);
-      expect(res.status).toBe(403);
+      expect(res.status).not.toBe(403);
     });
 
     it('DENIES that role from overriding a coverage order', async () => {
