@@ -8,7 +8,8 @@ import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
   getRxValidator,
-  createRxValidator
+  createRxValidator,
+  rxIdValidator
 } from '../validators/rx.validator';
 
 const router = Router();
@@ -259,6 +260,7 @@ router.get(
   resolveBranchAccess,
   enterTenantContext,
   requirePermission('clinical-notes.read'),
+  validate(rxIdValidator),
   rxController.printPrescription
 );
 export default router;
