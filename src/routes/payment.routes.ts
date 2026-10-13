@@ -13,6 +13,7 @@ import {
   createPaymentValidator,
   applyPaymentValidator,
   voidPaymentValidator,
+  updatePaymentValidator,
 } from '../validators/payment.validator';
 
 const router = Router();
@@ -208,6 +209,16 @@ router.post(
   requirePermission('payments.create'),
   validate(createPaymentValidator),
   paymentController.createPayment.bind(paymentController)
+);
+
+router.patch(
+  '/:paymentId',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('payments.update'),
+  validate([...paymentIdValidator, ...updatePaymentValidator]),
+  paymentController.updatePayment.bind(paymentController)
 );
 
 /**

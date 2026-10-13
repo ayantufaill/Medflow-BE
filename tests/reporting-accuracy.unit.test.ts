@@ -2,15 +2,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const db = vi.hoisted(() => ({
   patient: { findMany: vi.fn() }, provider: { findMany: vi.fn() },
   appointment: { findMany: vi.fn() }, recall: { findMany: vi.fn() },
+  recalltype: { findMany: vi.fn() }, clinicalrecareconfig: { findFirst: vi.fn() },
+  commlog: { findMany: vi.fn() }, smstomobile: { findMany: vi.fn() }, smsfrommobile: { findMany: vi.fn() }, emailmessage: { findMany: vi.fn() },
   patplan: { findMany: vi.fn() }, claimproc: { findMany: vi.fn() },
   procedurelog: { findMany: vi.fn() }, payplan: { findMany: vi.fn() },
   deposit: { findMany: vi.fn() }, rxpat: { findMany: vi.fn() },
   document: { create: vi.fn(), findMany: vi.fn() },
   treatplan: { findMany: vi.fn() }, preference: { findFirst: vi.fn() }, paysplit: { findMany: vi.fn() },
 }));
-const meta = vi.hoisted(() => ({ patients: vi.fn(), policies: vi.fn(), providers: vi.fn() }));
+const meta = vi.hoisted(() => ({ patients: vi.fn(), policies: vi.fn(), providers: vi.fn(), appointments: vi.fn() }));
 vi.mock('../src/config/db', () => ({ prisma: db }));
-vi.mock('../src/utils/opendental-auth.util', () => ({ getPatientsMeta: meta.patients, getPatientInsurancesMeta: meta.policies, getProvidersMeta: meta.providers }));
+vi.mock('../src/utils/opendental-auth.util', () => ({ getPatientsMeta: meta.patients, getPatientInsurancesMeta: meta.policies, getProvidersMeta: meta.providers, getAppointmentsMeta: meta.appointments }));
 vi.mock('../src/services/clinical-note.service', () => ({ clinicalNoteService: {} }));
 // vitest.config has restoreMocks: true, which wipes an implementation given at
 // creation time before every test — so the id is (re)set in beforeEach.

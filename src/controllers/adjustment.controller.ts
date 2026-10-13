@@ -68,6 +68,8 @@ export class AdjustmentController {
           type: req.body.type,
           providerId: req.body.providerId,
           notes: req.body.notes,
+          invoiceId: req.body.invoiceId,
+          procedureId: req.body.procedureId,
         },
         req.userId
       );

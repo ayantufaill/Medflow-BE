@@ -11,6 +11,7 @@ import { logActivity } from '../utils/activity-logger.util';
 import { agingService } from './aging.service';
 import { providerResolutionService } from './provider-resolution.service';
 import { getProviderMeta } from '../utils/opendental-auth.util';
+import { resolveUserDisplayNames } from '../utils/user-display.util';
 import { aggregateAppliedByRow } from './deductible.service';
 import { claimClinicFromLines } from '../utils/claim-clinic.util';
 import { CLAIM_STATUS_CODE } from '../constants/claim-status';
@@ -108,6 +109,8 @@ type ClaimMeta = {
   isLocked?: boolean;
   lockedDate?: string;
   lockedBy?: string | null;
+  updatedBy?: string | null;
+  updatedAt?: string | null;
 };
 
 type ClaimFilters = {
@@ -441,7 +444,9 @@ export class ClaimService {
       policyNumber: meta.policyNumber ?? row.RefNumString ?? null,
       notes: meta.notes ?? row.ClaimNote ?? null,
       createdAt: row.SecDateEntry ?? row.DateService ?? null,
-      updatedAt: row.SecDateTEdit ?? row.DateService ?? null,
+      updatedAt: meta.updatedAt ? new Date(meta.updatedAt) : row.SecDateTEdit ?? null,
+      createdBy: row.SecUserNumEntry?.toString() ?? null,
+      updatedBy: meta.updatedBy ?? null,
       procedures: context.procedures ?? [],
       procedureIds: meta.procedureIds ?? (Array.isArray(meta.procedures) ? meta.procedures.map((p: any) => typeof p === 'string' ? p : p.code || p.id || p._id).filter(Boolean) : []),
       selectedItems: meta.selectedItems || [],
@@ -967,6 +972,14 @@ export class ClaimService {
       });
     });
 
+    const createdByNameMap = await resolveUserDisplayNames(claims.map((c: any) => c.createdBy));
+    const updatedByNameMap = await resolveUserDisplayNames(claims.map((c: any) => c.updatedBy));
+    claims = claims.map((c: any) => ({
+      ...c,
+      createdByName: c.createdBy ? createdByNameMap[c.createdBy] ?? null : null,
+      updatedByName: c.updatedBy ? updatedByNameMap[c.updatedBy] ?? null : null,
+    }));
+
     if (filters.invoiceId) {
       claims = claims.filter(
         (claim) => claim.invoiceRefId === filters.invoiceId || claim.invoice?._id === filters.invoiceId
@@ -1259,6 +1272,15 @@ export class ClaimService {
       procedures,
     });
 
+    const createdByNameMap = await resolveUserDisplayNames([(claim as any).createdBy]);
+    const updatedByNameMap = await resolveUserDisplayNames([(claim as any).updatedBy]);
+    (claim as any).createdByName = (claim as any).createdBy
+      ? createdByNameMap[(claim as any).createdBy] ?? null
+      : null;
+    (claim as any).updatedByName = (claim as any).updatedBy
+      ? updatedByNameMap[(claim as any).updatedBy] ?? null
+      : null;
+
     const attachments = await this.getClaimDocuments(claimId);
     (claim as any).attachments = attachments;
     (claim as any).hasAttachment = attachments.length > 0;
@@ -1474,6 +1496,7 @@ export class ClaimService {
         ClaimIdentifier: claimNumber,
         ClaimNote: data.notes ?? null,
         Narrative: buildJson(claimMeta),
+        SecUserNumEntry: userId ? BigInt(userId) : null,
       },
       include: { patient: true },
     });
@@ -1784,6 +1807,7 @@ export class ClaimService {
         PriorAuthorizationNumber: claimNumber,
         ClaimIdentifier: claimNumber,
         Narrative: buildJson(claimMeta as any),
+        SecUserNumEntry: userId ? BigInt(userId) : null,
       },
       include: { patient: true },
     });
@@ -2026,6 +2050,7 @@ export class ClaimService {
         PriorAuthorizationNumber: claimNumber,
         ClaimIdentifier: claimNumber,
         Narrative: buildJson(claimMeta as any),
+        SecUserNumEntry: userId ? BigInt(userId) : null,
       },
       include: { patient: true },
     });
@@ -2283,6 +2308,7 @@ export class ClaimService {
         PriorAuthorizationNumber: claimIdentifier,
         ClaimIdentifier: claimIdentifier,
         Narrative: buildJson(secondaryMeta as any),
+        SecUserNumEntry: userId ? BigInt(userId) : null,
       },
       include: {
         patient: true,
@@ -2486,7 +2512,7 @@ export class ClaimService {
       submissionDate: Date;
       deniedDate: Date | null;
       denialReason: string | null;
-      paidDate: Date;
+      paidDate: Date | null;
       corrections: Record<string, unknown>;
       providerSignature: string;
       patientSignature: string;
@@ -2588,6 +2614,8 @@ export class ClaimService {
       corrections: updates.corrections ?? currentMeta.corrections,
       remittanceDate: updates.remittanceDate ?? currentMeta.remittanceDate,
       insurancePaymentAmount: updates.insurancePaymentAmount ?? currentMeta.insurancePaymentAmount,
+      updatedAt: new Date().toISOString(),
+      updatedBy: userId ?? null,
     };
 
     // Deductible lifecycle is bound to the claim's status, not its creation.
@@ -2618,6 +2646,7 @@ export class ClaimService {
             ? (nextMeta.paidDate ? new Date(nextMeta.paidDate) : new Date())
             : existing.DateReceived,
         ClaimNote: updates.notes ?? undefined,
+        SecDateTEdit: new Date(),
         Narrative: buildJson({ ...nextMeta, ...dedFields }),
       },
       include: { patient: true },
@@ -2911,6 +2940,9 @@ export class ClaimService {
       uploadedBy: userId ?? null,
       checksum: crypto.createHash('sha256').update(file.buffer).digest('hex'),
     };
+    const claimMeta = parseJson<ClaimMeta>(claim.Narrative);
+    claimMeta.updatedAt = new Date().toISOString();
+    claimMeta.updatedBy = userId ?? null;
 
     const created = await prisma.document.create({
       data: {
@@ -2921,6 +2953,13 @@ export class ClaimService {
         Note: buildJson(meta),
         DateCreated: new Date(),
         UserNum: userId && /^\d+$/.test(userId) ? BigInt(userId) : null,
+      },
+    });
+    await prisma.claim.update({
+      where: { ClaimNum: claim.ClaimNum },
+      data: {
+        SecDateTEdit: new Date(),
+        Narrative: buildJson(claimMeta),
       },
     });
 
@@ -2945,7 +2984,7 @@ export class ClaimService {
       .map((doc) => mapDocument(doc, claimId));
   }
 
-  async removeClaimDocument(claimId: string, documentId: string) {
+  async removeClaimDocument(claimId: string, documentId: string, userId?: string) {
     const claim = await this.getClaimRecord(claimId);
 
     const doc = await prisma.document.findUnique({
@@ -2971,6 +3010,16 @@ export class ClaimService {
       });
       await deleteFromS3(String(meta.storagePath));
     }
+    const claimMeta = parseJson<ClaimMeta>(claim.Narrative);
+    claimMeta.updatedAt = new Date().toISOString();
+    claimMeta.updatedBy = userId ?? null;
+    await prisma.claim.update({
+      where: { ClaimNum: claim.ClaimNum },
+      data: {
+        SecDateTEdit: new Date(),
+        Narrative: buildJson(claimMeta),
+      },
+    });
 
     return { message: 'Document removed successfully' };
   }
@@ -3472,10 +3521,13 @@ export class ClaimService {
     };
 
     meta.eobs.push(newEob);
+    meta.updatedAt = new Date().toISOString();
+    meta.updatedBy = userId ?? null;
 
     await prisma.claim.update({
       where: { ClaimNum: claim.ClaimNum },
       data: {
+        SecDateTEdit: new Date(),
         Narrative: JSON.stringify(meta),
       },
     });
@@ -3483,7 +3535,7 @@ export class ClaimService {
     return { message: 'EOB uploaded successfully', storagePath, eob: newEob, eobs: meta.eobs };
   }
 
-  async deleteClaimEOB(claimId: string, eobId: string) {
+  async deleteClaimEOB(claimId: string, eobId: string, userId?: string) {
     const claim = await prisma.claim.findUnique({
       where: { ClaimNum: BigInt(claimId) },
     });
@@ -3496,10 +3548,13 @@ export class ClaimService {
     if (Array.isArray(meta.eobs)) {
       meta.eobs = meta.eobs.filter((e: any) => e.id !== eobId);
     }
+    meta.updatedAt = new Date().toISOString();
+    meta.updatedBy = userId ?? null;
 
     await prisma.claim.update({
       where: { ClaimNum: claim.ClaimNum },
       data: {
+        SecDateTEdit: new Date(),
         Narrative: JSON.stringify(meta),
       },
     });
@@ -3772,6 +3827,53 @@ export class ClaimService {
   }
 
   /**
+   * Reopen a claim that an insurance payment had closed, invoked when that
+   * payment is voided. The caller has already reversed the payment's
+   * claim-procedure rows; this restores the claim to its pre-payment status
+   * (or "partial" while other received procedures remain) and syncs the paid
+   * amount and liability-finalized flag so the payment dialog offers the
+   * voided amount again.
+   */
+  async reopenClaimAfterVoid(
+    claimId: string,
+    options: { previousStatus?: string | null; note?: string; userId?: string } = {}
+  ) {
+    const existing = await this.getClaimRecord(claimId);
+    const currentMeta = parseJson<ClaimMeta>(existing.Narrative);
+
+    if (currentMeta.isVoided) {
+      return this.mapClaim(existing, currentMeta, {});
+    }
+
+    const currentStatus = normalizeClaimStatus(currentMeta.status ?? claimCodeToStatus(existing.ClaimStatus));
+    const resolvedStatuses: ClaimStatus[] = ['paid', 'partial', 'rejected', 'denied'];
+    if (!resolvedStatuses.includes(currentStatus)) {
+      // Already open — nothing to reopen.
+      return this.mapClaim(existing, currentMeta, {});
+    }
+
+    const receivedClaimProcs = await prisma.claimproc.findMany({
+      where: { ClaimNum: existing.ClaimNum, Status: 1 },
+    });
+    const remainingPaid =
+      Math.round(receivedClaimProcs.reduce((sum, cp) => sum + (Number(cp.InsPayAmt) || 0), 0) * 100) / 100;
+    const previousStatus = normalizeClaimStatus(options.previousStatus ?? 'submitted');
+
+    return this.updateClaim(
+      claimId,
+      {
+        // Keep the claim resolved while other received procedures remain;
+        // otherwise fall back to whatever status it held before the payment.
+        status: remainingPaid > 0.005 ? 'partial' : previousStatus,
+        paidAmount: remainingPaid,
+        paidDate: null,
+        notes: options.note,
+      },
+      options.userId
+    );
+  }
+
+  /**
    * Lock / unlock a claim. A locked claim is frozen: its row is greyed out in the
    * ledger and no further claim may be built for the same invoice until the locked
    * claim is paid (or unlocked).
@@ -4020,6 +4122,7 @@ export class ClaimService {
       (data.selectedItems || []).map(async (item: any) => {
         let amt = Number(item.amount || item.insAmount || 0);
         let ptAmt = Number(item.ptAmount || 0);
+        let dedApplied = 0;
         const procNum = toBigInt(item.itemId);
         let procRecord = null;
         if (procNum) {
@@ -4034,6 +4137,7 @@ export class ClaimService {
               amt = Math.max(0, Number(procRecord.ProcFee) - Number(bn.writeoff || 0) - Number(bn.insPortion));
             }
             ptAmt = Number(bn.ptPortion || 0);
+            dedApplied = 0;
           } else {
             if (bn.primaryInsPortion !== undefined && bn.primaryInsPortion !== null) {
               amt = Number(bn.primaryInsPortion);
@@ -4043,6 +4147,7 @@ export class ClaimService {
               amt = Number(bn.insPortion);
             }
             ptAmt = Number(bn.ptPortion || 0);
+            dedApplied = Number(bn.deductibleApplied || 0);
           }
         }
         return {
@@ -4050,6 +4155,7 @@ export class ClaimService {
           amount: amt,
           insAmount: amt,
           ptAmount: ptAmt,
+          deductibleApplied: dedApplied,
           _procRecord: procRecord,
         };
       })
@@ -4559,6 +4665,9 @@ export class ClaimService {
     const claim = await this.getClaimRecord(claimId);
 
     const attachments = [];
+    const claimMeta = parseJson<ClaimMeta>(claim.Narrative);
+    claimMeta.updatedAt = new Date().toISOString();
+    claimMeta.updatedBy = userId ?? null;
 
     for (const file of files) {
       // 1. Upload to S3
@@ -4603,6 +4712,13 @@ export class ClaimService {
 
       attachments.push(mapDocument(createdDoc, claimId));
     }
+    await prisma.claim.update({
+      where: { ClaimNum: claim.ClaimNum },
+      data: {
+        SecDateTEdit: new Date(),
+        Narrative: buildJson(claimMeta),
+      },
+    });
 
     return attachments;
   }
@@ -4718,6 +4834,7 @@ export class ClaimService {
         ClaimIdentifier: claimNumber,
         ClaimNote: claimMeta.notes ?? null,
         Narrative: buildJson(claimMeta),
+        SecUserNumEntry: userId ? BigInt(userId) : null,
       },
     });
 
