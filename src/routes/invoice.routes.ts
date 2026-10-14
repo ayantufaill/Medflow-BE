@@ -63,6 +63,16 @@ router.get(
   invoiceController.getAllInvoices.bind(invoiceController)
 );
 
+router.get(
+  '/next-invoice-number',
+  authenticate,
+  denyPatientPortalUsers,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('invoices.read'),
+  invoiceController.getNextInvoiceNumber.bind(invoiceController)
+);
+
 /**
  * @swagger
  * /invoices:

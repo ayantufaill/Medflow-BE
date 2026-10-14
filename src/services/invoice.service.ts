@@ -192,7 +192,8 @@ export const isPatientPenaltyOrNonIns = (item: any): boolean => {
     item.isAccountPenalty ||
     item.patientOnly ||
     item.noBillIns ||
-    item.accountPenalty
+    item.accountPenalty ||
+    item.dbi === true
   ) {
     return true;
   }
@@ -231,6 +232,10 @@ export const isPatientPenaltyOrNonIns = (item: any): boolean => {
 };
 
 export class InvoiceService {
+  async getNextInvoiceNumber(): Promise<string> {
+    return getInvoiceNumber();
+  }
+
   /** Attach the completed OpenDental procedures already created by a treatment plan. */
   async createInvoiceFromCompletedProcedures(
     tx: Prisma.TransactionClient,

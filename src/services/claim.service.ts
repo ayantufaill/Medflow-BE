@@ -306,7 +306,7 @@ const mapDocument = (doc: any, claimId: string) => {
 };
 
 export class ClaimService {
-  private async generateClaimNumber() {
+  async getNextClaimNumber() {
     const recent = await prisma.claim.findMany({
       where: {
         OR: [
@@ -330,6 +330,10 @@ export class ClaimService {
     }
 
     return `CLM${String(maxNumber + 1).padStart(6, '0')}`;
+  }
+
+  private async generateClaimNumber() {
+    return this.getNextClaimNumber();
   }
 
   private async createStatusHistoryEntry(

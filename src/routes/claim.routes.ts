@@ -72,6 +72,15 @@ router.get(
   claimController.getBlockedClaimsReport.bind(claimController)
 );
 
+router.get(
+  '/next-claim-number',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('claims.read'),
+  claimController.getNextClaimNumber.bind(claimController)
+);
+
 router.post(
   '/:claimId/generate-837',
   authenticate,
