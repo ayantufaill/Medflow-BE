@@ -86,6 +86,10 @@ export const TEAM_MODULES: TeamModule[] = [
       'treatment-plans.create', 'treatment-plans.update', 'treatment-plans.sign',
       'vital-signs.create', 'vital-signs.update',
       'prescriptions.create', 'prescriptions.update',
+      // Authorization and payer-order changes sit under Clinical (see the
+      // auth_write / cob_override features), so Clinical's level sets them.
+      'authorizations.create', 'authorizations.update',
+      'insurance.coverage_order.override', 'insurance.coverage_order.resolve_flag',
     ],
   },
   {
@@ -116,9 +120,15 @@ export const TEAM_MODULES: TeamModule[] = [
     label: 'Insurance, services, authorizations',
     description: 'Coverage, authorizations and plan coordination',
     levels: ['none', 'view', 'full'],
-    routePrefixes: ['/authorizations', '/cob'],
-    readPermissions: ['insurance.read', 'authorizations.read', 'insurance.coverage_order.read'],
-    writePermissions: ['insurance.create', 'insurance.update', 'authorizations.create', 'authorizations.update'],
+    // No route gate: /authorizations and /cob check permissions, and their
+    // writes are split between this module and Clinical, so the keys below
+    // (applied per level) decide access rather than the path.
+    routePrefixes: [],
+    readPermissions: ['insurance.read', 'authorizations.read', 'insurance.coverage_order.read', 'insurance.plan_master.read'],
+    writePermissions: [
+      'insurance.create', 'insurance.update',
+      'insurance.coverage_detail.edit', 'insurance.payer_reported.write', 'insurance.plan_master.edit',
+    ],
   },
   {
     key: 'documents',
@@ -312,6 +322,8 @@ export interface TeamFeature {
   kind: FeatureKind;
   permissions: string[];
   routes: FeatureRoute[];
+  /** False for a switch that doesn't make its module's pages usable on its own. */
+  opensModule?: boolean;
 }
 
 const READS = ['GET', 'HEAD'];
@@ -360,8 +372,10 @@ export const TEAM_FEATURES: TeamFeature[] = [
   feature('insurance', 'view', 'View coverage', 'read', ['insurance.read', 'insurance.coverage_order.read']),
   feature('insurance', 'edit', 'Edit coverage', 'write', ['insurance.create', 'insurance.update']),
   feature('insurance', 'auth_view', 'View authorizations', 'read', ['authorizations.read'], [{ methods: READS, prefixes: ['/authorizations'] }]),
-  feature('insurance', 'auth_write', 'Create and edit authorizations', 'write', ['authorizations.create', 'authorizations.update'], [{ methods: WRITES, prefixes: ['/authorizations'] }]),
-  feature('insurance', 'cob_override', 'Change payer order (COB)', 'write', ['insurance.coverage_order.override', 'insurance.coverage_order.resolve_flag']),
+  // Listed under Clinical in Team Access. The keys keep their insurance.*
+  // names so overrides saved before the move still apply.
+  { ...feature('insurance', 'auth_write', 'Create and edit authorizations', 'write', ['authorizations.create', 'authorizations.update'], [{ methods: WRITES, prefixes: ['/authorizations'] }]), module: 'clinical', opensModule: false },
+  { ...feature('insurance', 'cob_override', 'Change payer order (COB)', 'write', ['insurance.coverage_order.override', 'insurance.coverage_order.resolve_flag']), module: 'clinical', opensModule: false },
 
   feature('documents', 'view', 'View documents', 'read', ['documents.read'], [{ methods: READS, prefixes: ['/documents'] }]),
   feature('documents', 'upload', 'Upload documents', 'write', ['documents.create', 'documents.upload'], [{ methods: CREATE, prefixes: ['/documents'] }]),
@@ -428,7 +442,7 @@ export const moduleStatesFor = (
     const features = featuresOf(module.key);
     const touched = moduleAccess[module.key] !== undefined || features.some((f) => featureAccess[f.key] !== undefined);
     if (!touched) continue;
-    const readable = features.some((f) => f.permissions.some((p) => permissions.has(p)));
+    const readable = features.some((f) => f.opensModule !== false && f.permissions.some((p) => permissions.has(p)));
     states[module.key] = readable ? 'granted' : 'off';
   }
   return states;
