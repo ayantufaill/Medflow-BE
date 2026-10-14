@@ -348,10 +348,11 @@ export class PaymentService {
     let paysplitData: any = undefined;
 
     if (isAccountCredit) {
-      const splitNum1 = await getNextId('paysplit', 'SplitNum');
-      const splitNum2 = await getNextId('paysplit', 'SplitNum');
-
-      let deductionPatNum = BigInt(data.patientId);
+      // Spend the patient's own unearned credit first, then draw the remainder
+      // from family members who hold credit (largest balance first). Each source
+      // gets its own negative split so the deposit pool is reduced at the member
+      // that actually funded the payment instead of always from one account.
+      const portions: Array<{ patNum: bigint; amount: number }> = [];
 
       if (shouldUseFamilyCredit) {
         const patientObj = await prisma.patient.findUnique({
@@ -371,15 +372,21 @@ export class PaymentService {
           });
           const familyPatNums = Array.from(new Set(familyMembers.map(m => m.PatNum)));
 
-          // Check patient's own unearned credit
+          // Patient's own credit first.
           const patientCreditAgg = await prisma.paysplit.aggregate({
             where: { PatNum: BigInt(data.patientId), UnearnedType: { gt: 0, not: 2 } },
             _sum: { SplitAmt: true }
           });
           const patientOwnCredit = Number(patientCreditAgg._sum.SplitAmt) || 0;
+          const patientPortion = Math.min(patientOwnCredit, data.amount);
+          let remaining = roundCurrency(data.amount - patientPortion);
 
-          if (patientOwnCredit < data.amount) {
-            // Find family member with unearned credit
+          if (patientPortion > 0.005) {
+            portions.push({ patNum: BigInt(data.patientId), amount: roundCurrency(patientPortion) });
+          }
+
+          // Then family members, largest credit first.
+          if (remaining > 0.005) {
             const memberCredits = await prisma.paysplit.groupBy({
               by: ['PatNum'],
               where: {
@@ -392,29 +399,52 @@ export class PaymentService {
               }
             });
             const sortedMembers = memberCredits
-              .filter(m => m.PatNum)
+              .filter(m => m.PatNum && String(m.PatNum) !== String(data.patientId))
               .sort((a, b) => (Number(b._sum.SplitAmt) || 0) - (Number(a._sum.SplitAmt) || 0));
 
-            if (sortedMembers.length > 0 && sortedMembers[0].PatNum) {
-              deductionPatNum = sortedMembers[0].PatNum;
+            for (const member of sortedMembers) {
+              if (remaining <= 0.005) break;
+              const available = Number(member._sum.SplitAmt) || 0;
+              const take = Math.min(available, remaining);
+              if (take > 0.005) {
+                portions.push({ patNum: member.PatNum as bigint, amount: roundCurrency(take) });
+                remaining = roundCurrency(remaining - take);
+              }
             }
+          }
+
+          // No credit anywhere covers the rest — overdraw the patient as a
+          // fallback so the payment still balances against the full amount.
+          if (remaining > 0.005) {
+            portions.push({ patNum: BigInt(data.patientId), amount: roundCurrency(remaining) });
           }
         }
       }
 
+      if (portions.length === 0) {
+        portions.push({ patNum: BigInt(data.patientId), amount: roundCurrency(data.amount) });
+      }
+
+      const negativeSplits = [];
+      for (const portion of portions) {
+        const splitNum = await getNextId('paysplit', 'SplitNum');
+        negativeSplits.push({
+          SplitNum: splitNum,
+          PatNum: portion.patNum,
+          SplitAmt: -portion.amount,
+          UnearnedType: BigInt(1), // Deduction from patient/family deposit pool
+          DatePay: resolvedPaidAt,
+          DateEntry: new Date(),
+          SecUserNumEntry: BigInt(userId),
+        });
+      }
+
+      const positiveSplitNum = await getNextId('paysplit', 'SplitNum');
       paysplitData = {
         create: [
+          ...negativeSplits,
           {
-            SplitNum: splitNum1,
-            PatNum: deductionPatNum,
-            SplitAmt: -data.amount,
-            UnearnedType: BigInt(1), // Deduction from patient/family deposit pool
-            DatePay: resolvedPaidAt,
-            DateEntry: new Date(),
-            SecUserNumEntry: BigInt(userId),
-          },
-          {
-            SplitNum: splitNum2,
+            SplitNum: positiveSplitNum,
             PatNum: BigInt(data.patientId),
             SplitAmt: data.amount,
             DatePay: resolvedPaidAt,
