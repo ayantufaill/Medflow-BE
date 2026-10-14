@@ -141,11 +141,11 @@ export const TEAM_MODULE_KEYS = TEAM_MODULES.map((m) => m.key);
 export const ROLE_DEFAULT_LABELS: Record<string, Record<string, string>> = {
   group_admin: {
     reports: 'Full, all branches', note_templates: 'Full', patients: 'Full, all branches', appointments: 'Full',
-    clinical: 'View', finance: 'Full', insurance: 'Full', documents: 'Full',
+    clinical: 'View; plans full', finance: 'Full', insurance: 'Full', documents: 'Full',
   },
   branch_admin: {
     reports: 'Full, own branch', note_templates: 'Full', patients: 'Full, own branch', appointments: 'Full',
-    clinical: 'View', finance: 'Invoices; rest view', insurance: 'Full', documents: 'Full',
+    clinical: 'View; plans full', finance: 'Invoices; rest view', insurance: 'Full', documents: 'Full',
   },
   dentist: {
     reports: 'None', note_templates: 'Full', patients: 'View', appointments: 'View, update',

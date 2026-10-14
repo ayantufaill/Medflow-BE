@@ -217,10 +217,14 @@ const BRANCH_ADMIN_PERMISSIONS = {
   'services.read': true,
   // Read-only view of clinical and billing work in the branch (and, via
   // inheritance, across the group for group_admin). Writes stay with the
-  // clinical and billing roles. Without these the Clinical and Billing pages
-  // open but every data call returns 403.
+  // clinical and billing roles, except treatment plans: admins draft, edit
+  // and delete plans (but don't sign them). Without these the Clinical and
+  // Billing pages open but every data call returns 403.
   'clinical-notes.read': true,
   'treatment-plans.read': true,
+  'treatment-plans.create': true,
+  'treatment-plans.update': true,
+  'treatment-plans.delete': true,
   'claims.read': true,
   'era.read': true,
   'payments.read': true,
