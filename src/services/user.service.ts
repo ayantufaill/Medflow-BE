@@ -4,7 +4,6 @@ import { NotFoundError, ConflictError, AuthorizationError } from '../utils/error
 import { PermissionService } from './permission.service';
 import { logActivity, logSecurityEvent } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
-import { assertCanGrant, assertCanGrantAll } from './role-grant.guard';
 import { getAssignableRoleRules } from './role-elevation.service';
 import { resolveEffectivePermissions } from './rbac.service';
 import { getRoleMeta } from '../utils/opendental-auth.util';
@@ -92,6 +91,42 @@ export const assertUserInScope = async (targetUserId: string, allowedClinicIds?:
 
   if (!inScope) {
     throw new NotFoundError('User not found');
+  }
+};
+
+/**
+ * Guards changing which branches a user belongs to (PUT /users/:id/clinics,
+ * PATCH /users/:id/branches). Neither checked the new branches before, so an
+ * admin could move any staff member — even one in another practice group —
+ * into any branch, which then grants that branch's data.
+ *
+ * - The target must be in the caller's scope, or have no branch at all yet
+ *   (a user just created by the Add User drawer, whose branches are set next).
+ * - Every branch being assigned must be one the caller manages.
+ * An empty/undefined scope means a system admin with no resolved scope and
+ * stays unrestricted, same rule as assertUserInScope.
+ */
+export const assertCanAssignBranches = async (
+  targetUserId: string,
+  clinicIds: bigint[],
+  allowedClinicIds?: bigint[]
+): Promise<void> => {
+  if (!allowedClinicIds || allowedClinicIds.length === 0) return;
+
+  const targetUserNum = BigInt(targetUserId);
+  const [home, links] = await Promise.all([
+    prisma.userod.findUnique({ where: { UserNum: targetUserNum }, select: { ClinicNum: true } }),
+    prisma.userclinic.findMany({ where: { UserNum: targetUserNum }, select: { ClinicNum: true } }),
+  ]);
+  const current = [home?.ClinicNum, ...links.map((l) => l.ClinicNum)]
+    .filter((id): id is bigint => id !== null && id !== undefined && id > 0n);
+  if (current.length > 0 && !current.some((id) => allowedClinicIds.includes(id))) {
+    throw new NotFoundError('User not found');
+  }
+
+  const outside = clinicIds.filter((id) => !allowedClinicIds.includes(id));
+  if (outside.length > 0) {
+    throw new AuthorizationError('You can only assign users to branches you manage.');
   }
 };
 
@@ -398,8 +433,8 @@ export class UserService {
       throw new NotFoundError('Role not found');
     }
 
-    // B1.4: Grant guard — only Super Admin can grant privileged roles
-    await assertCanGrant(assignedBy, role.UserGroupNum);
+    // B1.4: Grant guard — same rules as removing a role and the role picker.
+    await assertMayChangeRoles(assignedBy, [role.UserGroupNum]);
 
     const existing = await prisma.usergroupattach.findFirst({
       where: { UserNum: user.UserNum, UserGroupNum: role.UserGroupNum },
@@ -466,8 +501,12 @@ export class UserService {
       ? await prisma.usergroup.findMany({ where: { UserGroupNum: { in: data.roleIds.map((id) => BigInt(id)) } } })
       : [];
     if (roles.length > 0) {
-      // B1.4: Grant guard on user creation with roles
-      await assertCanGrantAll(createdBy, roles.map(r => r.UserGroupNum));
+      // B1.4: Grant guard on user creation — the same rules as the role picker
+      // and role chips (assertMayChangeRoles). The older assertCanGrantAll
+      // compared against the actor's own role keys only, without what a
+      // group_admin inherits from branch_admin, so a group admin couldn't
+      // create a user with any role (not even patients.read "was held").
+      await assertMayChangeRoles(createdBy, roles.map(r => r.UserGroupNum));
     }
 
     const effectivePassword = data.password || crypto.randomBytes(32).toString('hex');
@@ -866,9 +905,8 @@ export class UserService {
     if (!user) {
       throw new NotFoundError('User not found');
     }
-    await assertUserInScope(userId, allowedClinicIds);
-
     const clinicNums = [...new Set(branchIds.map(String))].map((id) => BigInt(id));
+    await assertCanAssignBranches(userId, clinicNums, allowedClinicIds);
     // IsHidden is NULL on clinics created outside the admin UI; only 1 hides.
     const clinics = await prisma.clinic.findMany({
       where: { ClinicNum: { in: clinicNums }, OR: [{ IsHidden: 0 }, { IsHidden: null }] },

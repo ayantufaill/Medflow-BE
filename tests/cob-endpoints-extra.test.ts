@@ -9,9 +9,9 @@
  * a patient — so the gates and the "range, never a midpoint" rule are the
  * parts worth pinning.
  */
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
-import { authHeaderWithPermissions } from './helpers/roles';
+import { authHeaderWithPermissions, deletePermissionProbes } from './helpers/roles';
 import app from '../src/app';
 import { PERMISSIONS } from '../src/constants/permissions';
 import { PERMISSION_CATALOG } from '../src/constants/permission-catalog';
@@ -115,6 +115,8 @@ describe('downstream estimates — the range rule', () => {
 });
 
 describe('COB extra endpoints — permission gating', () => {
+  afterAll(deletePermissionProbes);
+
   let adminHeader: { Authorization: string } | null = null;
 
   beforeAll(async () => {

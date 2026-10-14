@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { isAdminRequest } from '../middleware/auth.middleware';
-import { userService } from '../services/user.service';
+import { userService, assertCanAssignBranches } from '../services/user.service';
 import { AuthenticationError } from '../utils/error.util';
 import { userClinicService } from '../services/user-clinic.service';
 import { logActivityFromRequest, getClientIp, getUserAgent } from '../utils/activity-logger.util';
@@ -337,7 +337,7 @@ export class UserController {
       const result = await userService.updateUserBranches(
         userId,
         Array.isArray(branchIds) ? branchIds.map((id: string) => id.toString()) : [],
-        req.branchAccess?.clinicIds
+        req.access?.isPlatformAdmin ? undefined : req.branchAccess?.clinicIds
       );
       await logActivityFromRequest(req, 'updated', 'userclinic', userId, null, { branchIds });
       res.status(200).json({
@@ -371,6 +371,12 @@ export class UserController {
       if (!userId) {
         return res.status(400).json({ success: false, error: { message: 'User ID is required' } });
       }
+
+      const assigned = [defaultId, ...(Array.isArray(restrictedIds) ? restrictedIds : [])]
+        .filter((id) => id !== undefined && id !== null && String(id) !== '')
+        .map((id) => BigInt(id));
+      // Platform admins assign across practices; everyone else stays in their scope.
+      await assertCanAssignBranches(userId, assigned, req.access?.isPlatformAdmin ? undefined : req.branchAccess?.clinicIds);
 
       await userClinicService.setUserClinics(
         BigInt(userId),
