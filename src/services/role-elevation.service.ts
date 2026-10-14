@@ -28,6 +28,15 @@ export interface ElevateRoleParams {
   clinicId?: bigint;
 }
 
+/** The user's branches: their home clinic plus every userclinic assignment. */
+async function branchesOfUser(userNum: bigint, homeClinic: bigint | null): Promise<bigint[]> {
+  const links = await prisma.userclinic.findMany({ where: { UserNum: userNum }, select: { ClinicNum: true } });
+  const ids = new Set<bigint>();
+  if (homeClinic !== null && homeClinic > 0n) ids.add(homeClinic);
+  for (const link of links) if (link.ClinicNum !== null) ids.add(link.ClinicNum);
+  return Array.from(ids);
+}
+
 /**
  * Who the actor is, for authority purposes. A legacy wildcard admin
  * (Super Admin/Admin/Branch Admin via '*') can still act, per the
@@ -103,17 +112,34 @@ export async function elevateUserRole({
     throw new AuthorizationError('Only a group_admin or branch_admin may change a user\'s role.');
   }
 
-  if (actingAsBranchAdminOnly) {
-    if (BRANCH_ADMIN_CANNOT_ASSIGN.has(roleKey)) {
-      throw new AuthorizationError(`branch_admin cannot assign the "${roleKey}" role.`);
+  if (actingAsBranchAdminOnly && BRANCH_ADMIN_CANNOT_ASSIGN.has(roleKey)) {
+    throw new AuthorizationError(`branch_admin cannot assign the "${roleKey}" role.`);
+  }
+
+  // Scope is decided by the TARGET user's branches, not by a branch id the
+  // client sends: a branch_admin may change roles only for people in their
+  // own branch(es), a group_admin only within their group. Previously only
+  // the optional clinicId was checked, so a branch_admin could send their own
+  // branch id and change the role of a user in another branch — and the UI,
+  // which sent the header's selected branch (empty for single-branch admins),
+  // got "clinicId is required" instead. clinicId is still accepted; when given
+  // it must be one of the target's branches inside the actor's scope.
+  // A legacy wildcard admin with no branch assignment at all (system Admin /
+  // Super Admin) stays unrestricted, same rule as assertUserInScope.
+  const unrestricted = actor.clinicIds === '*' || (actor.isLegacyWildcardAdmin && actor.clinicIds.length === 0);
+  if (!unrestricted && actor.clinicIds !== '*') {
+    const allowed = actor.clinicIds;
+    const targetBranches = await branchesOfUser(targetUser.UserNum, targetUser.ClinicNum);
+    const shared = targetBranches.filter((id) => allowed.includes(id));
+    if (shared.length === 0) {
+      throw new AuthorizationError(
+        actingAsBranchAdminOnly
+          ? 'branch_admin can only change roles within their own branch.'
+          : 'You can only change roles for users in your practice group.'
+      );
     }
-    if (!clinicId) {
-      throw new ValidationError('clinicId is required when a branch_admin changes a role.');
-    }
-    const allowedClinicIds = actor.clinicIds;
-    const inScope = allowedClinicIds === '*' || allowedClinicIds.some((id) => id === clinicId);
-    if (!inScope) {
-      throw new AuthorizationError('branch_admin can only change roles within their own branch.');
+    if (clinicId !== undefined && !shared.includes(clinicId)) {
+      throw new AuthorizationError('That branch is not one of this user\'s branches you manage.');
     }
   }
 

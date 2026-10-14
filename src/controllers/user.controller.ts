@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { isAdminRequest } from '../middleware/auth.middleware';
-import { userService } from '../services/user.service';
+import { userService, assertCanAssignBranches } from '../services/user.service';
+import { AuthenticationError } from '../utils/error.util';
 import { userClinicService } from '../services/user-clinic.service';
 import { logActivityFromRequest, getClientIp, getUserAgent } from '../utils/activity-logger.util';
 
@@ -336,7 +337,7 @@ export class UserController {
       const result = await userService.updateUserBranches(
         userId,
         Array.isArray(branchIds) ? branchIds.map((id: string) => id.toString()) : [],
-        req.branchAccess?.clinicIds
+        req.access?.isPlatformAdmin ? undefined : req.branchAccess?.clinicIds
       );
       await logActivityFromRequest(req, 'updated', 'userclinic', userId, null, { branchIds });
       res.status(200).json({
@@ -370,6 +371,12 @@ export class UserController {
       if (!userId) {
         return res.status(400).json({ success: false, error: { message: 'User ID is required' } });
       }
+
+      const assigned = [defaultId, ...(Array.isArray(restrictedIds) ? restrictedIds : [])]
+        .filter((id) => id !== undefined && id !== null && String(id) !== '')
+        .map((id) => BigInt(id));
+      // Platform admins assign across practices; everyone else stays in their scope.
+      await assertCanAssignBranches(userId, assigned, req.access?.isPlatformAdmin ? undefined : req.branchAccess?.clinicIds);
 
       await userClinicService.setUserClinics(
         BigInt(userId),
@@ -534,6 +541,37 @@ export class UserController {
    * Deliberately separate from assignUserRoles above (which full-replaces
    * every legacy role a user holds) — see role-elevation.service.ts.
    */
+  /**
+   * GET /users/:userId/module-access — the member's Team Access overrides,
+   * plus the module list with their role default and how far the caller may go.
+   */
+  async getModuleAccess(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.access) throw new AuthenticationError('Authentication required');
+      const { teamAccessService } = await import('../services/team-access.service');
+      const data = await teamAccessService.getMemberAccess(req.access, req.params.userId);
+      res.status(200).json({ success: true, data });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /** PUT /users/:userId/module-access — replace the member's module levels and feature switches. */
+  async updateModuleAccess(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.access) throw new AuthenticationError('Authentication required');
+      const { userId } = req.params;
+      const { teamAccessService } = await import('../services/team-access.service');
+      const result = await teamAccessService.updateMemberAccess(req.access, userId, req.body ?? {});
+
+      await logActivityFromRequest(req, 'updated', 'user_module_access', userId, result.previous, result.current);
+
+      res.status(200).json({ success: true, data: result.current });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async elevateRole(req: Request, res: Response, next: NextFunction) {
     try {
       const { userId } = req.params;

@@ -1,4 +1,4 @@
-import { body, query } from 'express-validator';
+import { body, param, query } from 'express-validator';
 
 export const getRxValidator = [
   query('patientId').optional().isString().withMessage('patientId must be a string'),
@@ -23,4 +23,9 @@ body().custom((value) => {
   body('refills').optional().isString(),
   body('dose').optional().isString(),
   body('notes').optional().isString(),
+];
+
+/** GET /rx/:id/print — a non-numeric id reached BigInt() and answered 500. */
+export const rxIdValidator = [
+  param('id').isInt({ min: 1 }).withMessage('Prescription id must be a positive integer'),
 ];
