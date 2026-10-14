@@ -28,6 +28,16 @@ const buildJson = (value: Record<string, unknown>) => JSON.stringify(value);
 
 const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
+// Whether a payment came from the payer. Must stay identical to the test
+// invoiceService.markItemPaid uses, otherwise an insurance payment that fails
+// markItemPaid and falls through to these direct updates gets booked as money
+// the PATIENT paid — which is how a procedure ended up carrying an insurance
+// estimate in patientPaidAmount with no patient payment behind it.
+const isInsurancePaymentSource = (paymentSource?: string | null): boolean => {
+  const s = String(paymentSource ?? '').toLowerCase();
+  return s === 'insurance_company' || s === 'insurance';
+};
+
 type PaymentMeta = {
   invoiceId?: string;
   method?: string;
@@ -306,6 +316,9 @@ export class PaymentService {
         moveToNewClaim?: boolean;
         claimId?: string;
       }>;
+      isAccountCredit?: boolean;
+      addFamilyCredit?: boolean;
+      useFamilyCredit?: boolean;
     },
     userId: string
   ) {
@@ -328,6 +341,8 @@ export class PaymentService {
       methodNormalized.includes('patient credit') ||
       methodNormalized === 'credit';
 
+    const shouldUseFamilyCredit = Boolean(data.addFamilyCredit || data.useFamilyCredit);
+
     const payNum = await getNextId('payment', 'PayNum');
 
     let paysplitData: any = undefined;
@@ -335,13 +350,65 @@ export class PaymentService {
     if (isAccountCredit) {
       const splitNum1 = await getNextId('paysplit', 'SplitNum');
       const splitNum2 = await getNextId('paysplit', 'SplitNum');
+
+      let deductionPatNum = BigInt(data.patientId);
+
+      if (shouldUseFamilyCredit) {
+        const patientObj = await prisma.patient.findUnique({
+          where: { PatNum: BigInt(data.patientId) },
+          select: { PatNum: true, Guarantor: true }
+        });
+        if (patientObj) {
+          const guarantorId = (patientObj.Guarantor && patientObj.Guarantor > 0n) ? patientObj.Guarantor : patientObj.PatNum;
+          const familyMembers = await prisma.patient.findMany({
+            where: {
+              OR: [
+                { Guarantor: guarantorId },
+                { PatNum: guarantorId }
+              ]
+            },
+            select: { PatNum: true }
+          });
+          const familyPatNums = Array.from(new Set(familyMembers.map(m => m.PatNum)));
+
+          // Check patient's own unearned credit
+          const patientCreditAgg = await prisma.paysplit.aggregate({
+            where: { PatNum: BigInt(data.patientId), UnearnedType: { gt: 0, not: 2 } },
+            _sum: { SplitAmt: true }
+          });
+          const patientOwnCredit = Number(patientCreditAgg._sum.SplitAmt) || 0;
+
+          if (patientOwnCredit < data.amount) {
+            // Find family member with unearned credit
+            const memberCredits = await prisma.paysplit.groupBy({
+              by: ['PatNum'],
+              where: {
+                PatNum: { in: familyPatNums },
+                UnearnedType: { gt: 0, not: 2 }
+              },
+              _sum: { SplitAmt: true },
+              having: {
+                SplitAmt: { _sum: { gt: 0 } }
+              }
+            });
+            const sortedMembers = memberCredits
+              .filter(m => m.PatNum)
+              .sort((a, b) => (Number(b._sum.SplitAmt) || 0) - (Number(a._sum.SplitAmt) || 0));
+
+            if (sortedMembers.length > 0 && sortedMembers[0].PatNum) {
+              deductionPatNum = sortedMembers[0].PatNum;
+            }
+          }
+        }
+      }
+
       paysplitData = {
         create: [
           {
             SplitNum: splitNum1,
-            PatNum: BigInt(data.patientId),
+            PatNum: deductionPatNum,
             SplitAmt: -data.amount,
-            UnearnedType: BigInt(1), // Deduction from patient deposit pool
+            UnearnedType: BigInt(1), // Deduction from patient/family deposit pool
             DatePay: resolvedPaidAt,
             DateEntry: new Date(),
             SecUserNumEntry: BigInt(userId),
@@ -375,6 +442,7 @@ export class PaymentService {
           status: data.status ?? 'completed',
           notes: data.notes ?? null,
           isAccountCredit,
+          addFamilyCredit: shouldUseFamilyCredit,
           appliedCreditAmount: isAccountCredit ? data.amount : undefined,
           isPartialPayment: Boolean((data as any).isPartialPayment),
           claimStatus: (data as any).claimStatus ?? null,
@@ -479,7 +547,7 @@ export class PaymentService {
               // If markItemPaid fails, fallback to direct update
               if (procItemRecord) {
                 const itemMeta = parseJson<Record<string, any>>(procItemRecord.BillingNote);
-                const isInsPayment = data.paymentSource === 'insurance_company';
+                const isInsPayment = isInsurancePaymentSource(data.paymentSource);
                 const updatedMeta = {
                   ...itemMeta,
                   paidAmount: Math.round(((Number(itemMeta.paidAmount) || 0) + pay) * 100) / 100,
@@ -498,7 +566,7 @@ export class PaymentService {
             }
           } else if (procItemRecord) {
             const itemMeta = parseJson<Record<string, any>>(procItemRecord.BillingNote);
-            const isInsPayment = data.paymentSource === 'insurance_company';
+            const isInsPayment = isInsurancePaymentSource(data.paymentSource);
             const updatedMeta = {
               ...itemMeta,
               paidAmount: Math.round(((Number(itemMeta.paidAmount) || 0) + pay) * 100) / 100,
@@ -944,7 +1012,7 @@ export class PaymentService {
                 },
               });
 
-              const isInsurancePayment = data.paymentSource === 'insurance_company';
+              const isInsurancePayment = isInsurancePaymentSource(data.paymentSource);
               const updatedBn = {
                 ...item.bn,
                 paidAmount: Math.round(((Number(item.bn?.paidAmount) || 0) + alloc) * 100) / 100,
@@ -987,7 +1055,7 @@ export class PaymentService {
               },
             });
 
-            const isInsurancePayment = data.paymentSource === 'insurance_company';
+            const isInsurancePayment = isInsurancePaymentSource(data.paymentSource);
             const updatedBn = {
               ...lastItem.bn,
               paidAmount: Math.round(((Number(lastItem.bn?.paidAmount) || 0) + remainingToAllocate) * 100) / 100,

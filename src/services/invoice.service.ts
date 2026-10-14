@@ -192,7 +192,8 @@ export const isPatientPenaltyOrNonIns = (item: any): boolean => {
     item.isAccountPenalty ||
     item.patientOnly ||
     item.noBillIns ||
-    item.accountPenalty
+    item.accountPenalty ||
+    item.dbi === true
   ) {
     return true;
   }
@@ -231,6 +232,10 @@ export const isPatientPenaltyOrNonIns = (item: any): boolean => {
 };
 
 export class InvoiceService {
+  async getNextInvoiceNumber(): Promise<string> {
+    return getInvoiceNumber();
+  }
+
   /** Attach the completed OpenDental procedures already created by a treatment plan. */
   async createInvoiceFromCompletedProcedures(
     tx: Prisma.TransactionClient,
@@ -1260,11 +1265,14 @@ export class InvoiceService {
         // default: downgrades almost always stay within one category.
         const priced = applyDeductible(deductibleLedger, cleanCode, insuranceBasis, percent);
 
-        // The line's Allowed fee is the basis the insurance actually priced
-        // against: the downgraded procedure's allowed fee when a downgrade
-        // applies, otherwise the billed code's contracted allowed fee.
-        item.allowedFee = insuranceBasis;
+        // The line's Allowed fee is the billed code's contracted fee (for write-off calc).
+        // The insurance basis (downgrade fee when applicable) is stored separately.
+        item.allowedFee = basisFee;
         item.allowedFeeSource = 'plan';
+        // Store the insurance basis separately for downgraded procedures
+        if (downgradeRule) {
+          item.downgradeAllowedFee = insuranceBasis;
+        }
         item.insPortion = priced.insurancePortion;
         item.deductibleApplied = priced.deductibleApplied;
         item.deductibleRowKey = priced.rowKey;

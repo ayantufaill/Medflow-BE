@@ -68,6 +68,18 @@ export class InvoiceController {
     }
   }
 
+  async getNextInvoiceNumber(req: Request, res: Response, next: NextFunction) {
+    try {
+      const nextInvoiceNumber = await invoiceService.getNextInvoiceNumber();
+      res.status(200).json({
+        success: true,
+        data: { nextInvoiceNumber },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async createInvoiceFromAppointment(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.userId) {

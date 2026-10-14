@@ -85,6 +85,18 @@ export class ClaimController {
     }
   }
 
+  async getNextClaimNumber(req: Request, res: Response, next: NextFunction) {
+    try {
+      const nextClaimNumber = await claimService.getNextClaimNumber();
+      res.status(200).json({
+        success: true,
+        data: { nextClaimNumber },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async createClaimFromInvoice(req: Request, res: Response, next: NextFunction) {
     try {
       const invoiceId = req.params.invoiceId as string;
