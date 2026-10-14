@@ -1,4 +1,4 @@
-import { prisma, withTenantTransaction } from '../config/db';
+import { prisma, basePrisma, applyTenantContextToTransaction } from '../config/db';
 
 export class AgingService {
   async updatePatientAging(patNum: bigint) {
@@ -122,9 +122,10 @@ export class AgingService {
     // Raw queries skip the client's tenant extension (it wraps model queries
     // only), so on their own they run with app.clinic_ids unset and RLS on
     // famaging refuses the row — invoice creation then failed with "You do not
-    // have access to this branch". withTenantTransaction sets the caller's
+    // have access to this branch". applyTenantContextToTransaction sets the caller's
     // branch scope on the connection first.
-    await withTenantTransaction(async (tx) => {
+    await basePrisma.$transaction(async (tx) => {
+      await applyTenantContextToTransaction(tx);
       const checkExisting = await tx.$queryRawUnsafe<any[]>(
         `SELECT "PatNum" FROM famaging WHERE "PatNum" = $1 LIMIT 1`,
         patNum
