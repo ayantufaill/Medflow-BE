@@ -6,9 +6,9 @@
  * only has read. Those are the guards that stop one biller silently
  * re-pointing every patient on a group plan.
  */
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
-import { authHeaderWithPermissions } from './helpers/roles';
+import { authHeaderWithPermissions, deletePermissionProbes } from './helpers/roles';
 import app from '../src/app';
 import { prisma } from '../src/config/db';
 import { getAdminAuthHeader } from './helpers/auth';
@@ -50,6 +50,8 @@ describe('COB API', () => {
   });
 
   describe('permission gating', () => {
+    afterAll(deletePermissionProbes);
+
     /** Enough to open patient data (requirePhiAccess), and no insurance key. */
     const PATIENT_ACCESS_ONLY = { 'clinical.cross_branch.view': true, 'patients.read': true };
 

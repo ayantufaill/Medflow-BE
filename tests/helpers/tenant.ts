@@ -32,10 +32,20 @@ export async function createTenant(prefix = 'tenant'): Promise<Tenant> {
   const email = `groupadmin.${token}@example.com`.toLowerCase();
   const password = 'TestPass123!';
 
+  // Provisioning a group admin is a Super Admin action in the app
+  // (practice-group.controller passes req.userId), and the user-creation grant
+  // guard resolves the actor as a real user — the old 'system' placeholder
+  // made it throw "Cannot convert system to a BigInt".
+  const superAdmin = await prisma.usergroupattach.findFirst({
+    where: { usergroup: { Description: 'Super Admin' } },
+    select: { UserNum: true },
+  });
+  if (!superAdmin?.UserNum) throw new Error('createTenant needs a seeded Super Admin user');
+
   await practiceGroupService.createGroupAdmin(
     group.id,
     { email, firstName: 'Group', lastName: token, clinicId: branch.id },
-    'system'
+    superAdmin.UserNum.toString()
   );
 
   const user = await prisma.userod.findFirstOrThrow({ where: { UserName: email } });
