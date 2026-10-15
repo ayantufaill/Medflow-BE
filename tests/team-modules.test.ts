@@ -155,3 +155,33 @@ describe('features', () => {
     expect(sanitizeFeatureAccess({ 'patients.create': false, 'nope.x': true, 'patients.edit': 'yes' })).toEqual({ 'patients.create': false });
   });
 });
+
+describe('authorization and payer-order switches under Clinical', () => {
+  const clinicalKeys = TEAM_FEATURES.filter((f) => f.module === 'clinical').map((f) => f.key);
+
+  it('lists them under Clinical, keeping their saved keys', () => {
+    expect(clinicalKeys).toEqual(expect.arrayContaining(['insurance.auth_write', 'insurance.cob_override']));
+    expect(TEAM_FEATURES.filter((f) => f.module === 'insurance').map((f) => f.key)).not.toContain('insurance.cob_override');
+  });
+
+  it("Clinical's level sets them; Insurance's no longer does", () => {
+    const biller = () => new Set(['insurance.read', 'authorizations.read', 'authorizations.create', 'insurance.coverage_order.override']);
+
+    const clinicalOff = biller();
+    applyModuleOverrides(clinicalOff, { clinical: 'none' });
+    expect(clinicalOff.has('authorizations.create')).toBe(false);
+    expect(clinicalOff.has('insurance.coverage_order.override')).toBe(false);
+    expect(clinicalOff.has('authorizations.read')).toBe(true);
+
+    const insuranceView = biller();
+    applyModuleOverrides(insuranceView, { insurance: 'view' });
+    expect(insuranceView.has('authorizations.create')).toBe(true);
+    expect(insuranceView.has('insurance.coverage_order.override')).toBe(true);
+    expect(moduleGateFor('/authorizations', 'POST', { insurance: 'view' })).toBeNull();
+  });
+
+  it("don't open the Clinical pages on their own", () => {
+    const perms = new Set(['insurance.coverage_order.override', 'authorizations.create']);
+    expect(moduleStatesFor(perms, {}, { 'insurance.cob_override': true }).clinical).toBe('off');
+  });
+});
