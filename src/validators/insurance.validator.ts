@@ -290,6 +290,12 @@ export const createPatientInsuranceValidator: ValidationChain[] = [
     .optional({ nullable: true }).isString().withMessage('Group Number must be text'),
   body('groupName')
     .optional({ nullable: true }).isString().withMessage('Group Name must be text'),
+  body('insurancePlanName')
+    .optional({ nullable: true }).isString().isLength({ max: 255 }).withMessage('Insurance Plan Name must be at most 255 characters'),
+  body('employerName')
+    .optional({ nullable: true }).isString().isLength({ max: 255 }).withMessage('Employer Name must be at most 255 characters'),
+  body('employerId')
+    .optional({ nullable: true }).isInt({ min: 1 }).withMessage('Invalid employer ID format'),
   body().custom((_value, { req }) => {
     const { errors } = validateGroupFields(req.body);
     const message = Object.values(errors)[0];
@@ -487,6 +493,12 @@ export const updatePatientInsuranceValidator: ValidationChain[] = [
     .optional({ nullable: true }).isString().withMessage('Group Number must be text'),
   body('groupName')
     .optional({ nullable: true }).isString().withMessage('Group Name must be text'),
+  body('insurancePlanName')
+    .optional({ nullable: true }).isString().isLength({ max: 255 }).withMessage('Insurance Plan Name must be at most 255 characters'),
+  body('employerName')
+    .optional({ nullable: true }).isString().isLength({ max: 255 }).withMessage('Employer Name must be at most 255 characters'),
+  body('employerId')
+    .optional({ nullable: true }).isInt({ min: 1 }).withMessage('Invalid employer ID format'),
   body('subscriberName')
     .optional()
     .trim()

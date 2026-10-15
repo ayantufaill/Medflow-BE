@@ -273,6 +273,8 @@ export class PatientInsuranceService {
         policyNumber: patplan.inssub?.SubscriberID ?? '',
         groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
         groupName: patplan.inssub?.insplan?.GroupName ?? null,
+        insurancePlanName: meta?.insurancePlanName ?? patplan.inssub?.insplan?.GroupName ?? null,
+        employerId: patplan.inssub?.insplan?.EmployerNum?.toString() ?? null,
         subscriberName: meta?.subscriberName || [patplan.inssub?.patient?.FName, patplan.inssub?.patient?.LName].filter(Boolean).join(' '),
         subscriberDateOfBirth: formatDateOnly(meta?.subscriberDateOfBirth || patplan.inssub?.patient?.Birthdate),
         relationshipToPatient: patplan.Relationship == null ? null : mapRelationshipFromDb(patplan.Relationship),
@@ -286,7 +288,7 @@ export class PatientInsuranceService {
         verificationDate: meta?.verificationDate ?? null,
         isActive: patplan.IsPending ? false : true,
         notes: patplan.inssub?.SubscNote ?? null,
-        employerName: patplan.inssub?.insplan?.employer?.EmpName ?? null,
+        employerName: patplan.inssub?.insplan?.employer?.EmpName ?? meta?.employerName ?? null,
         employerAddress: patplan.inssub?.insplan?.employer ? {
           street: patplan.inssub.insplan.employer.Address ?? '',
           street2: patplan.inssub.insplan.employer.Address2 ?? '',
@@ -359,6 +361,7 @@ export class PatientInsuranceService {
             insplan: {
               include: {
                 carrier: true,
+                employer: true,
               },
             },
           },
@@ -423,6 +426,9 @@ export class PatientInsuranceService {
         policyNumber: patplan.inssub?.SubscriberID ?? '',
         groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
         groupName: patplan.inssub?.insplan?.GroupName ?? null,
+        insurancePlanName: meta?.insurancePlanName ?? patplan.inssub?.insplan?.GroupName ?? null,
+        employerId: patplan.inssub?.insplan?.EmployerNum?.toString() ?? null,
+        employerName: patplan.inssub?.insplan?.employer?.EmpName ?? meta?.employerName ?? null,
         subscriberName: meta?.subscriberName ?? '',
         subscriberDateOfBirth: formatDateOnly(meta?.subscriberDateOfBirth),
         relationshipToPatient: mapRelationshipFromDb(patplan.Relationship),
@@ -539,6 +545,8 @@ export class PatientInsuranceService {
       policyNumber: patplan.inssub?.SubscriberID ?? '',
       groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
       groupName: patplan.inssub?.insplan?.GroupName ?? null,
+      insurancePlanName: insuranceMeta.insurancePlanName ?? patplan.inssub?.insplan?.GroupName ?? null,
+      employerId: patplan.inssub?.insplan?.EmployerNum?.toString() ?? null,
       subscriberName: insuranceMeta.subscriberName || [patplan.inssub?.patient?.FName, patplan.inssub?.patient?.LName].filter(Boolean).join(' '),
       subscriberDateOfBirth: formatDateOnly(insuranceMeta.subscriberDateOfBirth || patplan.inssub?.patient?.Birthdate),
       relationshipToPatient: patplan.Relationship == null ? null : mapRelationshipFromDb(patplan.Relationship),
@@ -552,7 +560,7 @@ export class PatientInsuranceService {
       verificationDate: insuranceMeta.verificationDate ?? null,
       isActive: patplan.IsPending ? false : true,
       notes: patplan.inssub?.SubscNote ?? null,
-      employerName: patplan.inssub?.insplan?.employer?.EmpName ?? null,
+      employerName: patplan.inssub?.insplan?.employer?.EmpName ?? insuranceMeta.employerName ?? null,
       employerAddress: patplan.inssub?.insplan?.employer ? {
         street: patplan.inssub.insplan.employer.Address ?? '',
         street2: patplan.inssub.insplan.employer.Address2 ?? '',
@@ -607,6 +615,9 @@ export class PatientInsuranceService {
       policyNumber: string;
       groupNumber?: string;
       groupName?: string;
+      insurancePlanName?: string;
+      employerName?: string | null;
+      employerId?: string | null;
       subscriberName: string;
       subscriberDateOfBirth: Date;
       relationshipToPatient: string;
@@ -657,6 +668,12 @@ export class PatientInsuranceService {
     });
     if (!insuranceCompany) {
       throw new NotFoundError('Insurance company not found');
+    }
+    if (data.employerId) {
+      const employer = await prisma.employer.findUnique({
+        where: { EmployerNum: BigInt(data.employerId) },
+      });
+      if (!employer) throw new BadRequestError('Selected employer does not exist');
     }
 
     // Calculate maxOrdinal for existing active plans and assign next available ordinal
@@ -726,6 +743,7 @@ export class PatientInsuranceService {
           CarrierNum: BigInt(data.insuranceCompanyId),
           GroupNum: groupFields.groupNumber || null,
           GroupName: groupFields.groupName || null,
+          EmployerNum: data.employerId ? BigInt(data.employerId) : null,
           PlanNote: data.notes ?? null,
           IsHidden: 0,
           FeeSched: feeSchedFields.FeeSched,
@@ -794,6 +812,8 @@ export class PatientInsuranceService {
       policyNotes: data.policyNotes ?? null,
       eligibilityPolicyNotes: data.eligibilityPolicyNotes ?? null,
       insurancePlanNotes: data.insurancePlanNotes ?? null,
+      insurancePlanName: data.insurancePlanName ?? null,
+      employerName: data.employerName ?? null,
       healthPlan: data.healthPlan ?? null,
       paymentPlan: data.paymentPlan ?? null,
     });
@@ -901,6 +921,9 @@ export class PatientInsuranceService {
       policyNumber?: string;
       groupNumber?: string;
       groupName?: string;
+      insurancePlanName?: string;
+      employerName?: string | null;
+      employerId?: string | null;
       subscriberName?: string;
       subscriberDateOfBirth?: Date;
       relationshipToPatient?: string;
@@ -952,6 +975,23 @@ export class PatientInsuranceService {
       });
       if (!insuranceCompany) {
         throw new NotFoundError('Insurance company not found');
+      }
+    }
+    if (updates.employerId) {
+      const employer = await prisma.employer.findUnique({
+        where: { EmployerNum: BigInt(updates.employerId) },
+      });
+      if (!employer) throw new BadRequestError('Selected employer does not exist');
+    }
+    if (updates.employerId !== undefined && patplan.inssub?.insplan) {
+      const nextEmployerNum = updates.employerId ? BigInt(updates.employerId) : null;
+      if (nextEmployerNum !== patplan.inssub.insplan.EmployerNum) {
+        const subscriberCount = await prisma.inssub.count({
+          where: { PlanNum: patplan.inssub.insplan.PlanNum },
+        });
+        if (subscriberCount > 1) {
+          throw new BadRequestError('Cannot change the employer on a plan shared by multiple subscribers');
+        }
       }
     }
 
@@ -1006,6 +1046,9 @@ export class PatientInsuranceService {
           CarrierNum: updates.insuranceCompanyId ? safeBigInt(updates.insuranceCompanyId) : undefined,
           GroupNum: updates.groupNumber !== undefined ? groupFields.groupNumber || null : undefined,
           GroupName: updates.groupName !== undefined ? groupFields.groupName || null : undefined,
+          EmployerNum: updates.employerId !== undefined
+            ? (updates.employerId ? BigInt(updates.employerId) : null)
+            : undefined,
           PlanNote: updates.notes ?? undefined,
           // Only spread fee schedule fields when the caller changed planFeeGuide or coverageType
           ...(updatedFeeSchedFields !== undefined
@@ -1095,6 +1138,8 @@ export class PatientInsuranceService {
       policyNotes: updates.policyNotes ?? currentMeta.policyNotes ?? null,
       eligibilityPolicyNotes: updates.eligibilityPolicyNotes ?? currentMeta.eligibilityPolicyNotes ?? null,
       insurancePlanNotes: updates.insurancePlanNotes ?? currentMeta.insurancePlanNotes ?? null,
+      insurancePlanName: updates.insurancePlanName ?? currentMeta.insurancePlanName ?? null,
+      employerName: updates.employerName !== undefined ? updates.employerName : currentMeta.employerName ?? null,
       healthPlan: updates.healthPlan ?? currentMeta.healthPlan ?? null,
       paymentPlan: updates.paymentPlan ?? currentMeta.paymentPlan ?? null,
     });
