@@ -13,6 +13,7 @@ import { getPatientInsuranceMeta, setPatientInsuranceMeta, getPatientInsurancesM
 import { claimService } from './claim.service';
 import { normalizeDeductibleRows, normalizeDeductibleGrid, mergeDeductibleGridForUpdate, deriveDeductibleAmount, resolveDeductibleTier } from './deductible.service';
 import { validateGroupFields } from '../utils/insurance-group-validation.util';
+import { isFixedBenefitCoverageType, stripCoveragePercentages } from './coverage-limits.service';
 
 const safeBigInt = (val: any): bigint => {
   if (typeof val === 'bigint') return val;
@@ -797,7 +798,9 @@ export class PatientInsuranceService {
       // Advanced Dentistry Fields
       deductiblesGrid: normalizedGrid,
       coverageLimits: data.coverageLimits ?? null,
-      coverageCategoryTable: data.coverageCategoryTable ?? [],
+      coverageCategoryTable: isFixedBenefitCoverageType(data.coverageType)
+        ? stripCoveragePercentages(data.coverageCategoryTable ?? [])
+        : (data.coverageCategoryTable ?? []),
       coverageBookData: data.coverageBookData ?? [],
       planFeeGuide: data.planFeeGuide ?? null,
       coverageType: data.coverageType ?? null,
@@ -1117,7 +1120,13 @@ export class PatientInsuranceService {
       // Advanced Dentistry Fields
       deductiblesGrid: updatedGrid,
       coverageLimits: updates.coverageLimits ?? currentMeta.coverageLimits ?? null,
-      coverageCategoryTable: updates.coverageCategoryTable ?? currentMeta.coverageCategoryTable ?? [],
+      coverageCategoryTable: isFixedBenefitCoverageType(
+        updates.coverageType ?? currentMeta.coverageType,
+      )
+        ? stripCoveragePercentages(
+            updates.coverageCategoryTable ?? currentMeta.coverageCategoryTable ?? [],
+          )
+        : (updates.coverageCategoryTable ?? currentMeta.coverageCategoryTable ?? []),
       coverageBookData: updates.coverageBookData ?? currentMeta.coverageBookData ?? [],
       planFeeGuide: updates.planFeeGuide ?? currentMeta.planFeeGuide ?? null,
       coverageType: updates.coverageType ?? currentMeta.coverageType ?? null,

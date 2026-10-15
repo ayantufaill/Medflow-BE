@@ -149,7 +149,7 @@ describe('normalizeDowngradeRows', () => {
     expect(normalizeDowngradeRows('nope')).toEqual([]);
   });
 
-  it('reads the teeth limit off the downgrade row first', () => {
+  it('reads the teeth limit off the downgrade row', () => {
     const rules = normalizeDowngradeRows(
       book(
         { code: 'D2391', hasDowngrade: true, downgrade: 'D2140' },
@@ -160,18 +160,18 @@ describe('normalizeDowngradeRows', () => {
     expect(rules[0].teethSource).toBe('downgrade-row');
   });
 
-  it('falls back to the billed row when the downgrade row has no limit', () => {
+  it('ignores teeth on the billed row (they are a coverage limit)', () => {
     const rules = normalizeDowngradeRows(
       book(
         { code: 'D2392', hasDowngrade: true, downgrade: 'D2150', teethLimit: '4, 5, 6' },
         { code: 'D2150' }
       )
     );
-    expect(rules[0].teethLimit).toEqual(['P:4', 'P:5', 'P:6']);
-    expect(rules[0].teethSource).toBe('billed-row');
+    expect(rules[0].teethLimit).toEqual([]);
+    expect(rules[0].teethSource).toBe('none');
   });
 
-  it('reports no limit when neither row carries one', () => {
+  it('reports no limit when the downgrade row carries none', () => {
     const rules = normalizeDowngradeRows(
       book(
         { code: 'D2740', hasDowngrade: true, downgrade: 'D2791' },

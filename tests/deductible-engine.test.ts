@@ -162,6 +162,49 @@ describe('Example 1 — simple deductible on allowed fee', () => {
   });
 });
 
+describe('flat plan portion — deductible first, ledger still drained', () => {
+  it('pays exactly the flat amount when the deductible is already met', () => {
+    const ledger = new DeductibleLedger([row('Standard', 0)], 'individual');
+    const r = applyDeductible(ledger, 'D2740', 200, 80, 50);
+    expect(r.insurancePortion).toBe(50);
+    expect(r.deductibleApplied).toBe(0);
+    expect(r.patientPortion).toBe(150);
+  });
+
+  it('subtracts the deductible before applying the flat amount', () => {
+    const ledger = new DeductibleLedger([row('Standard', 50)], 'individual');
+    const r = applyDeductible(ledger, 'D2740', 200, 80, 200);
+    // min(200, 200 − 50) = 150; the pool is drained as on a percentage line.
+    expect(r.deductibleApplied).toBe(50);
+    expect(r.afterDeductible).toBe(150);
+    expect(r.insurancePortion).toBe(150);
+    expect(r.patientPortion).toBe(50);
+  });
+
+  it('clamps the flat amount to the allowed fee', () => {
+    const ledger = new DeductibleLedger([row('Standard', 0)], 'individual');
+    const r = applyDeductible(ledger, 'D2740', 200, 80, 300);
+    expect(r.insurancePortion).toBe(200);
+    expect(r.patientPortion).toBe(0);
+  });
+
+  it('drains the pool once so a later line does not re-apply the deductible', () => {
+    const ledger = new DeductibleLedger([row('Standard', 50)], 'individual');
+    const first = applyDeductible(ledger, 'D2740', 200, 80, 200);
+    expect(first.deductibleApplied).toBe(50);
+
+    const second = applyDeductible(ledger, 'D2740', 200, 80, 200);
+    expect(second.deductibleApplied).toBe(0);
+    expect(second.insurancePortion).toBe(200);
+  });
+
+  it('falls back to the percentage when no flat amount is given', () => {
+    const ledger = new DeductibleLedger([row('Standard', 50)], 'individual');
+    const r = applyDeductible(ledger, 'D2740', 200, 80, null);
+    expect(r.insurancePortion).toBe(120);
+  });
+});
+
 describe('Example 2 — partially met deductible', () => {
   it('applies only the remaining balance and brings it to fully met', () => {
     const ledger = new DeductibleLedger(
