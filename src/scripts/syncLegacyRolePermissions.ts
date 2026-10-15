@@ -18,6 +18,9 @@ const COB_FULL = [
   'insurance.plan_master.edit',
 ];
 
+// Admins draft, edit and delete treatment plans (signing stays clinical).
+const TREATMENT_PLAN_WRITE = ['treatment-plans.create', 'treatment-plans.update', 'treatment-plans.delete'];
+
 const ADDITIONS: Record<string, string[]> = {
   // Finance page: the adjustments panel was 403 ("part"); the matrix says full.
   // COB: seedRoles.ts gives the operations group every COB key, but roles
@@ -35,7 +38,7 @@ const ADDITIONS: Record<string, string[]> = {
   'Dental Assistant': ['insurance.coverage_order.read'],
   'Clinical Staff': ['insurance.coverage_order.read'],
   // Admin console → Patient Communication settings was empty (403).
-  'Group Admin': ['settings.read', 'settings.update'],
+  'Group Admin': ['settings.read', 'settings.update', ...TREATMENT_PLAN_WRITE],
   // Insurance and authorizations are "read" for Lab in the matrix, which
   // includes seeing the patient's insurance order (COB).
   Lab: ['insurance.read', 'authorizations.read', 'insurance.coverage_order.read'],
@@ -44,7 +47,7 @@ const ADDITIONS: Record<string, string[]> = {
   // the COB keys: without coverage_order.read the patient's Insurance tab
   // says "You don't have permission to see the insurance order". Insurance
   // "Full" roles get the edit keys too (group_admin inherits branch_admin).
-  branch_admin: COB_FULL,
+  branch_admin: [...COB_FULL, ...TREATMENT_PLAN_WRITE],
   billing: COB_FULL,
   front_desk: ['insurance.coverage_order.read'],
   dentist: ['insurance.coverage_order.read'],
