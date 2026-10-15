@@ -1,4 +1,5 @@
 import { body, param, query, ValidationChain } from 'express-validator';
+import { validateGroupFields } from '../utils/insurance-group-validation.util';
 
 /**
  * Shared per-row schema for `deductiblesGrid`.
@@ -286,17 +287,15 @@ export const createPatientInsuranceValidator: ValidationChain[] = [
     .matches(/^[A-Za-z0-9\s-]+$/)
     .withMessage('Policy number must be alphanumeric, and can contain spaces or hyphens'),
   body('groupNumber')
-    .optional()
-    .trim()
-    .isLength({ max: 30 })
-    .withMessage('Group number must not exceed 30 characters')
-    .matches(/^[A-Za-z0-9\s-]*$/)
-    .withMessage('Group number must be alphanumeric, and can contain spaces or hyphens'),
+    .optional({ nullable: true }).isString().withMessage('Group Number must be text'),
   body('groupName')
-    .optional()
-    .trim()
-    .isLength({ max: 100 })
-    .withMessage('Group name must be less than 100 characters'),
+    .optional({ nullable: true }).isString().withMessage('Group Name must be text'),
+  body().custom((_value, { req }) => {
+    const { errors } = validateGroupFields(req.body);
+    const message = Object.values(errors)[0];
+    if (message) throw new Error(message);
+    return true;
+  }),
   body('subscriberName')
     .trim()
     .notEmpty()
@@ -485,15 +484,9 @@ export const updatePatientInsuranceValidator: ValidationChain[] = [
     .isLength({ max: 50 })
     .withMessage('Policy number must be less than 50 characters'),
   body('groupNumber')
-    .optional()
-    .trim()
-    .isLength({ max: 50 })
-    .withMessage('Group number must be less than 50 characters'),
+    .optional({ nullable: true }).isString().withMessage('Group Number must be text'),
   body('groupName')
-    .optional()
-    .trim()
-    .isLength({ max: 100 })
-    .withMessage('Group name must be less than 100 characters'),
+    .optional({ nullable: true }).isString().withMessage('Group Name must be text'),
   body('subscriberName')
     .optional()
     .trim()

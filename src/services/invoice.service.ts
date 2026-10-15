@@ -762,13 +762,15 @@ export class InvoiceService {
     // if they diverge, every estimate silently mis-deducts.
     if (percent === undefined && isCdtCode) {
       const catKey = mapCodeToCategory(cleanCode);
-      const tierKey = tierKeyFromCoverageCategory(ctx.coverageCategoryByCode.get(cleanCode));
+      // Some older procedure catalogs omit CoverageCategory for preventive
+      // codes (for example D1321). They still belong to the preventive tier;
+      // without it, a different sub-row can become the category-wide fallback.
+      const tierKey = tierKeyFromCoverageCategory(ctx.coverageCategoryByCode.get(cleanCode))
+        ?? (catKey === 'preventative' ? 'preventative' : null);
 
       // A plan can split one numeric CDT category into Basic and Major tiers.
-      // The procedure code's own `CoverageCategory` is the only authoritative
-      // arbiter for which side of the split it belongs to — the CDT range alone
-      // would price every code in that range off the first sub-row the client
-      // happened to list (typically Basic).
+      // The procedure code's CoverageCategory chooses between Basic and Major.
+      // Preventive codes without catalog metadata use the preventive tier.
       if (catKey && tierKey) {
         const tieredKey = `${catKey}${tierKey}`;
         if (categoryPercentages.has(tieredKey)) {

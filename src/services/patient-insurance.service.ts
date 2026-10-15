@@ -11,7 +11,8 @@ import {
 } from '../utils/opendental-mappers.util';
 import { getPatientInsuranceMeta, setPatientInsuranceMeta, getPatientInsurancesMeta } from '../utils/opendental-auth.util';
 import { claimService } from './claim.service';
-import { normalizeDeductibleRows, normalizeDeductibleGrid, deriveDeductibleAmount, resolveDeductibleTier } from './deductible.service';
+import { normalizeDeductibleRows, normalizeDeductibleGrid, mergeDeductibleGridForUpdate, deriveDeductibleAmount, resolveDeductibleTier } from './deductible.service';
+import { validateGroupFields } from '../utils/insurance-group-validation.util';
 
 const safeBigInt = (val: any): bigint => {
   if (typeof val === 'bigint') return val;
@@ -193,9 +194,13 @@ export class PatientInsuranceService {
       include: {
         inssub: {
           include: {
+            patient: { select: { FName: true, LName: true, Birthdate: true } },
             insplan: {
               include: {
                 carrier: true,
+                employer: true,
+                feesched_insplan_FeeSchedTofeesched: true,
+                feesched_insplan_AllowedFeeSchedTofeesched: true,
               },
             },
           },
@@ -254,14 +259,22 @@ export class PatientInsuranceService {
               _id: patplan.inssub.insplan.carrier.CarrierNum.toString(),
               name: patplan.inssub.insplan.carrier.CarrierName ?? '',
               payerId: patplan.inssub.insplan.carrier.ElectID ?? null,
+              phone: patplan.inssub.insplan.carrier.Phone ?? null,
+              address: {
+                street: patplan.inssub.insplan.carrier.Address ?? '',
+                street2: patplan.inssub.insplan.carrier.Address2 ?? '',
+                city: patplan.inssub.insplan.carrier.City ?? '',
+                state: patplan.inssub.insplan.carrier.State ?? '',
+                zipCode: patplan.inssub.insplan.carrier.Zip ?? '',
+              },
             }
           : null,
         policyNumber: patplan.inssub?.SubscriberID ?? '',
         groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
         groupName: patplan.inssub?.insplan?.GroupName ?? null,
-        subscriberName: meta?.subscriberName ?? '',
-        subscriberDateOfBirth: formatDateOnly(meta?.subscriberDateOfBirth),
-        relationshipToPatient: mapRelationshipFromDb(patplan.Relationship),
+        subscriberName: meta?.subscriberName || [patplan.inssub?.patient?.FName, patplan.inssub?.patient?.LName].filter(Boolean).join(' '),
+        subscriberDateOfBirth: formatDateOnly(meta?.subscriberDateOfBirth || patplan.inssub?.patient?.Birthdate),
+        relationshipToPatient: patplan.Relationship == null ? null : mapRelationshipFromDb(patplan.Relationship),
         insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
         effectiveDate: patplan.inssub?.DateEffective ?? null,
         expirationDate: patplan.inssub?.DateTerm ?? null,
@@ -272,6 +285,17 @@ export class PatientInsuranceService {
         verificationDate: meta?.verificationDate ?? null,
         isActive: patplan.IsPending ? false : true,
         notes: patplan.inssub?.SubscNote ?? null,
+        employerName: patplan.inssub?.insplan?.employer?.EmpName ?? null,
+        employerAddress: patplan.inssub?.insplan?.employer ? {
+          street: patplan.inssub.insplan.employer.Address ?? '',
+          street2: patplan.inssub.insplan.employer.Address2 ?? '',
+          city: patplan.inssub.insplan.employer.City ?? '',
+          state: patplan.inssub.insplan.employer.State ?? '',
+          zipCode: patplan.inssub.insplan.employer.Zip ?? '',
+        } : null,
+        employerPhone: patplan.inssub?.insplan?.employer?.Phone ?? null,
+        planFeeGuideName: patplan.inssub?.insplan?.feesched_insplan_AllowedFeeSchedTofeesched?.Description
+          ?? patplan.inssub?.insplan?.feesched_insplan_FeeSchedTofeesched?.Description ?? null,
 
         // Family Coverage Fields
         isFamilyPlan,
@@ -293,7 +317,7 @@ export class PatientInsuranceService {
         })(),
         coverageType: meta?.coverageType ?? null,
         subscriberSsn: meta?.subscriberSsn ?? null,
-        renewalMonth: meta?.renewalMonth ?? null,
+        renewalMonth: patplan.inssub?.insplan?.MonthRenew ?? meta?.renewalMonth ?? null,
         assignmentOfBenefits: meta?.assignmentOfBenefits ?? null,
         honorWriteOff: meta?.honorWriteOff ?? null,
         providersPlanFeeGuides: meta?.providersPlanFeeGuides ?? [],
@@ -453,9 +477,13 @@ export class PatientInsuranceService {
       include: {
         inssub: {
           include: {
+            patient: { select: { FName: true, LName: true, Birthdate: true } },
             insplan: {
               include: {
                 carrier: true,
+                employer: true,
+                feesched_insplan_FeeSchedTofeesched: true,
+                feesched_insplan_AllowedFeeSchedTofeesched: true,
               },
             },
           },
@@ -497,14 +525,22 @@ export class PatientInsuranceService {
             _id: patplan.inssub.insplan.carrier.CarrierNum.toString(),
             name: patplan.inssub.insplan.carrier.CarrierName ?? '',
             payerId: patplan.inssub.insplan.carrier.ElectID ?? null,
+            phone: patplan.inssub.insplan.carrier.Phone ?? null,
+            address: {
+              street: patplan.inssub.insplan.carrier.Address ?? '',
+              street2: patplan.inssub.insplan.carrier.Address2 ?? '',
+              city: patplan.inssub.insplan.carrier.City ?? '',
+              state: patplan.inssub.insplan.carrier.State ?? '',
+              zipCode: patplan.inssub.insplan.carrier.Zip ?? '',
+            },
           }
         : null,
       policyNumber: patplan.inssub?.SubscriberID ?? '',
       groupNumber: patplan.inssub?.insplan?.GroupNum ?? null,
       groupName: patplan.inssub?.insplan?.GroupName ?? null,
-      subscriberName: insuranceMeta.subscriberName ?? '',
-      subscriberDateOfBirth: formatDateOnly(insuranceMeta.subscriberDateOfBirth),
-      relationshipToPatient: mapRelationshipFromDb(patplan.Relationship),
+      subscriberName: insuranceMeta.subscriberName || [patplan.inssub?.patient?.FName, patplan.inssub?.patient?.LName].filter(Boolean).join(' '),
+      subscriberDateOfBirth: formatDateOnly(insuranceMeta.subscriberDateOfBirth || patplan.inssub?.patient?.Birthdate),
+      relationshipToPatient: patplan.Relationship == null ? null : mapRelationshipFromDb(patplan.Relationship),
       insuranceType: mapOrdinalToInsuranceType(patplan.Ordinal),
       effectiveDate: patplan.inssub?.DateEffective ?? null,
       expirationDate: patplan.inssub?.DateTerm ?? null,
@@ -515,6 +551,17 @@ export class PatientInsuranceService {
       verificationDate: insuranceMeta.verificationDate ?? null,
       isActive: patplan.IsPending ? false : true,
       notes: patplan.inssub?.SubscNote ?? null,
+      employerName: patplan.inssub?.insplan?.employer?.EmpName ?? null,
+      employerAddress: patplan.inssub?.insplan?.employer ? {
+        street: patplan.inssub.insplan.employer.Address ?? '',
+        street2: patplan.inssub.insplan.employer.Address2 ?? '',
+        city: patplan.inssub.insplan.employer.City ?? '',
+        state: patplan.inssub.insplan.employer.State ?? '',
+        zipCode: patplan.inssub.insplan.employer.Zip ?? '',
+      } : null,
+      employerPhone: patplan.inssub?.insplan?.employer?.Phone ?? null,
+      planFeeGuideName: patplan.inssub?.insplan?.feesched_insplan_AllowedFeeSchedTofeesched?.Description
+        ?? patplan.inssub?.insplan?.feesched_insplan_FeeSchedTofeesched?.Description ?? null,
 
       // Family Coverage Fields
       isFamilyPlan,
@@ -536,7 +583,7 @@ export class PatientInsuranceService {
       })(),
       coverageType: insuranceMeta.coverageType ?? null,
       subscriberSsn: insuranceMeta.subscriberSsn ?? null,
-      renewalMonth: insuranceMeta.renewalMonth ?? null,
+      renewalMonth: patplan.inssub?.insplan?.MonthRenew ?? insuranceMeta.renewalMonth ?? null,
       assignmentOfBenefits: insuranceMeta.assignmentOfBenefits ?? null,
       honorWriteOff: insuranceMeta.honorWriteOff ?? null,
       providersPlanFeeGuides: insuranceMeta.providersPlanFeeGuides ?? [],
@@ -592,6 +639,9 @@ export class PatientInsuranceService {
     },
     createdBy?: string
   ) {
+    const groupFields = validateGroupFields(data);
+    const groupError = Object.values(groupFields.errors)[0];
+    if (groupError) throw new BadRequestError(groupError);
     // Verify patient exists
     const patient = await prisma.patient.findUnique({
       where: { PatNum: BigInt(patientId) },
@@ -673,8 +723,8 @@ export class PatientInsuranceService {
         data: {
           PlanNum: planNum,
           CarrierNum: BigInt(data.insuranceCompanyId),
-          GroupNum: data.groupNumber ?? null,
-          GroupName: data.groupName ?? null,
+          GroupNum: groupFields.groupNumber || null,
+          GroupName: groupFields.groupName || null,
           PlanNote: data.notes ?? null,
           IsHidden: 0,
           FeeSched: feeSchedFields.FeeSched,
@@ -909,6 +959,14 @@ export class PatientInsuranceService {
       isActive: patplan.IsPending ? false : true,
     };
     const currentMeta = await getPatientInsuranceMeta(patplan.PatPlanNum);
+    const groupFields = validateGroupFields({
+      groupNumber: updates.groupNumber !== undefined ? updates.groupNumber : patplan.inssub?.insplan?.GroupNum,
+      groupName: updates.groupName !== undefined ? updates.groupName : patplan.inssub?.insplan?.GroupName,
+    });
+    const groupError = Object.values(groupFields.errors)[0];
+    if (groupError && (
+      updates.groupNumber !== undefined || updates.groupName !== undefined
+    )) throw new BadRequestError(groupError);
 
     if (patplan.inssub) {
       await prisma.inssub.update({
@@ -943,8 +1001,8 @@ export class PatientInsuranceService {
         where: { PlanNum: patplan.inssub.insplan.PlanNum },
         data: {
           CarrierNum: updates.insuranceCompanyId ? safeBigInt(updates.insuranceCompanyId) : undefined,
-          GroupNum: updates.groupNumber ?? undefined,
-          GroupName: updates.groupName ?? undefined,
+          GroupNum: updates.groupNumber !== undefined ? groupFields.groupNumber || null : undefined,
+          GroupName: updates.groupName !== undefined ? groupFields.groupName || null : undefined,
           PlanNote: updates.notes ?? undefined,
           // Only spread fee schedule fields when the caller changed planFeeGuide or coverageType
           ...(updatedFeeSchedFields !== undefined
@@ -990,21 +1048,11 @@ export class PatientInsuranceService {
       await this.resequenceActiveInsurances(patientId);
     }
 
-    // Derive typeKey / amounts server-side and recompute the legacy scalar from
-    // the Standard row. Preserves `metAmount` for rows the client did not send.
-    const updatedGrid = normalizeDeductibleGrid(
-      updates.deductiblesGrid ?? currentMeta.deductiblesGrid ?? [],
+    // An explicit zero resets progress; only omitted row fields retain prior values.
+    const updatedGrid = mergeDeductibleGridForUpdate(
+      updates.deductiblesGrid,
+      currentMeta.deductiblesGrid ?? [],
     );
-    const preservedMet = new Map(
-      normalizeDeductibleRows(currentMeta.deductiblesGrid).map((r) => [r.typeKey, r]),
-    );
-    for (const row of updatedGrid) {
-      const prev = preservedMet.get(row.typeKey);
-      if (prev && (row.metAmount ?? 0) === 0 && (prev.metAmount ?? 0) > 0) {
-        row.metAmount = prev.metAmount;
-        row.metDate = prev.metDate;
-      }
-    }
     const updateTier = resolveDeductibleTier({
       relationship: updates.relationshipToPatient,
       patientsCovered: (updates as any).patientsCovered,
