@@ -447,7 +447,7 @@ export class ClaimService {
       paidDate: meta.paidDate ? new Date(meta.paidDate) : null,
       policyNumber: meta.policyNumber ?? row.RefNumString ?? null,
       notes: meta.notes ?? row.ClaimNote ?? null,
-      createdAt: row.SecDateEntry ?? row.DateService ?? null,
+      createdAt: row.CreatedAt ?? row.SecDateEntry ?? row.DateService ?? null,
       updatedAt: meta.updatedAt ? new Date(meta.updatedAt) : row.SecDateTEdit ?? null,
       createdBy: row.SecUserNumEntry?.toString() ?? null,
       updatedBy: meta.updatedBy ?? null,
@@ -4020,7 +4020,7 @@ export class ClaimService {
       note: claim.Narrative ? JSON.parse(claim.Narrative)?.note || null : null,
       description: claim.Narrative ? JSON.parse(claim.Narrative)?.description || null : null,
       selectedItems: claim.Narrative ? JSON.parse(claim.Narrative)?.selectedItems || [] : [],
-      createdAt: claim.SecDateEntry || null,
+      createdAt: claim.CreatedAt ?? claim.SecDateEntry ?? null,
       createdBy: claim.SecUserNumEntry?.toString() || null,
     };
   }
@@ -4217,6 +4217,7 @@ export class ClaimService {
         ClinicNum: patient.ClinicNum || null,
         SecUserNumEntry: userId ? BigInt(userId) : null,
         SecDateEntry: new Date(),
+        CreatedAt: new Date(),
       },
     });
 

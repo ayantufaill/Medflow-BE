@@ -296,6 +296,10 @@ export class PaymentService {
       overpaymentAction?: 'credit' | 'refund' | null;
       suppressLedgerPaymentEntry?: boolean;
       isPartialPayment?: boolean;
+      // Set when paying a primary while a secondary claim is still to be filed:
+      // the primary's shortfall is held on the insurance side instead of being
+      // billed to the patient immediately, and released when the secondary pays.
+      deferUnderpaymentToSecondary?: boolean;
       claimStatus?: string;
       claimId?: string;
       previousClaimStatus?: string;
@@ -729,6 +733,15 @@ export class PaymentService {
             let newPrimaryInsPortion = initialPrimPortion;
             let newSecondaryInsPortion = initialSecPortion;
             let underpaymentTransferAmt = 0;
+            // A primary underpayment held back for a pending secondary claim.
+            // Persisted on the line so the secondary payment can release it.
+            let deferredInsShortfall = Math.max(0, roundCurrency(Number(itemMeta.deferredInsShortfall || 0)));
+            // The frontend is authoritative about pending coverage: it derives
+            // `hasUnclaimedSecondary` from the coverage UI, whereas the
+            // patplan-based `hasSecondary` above relies on Ordinal 2 rows the
+            // coverage UI never writes, so it can be a false negative. Defer
+            // whenever the caller explicitly asks for it.
+            const deferToSecondary = Boolean(data.deferUnderpaymentToSecondary);
 
             // Scenario 2: the patient has already satisfied their ORIGINAL
             // patient responsibility. The insurance underpayment must stay on
@@ -745,29 +758,58 @@ export class PaymentService {
 
               const deltaWo = appliedWo - recordedWo;
               const effExpectedSec = Math.max(0, roundCurrency(expectedSec - deltaWo));
+              const effPrimary = initialPrimPortion > 0 ? initialPrimPortion : Math.max(0, roundCurrency(initialInsPortion - expectedSec));
+
+              // Everything still sitting on the insurance side once this payment
+              // lands: the secondary's own shortfall PLUS any primary
+              // underpayment that was held back for the secondary
+              // (deferredInsShortfall). Whatever the secondary does not cover
+              // becomes the patient's responsibility.
+              const secondaryResidual = Math.max(
+                0,
+                roundCurrency(effExpectedSec + deferredInsShortfall - secondaryPaidOnProc),
+              );
 
               if (isPartial) {
                 newSecondaryInsPortion = effExpectedSec;
+                newPrimaryInsPortion = effPrimary;
                 newPtPortion = initialPtPortion;
               } else if (isRejectedClaim) {
-                underpaymentTransferAmt = Math.max(0, roundCurrency(effExpectedSec - secondaryPaidBeforeOnProc));
+                const rejResidual = Math.max(
+                  0,
+                  roundCurrency(effExpectedSec + deferredInsShortfall - secondaryPaidBeforeOnProc),
+                );
+                underpaymentTransferAmt = rejResidual;
                 newSecondaryInsPortion = secondaryPaidBeforeOnProc;
-                newPtPortion = roundCurrency(initialPtPortion + underpaymentTransferAmt);
-              } else {
-                // Secondary claim finalized: transfer any secondary underpayment to patient balance
-                const secUnderpayment = Math.max(0, roundCurrency(effExpectedSec - secondaryPaidOnProc));
-                if (patientAlreadyPaidInFull && secUnderpayment > 0) {
-                  // Patient paid in full — leave the underpayment with insurance
-                  newSecondaryInsPortion = expectedSec;
-                  newPtPortion = initialPtPortion;
+                newPtPortion = roundCurrency(initialPtPortion + rejResidual);
+                if (deferredInsShortfall > 0) {
+                  newPrimaryInsPortion = primaryPaidOnProc;
+                  deferredInsShortfall = 0;
                 } else {
-                  underpaymentTransferAmt = secUnderpayment;
-                  newSecondaryInsPortion = secondaryPaidOnProc;
-                  newPtPortion = roundCurrency(initialPtPortion + secUnderpayment);
+                  newPrimaryInsPortion = effPrimary;
                 }
+              } else if (patientAlreadyPaidInFull && secondaryResidual > 0) {
+                // Patient paid their original portion in full — leave the
+                // remainder with insurance, no Income Transfer.
+                newSecondaryInsPortion = expectedSec;
+                newPrimaryInsPortion = effPrimary;
+                newPtPortion = initialPtPortion;
+              } else {
+                // Secondary claim finalized: transfer the remaining insurance
+                // balance (secondary shortfall + deferred primary shortfall) to
+                // the patient.
+                underpaymentTransferAmt = secondaryResidual;
+                newSecondaryInsPortion = secondaryPaidOnProc;
+                if (deferredInsShortfall > 0) {
+                  // Release the held primary shortfall: the primary is finalized
+                  // at what it actually paid.
+                  newPrimaryInsPortion = primaryPaidOnProc;
+                  deferredInsShortfall = 0;
+                } else {
+                  newPrimaryInsPortion = effPrimary;
+                }
+                newPtPortion = roundCurrency(initialPtPortion + secondaryResidual);
               }
-              const effPrimary = initialPrimPortion > 0 ? initialPrimPortion : Math.max(0, roundCurrency(initialInsPortion - expectedSec));
-              newPrimaryInsPortion = effPrimary;
             } else {
               // ── Payment on PRIMARY Claim ──
               let expectedPrim = initialPrimPortion > 0 ? initialPrimPortion : initialInsPortion;
@@ -790,9 +832,18 @@ export class PaymentService {
                 newPrimaryInsPortion = effExpectedPrim;
                 newPtPortion = initialPtPortion;
               } else if (isRejectedClaim) {
-                underpaymentTransferAmt = Math.max(0, roundCurrency(effExpectedPrim - primaryPaidBeforeOnProc));
-                newPrimaryInsPortion = primaryPaidBeforeOnProc;
-                newPtPortion = roundCurrency(initialPtPortion + underpaymentTransferAmt);
+                const rejShortfall = Math.max(0, roundCurrency(effExpectedPrim - primaryPaidBeforeOnProc));
+                if (deferToSecondary && rejShortfall > 0) {
+                  // Rejected primary with a secondary still to be filed: hold
+                  // the whole expected amount on the insurance side.
+                  newPrimaryInsPortion = expectedPrim;
+                  newPtPortion = initialPtPortion;
+                  deferredInsShortfall = roundCurrency(deferredInsShortfall + rejShortfall);
+                } else {
+                  underpaymentTransferAmt = rejShortfall;
+                  newPrimaryInsPortion = primaryPaidBeforeOnProc;
+                  newPtPortion = roundCurrency(initialPtPortion + underpaymentTransferAmt);
+                }
               } else {
               // Primary claim finalized: transfer any primary underpayment to patient balance
               const primUnderpayment = Math.max(0, roundCurrency(effExpectedPrim - primaryPaidOnProc));
@@ -803,6 +854,14 @@ export class PaymentService {
                   // insurance balance (expected − paid).
                   newPrimaryInsPortion = expectedPrim;
                   newPtPortion = initialPtPortion;
+                } else if (deferToSecondary && primUnderpayment > 0) {
+                  // A secondary claim is still to be filed. Hold the shortfall
+                  // on the insurance side (expected − paid) instead of billing
+                  // the patient now; the secondary payment releases whatever it
+                  // does not cover. No Income Transfer here.
+                  newPrimaryInsPortion = expectedPrim;
+                  newPtPortion = initialPtPortion;
+                  deferredInsShortfall = roundCurrency(deferredInsShortfall + primUnderpayment);
                 } else {
                   underpaymentTransferAmt = primUnderpayment;
                   newPrimaryInsPortion = primaryPaidOnProc;
@@ -837,6 +896,9 @@ export class PaymentService {
               insPortion: newPrimaryInsPortion,
               writeoff: appliedWo,
               ptPortion: newPtPortion,
+              // Primary underpayment still held for a pending secondary claim.
+              // Cleared once the secondary payment releases it to the patient.
+              deferredInsShortfall: roundCurrency(deferredInsShortfall),
               isManuallyAdjusted: true,
               isClaimRejected: isRejectedClaim && !isPartial,
               rejectionClaimStatus: isRejectedClaim && !isPartial ? normalizedClaimStatus : null,
@@ -1332,6 +1394,7 @@ export class PaymentService {
       notes: string;
       status: string;
       paidAt: Date;
+      chequeNo: string;
     }>,
     userId: string
   ) {
@@ -1346,6 +1409,7 @@ export class PaymentService {
     const nextMeta: PaymentMeta = {
       ...meta,
       method: updates.method ?? meta.method,
+      paymentMethod: updates.method ?? meta.paymentMethod,
       status: updates.status ?? meta.status,
       notes: updates.notes ?? meta.notes,
     };
@@ -1355,6 +1419,7 @@ export class PaymentService {
       data: {
         PayAmt: updates.amount ?? undefined,
         PayDate: updates.paidAt ?? undefined,
+        CheckNum: updates.chequeNo ?? undefined,
         PayNote: buildJson(nextMeta),
       },
     });

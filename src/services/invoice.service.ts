@@ -120,6 +120,9 @@ type ItemMeta = {
   insurancePaidAmount?: number;
   insuranceExpected?: number;
   insuranceBalance?: number;
+  // Primary underpayment held back for a pending secondary claim (released to
+  // the patient when the secondary payment is applied). See payment.service.ts.
+  deferredInsShortfall?: number;
   dbi?: boolean;
   site?: string;
   provider?: string;
@@ -4007,6 +4010,7 @@ export class InvoiceService {
           AdjDate: new Date(),
           ProcDate: item.ProcDate ?? new Date(),
           DateEntry: new Date(),
+          CreatedAt: new Date(),
           AdjNote: adjNote,
           SecUserNumEntry: userNum ?? undefined,
         },
@@ -4127,6 +4131,7 @@ export class InvoiceService {
           AdjDate: new Date(),
           ProcDate: item.ProcDate ?? new Date(),
           DateEntry: new Date(),
+          CreatedAt: new Date(),
           AdjNote: adjNote,
           SecUserNumEntry: userNum ?? undefined,
         },
