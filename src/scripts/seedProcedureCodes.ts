@@ -65,6 +65,7 @@ const procedureCodes = [
   { code: 'D1208', desc: 'Topical application of fluoride',                                    abbr: 'Fluoride',              coverage: 'Preventive Services', cat: 'Preventive' },
   { code: 'D1310', desc: 'Nutritional counseling',                                             abbr: 'Nutrition counsel',     coverage: 'Preventive Services', cat: 'Preventive' },
   { code: 'D1320', desc: 'Tobacco counseling',                                                 abbr: 'Tobacco counsel',       coverage: 'Preventive Services', cat: 'Preventive' },
+  { code: 'D1321', desc: 'Counseling for control and prevention of high-risk substance use adverse effects', abbr: 'Substance use counsel', coverage: 'Preventive Services', cat: 'Preventive' },
   { code: 'D1330', desc: 'Oral hygiene instructions',                                          abbr: 'OHI',                   coverage: 'Preventive Services', cat: 'Preventive' },
   { code: 'D1351', desc: 'Sealant - per tooth',                                                abbr: 'Sealant',               coverage: 'Preventive Services', cat: 'Preventive' },
   { code: 'D1353', desc: 'Sealant repair - per tooth',                                         abbr: 'Sealant repair',        cat: 'Preventive' },
