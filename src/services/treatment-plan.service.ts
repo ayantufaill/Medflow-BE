@@ -30,7 +30,7 @@ type PlanMeta = {
   insurancePortion?: number;
   patientPortion?: number;
   preAuthByItemId?: Record<string, { status?: string; preAuthId?: string }>;
-  feeDetailsByItemId?: Record<string, { ucrFee?: number | null; noBillInsurance?: boolean; preAuthStatus?: string; preAuthNumber?: string; downgradedCode?: string; deductible?: number; estimateSource?: string; manualOverride?: boolean }>;
+  feeDetailsByItemId?: Record<string, { ucrFee?: number | null; noBillInsurance?: boolean; preAuthStatus?: string; preAuthNumber?: string; downgradedCode?: string; deductible?: number; estimateSource?: string; manualOverride?: boolean; coverageBlockedReason?: string | null }>;
 };
 
 export class TreatmentPlanService {
@@ -80,6 +80,9 @@ export class TreatmentPlanService {
       downgradedCode: feeDetails.downgradedCode || '',
       deductible: feeDetails.deductible ?? 0,
       estimateSource: feeDetails.estimateSource || (feeDetails.manualOverride ? 'Manual' : 'Auto'),
+      // Why the plan's coverage book blocks this line, if it does. Surfaced the
+      // same way as `downgradedCode`/`estimateSource` so the UI can badge it.
+      coverageBlockedReason: feeDetails.coverageBlockedReason ?? null,
       feeAllowed: row.FeeAllowed ?? null,
     };
   }
@@ -324,6 +327,11 @@ export class TreatmentPlanService {
     // pre-auth would silently lose it and come back reading '-' on every item.
     const preAuthByItemId: Record<string, { status?: string; preAuthId?: string }> = {};
 
+    // Per-item fee details keyed by ProcTPNum, written back with the other
+    // id-keyed metadata once the ids exist. Carries the coverage-book block
+    // reason so a freshly created plan can badge why a line's insurance is zero.
+    const createdFeeDetails: Record<string, { coverageBlockedReason?: string | null }> = {};
+
     if (enrichedItems.length > 0) {
       for (let i = 0; i < enrichedItems.length; i++) {
         const item = enrichedItems[i];
@@ -371,11 +379,13 @@ export class TreatmentPlanService {
         });
         createdProctpRows.push(row);
         TreatmentPlanService.applyPreAuth(preAuthByItemId, procTPNum.toString(), item, true);
+        createdFeeDetails[procTPNum.toString()] = { coverageBlockedReason: item.coverageBlockedReason ?? null };
       }
     }
 
-    if (Object.keys(preAuthByItemId).length > 0) {
+    if (Object.keys(preAuthByItemId).length > 0 || Object.keys(createdFeeDetails).length > 0) {
       payload.preAuthByItemId = preAuthByItemId;
+      payload.feeDetailsByItemId = { ...(payload.feeDetailsByItemId || {}), ...createdFeeDetails };
       await tx.treatplan.update({
         where: { TreatPlanNum: plan.TreatPlanNum },
         data: { Note: buildJson(payload) },
@@ -403,6 +413,7 @@ export class TreatmentPlanService {
     ucrFee: number | null; negotiatedRate: number; insuranceEstimate: number;
     patientEstimate: number; deductible: number; noBillInsurance: boolean;
     preAuthStatus: string; preAuthNumber: string; downgradedCode: string;
+    coverageBlockedReason?: string | null;
   }, automatic = false) {
     const values = [fees.negotiatedRate, fees.insuranceEstimate, fees.patientEstimate, fees.deductible];
     if (values.some((value) => !Number.isFinite(value) || value < 0)
@@ -435,6 +446,7 @@ export class TreatmentPlanService {
         deductible: fees.deductible,
         estimateSource: automatic ? 'Auto' : 'Manual',
         manualOverride: !automatic,
+        coverageBlockedReason: fees.coverageBlockedReason ?? null,
       };
       await tx.proctp.update({
         where: { ProcTPNum: procTPNum },
@@ -488,6 +500,7 @@ export class TreatmentPlanService {
       preAuthStatus: previous?.preAuthStatus || '',
       preAuthNumber: previous?.preAuthNumber || '',
       downgradedCode: previous?.downgradedCode || '',
+      coverageBlockedReason: calculated[0]?.coverageBlockedReason ?? null,
     }, true);
   }
 
@@ -545,6 +558,9 @@ export class TreatmentPlanService {
     }
 
     const preAuthByItemId = { ...(meta.preAuthByItemId || {}) };
+    // Per-item fee details, written back with the coverage-book block reason so
+    // a re-open can still explain why a line's insurance is zero.
+    const feeDetails = { ...(meta.feeDetailsByItemId || {}) };
 
     // Process items if provided
     if (nextItems && Array.isArray(nextItems)) {
@@ -669,6 +685,7 @@ export class TreatmentPlanService {
           keepProcTPNums.push(existingRow.ProcTPNum);
 
           const itemId = existingRow.ProcTPNum.toString();
+          feeDetails[itemId] = { ...feeDetails[itemId], coverageBlockedReason: item.coverageBlockedReason ?? null };
           TreatmentPlanService.applyPreAuth(preAuthByItemId, itemId, item, false);
         } else {
           const newProcTPNum = await getNextId('proctp', 'ProcTPNum', tx);
@@ -695,6 +712,7 @@ export class TreatmentPlanService {
           keepProcTPNums.push(newProcTPNum);
 
           const itemId = newProcTPNum.toString();
+          feeDetails[itemId] = { ...feeDetails[itemId], coverageBlockedReason: item.coverageBlockedReason ?? null };
           TreatmentPlanService.applyPreAuth(preAuthByItemId, itemId, item, true);
         }
       }
@@ -704,7 +722,7 @@ export class TreatmentPlanService {
       if (toDelete.length > 0) {
         toDelete.forEach((row) => {
           delete preAuthByItemId[row.ProcTPNum.toString()];
-          if (meta.feeDetailsByItemId) delete meta.feeDetailsByItemId[row.ProcTPNum.toString()];
+          delete feeDetails[row.ProcTPNum.toString()];
         });
         await tx.proctp.deleteMany({
           where: { ProcTPNum: { in: toDelete.map((r) => r.ProcTPNum) } },
@@ -720,6 +738,7 @@ export class TreatmentPlanService {
       insurancePortion: insPortion,
       patientPortion: ptPortion,
       preAuthByItemId,
+      feeDetailsByItemId: feeDetails,
     };
 
     const updated = await tx.treatplan.update({

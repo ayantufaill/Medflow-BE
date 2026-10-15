@@ -34,6 +34,17 @@ import {
   resolveDowngrade,
   type DowngradeRule,
 } from './downgrade.service';
+import {
+  computeAge,
+  evaluateAge,
+  evaluateFrequency,
+  evaluateLifetime,
+  evaluateNotCovered,
+  evaluateWaiting,
+  normalizeCoverageLimits,
+  type CoverageRule,
+  type UsageEntry,
+} from './coverage-limits.service';
 const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 /**
@@ -56,12 +67,38 @@ type PlanPricingContext = {
   deductibleLedger: DeductibleLedger;
   downgradeMap: Map<string, DowngradeRule>;
   coverageCategoryByCode: Map<string, string>;
+  /** Coverage-book limits (age/frequency/lifetime/flat/not-covered) by code. */
+  coverageLimitMap: Map<string, CoverageRule>;
+  /** Waiting months by normalized category key, same key space as percentages. */
+  categoryWaiting: Map<string, number>;
+  /** Waiting months by procedure code, mirroring `procCodePercentages`. */
+  procCodeWaiting: Map<string, number>;
+  /** The subscriber's policy start (`insSub.DateEffective`), for the waiting rule. */
+  policyStart: Date | null;
+  /** The patient's birth date, for the age rule. */
+  patientDob: Date | null;
+  /**
+   * Mutable per-plan running state for the frequency and lifetime rules. Seeded
+   * from usage history and advanced as covered lines are priced, kept separate
+   * per plan so the primary and secondary never consume each other's limits.
+   */
+  coverageTally: CoverageTally;
+};
+
+/** Running usage state for one plan's coverage limits. */
+type CoverageTally = {
+  /** Prior service dates per code, for the rolling frequency window. */
+  datesByCode: Map<string, UsageEntry[]>;
+  /** Insurance paid to date per code, for the lifetime dollar cap. */
+  lifetimePaidByCode: Map<string, number>;
 };
 
 /** Coverage-percentage lookup tables, keyed by normalized category name. */
 type CoveragePercentTables = {
   procCodePercentages: Map<string, number>;
   categoryPercentages: Map<string, number>;
+  categoryWaiting: Map<string, number>;
+  procCodeWaiting: Map<string, number>;
 };
 
 type StatementMeta = {
@@ -114,6 +151,9 @@ type ItemMeta = {
   estimatedWriteOff?: number;
   allowedFee?: number;
   coveragePct?: number;
+  // Set when a coverage-book limit blocks the line (not-covered / waiting-period
+  // / age / frequency / lifetime-limit). Absent or null means the line priced.
+  coverageBlockedReason?: string | null;
   deductibleApplied?: number;
   paidAmount?: number;
   patientPaidAmount?: number;
@@ -286,6 +326,7 @@ export class InvoiceService {
       totalInsPortion: Number(pricedItems[index]?.totalInsPortion ?? pricedItems[index]?.insPortion ?? 0),
       writeoff: Number(pricedItems[index]?.writeoff || 0), completed: true,
       coveragePct: pricedItems[index]?.coveragePct ?? parseJson<any>(proc.BillingNote)?.coveragePct ?? null,
+      coverageBlockedReason: pricedItems[index]?.coverageBlockedReason ?? null,
       allowedFee: pricedItems[index]?.allowedFee ?? parseJson<any>(proc.BillingNote)?.allowedFee ?? null,
       allowedFeeSource: pricedItems[index]?.allowedFeeSource ?? parseJson<any>(proc.BillingNote)?.allowedFeeSource ?? null,
     }]));
@@ -346,6 +387,10 @@ export class InvoiceService {
       estimatedWriteOff: isPenalty ? 0 : Number(meta.estimatedWriteOff || meta.writeoff || 0),
       allowedFee: isPenalty ? null : (meta.allowedFee ? Number(meta.allowedFee) : null),
       coveragePct: isPenalty ? null : (meta.coveragePct !== undefined && meta.coveragePct !== null ? Number(meta.coveragePct) : null),
+      // Why the plan paid nothing on this line, if a coverage-book limit blocked
+      // it (not-covered / waiting-period / age / frequency / lifetime-limit).
+      // Penalty lines are suppressed for the same reason their money is.
+      coverageBlockedReason: isPenalty ? null : (meta.coverageBlockedReason ?? null),
       deductibleApplied: isPenalty ? 0 : Number(meta.deductibleApplied || 0),
       paidAmount: Number(meta.paidAmount || 0),
       patientPaidAmount: Number(meta.patientPaidAmount || 0),
@@ -378,18 +423,37 @@ export class InvoiceService {
   private buildCoveragePercentTables(coverageCategoryTable: any): CoveragePercentTables {
     const procCodePercentages = new Map<string, number>();
     const categoryPercentages = new Map<string, number>();
+    // Waiting months share the EXACT key space the percentages use, so the same
+    // category key that resolves a code's coverage also resolves its waiting
+    // period — the two can never disagree about which category a code is in. A
+    // procedure-code item's own waiting is keyed by code, mirroring
+    // `procCodePercentages`, so a coded row that also carries a coverage % does
+    // not silently drop its waiting period.
+    const categoryWaiting = new Map<string, number>();
+    const procCodeWaiting = new Map<string, number>();
 
     const normalizeCat = (str: string) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-    const addCategoryPercentage = (catName: string, cov: number, subLabel?: string) => {
-      if (!catName || typeof cov !== 'number') return;
+    const addCategoryPercentage = (
+      catName: string,
+      cov: number | undefined,
+      subLabel?: string,
+      waiting?: number,
+    ) => {
+      if (!catName) return;
+      if (typeof cov !== 'number' && typeof waiting !== 'number') return;
       const norm = normalizeCat(catName);
       const normSub = subLabel ? normalizeCat(subLabel) : '';
 
+      const write = (key: string) => {
+        if (typeof cov === 'number') categoryPercentages.set(key, cov);
+        if (typeof waiting === 'number') categoryWaiting.set(key, waiting);
+      };
+
       if (normSub) {
-        categoryPercentages.set(`${norm}${normSub}`, cov);
+        write(`${norm}${normSub}`);
       } else {
-        categoryPercentages.set(norm, cov);
+        write(norm);
       }
 
       // Map common category aliases
@@ -411,36 +475,51 @@ export class InvoiceService {
 
       for (const alias of aliases) {
         if (normSub) {
-          categoryPercentages.set(`${alias}${normSub}`, cov);
+          write(`${alias}${normSub}`);
         } else {
-          categoryPercentages.set(alias, cov);
+          write(alias);
         }
       }
     };
+
+    const asNumber = (value: unknown): number | undefined =>
+      typeof value === 'number' ? value : undefined;
 
     // Process coverageCategoryTable (can be Array or Object)
     if (Array.isArray(coverageCategoryTable)) {
       for (const catEntry of coverageCategoryTable) {
         if (catEntry && typeof catEntry === 'object') {
           const catName = catEntry.category || catEntry.title || catEntry.label || catEntry.name;
-          if (catName && typeof catEntry.coverage === 'number') {
-            addCategoryPercentage(catName, catEntry.coverage);
+          const catCov = asNumber(catEntry.coverage);
+          const catWaiting = asNumber(catEntry.waiting);
+          if (catName && (catCov !== undefined || catWaiting !== undefined)) {
+            addCategoryPercentage(catName, catCov, undefined, catWaiting);
           }
           if (Array.isArray(catEntry.items)) {
             for (const subItem of catEntry.items) {
-              if (subItem.code && typeof subItem.coverage === 'number') {
-                procCodePercentages.set(String(subItem.code).toUpperCase().trim(), subItem.coverage);
-              } else if (subItem.label && typeof subItem.coverage === 'number') {
+              const cov = asNumber(subItem.coverage);
+              const waiting = asNumber(subItem.waiting);
+              if (subItem.code) {
+                const codeKey = String(subItem.code).toUpperCase().trim();
+                if (cov !== undefined) procCodePercentages.set(codeKey, cov);
+                if (waiting !== undefined) procCodeWaiting.set(codeKey, waiting);
+              } else if (subItem.label && (cov !== undefined || waiting !== undefined)) {
                 const subLabel = String(subItem.label);
                 const normSub = normalizeCat(subLabel);
-                if (!categoryPercentages.has(normSub)) {
-                  categoryPercentages.set(normSub, subItem.coverage);
+                if (cov !== undefined && !categoryPercentages.has(normSub)) {
+                  categoryPercentages.set(normSub, cov);
+                }
+                if (waiting !== undefined && !categoryWaiting.has(normSub)) {
+                  categoryWaiting.set(normSub, waiting);
                 }
                 if (catName) {
-                  addCategoryPercentage(catName, subItem.coverage, subLabel);
+                  addCategoryPercentage(catName, cov, subLabel, waiting);
                   const normCat = normalizeCat(catName);
-                  if (!categoryPercentages.has(normCat)) {
-                    categoryPercentages.set(normCat, subItem.coverage);
+                  if (cov !== undefined && !categoryPercentages.has(normCat)) {
+                    categoryPercentages.set(normCat, cov);
+                  }
+                  if (waiting !== undefined && !categoryWaiting.has(normCat)) {
+                    categoryWaiting.set(normCat, waiting);
                   }
                 }
               }
@@ -454,18 +533,28 @@ export class InvoiceService {
           addCategoryPercentage(catKey, value);
         } else if (Array.isArray(value)) {
           for (const subItem of value as any[]) {
-            if (subItem.code && typeof subItem.coverage === 'number') {
-              procCodePercentages.set(String(subItem.code).toUpperCase().trim(), subItem.coverage);
-            } else if (subItem.label && typeof subItem.coverage === 'number') {
+            const cov = asNumber(subItem.coverage);
+            const waiting = asNumber(subItem.waiting);
+            if (subItem.code) {
+              const codeKey = String(subItem.code).toUpperCase().trim();
+              if (cov !== undefined) procCodePercentages.set(codeKey, cov);
+              if (waiting !== undefined) procCodeWaiting.set(codeKey, waiting);
+            } else if (subItem.label && (cov !== undefined || waiting !== undefined)) {
               const subLabel = String(subItem.label);
               const normSub = normalizeCat(subLabel);
-              if (!categoryPercentages.has(normSub)) {
-                categoryPercentages.set(normSub, subItem.coverage);
+              if (cov !== undefined && !categoryPercentages.has(normSub)) {
+                categoryPercentages.set(normSub, cov);
               }
-              addCategoryPercentage(catKey, subItem.coverage, subLabel);
+              if (waiting !== undefined && !categoryWaiting.has(normSub)) {
+                categoryWaiting.set(normSub, waiting);
+              }
+              addCategoryPercentage(catKey, cov, subLabel, waiting);
               const normCat = normalizeCat(catKey);
-              if (!categoryPercentages.has(normCat)) {
-                categoryPercentages.set(normCat, subItem.coverage);
+              if (cov !== undefined && !categoryPercentages.has(normCat)) {
+                categoryPercentages.set(normCat, cov);
+              }
+              if (waiting !== undefined && !categoryWaiting.has(normCat)) {
+                categoryWaiting.set(normCat, waiting);
               }
             }
           }
@@ -473,7 +562,7 @@ export class InvoiceService {
       }
     }
 
-    return { procCodePercentages, categoryPercentages };
+    return { procCodePercentages, categoryPercentages, categoryWaiting, procCodeWaiting };
   }
 
   /**
@@ -502,6 +591,136 @@ export class InvoiceService {
    */
   private resolveDowngradeFee(code: string, ctx: PlanPricingContext): number | undefined {
     return ctx.allowedFeeMap.get(code) ?? ctx.planFeeMap.get(code);
+  }
+
+  /**
+   * Load a plan's prior usage: the service dates per code (for the rolling
+   * frequency window) and the insurance paid per code (for the lifetime cap).
+   *
+   * History is scoped to this plan's `InsSubNum`, so the two plans on a patient
+   * keep independent frequency and lifetime tallies. Rows belonging to the
+   * invoice being re-priced are excluded, so a recalculation cannot count its
+   * own lines as prior usage and block itself.
+   */
+  private async loadCoverageUsage(
+    patPlan: any,
+    excludedInvoiceId: bigint | string | null,
+    db: Prisma.TransactionClient | typeof prisma,
+  ): Promise<CoverageTally> {
+    const datesByCode = new Map<string, UsageEntry[]>();
+    const lifetimePaidByCode = new Map<string, number>();
+
+    if (!patPlan?.PatNum) return { datesByCode, lifetimePaidByCode };
+
+    let excluded: bigint | null = null;
+    if (excludedInvoiceId !== null && excludedInvoiceId !== undefined && excludedInvoiceId !== '') {
+      try {
+        excluded = BigInt(excludedInvoiceId as any);
+      } catch {
+        excluded = null;
+      }
+    }
+
+    // Only performed services count toward a frequency window; TP / Referred /
+    // Deleted / Condition rows represent work that never happened.
+    const procs = await db.procedurelog.findMany({
+      where: { PatNum: patPlan.PatNum, ProcStatus: { in: [2, 3, 4] } },
+      select: { ProcNum: true, CodeNum: true, ProcDate: true, StatementNum: true },
+    });
+
+    const codeNums = new Set<string>();
+    const procCodeNum = new Map<string, bigint>();
+    const excludedProcNums = new Set<string>();
+    for (const p of procs) {
+      if (p.ProcNum === null || p.ProcNum === undefined) continue;
+      const procNum = p.ProcNum.toString();
+      if (p.CodeNum !== null && p.CodeNum !== undefined) {
+        procCodeNum.set(procNum, p.CodeNum);
+        codeNums.add(p.CodeNum.toString());
+      }
+      if (
+        excluded !== null &&
+        p.StatementNum !== null &&
+        p.StatementNum !== undefined &&
+        p.StatementNum === excluded
+      ) {
+        excludedProcNums.add(procNum);
+      }
+    }
+
+    // Insurance paid per code, for the lifetime cap. Scoped to this plan's
+    // InsSubNum. claimproc reaches its code through `ProcNum -> procedurelog`.
+    const claimprocs = await db.claimproc.findMany({
+      where: {
+        PatNum: patPlan.PatNum,
+        ...(patPlan.InsSubNum != null ? { InsSubNum: patPlan.InsSubNum } : {}),
+        Status: { in: [1, 4] },
+      },
+      select: { InsPayAmt: true, ProcNum: true },
+    });
+
+    // A paid procedure may not be in the status-filtered set above (e.g. a
+    // deleted proc still carrying a posted payment), so resolve any missing
+    // ProcNum -> CodeNum links before grouping.
+    const missingPaidProcNums = claimprocs
+      .map((cp) => cp.ProcNum)
+      .filter((n): n is bigint => n !== null && n !== undefined)
+      .filter((n) => !procCodeNum.has(n.toString()));
+    const missingProcNums = [...new Set(missingPaidProcNums.map((n) => n.toString()))];
+    const paidProcs = missingProcNums.length
+      ? await db.procedurelog.findMany({
+          where: { ProcNum: { in: missingProcNums.map((n) => BigInt(n)) } },
+          select: { ProcNum: true, CodeNum: true },
+        })
+      : [];
+    for (const p of paidProcs) {
+      if (p.ProcNum === null || p.ProcNum === undefined) continue;
+      if (p.CodeNum !== null && p.CodeNum !== undefined) {
+        procCodeNum.set(p.ProcNum.toString(), p.CodeNum);
+        codeNums.add(p.CodeNum.toString());
+      }
+    }
+
+    const codeNumList = [...codeNums].map((n) => BigInt(n));
+    const codes = codeNumList.length
+      ? await db.procedurecode.findMany({
+          where: { CodeNum: { in: codeNumList } },
+          select: { CodeNum: true, ProcCode: true },
+        })
+      : [];
+    const procCodeByCodeNum = new Map<string, string>();
+    for (const c of codes) {
+      if (c.CodeNum !== null && c.CodeNum !== undefined && c.ProcCode) {
+        procCodeByCodeNum.set(c.CodeNum.toString(), c.ProcCode.toUpperCase().trim());
+      }
+    }
+
+    for (const p of procs) {
+      if (!p.ProcDate || p.CodeNum === null || p.CodeNum === undefined) continue;
+      if (p.ProcNum !== null && p.ProcNum !== undefined && excludedProcNums.has(p.ProcNum.toString())) {
+        continue;
+      }
+      const code = procCodeByCodeNum.get(p.CodeNum.toString());
+      if (!code) continue;
+      const list = datesByCode.get(code) ?? [];
+      list.push({ date: p.ProcDate });
+      datesByCode.set(code, list);
+    }
+
+    for (const cp of claimprocs) {
+      if (cp.ProcNum === null || cp.ProcNum === undefined) continue;
+      const procNum = cp.ProcNum.toString();
+      if (excludedProcNums.has(procNum)) continue;
+      const codeNum = procCodeNum.get(procNum);
+      if (!codeNum) continue;
+      const code = procCodeByCodeNum.get(codeNum.toString());
+      if (!code) continue;
+      const amount = roundCurrency(Number(cp.InsPayAmt) || 0);
+      if (amount <= 0) continue;
+      lifetimePaidByCode.set(code, roundCurrency((lifetimePaidByCode.get(code) ?? 0) + amount));
+    }
+
+    return { datesByCode, lifetimePaidByCode };
   }
 
   /**
@@ -544,9 +763,8 @@ export class InvoiceService {
     await loadSchedule(insPlan.FeeSched, planFeeMap);
 
     const meta: any = await getPatientInsuranceMeta(patPlan.PatPlanNum);
-    const { procCodePercentages, categoryPercentages } = this.buildCoveragePercentTables(
-      meta?.coverageCategoryTable || [],
-    );
+    const { procCodePercentages, categoryPercentages, categoryWaiting, procCodeWaiting } =
+      this.buildCoveragePercentTables(meta?.coverageCategoryTable || []);
 
     // Map each code's own tier — crowns and other Major Services must never be
     // priced with the Basic sub-row just because the numeric CDT range groups
@@ -596,6 +814,28 @@ export class InvoiceService {
       }
     }
 
+    // Coverage-book limits (not-covered/age/frequency/waiting/lifetime/flat).
+    // Built from the same `coverageBookData` the downgrade map uses, so a code
+    // can never be blocked by a limit the book never declared.
+    const coverageLimitMap = normalizeCoverageLimits(meta?.coverageBookData);
+
+    // Prior usage for this plan's frequency/lifetime checks, excluding claims
+    // bound to the invoice being re-priced (they are counted once via the
+    // per-line tally push instead).
+    const coverageTally = await this.loadCoverageUsage(patPlan, opts.excludeInvoiceId ?? null, db);
+
+    // Age is evaluated on the service date; DOB may legitimately be missing.
+    let patientDob: Date | null = null;
+    if (patPlan.PatNum) {
+      const patient = await db.patient.findUnique({
+        where: { PatNum: patPlan.PatNum },
+        select: { Birthdate: true },
+      });
+      patientDob = patient?.Birthdate ?? null;
+    }
+
+    const policyStart = patPlan.inssub?.DateEffective ?? null;
+
     return {
       patPlan,
       insPlan,
@@ -603,9 +843,15 @@ export class InvoiceService {
       planFeeMap,
       procCodePercentages,
       categoryPercentages,
+      categoryWaiting,
+      procCodeWaiting,
       deductibleLedger,
       downgradeMap: buildDowngradeMap(meta?.coverageBookData),
       coverageCategoryByCode,
+      coverageLimitMap,
+      policyStart,
+      patientDob,
+      coverageTally,
     };
   }
 
@@ -698,6 +944,55 @@ export class InvoiceService {
   }
 
   /**
+   * Cap a line's insurance by the code's lifetime dollar limit, after the annual
+   * maximum has taken its share. The remaining room is the limit minus everything
+   * already paid for this code on this plan (seeded from `claimproc`, plus this
+   * run's earlier lines). Excess moves to the patient, same as the annual max.
+   */
+  private applyLifetimeCap(
+    ctx: PlanPricingContext,
+    cleanCode: string,
+    item: any,
+    charge: number,
+  ) {
+    const rule = ctx.coverageLimitMap.get(cleanCode);
+    if (!rule || rule.lifetimeLimit === null) return;
+
+    const paidToDate = ctx.coverageTally.lifetimePaidByCode.get(cleanCode) ?? 0;
+    const room = roundCurrency(Math.max(0, rule.lifetimeLimit - paidToDate));
+    const benefit = roundCurrency(Number(item.insPortion ?? 0));
+    const capped = roundCurrency(Math.min(benefit, room));
+    const excess = roundCurrency(benefit - capped);
+
+    item.insPortion = capped;
+    if (excess > 0) {
+      item.ptPortion = roundCurrency(Number(item.ptPortion ?? 0) + excess);
+    }
+  }
+
+  /**
+   * Record a paid service against the plan's frequency/lifetime tally: its
+   * service date (for the rolling frequency window) and the insurance the plan
+   * paid (for the lifetime dollar cap). Only called for lines that actually paid.
+   */
+  private recordCoverageUsage(
+    ctx: PlanPricingContext,
+    cleanCode: string,
+    item: any,
+    amount: number,
+  ) {
+    const serviceDate =
+      item.date ?? item.procDate ?? item.dateOfService ?? item.ProcDate ?? new Date();
+
+    const dates = ctx.coverageTally.datesByCode.get(cleanCode) ?? [];
+    dates.push({ date: serviceDate as Date | string });
+    ctx.coverageTally.datesByCode.set(cleanCode, dates);
+
+    const prior = ctx.coverageTally.lifetimePaidByCode.get(cleanCode) ?? 0;
+    ctx.coverageTally.lifetimePaidByCode.set(cleanCode, roundCurrency(prior + amount));
+  }
+
+  /**
    * Read a per-line allowance that was present on the item BEFORE this run.
    *
    * Precedence mirrors the long-standing primary behaviour: `allowedFee`, then
@@ -762,45 +1057,15 @@ export class InvoiceService {
 
     // 2. CDT Code Range Category Mapping (12 standard categories)
     // Shared with the deductible engine so the two can never disagree —
-    // if they diverge, every estimate silently mis-deducts.
-    if (percent === undefined && isCdtCode) {
-      const catKey = mapCodeToCategory(cleanCode);
-      const tierKey = tierKeyFromCoverageCategory(ctx.coverageCategoryByCode.get(cleanCode));
-
-      // A plan can split one numeric CDT category into Basic and Major tiers.
-      // The procedure code's own `CoverageCategory` is the only authoritative
-      // arbiter for which side of the split it belongs to — the CDT range alone
-      // would price every code in that range off the first sub-row the client
-      // happened to list (typically Basic).
-      if (catKey && tierKey) {
-        const tieredKey = `${catKey}${tierKey}`;
-        if (categoryPercentages.has(tieredKey)) {
-          percent = categoryPercentages.get(tieredKey);
-        }
-      }
-
-      const perioBase = catKey?.replace(/basic$|major$/, '');
-
-      // Periodontics splits Basic vs Major and falls back to the base key.
-      if (percent === undefined && perioBase === 'periodontics') {
-        percent = categoryPercentages.get(catKey!)
-          ?? categoryPercentages.get(perioBase)
-          ?? categoryPercentages.get(catKey === 'periodonticsbasic' ? 'basic' : 'major');
-      } else if (percent === undefined && catKey && categoryPercentages.has(catKey)) {
-        percent = categoryPercentages.get(catKey);
-      }
-    }
-
-    // 3. OpenDental CovSpan / CovCat Fallback
+    // if they diverge, every estimate silently mis-deducts. The candidate
+    // category keys come from the SAME helper the waiting-period lookup uses,
+    // so coverage and waiting can never resolve a code to different categories.
     if (percent === undefined) {
-      const span = covSpans.find((s) => s.FromCode && s.ToCode && cleanCode >= s.FromCode && cleanCode <= s.ToCode);
-      if (span && span.CovCatNum) {
-        const odCategoryName = covCatMap.get(span.CovCatNum.toString());
-        if (odCategoryName) {
-          const normOdCat = odCategoryName.toLowerCase().replace(/[^a-z0-9]/g, '');
-          if (categoryPercentages.has(normOdCat)) {
-            percent = categoryPercentages.get(normOdCat);
-          }
+      for (const key of this.categoryKeysForCode(cleanCode, isCdtCode, ctx, covSpans, covCatMap)) {
+        const candidate = categoryPercentages.get(key);
+        if (candidate !== undefined) {
+          percent = candidate;
+          break;
         }
       }
     }
@@ -834,6 +1099,132 @@ export class InvoiceService {
     }
 
     return percent ?? 0;
+  }
+
+  /**
+   * Ordered candidate category keys for one procedure code, shared by BOTH the
+   * coverage-percentage ladder and the waiting-period lookup so the two can
+   * never resolve a code to different categories.
+   *
+   * Priority matches `resolveCoveragePercent` exactly: procedure-code override
+   * (handled separately) → CDT category + tier → the perio base/tier fallback →
+   * the bare category → the OpenDental CovSpan/CovCat name. Later keys are only
+   * consulted when no earlier key yields a value.
+   */
+  private categoryKeysForCode(
+    cleanCode: string,
+    isCdtCode: boolean,
+    ctx: PlanPricingContext,
+    covSpans: any[],
+    covCatMap: Map<string, string>,
+  ): string[] {
+    const keys: string[] = [];
+
+    if (isCdtCode) {
+      const catKey = mapCodeToCategory(cleanCode);
+      const tierKey = tierKeyFromCoverageCategory(ctx.coverageCategoryByCode.get(cleanCode));
+
+      // A plan can split one numeric CDT category into Basic and Major tiers.
+      // The procedure code's own `CoverageCategory` is the only authoritative
+      // arbiter for which side of the split it belongs to — the CDT range alone
+      // would price every code in that range off the first sub-row the client
+      // happened to list (typically Basic).
+      if (catKey && tierKey) keys.push(`${catKey}${tierKey}`);
+
+      const perioBase = catKey?.replace(/basic$|major$/, '');
+      if (perioBase === 'periodontics') {
+        // Periodontics splits Basic vs Major and falls back to the base key.
+        if (catKey) keys.push(catKey);
+        keys.push(perioBase!);
+        keys.push(catKey === 'periodonticsbasic' ? 'basic' : 'major');
+      } else if (catKey) {
+        keys.push(catKey);
+      }
+    }
+
+    const span = covSpans.find(
+      (s) => s.FromCode && s.ToCode && cleanCode >= s.FromCode && cleanCode <= s.ToCode,
+    );
+    if (span && span.CovCatNum) {
+      const odCategoryName = covCatMap.get(span.CovCatNum.toString());
+      if (odCategoryName) keys.push(odCategoryName.toLowerCase().replace(/[^a-z0-9]/g, ''));
+    }
+
+    return keys;
+  }
+
+  /**
+   * Waiting months for one code, resolved through the SAME category keys the
+   * coverage percentage uses. Returns 0 when no waiting period is configured,
+   * which makes the waiting check inert for the common case.
+   */
+  private resolveWaitingMonthsForCode(
+    cleanCode: string,
+    isCdtCode: boolean,
+    ctx: PlanPricingContext,
+    covSpans: any[],
+    covCatMap: Map<string, string>,
+  ): number {
+    // Procedure-code item's own waiting wins, exactly like the percentage ladder.
+    const codeWaiting =
+      ctx.procCodeWaiting.get(cleanCode) ??
+      (cleanCode.startsWith('D') ? ctx.procCodeWaiting.get(cleanCode.substring(1)) : undefined);
+    if (codeWaiting !== undefined) return codeWaiting;
+
+    for (const key of this.categoryKeysForCode(cleanCode, isCdtCode, ctx, covSpans, covCatMap)) {
+      const waiting = ctx.categoryWaiting.get(key);
+      if (waiting !== undefined) return waiting;
+    }
+    return 0;
+  }
+
+  /**
+   * Evaluate every coverage-book limit for one line on one plan.
+   *
+   * `blocked` means insurance is zeroed for this plan and NOTHING is pushed into
+   * its frequency/lifetime tally. `flat` is the plan's flat benefit for the code
+   * (null when the line uses the percentage). A missing limit never blocks.
+   */
+  private evaluateCoverageLimits(
+    ctx: PlanPricingContext,
+    cleanCode: string,
+    isCdtCode: boolean,
+    serviceDate: Date | string,
+    covSpans: any[],
+    covCatMap: Map<string, string>,
+  ): { blocked: boolean; reason: string | null; flat: number | null } {
+    const rule = ctx.coverageLimitMap.get(cleanCode);
+
+    if (evaluateNotCovered(rule)) {
+      return { blocked: true, reason: 'not-covered', flat: null };
+    }
+
+    const waitingMonths = this.resolveWaitingMonthsForCode(
+      cleanCode,
+      isCdtCode,
+      ctx,
+      covSpans,
+      covCatMap,
+    );
+    if (evaluateWaiting(waitingMonths, ctx.policyStart, serviceDate)) {
+      return { blocked: true, reason: 'waiting-period', flat: null };
+    }
+
+    // Age: blocks only over the limit; a missing limit or unknown DOB never blocks.
+    const ageOnService = ctx.patientDob ? computeAge(ctx.patientDob, serviceDate) : null;
+    if (evaluateAge(rule, ageOnService)) {
+      return { blocked: true, reason: 'age', flat: null };
+    }
+
+    if (evaluateFrequency(rule, serviceDate, ctx.coverageTally.datesByCode.get(cleanCode) ?? [])) {
+      return { blocked: true, reason: 'frequency', flat: null };
+    }
+
+    if (evaluateLifetime(rule, ctx.coverageTally.lifetimePaidByCode.get(cleanCode) ?? 0)) {
+      return { blocked: true, reason: 'lifetime-limit', flat: null };
+    }
+
+    return { blocked: false, reason: null, flat: rule?.flatPlanPortion ?? null };
   }
 
   /**
@@ -896,6 +1287,13 @@ export class InvoiceService {
 
     const coveragePct = this.resolveCoveragePercent(billedCode, isCdtCode, ctx, covSpans, covCatMap);
 
+    // The secondary's OWN coverage-book limits, resolved against its own
+    // subscription and usage tally — a primary downgrade or primary block says
+    // nothing about this plan's rules. The service date is read off the item's
+    // own field rather than the primary's resolved value.
+    const serviceDate = item.date ?? item.procDate ?? item.dateOfService ?? item.ProcDate ?? new Date();
+    const limits = this.evaluateCoverageLimits(ctx, billedCode, isCdtCode, serviceDate, covSpans, covCatMap);
+
     // A manually entered per-line allowance still wins, matching the primary's
     // precedence — but it must be the allowance as it arrived on the item.
     // The primary loop overwrites `item.allowedFee` with the value it resolved
@@ -943,12 +1341,34 @@ export class InvoiceService {
     // The secondary's OWN deductible pool, drained once. `deductibleApplied`
     // from the primary is deliberately not consulted — that deductible is
     // already satisfied and belongs to the patient, not to this plan.
-    const priced = applyDeductible(ctx.deductibleLedger, billedCode, insuranceBasis, coveragePct);
+    const priced = limits.blocked
+      ? { insurancePortion: 0, rowKey: null }
+      : applyDeductible(ctx.deductibleLedger, billedCode, insuranceBasis, coveragePct, limits.flat);
+
+    let benefit = roundCurrency(priced.insurancePortion);
+
+    // Same lifetime dollar cap the primary applies, but against THIS plan's own
+    // paid-to-date and its own limit. Trimming here keeps the coordination-of-
+    // benefits caller from capping a benefit the plan would never have paid.
+    if (!limits.blocked) {
+      const rule = ctx.coverageLimitMap.get(billedCode);
+      if (rule && rule.lifetimeLimit !== null) {
+        const paidToDate = ctx.coverageTally.lifetimePaidByCode.get(billedCode) ?? 0;
+        benefit = roundCurrency(Math.min(benefit, Math.max(0, rule.lifetimeLimit - paidToDate)));
+      }
+
+      // A paid service advances this plan's own frequency window and lifetime
+      // cap. Blocked and $0-paying lines push nothing, matching the primary.
+      if (benefit > 0) {
+        this.recordCoverageUsage(ctx, billedCode, item, benefit);
+      }
+    }
 
     return {
-      benefit: roundCurrency(priced.insurancePortion),
+      benefit,
       billedCode,
-      coveragePct,
+      // A blocked or flat-benefit line carries no effective percentage.
+      coveragePct: limits.blocked || limits.flat !== null ? 0 : coveragePct,
       downgraded: !!downgradeRule,
       effectiveCode: downgradeRule ? downgradeRule.downgradeCode : null,
       downgradeSkipped,
@@ -1105,6 +1525,19 @@ export class InvoiceService {
       const secondaryBudget =
         secondaryBudgetValue === null ? null : { remaining: secondaryBudgetValue };
 
+      // The secondary's not-covered codes, needed even when it cannot be priced.
+      // A plan with no `insplan` has no fee schedule or percentage, but its
+      // coverage book can still say a code is excluded outright — and a code the
+      // secondary excludes must not receive the coinsurance transfer from the
+      // conservative fallback below.
+      const secondaryNotCoveredCodes = new Set<string>();
+      if (secondaryPatPlan && !secondaryCtx) {
+        const secondaryMeta: any = await getPatientInsuranceMeta(secondaryPatPlan.PatPlanNum);
+        for (const [code, rule] of normalizeCoverageLimits(secondaryMeta?.coverageBookData)) {
+          if (rule.notCovered) secondaryNotCoveredCodes.add(code);
+        }
+      }
+
       const pricedOrder = orderIndexesByDate(items);
 
       // Batch fetch missing procedure codes for serviceIds to avoid N+1 queries
@@ -1168,6 +1601,21 @@ export class InvoiceService {
         const cleanCode = String(procCodeString).toUpperCase().trim();
         const isCdtCode = /^D\d{4}/i.test(cleanCode) || /^\d{4}$/.test(cleanCode);
         const percent = this.resolveCoveragePercent(cleanCode, isCdtCode, primaryCtx, covSpans, covCatMap);
+
+        // Coverage-book limits (not-covered / waiting / age / frequency / lifetime).
+        // A blocked line is priced at $0 insurance, does NOT drain the deductible
+        // pool, and does NOT contribute a usage entry to the tally — the only
+        // thing that advances a frequency window or lifetime cap is a service
+        // this plan actually paid for. A $0-paying line (annual max exhausted,
+        // flat amount zero) likewise pushes nothing.
+        const limits = this.evaluateCoverageLimits(
+          primaryCtx,
+          cleanCode,
+          isCdtCode,
+          item.date ?? item.procDate ?? item.dateOfService ?? item.ProcDate ?? new Date(),
+          covSpans,
+          covCatMap,
+        );
 
         // Alternate benefit (downgrade): the plan may substitute a cheaper
         // procedure for this one, so insurance is priced on the SUBSTITUTE's
@@ -1266,7 +1714,9 @@ export class InvoiceService {
         // second call would charge the deductible twice against the same pool.
         // `cleanCode` — the BILLED code — selects the pool, which is the safe
         // default: downgrades almost always stay within one category.
-        const priced = applyDeductible(deductibleLedger, cleanCode, insuranceBasis, percent);
+        const priced = limits.blocked
+          ? { insurancePortion: 0, patientPortion: roundCurrency(Math.max(0, basisFee)), coinsurance: roundCurrency(Math.max(0, basisFee)), deductibleApplied: 0, afterDeductible: basisFee, rowKey: null }
+          : applyDeductible(deductibleLedger, cleanCode, insuranceBasis, percent, limits.flat);
 
         // The line's Allowed fee is the billed code's contracted fee (for write-off calc).
         // The insurance basis (downgrade fee when applicable) is stored separately.
@@ -1279,11 +1729,24 @@ export class InvoiceService {
         item.insPortion = priced.insurancePortion;
         item.deductibleApplied = priced.deductibleApplied;
         item.deductibleRowKey = priced.rowKey;
-        if (percent !== undefined) {
-          item.coveragePct = percent;
+        // A blocked line reports zero coverage, and a flat-benefit line reports
+        // zero percent too — the plan paid a fixed dollar amount, not a share.
+        if (limits.blocked) {
+          item.coveragePct = 0;
+          item.coverageBlockedReason = limits.reason;
+        } else {
+          if (percent !== undefined) {
+            item.coveragePct = limits.flat !== null ? 0 : percent;
+          }
+          delete item.coverageBlockedReason;
         }
 
-        if (downgradeRule) {
+        if (limits.blocked) {
+          // The plan pays nothing, so the patient owes the whole charge less any
+          // contractual discount already applied. No coinsurance to report.
+          item.ptPortion = roundCurrency(Math.max(0, charge - Number(item.writeoff ?? 0)));
+          item.coinsurance = 0;
+        } else if (downgradeRule) {
           // `applyDeductible` derives the patient share from the basis it was
           // given, and that basis was the downgrade fee. The patient received
           // the real procedure, so their share must be recomputed from the
@@ -1331,6 +1794,20 @@ export class InvoiceService {
         // and once the benefit is exhausted the whole charge is theirs.
         if (primaryBudget) {
           this.applyAnnualMaximumCap(primaryBudget, item, 'insPortion', true);
+        }
+
+        // Lifetime dollar cap for this code. Trims AFTER the annual max, so the
+        // cap sees the plan's real obligation. Anything over the remaining room
+        // moves to the patient.
+        this.applyLifetimeCap(primaryCtx, cleanCode, item, charge);
+
+        // Tally push: a usage entry is recorded only when this plan actually
+        // paid for the service. A blocked line, or one the annual/lifetime caps
+        // reduced to $0, does not advance a frequency window or the lifetime
+        // cap — otherwise a capped service would consume the patient's benefit
+        // without paying them a cent.
+        if (!limits.blocked && Number(item.insPortion ?? 0) > 0) {
+          this.recordCoverageUsage(primaryCtx, cleanCode, item, Number(item.insPortion));
         }
       }
 
@@ -1423,10 +1900,18 @@ export class InvoiceService {
             continue;
           }
           item.primaryInsPortion = item.insPortion;
+          // A code the secondary's coverage book excludes outright transfers
+          // nothing — the residual stays with the patient, matching what the
+          // independently-priced branch returns for a not-covered line.
+          const secondaryExcludesCode = secondaryNotCoveredCodes.has(
+            String(item.cptCode || item.code || item.procedureCode || item.procCode || '')
+              .toUpperCase()
+              .trim(),
+          );
           // Only coinsurance is secondary-claimable. The deductible the patient
           // already satisfied must stay with them, otherwise the secondary
           // carrier is over-paid and the patient balance is understated.
-          if (item.ptPortion > 0) {
+          if (!secondaryExcludesCode && item.ptPortion > 0) {
             const split = splitSecondaryPortion(item.ptPortion, item.deductibleApplied ?? 0);
             item.secondaryInsPortion = split.secondaryPortion;
             item.ptPortion = split.patientPortion;
@@ -2842,6 +3327,15 @@ export class InvoiceService {
           (originalMeta.secondaryDowngradeSkipped ?? null) !== (enrichedItem.secondaryDowngradeSkipped ?? null) ||
           (originalMeta.secondaryCoveragePct ?? null) !== (enrichedItem.secondaryCoveragePct ?? null);
 
+        // A coverage-book limit can block a line without moving any money in a
+        // way the money guards above would notice: a line that was always $0
+        // insurance (age, not-covered) keeps insPortion 0 while the REASON
+        // changes, and a rule added to an already-zero line must still be stored
+        // so the UI can explain it. Without this the badge would only ever appear
+        // on lines whose dollar amounts happened to change on the same edit.
+        const blockedReasonChanged =
+          (originalMeta.coverageBlockedReason ?? null) !== (enrichedItem.coverageBlockedReason ?? null);
+
         if (
           originalMeta.primaryInsPortion !== enrichedPrim ||
           originalMeta.insPortion !== enrichedPrim ||
@@ -2851,6 +3345,7 @@ export class InvoiceService {
           deductibleChanged ||
           downgradeChanged ||
           secondaryAuditChanged ||
+          blockedReasonChanged ||
           (enrichedItem.coveragePct !== undefined && enrichedItem.coveragePct !== null &&
             Number(originalMeta.coveragePct ?? -1) !== Number(enrichedItem.coveragePct))
         ) {
@@ -2871,6 +3366,7 @@ export class InvoiceService {
           originalMeta.allowedFee = enrichedItem.allowedFee ?? originalMeta.allowedFee ?? null;
           originalMeta.allowedFeeSource = enrichedItem.allowedFeeSource === 'plan' ? 'plan' : null;
           originalMeta.coveragePct = enrichedItem.coveragePct !== undefined && enrichedItem.coveragePct !== null ? Number(enrichedItem.coveragePct) : (originalMeta.coveragePct ?? null);
+          originalMeta.coverageBlockedReason = enrichedItem.coverageBlockedReason ?? null;
           originalMeta.deductibleApplied = roundCurrency(Number(enrichedItem.deductibleApplied || 0));
           if (enrichedItem.deductibleRowKey) originalMeta.deductibleRowKey = enrichedItem.deductibleRowKey;
           // Persist the downgrade audit fields on re-price. Guarded so a line
