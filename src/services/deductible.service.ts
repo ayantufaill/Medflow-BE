@@ -366,18 +366,30 @@ export class DeductibleLedger {
  *
  * `basisFee` MUST be the allowed/contracted fee — never the provider's billed
  * fee — and never a figure that already has the write-off subtracted.
+ *
+ * `flatAmount` is the plan's flat benefit for this code (per the coverage book),
+ * when one is configured. It REPLACES the percentage: the deductible still comes
+ * off first, so the plan pays `min(flat, basis − deductibleApplied)`. The pool
+ * is drained exactly as on a percentage line, and the flat amount is clamped to
+ * the basis so a flat of $300 on a $200 fee cannot over-pay. Pass null/undefined
+ * for the normal percentage behaviour.
  */
 export const applyDeductible = (
   ledger: DeductibleLedger,
   code: unknown,
   basisFee: number,
   coveragePercent: number | undefined,
+  flatAmount?: number | null,
 ): DeductibleLineResult => {
   const basis = round2(Math.max(0, Number(basisFee) || 0));
+  const hasFlat = flatAmount !== undefined && flatAmount !== null && Number.isFinite(Number(flatAmount));
+  const flat = hasFlat ? round2(Math.max(0, Number(flatAmount))) : 0;
   const { row, key } = ledger.resolve(code);
 
   if (!row) {
-    const insurancePortion = round2((basis * (coveragePercent ?? 0)) / 100);
+    const insurancePortion = hasFlat
+      ? round2(Math.min(flat, basis))
+      : round2((basis * (coveragePercent ?? 0)) / 100);
     const coinsurance = round2(basis - insurancePortion);
     return {
       deductibleApplied: 0,
@@ -391,7 +403,9 @@ export const applyDeductible = (
 
   const deductibleApplied = round2(Math.min(ledger.remaining(key), basis));
   const afterDeductible = round2(basis - deductibleApplied);
-  const insurancePortion = round2((afterDeductible * (coveragePercent ?? 0)) / 100);
+  const insurancePortion = hasFlat
+    ? round2(Math.min(flat, afterDeductible))
+    : round2((afterDeductible * (coveragePercent ?? 0)) / 100);
   const coinsurance = round2(afterDeductible - insurancePortion);
 
   ledger.recordApplied(key, deductibleApplied);

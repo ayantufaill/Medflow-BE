@@ -25,7 +25,7 @@ export class AdjustmentService {
       notes: rawNote ?? null,
       status,
       isVoided,
-      createdAt: row.DateEntry ?? null,
+      createdAt: row.CreatedAt ?? row.DateEntry ?? null,
       updatedAt: row.SecDateTEdit ?? null,
       createdBy: row.SecUserNumEntry?.toString() ?? null,
       // The line item this adjustment was posted against, and the invoice that
@@ -195,6 +195,7 @@ export class AdjustmentService {
         AdjNote: data.notes,
         StatementNum: statementNum,
         DateEntry: new Date(),
+        CreatedAt: new Date(),
         SecUserNumEntry: BigInt(userId),
       },
     });

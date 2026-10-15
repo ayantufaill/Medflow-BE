@@ -125,6 +125,10 @@ export const createPaymentValidator: ValidationChain[] = [
   body('procedures.*.moveToNewClaim').optional().isBoolean().withMessage('moveToNewClaim must be a boolean'),
   body('procedures.*.claimId').optional().isString().withMessage('Claim ID must be a string'),
   body('isPartialPayment').optional().isBoolean().withMessage('isPartialPayment must be a boolean'),
+  body('deferUnderpaymentToSecondary')
+    .optional()
+    .isBoolean()
+    .withMessage('deferUnderpaymentToSecondary must be a boolean'),
   body('claimStatus')
     .optional()
     .isIn(['rejected', 'denied', 'paid', 'partial'])
@@ -168,6 +172,7 @@ export const updatePaymentValidator: ValidationChain[] = [
     .isFloat({ min: 0 })
     .withMessage('Amount must be 0 or greater'),
   body('method').optional().isString().withMessage('Method must be a string'),
+  body('chequeNo').optional().isString().withMessage('Cheque number must be a string'),
   body('status').optional().isString().withMessage('Status must be a string'),
   body('paidAt')
     .optional()
