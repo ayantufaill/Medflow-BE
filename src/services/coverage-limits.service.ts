@@ -12,7 +12,7 @@
  * midnight-anchored dates.
  */
 import { normalizeCode, toAmount } from './deductible.service';
-import { parseTeethLimit } from './downgrade.service';
+import { parseTeethLimit, isToothAllowed, type ToothKey } from './downgrade.service';
 
 /** A frequency rule: `count` services allowed per rolling `months` window. */
 export type FrequencyRule = { count: number; months: number };
@@ -27,7 +27,7 @@ export type CoverageRule = {
   lifetimeLimit: number | null;
   /** Dollar amount the plan pays (deductible first); null = use the percent. */
   flatPlanPortion: number | null;
-  /** Parsed tooth limit; per-tooth enforcement is deferred. */
+  /** Teeth the code is covered on; null = every tooth. */
   teethLimit: string[] | null;
 };
 
@@ -192,7 +192,9 @@ export const normalizeCoverageLimits = (coverageBookData: unknown): Map<string, 
       frequency,
       lifetimeLimit: explicitMoney(row.lifetimeLimit),
       flatPlanPortion: positiveMoney(row.flatPlanPortion),
-      teethLimit: parseTeethLimit(row.teethLimit) ?? null,
+      // The UI writes the limit either as a comma-separated string or as an
+      // array (`teeth`); accept both so a tooth selection is never lost.
+      teethLimit: parseTeethLimit(row.teethLimit) ?? parseTeethLimit(row.teeth) ?? null,
     });
   }
 
@@ -277,4 +279,56 @@ export const evaluateLifetime = (
   if (!rule || rule.lifetimeLimit === null) return false;
   const paid = Number.isFinite(lifetimePaidToDate) ? lifetimePaidToDate : 0;
   return paid >= rule.lifetimeLimit;
+};
+
+/**
+ * True when the code's coverage is restricted to teeth that do NOT include this
+ * line's tooth. A row with no tooth limit covers every tooth; a row with one
+ * covers only the listed teeth, so a line on any other tooth (or one whose tooth
+ * cannot be determined) is not covered. Uses the same inclusion rule as the
+ * downgrade engine so a multi-tooth range is declined unless every tooth is
+ * listed.
+ */
+export const evaluateTeeth = (
+  rule: CoverageRule | null | undefined,
+  teeth: ToothKey | ToothKey[] | null | undefined
+): boolean => {
+  const limit = rule?.teethLimit ?? null;
+  if (limit === null || limit.length === 0) return false;
+  return !isToothAllowed(limit, teeth ?? null);
+};
+
+/**
+ * True for a fixed-benefit ("Copay/Fixed Plan") coverage type. Such plans price
+ * every code off its flat plan portion, so coverage percentages are meaningless
+ * and are neither stored nor applied.
+ */
+export const isFixedBenefitCoverageType = (
+  coverageType: string | undefined | null
+): boolean => {
+  const type = (coverageType ?? '').toLowerCase().trim();
+  return type === 'flat' || type === 'copay';
+};
+
+/**
+ * Remove the `coverage` percentage from each item of a coverage category table
+ * so a fixed-benefit plan never persists percentages it will not use. Non-item
+ * entries and itemless categories pass through untouched.
+ */
+export const stripCoveragePercentages = (coverageCategoryTable: unknown): any => {
+  if (!Array.isArray(coverageCategoryTable)) return coverageCategoryTable;
+  return coverageCategoryTable.map((entry) => {
+    if (!entry || typeof entry !== 'object' || !Array.isArray((entry as any).items)) {
+      return entry;
+    }
+    return {
+      ...entry,
+      items: (entry as any).items.map((item: any) => {
+        if (!item || typeof item !== 'object' || !('coverage' in item)) return item;
+        const rest = { ...item };
+        delete rest.coverage;
+        return rest;
+      }),
+    };
+  });
 };

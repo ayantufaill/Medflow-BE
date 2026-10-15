@@ -17,7 +17,11 @@ import {
   evaluateAge,
   evaluateFrequency,
   evaluateLifetime,
+  evaluateTeeth,
+  isFixedBenefitCoverageType,
+  stripCoveragePercentages,
 } from '../src/services/coverage-limits.service';
+import { parseTeethRange } from '../src/services/downgrade.service';
 
 const book = (...rows: Record<string, any>[]) => rows;
 const utc = (y: number, m: number, d: number) => new Date(Date.UTC(y, m - 1, d));
@@ -298,5 +302,106 @@ describe('evaluateLifetime', () => {
   it('never blocks without a cap', () => {
     expect(evaluateLifetime(null, 9999)).toBe(false);
     expect(evaluateLifetime({ lifetimeLimit: null } as any, 9999)).toBe(false);
+  });
+});
+
+describe('evaluateTeeth', () => {
+  const rule = (teethLimit: string[] | null) => ({ teethLimit } as any);
+
+  it('never blocks when the row has no tooth limit', () => {
+    expect(evaluateTeeth(rule(null), ['P:3'])).toBe(false);
+    expect(evaluateTeeth(rule([]), ['P:3'])).toBe(false);
+    expect(evaluateTeeth(null, ['P:3'])).toBe(false);
+  });
+
+  it('allows a line on a listed tooth', () => {
+    expect(evaluateTeeth(rule(['P:3', 'P:14']), ['P:3'])).toBe(false);
+    expect(evaluateTeeth(rule(['P:3', 'P:14']), ['P:14'])).toBe(false);
+  });
+
+  it('blocks a line on a tooth that is not listed', () => {
+    expect(evaluateTeeth(rule(['P:3', 'P:14']), ['P:5'])).toBe(true);
+  });
+
+  it('blocks a multi-tooth range unless every tooth is listed', () => {
+    expect(evaluateTeeth(rule(['P:3', 'P:14']), ['P:3', 'P:5'])).toBe(true);
+    expect(evaluateTeeth(rule(['P:3', 'P:14']), ['P:3', 'P:14'])).toBe(false);
+  });
+
+  it('blocks a line whose tooth cannot be determined', () => {
+    expect(evaluateTeeth(rule(['P:3']), null)).toBe(true);
+    expect(evaluateTeeth(rule(['P:3']), [])).toBe(true);
+  });
+
+  it('parses a stored string limit and a range site end to end', () => {
+    const map = normalizeCoverageLimits([
+      { code: 'D2740', teethLimit: '3, 14' },
+    ]);
+    const parsed = map.get('D2740')!;
+    expect(evaluateTeeth(parsed, parseTeethRange('3'))).toBe(false);
+    expect(evaluateTeeth(parsed, parseTeethRange('5'))).toBe(true);
+    expect(evaluateTeeth(parsed, parseTeethRange('1-3'))).toBe(true);
+  });
+
+  it('accepts a tooth selection stored as an array', () => {
+    const map = normalizeCoverageLimits([{ code: 'D2391', teeth: ['3', '4'] }]);
+    const parsed = map.get('D2391')!;
+    expect(evaluateTeeth(parsed, parseTeethRange('4'))).toBe(false);
+    expect(evaluateTeeth(parsed, parseTeethRange('9'))).toBe(true);
+  });
+});
+
+describe('isFixedBenefitCoverageType', () => {
+  it('is true for copay/fixed plan types', () => {
+    expect(isFixedBenefitCoverageType('flat')).toBe(true);
+    expect(isFixedBenefitCoverageType('copay')).toBe(true);
+    expect(isFixedBenefitCoverageType(' FLAT ')).toBe(true);
+  });
+
+  it('is false for percentage plans and missing values', () => {
+    expect(isFixedBenefitCoverageType('ppo')).toBe(false);
+    expect(isFixedBenefitCoverageType('table')).toBe(false);
+    expect(isFixedBenefitCoverageType(undefined)).toBe(false);
+    expect(isFixedBenefitCoverageType(null)).toBe(false);
+    expect(isFixedBenefitCoverageType('')).toBe(false);
+  });
+});
+
+describe('stripCoveragePercentages', () => {
+  const table = [
+    {
+      category: 'Preventative',
+      items: [
+        { id: 'D1110', label: 'D1110', coverage: 100, waiting: 0 },
+        { id: 'D1206', label: 'D1206', coverage: 80, waiting: 6 },
+      ],
+    },
+    { category: 'Restorative' },
+  ];
+
+  it('removes the coverage field from every item', () => {
+    const result = stripCoveragePercentages(table);
+    for (const entry of result) {
+      for (const item of entry.items ?? []) {
+        expect(item).not.toHaveProperty('coverage');
+      }
+    }
+  });
+
+  it('keeps every non-percentage field and itemless categories', () => {
+    const result = stripCoveragePercentages(table);
+    expect(result[0].items[0]).toEqual({ id: 'D1110', label: 'D1110', waiting: 0 });
+    expect(result[0].items[1].waiting).toBe(6);
+    expect(result[1]).toEqual({ category: 'Restorative' });
+  });
+
+  it('does not mutate its input', () => {
+    stripCoveragePercentages(table);
+    expect(table[0].items[0].coverage).toBe(100);
+  });
+
+  it('passes non-array input straight through', () => {
+    expect(stripCoveragePercentages(undefined)).toBeUndefined();
+    expect(stripCoveragePercentages(null)).toBeNull();
   });
 });

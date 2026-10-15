@@ -33,7 +33,7 @@
 import { normalizeCode, toAmount } from './deductible.service';
 
 /** Where the teeth limit for a rule was found, for auditing/debugging. */
-export type TeethSource = 'downgrade-row' | 'billed-row' | 'none';
+export type TeethSource = 'downgrade-row' | 'none';
 
 export type DowngradeRule = {
   /** The billed procedure code this rule applies to (canonical `D####`). */
@@ -257,10 +257,10 @@ export const normalizeDowngradeRows = (coverageBookData: unknown): DowngradeRule
       !!row && typeof row === 'object' && !Array.isArray(row)
   );
 
-  // Pass 1: collect every row keyed by its own code. Used to resolve a limit
-  // stored on either the billed row or the downgrade row — the UI has written
-  // it to both places over time (the summary table stores teeth under the
-  // downgrade code, older configs stored them on the billed row).
+  // Pass 1: collect every row keyed by its own code so a rule can read the
+  // downgrade row's teeth limit. Teeth on the *billed* row are a coverage
+  // limit (see coverage-limits.service.ts) and must never be read here — the
+  // two selections are independent in the UI.
   const byCode = new Map<string, Record<string, unknown>>();
   for (const row of rows) {
     const code = normalizeCode(row.code);
@@ -278,13 +278,11 @@ export const normalizeDowngradeRows = (coverageBookData: unknown): DowngradeRule
     if (!code || !downgradeCode) continue;
     if (code === downgradeCode) continue;
 
-    // Prefer the downgrade row's limit (current UI behaviour), fall back to the
-    // billed row so plans configured before that change still restrict teeth.
+    // The downgrade's teeth come from the downgrade row only. A limit on the
+    // billed row is a coverage restriction and must not narrow the downgrade.
     const dgTeeth = parseTeethLimit(byCode.get(downgradeCode)?.teethLimit);
-    const billedTeeth = parseTeethLimit(row.teethLimit);
-    const teethLimit = dgTeeth ?? billedTeeth ?? [];
-    const teethSource: TeethSource =
-      dgTeeth !== null ? 'downgrade-row' : billedTeeth !== null ? 'billed-row' : 'none';
+    const teethLimit = dgTeeth ?? [];
+    const teethSource: TeethSource = dgTeeth !== null ? 'downgrade-row' : 'none';
 
     const maxAllowed = toAmount(row.maxAllowed) || undefined;
 

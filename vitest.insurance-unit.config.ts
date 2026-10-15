@@ -1,8 +1,8 @@
 import { defineConfig } from 'vitest/config';
 
-// Pure insurance-engine units: the coverage-limits rules and the deductible
-// engine (including the flat-amount path). No DB, no transport stubs — never
-// load tests/setup.ts, which connects to the configured database.
+// Pure insurance-engine units: the coverage-limits rules, the deductible engine
+// (including the flat-amount path) and the downgrade lookup/split. No DB, no
+// transport stubs — never load tests/setup.ts, which connects to the database.
 export default defineConfig({
   test: {
     environment: 'node',
@@ -10,6 +10,7 @@ export default defineConfig({
       'tests/coverage-limits.test.ts',
       'tests/deductible-engine.test.ts',
       'tests/coverage-loop.unit.test.ts',
+      'tests/downgrade-engine.test.ts',
     ],
     // Importing the invoice service pulls in the auth/socket module graph, whose
     // top-level guard demands these secrets. They are throwaway values — nothing

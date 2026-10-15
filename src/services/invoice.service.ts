@@ -40,6 +40,7 @@ import {
   evaluateFrequency,
   evaluateLifetime,
   evaluateNotCovered,
+  evaluateTeeth,
   evaluateWaiting,
   normalizeCoverageLimits,
   type CoverageRule,
@@ -69,6 +70,12 @@ type PlanPricingContext = {
   coverageCategoryByCode: Map<string, string>;
   /** Coverage-book limits (age/frequency/lifetime/flat/not-covered) by code. */
   coverageLimitMap: Map<string, CoverageRule>;
+  /**
+   * True for a fixed-benefit ("Copay/Fixed Plan") plan. Such plans price every
+   * code off its flat plan portion, so the percentage ladder is inert — a code
+   * with no flat portion pays $0 rather than falling back to a CDT default.
+   */
+  isFixedBenefitPlan: boolean;
   /** Waiting months by normalized category key, same key space as percentages. */
   categoryWaiting: Map<string, number>;
   /** Waiting months by procedure code, mirroring `procCodePercentages`. */
@@ -819,6 +826,12 @@ export class InvoiceService {
     // can never be blocked by a limit the book never declared.
     const coverageLimitMap = normalizeCoverageLimits(meta?.coverageBookData);
 
+    // A fixed-benefit ("Copay/Fixed Plan") prices off flat plan portions only;
+    // its percentage ladder is ignored so uncovered codes pay $0 instead of a
+    // CDT default. Mirrors the FE's `isFixedBenefitPlan`.
+    const coverageType = String(meta?.coverageType ?? '').toLowerCase().trim();
+    const isFixedBenefitPlan = coverageType === 'flat' || coverageType === 'copay';
+
     // Prior usage for this plan's frequency/lifetime checks, excluding claims
     // bound to the invoice being re-priced (they are counted once via the
     // per-line tally push instead).
@@ -849,6 +862,7 @@ export class InvoiceService {
       downgradeMap: buildDowngradeMap(meta?.coverageBookData),
       coverageCategoryByCode,
       coverageLimitMap,
+      isFixedBenefitPlan,
       policyStart,
       patientDob,
       coverageTally,
@@ -1048,6 +1062,13 @@ export class InvoiceService {
     const { procCodePercentages, categoryPercentages } = ctx;
     let percent: number | undefined;
 
+    // Fixed-benefit plans carry no percentage: insurance is the code's flat plan
+    // portion (applied later via `limits.flat`), so the ladder must resolve to 0
+    // rather than any configured or CDT-default percentage.
+    if (ctx.isFixedBenefitPlan) {
+      return 0;
+    }
+
     // 1. Specific Procedure Code Override (e.g. "D2140" or "2140")
     if (procCodePercentages.has(cleanCode)) {
       percent = procCodePercentages.get(cleanCode);
@@ -1192,11 +1213,19 @@ export class InvoiceService {
     serviceDate: Date | string,
     covSpans: any[],
     covCatMap: Map<string, string>,
+    site?: unknown,
   ): { blocked: boolean; reason: string | null; flat: number | null } {
     const rule = ctx.coverageLimitMap.get(cleanCode);
 
     if (evaluateNotCovered(rule)) {
       return { blocked: true, reason: 'not-covered', flat: null };
+    }
+
+    // A code may be covered on specific teeth only. The line's tooth comes from
+    // its `site` (a plain tooth, a range, or an arch token); a line that cannot
+    // be proven to fall on a covered tooth is not covered.
+    if (evaluateTeeth(rule, parseTeethRange(site))) {
+      return { blocked: true, reason: 'teeth-limit', flat: null };
     }
 
     const waitingMonths = this.resolveWaitingMonthsForCode(
@@ -1292,7 +1321,7 @@ export class InvoiceService {
     // nothing about this plan's rules. The service date is read off the item's
     // own field rather than the primary's resolved value.
     const serviceDate = item.date ?? item.procDate ?? item.dateOfService ?? item.ProcDate ?? new Date();
-    const limits = this.evaluateCoverageLimits(ctx, billedCode, isCdtCode, serviceDate, covSpans, covCatMap);
+    const limits = this.evaluateCoverageLimits(ctx, billedCode, isCdtCode, serviceDate, covSpans, covCatMap, item.site);
 
     // A manually entered per-line allowance still wins, matching the primary's
     // precedence — but it must be the allowance as it arrived on the item.
@@ -1615,6 +1644,7 @@ export class InvoiceService {
           item.date ?? item.procDate ?? item.dateOfService ?? item.ProcDate ?? new Date(),
           covSpans,
           covCatMap,
+          item.site,
         );
 
         // Alternate benefit (downgrade): the plan may substitute a cheaper

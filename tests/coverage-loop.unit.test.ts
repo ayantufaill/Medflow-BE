@@ -242,3 +242,104 @@ describe('coverage limits in the primary pricing loop', () => {
     expect(line.insPortion).toBe(100);
   });
 });
+
+describe('teeth-limited coverage in the primary pricing loop', () => {
+  const meta = {
+    coverageCategoryTable: [{ category: 'Restorative', coverage: 100 }],
+    coverageBookData: [{ code: 'D2391', teethLimit: '3, 14' }],
+  };
+
+  it('covers a line on a listed tooth', async () => {
+    const [line] = await run(
+      [{ code: 'D2391', charge: 100, site: '3' }],
+      meta,
+    );
+    expect(line.coverageBlockedReason).toBeUndefined();
+    expect(line.insPortion).toBe(100);
+  });
+
+  it('blocks a line on a tooth the plan does not cover', async () => {
+    const [line] = await run(
+      [{ code: 'D2391', charge: 100, site: '5' }],
+      meta,
+    );
+    expect(line.coverageBlockedReason).toBe('teeth-limit');
+    expect(line.insPortion).toBe(0);
+    expect(line.ptPortion).toBe(100);
+  });
+
+  it('blocks a line whose tooth cannot be determined', async () => {
+    const [line] = await run(
+      [{ code: 'D2391', charge: 100 }],
+      meta,
+    );
+    expect(line.coverageBlockedReason).toBe('teeth-limit');
+    expect(line.insPortion).toBe(0);
+  });
+
+  it('leaves a code with no tooth limit covering every tooth', async () => {
+    const [line] = await run(
+      [{ code: 'D2391', charge: 100, site: '5' }],
+      {
+        coverageCategoryTable: [{ category: 'Restorative', coverage: 100 }],
+        coverageBookData: [{ code: 'D2391' }],
+      },
+    );
+    expect(line.coverageBlockedReason).toBeUndefined();
+    expect(line.insPortion).toBe(100);
+  });
+});
+
+describe('fixed-benefit (Copay/Fixed Plan) pricing', () => {
+  it('prices off the flat plan portion and ignores a stored percentage', async () => {
+    const [line] = await run(
+      [{ code: 'D1110', charge: 200 }],
+      {
+        coverageType: 'flat',
+        // A legacy percentage is present but must NOT be honored.
+        coverageCategoryTable: [{ category: 'Preventative', coverage: 80 }],
+        coverageBookData: [{ code: 'D1110', flatPlanPortion: '50' }],
+      },
+    );
+    expect(line.insPortion).toBe(50);
+    expect(line.coveragePct).toBe(0);
+    expect(line.ptPortion).toBe(150);
+  });
+
+  it('pays $0 for a code with no flat plan portion instead of a CDT default', async () => {
+    const [line] = await run(
+      [{ code: 'D1110', charge: 200 }],
+      {
+        coverageType: 'flat',
+        // 80% would have been 160 under a percentage plan.
+        coverageCategoryTable: [{ category: 'Preventative', coverage: 80 }],
+      },
+    );
+    expect(line.insPortion).toBe(0);
+    expect(line.coveragePct).toBe(0);
+    expect(line.ptPortion).toBe(200);
+    // A missing flat is not a "block": no reason marker is set.
+    expect(line.coverageBlockedReason).toBeUndefined();
+  });
+
+  it('still honors coverage-book limits on a fixed-benefit plan', async () => {
+    const [blocked] = await run(
+      [{ code: 'D1110', charge: 200 }],
+      {
+        coverageType: 'flat',
+        coverageBookData: [{ code: 'D1110', nc: true, flatPlanPortion: '50' }],
+      },
+    );
+    expect(blocked.insPortion).toBe(0);
+    expect(blocked.coverageBlockedReason).toBe('not-covered');
+  });
+
+  it('leaves percentage plans untouched (gating)', async () => {
+    const [line] = await run(
+      [{ code: 'D1110', charge: 200 }],
+      { coverageCategoryTable: [{ category: 'Preventative', coverage: 80 }] },
+    );
+    expect(line.insPortion).toBe(160);
+    expect(line.coveragePct).toBe(80);
+  });
+});
