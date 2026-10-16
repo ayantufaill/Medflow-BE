@@ -10,7 +10,8 @@ import { uploadToS3, deleteFromS3 } from '../utils/s3.util';
 import { logActivity } from '../utils/activity-logger.util';
 import { agingService } from './aging.service';
 import { providerResolutionService } from './provider-resolution.service';
-import { getProviderMeta } from '../utils/opendental-auth.util';
+import { getProviderMeta, getPatientInsurancesMeta } from '../utils/opendental-auth.util';
+import { filterOutstandingClaims } from '../utils/outstanding-claim-filters.util';
 import { resolveUserDisplayNames } from '../utils/user-display.util';
 import { aggregateAppliedByRow } from './deductible.service';
 import { claimClinicFromLines } from '../utils/claim-clinic.util';
@@ -81,6 +82,7 @@ type ClaimMeta = {
   deniedDate?: string;
   denialReason?: string;
   paidDate?: string;
+  printedDate?: string;
   corrections?: Record<string, unknown>;
   claimFormat?: string;
   isHidden?: boolean;
@@ -95,6 +97,10 @@ type ClaimMeta = {
   diagnosticCode?: string;
   clearingHouseMessage?: string;
   subscriber?: string;
+  subscriberId?: string;
+  subscriberNumber?: string;
+  memberId?: string;
+  membershipNumber?: string;
   planName?: string;
   treatingProviderName?: string;
   description?: string;
@@ -129,6 +135,31 @@ type ClaimFilters = {
   claimFormat?: string;
   showHidden?: boolean | string;
   patientName?: string;
+  outstandingSort?: string;
+  outstandingClaimType?: string;
+  outstandingCarrier?: string;
+  outstandingAttachment?: string;
+  outstandingStatus?: string;
+  outstandingDate?: string;
+  outstandingStart?: string;
+  outstandingEnd?: string;
+  outstandingPatient?: string;
+  outstandingClaim?: string;
+  includeNonAssignment?: boolean;
+  includeInactivePolicies?: boolean;
+  reportFilter?: boolean;
+  reportSort?: string;
+  reportClaimType?: string;
+  reportCarrier?: string;
+  reportAttachment?: string;
+  reportStatus?: string;
+  reportDate?: string;
+  reportStart?: string;
+  reportEnd?: string;
+  reportSearch?: string;
+  reportPatient?: string;
+  reportClaim?: string;
+  reportIncludeInactive?: boolean;
 };
 
 const parseJson = <T>(value?: string | null): T => {
@@ -301,6 +332,9 @@ const mapDocument = (doc: any, claimId: string) => {
     mimeType: meta.mimeType ?? null,
     description: meta.description ?? null,
     uploadedBy: meta.uploadedBy ?? doc.UserNum?.toString() ?? null,
+    // Legacy uploads used `transmissionStatus: unsent`; keep them pending until a provider reports otherwise.
+    deliveryStatus: meta.deliveryStatus ?? (meta.transmissionStatus === 'sent' ? 'sent' : meta.transmissionStatus === 'errored' ? 'error' : 'pending'),
+    deliveryErrorMessage: meta.deliveryErrorMessage ?? null,
     createdAt: doc.DateCreated ?? null,
   };
 };
@@ -356,7 +390,7 @@ export class ClaimService {
     });
   }
 
-  private mapClaim(row: any, meta: ClaimMeta, context: { invoice?: any; insurance?: any; procedures?: any[] }) {
+  private mapClaim(row: any, meta: ClaimMeta, context: { invoice?: any; insurance?: any; procedures?: any[]; inssub?: any }) {
     const status = normalizeClaimStatus(meta.status ?? claimCodeToStatus(row.ClaimStatus));
     const patient = row.patient ? mapPatientToApi(row.patient) : null;
 
@@ -375,13 +409,22 @@ export class ClaimService {
     const treatingProvider = row.provider_claim_ProvTreatToprovider ? mapProvider(row.provider_claim_ProvTreatToprovider) : null;
 
     let subscriberDetails = null;
-    if (row.inssub_claim_InsSubNumToinssub) {
-      const inssub = row.inssub_claim_InsSubNumToinssub;
+    let subscriberId = meta.subscriberId ?? meta.subscriberNumber ?? meta.policyNumber ?? row.RefNumString ?? null;
+    let memberId = meta.memberId ?? meta.membershipNumber ?? meta.subscriberId ?? null;
+
+    const inssub =
+      row.inssub_claim_InsSubNumToinssub ||
+      row.inssub_claim_InsSubNum2Toinssub ||
+      context.inssub;
+
+    if (inssub) {
       const subPatient = inssub.patient;
-      const insplan = row.insplan_claim_PlanNumToinsplan;
+      const insplan = row.insplan_claim_PlanNumToinsplan || inssub.insplan;
+      const subId = inssub.SubscriberID || '';
       subscriberDetails = {
-        _id: inssub.InsSubNum.toString(),
-        memberId: inssub.SubscriberID || '',
+        _id: inssub.InsSubNum?.toString() || '',
+        memberId: subId,
+        subscriberId: subId,
         groupNumber: insplan?.GroupNum || '',
         relationshipToSubscriber: row.PatRelat || 1,
         firstName: subPatient?.FName || subPatient?.firstName || '',
@@ -393,6 +436,10 @@ export class ClaimService {
         zip: subPatient?.Zip || subPatient?.zip || '',
         gender: subPatient?.Gender || subPatient?.gender || '',
       };
+      if (subId) {
+        subscriberId = subId;
+        memberId = subId;
+      }
     }
 
     const rawInsEst = Number(row.InsPayEst ?? (Number(row.ClaimFee || 0) - Number(meta.patientResponsibility ?? row.DedApplied ?? 0))) || 0;
@@ -409,6 +456,9 @@ export class ClaimService {
       patientId: patient ?? row.PatNum?.toString() ?? null,
       patient,
       subscriberDetails,
+      subscriberId,
+      memberId,
+      subscriberNumber: subscriberId,
       billingProvider,
       treatingProvider,
       invoiceRefId: meta.invoiceId ?? null,
@@ -421,6 +471,7 @@ export class ClaimService {
         payerId: row.insplan_claim_PlanNumToinsplan.carrier.ElectID || '00000',
       } : null),
       insuranceType: meta.insuranceType ?? 'primary',
+      isPredetermination: row.ClaimType === 'PreAuth',
       status,
       dateSent: row.DateSent ?? null,
       submissionDate: (status === 'draft' || status === 'readyForSubmission')
@@ -448,6 +499,8 @@ export class ClaimService {
       policyNumber: meta.policyNumber ?? row.RefNumString ?? null,
       notes: meta.notes ?? row.ClaimNote ?? null,
       createdAt: row.CreatedAt ?? row.SecDateEntry ?? row.DateService ?? null,
+      dateOfService: row.DateService ?? null,
+      printedDate: meta.printedDate ?? null,
       updatedAt: meta.updatedAt ? new Date(meta.updatedAt) : row.SecDateTEdit ?? null,
       createdBy: row.SecUserNumEntry?.toString() ?? null,
       updatedBy: meta.updatedBy ?? null,
@@ -830,20 +883,22 @@ export class ClaimService {
   private async getDocumentsForClaims(claimIds: string[]) {
     if (!claimIds.length) return new Map<string, any[]>();
 
-    const rows = await prisma.document.findMany({
-      where: {
-        OR: claimIds.map((id) => ({ Note: { contains: `"claimId":"${id}"` } })),
-      },
-      orderBy: { DateCreated: 'desc' },
-    });
-
     const byClaimId = new Map<string, any[]>();
-    for (const doc of rows) {
-      const meta = parseJson<Record<string, any>>(doc.Note);
-      const claimId = String(meta.claimId || '');
-      if (!claimId) continue;
-      if (!byClaimId.has(claimId)) byClaimId.set(claimId, []);
-      byClaimId.get(claimId)!.push(mapDocument(doc, claimId));
+    for (let start = 0; start < claimIds.length; start += 100) {
+      const batch = claimIds.slice(start, start + 100);
+      const rows = await prisma.document.findMany({
+        where: {
+          OR: batch.map((id) => ({ Note: { contains: `"claimId":"${id}"` } })),
+        },
+        orderBy: { DateCreated: 'desc' },
+      });
+      for (const doc of rows) {
+        const meta = parseJson<Record<string, any>>(doc.Note);
+        const claimId = String(meta.claimId || '');
+        if (!batch.includes(claimId)) continue;
+        if (!byClaimId.has(claimId)) byClaimId.set(claimId, []);
+        byClaimId.get(claimId)!.push(mapDocument(doc, claimId));
+      }
     }
     return byClaimId;
   }
@@ -870,6 +925,11 @@ export class ClaimService {
             patient: true,
           }
         },
+        inssub_claim_InsSubNum2Toinssub: {
+          include: {
+            patient: true,
+          }
+        },
         insplan_claim_PlanNumToinsplan: {
           include: {
             carrier: true,
@@ -880,6 +940,24 @@ export class ClaimService {
 
     if (!claim) {
       throw new NotFoundError('Claim not found');
+    }
+
+    if (claim.PatNum && !claim.inssub_claim_InsSubNumToinssub && !claim.inssub_claim_InsSubNum2Toinssub) {
+      const pp = await prisma.patplan.findFirst({
+        where: {
+          PatNum: claim.PatNum,
+          OR: [{ IsPending: 0 }, { IsPending: null }],
+        },
+        orderBy: { Ordinal: 'asc' },
+        include: {
+          inssub: {
+            include: { patient: true },
+          },
+        },
+      });
+      if (pp?.inssub) {
+        (claim as any).inssub_claim_InsSubNumToinssub = pp.inssub;
+      }
     }
 
     return claim;
@@ -944,9 +1022,47 @@ export class ClaimService {
         insplan_claim_PlanNumToinsplan: {
           include: { carrier: true },
         },
+        inssub_claim_InsSubNumToinssub: {
+          include: { patient: true },
+        },
+        inssub_claim_InsSubNum2Toinssub: {
+          include: { patient: true },
+        },
       },
       orderBy: { DateService: 'desc' },
     });
+
+    const patNums = Array.from(
+      new Set(rows.map((r) => r.PatNum).filter((p): p is bigint => Boolean(p)))
+    );
+
+    const patPlans = patNums.length > 0
+      ? await prisma.patplan.findMany({
+          where: {
+            PatNum: { in: patNums },
+            OR: [{ IsPending: 0 }, { IsPending: null }],
+          },
+          orderBy: { Ordinal: 'asc' },
+          include: {
+            inssub: {
+              include: { patient: true },
+            },
+          },
+        })
+      : [];
+
+    const fallbackInssubByPatNum = new Map<string, any>();
+    for (const pp of patPlans) {
+      if (pp.PatNum && pp.inssub?.SubscriberID && !fallbackInssubByPatNum.has(pp.PatNum.toString())) {
+        fallbackInssubByPatNum.set(pp.PatNum.toString(), pp.inssub);
+      }
+    }
+    for (const row of rows) {
+      const inssub = (row as any).inssub_claim_InsSubNumToinssub || (row as any).inssub_claim_InsSubNum2Toinssub;
+      if (row.PatNum && inssub?.SubscriberID) {
+        fallbackInssubByPatNum.set(row.PatNum.toString(), inssub);
+      }
+    }
 
     const metas = rows.map((row) => parseJson<ClaimMeta>(row.Narrative));
 
@@ -970,9 +1086,11 @@ export class ClaimService {
       const meta = metas[index] ?? {};
       const invoice = meta.invoiceId ? invoiceById.get(meta.invoiceId) : null;
       const insurance = meta.insuranceCompanyId ? insuranceById.get(meta.insuranceCompanyId) : null;
+      const fallbackInssub = row.PatNum ? fallbackInssubByPatNum.get(row.PatNum.toString()) : null;
       return this.mapClaim(row, meta, {
         invoice,
         insurance,
+        inssub: fallbackInssub,
       });
     });
 
@@ -1091,6 +1209,82 @@ export class ClaimService {
         }
 
         return claimNum.includes(search) || claimCd.includes(search) || sentDtStr.includes(search);
+      });
+    }
+
+    if (lowerTab === 'outstanding' || (lowerTab === 'predetermination' && filters.reportFilter)) {
+      // Use the saved patient policy and subscriber, never a display-only claim label.
+      const candidateIds = new Set(claims.map((claim) => claim.id));
+      const candidateRows = rows.filter((row) => candidateIds.has(row.ClaimNum.toString()));
+      const patientIds = [...new Set(candidateRows.map((row) => row.PatNum).filter((id): id is bigint => id != null))];
+      const policies = patientIds.length ? await prisma.patplan.findMany({
+        where: { PatNum: { in: patientIds } },
+        include: { inssub: true },
+      }) : [];
+      const policyMeta = await getPatientInsurancesMeta(policies.map((policy) => policy.PatPlanNum));
+      const policyByKey = new Map(policies.map((policy) => [
+        `${policy.PatNum?.toString() || ''}:${policy.InsSubNum?.toString() || ''}`, policy,
+      ]));
+      const rowById = new Map(candidateRows.map((row) => [row.ClaimNum.toString(), row]));
+      claims = claims.map((claim) => {
+        const row = rowById.get(claim.id);
+        const policy = policyByKey.get(`${row?.PatNum?.toString() || ''}:${row?.InsSubNum?.toString() || ''}`);
+        const meta = policy ? policyMeta[policy.PatPlanNum.toString()] : null;
+        const assignment = meta?.assignmentOfBenefits != null
+          ? Number(meta.assignmentOfBenefits)
+          : policy?.inssub?.AssignBen === 0 ? 2 : policy?.inssub?.AssignBen === 1 ? 1 : null;
+        return {
+          ...claim,
+          isNonAssignment: assignment != null && assignment !== 1,
+          isInactivePolicy: policy?.IsPending === 1 || (policy?.inssub?.DateTerm != null && policy.inssub.DateTerm < new Date()),
+        };
+      });
+
+      const attachmentFilter = lowerTab === 'outstanding' ? filters.outstandingAttachment : filters.reportAttachment;
+      const statusFilter = lowerTab === 'outstanding' ? filters.outstandingStatus : filters.reportStatus;
+      if ((attachmentFilter && attachmentFilter !== 'all') ||
+        statusFilter === 'An error occurred when submitting the claim attachments') {
+        const documents = await this.getDocumentsForClaims(claims.map((claim) => claim.id));
+        claims = claims.map((claim) => ({ ...claim, attachments: documents.get(claim.id) ?? [] }));
+      }
+      if (lowerTab === 'outstanding') claims = filterOutstandingClaims(claims, {
+        sort: filters.outstandingSort,
+        claimType: filters.outstandingClaimType,
+        carrier: filters.outstandingCarrier,
+        attachment: filters.outstandingAttachment,
+        status: filters.outstandingStatus,
+        filterDate: filters.outstandingDate,
+        startDate: filters.outstandingStart,
+        endDate: filters.outstandingEnd,
+        patient: filters.outstandingPatient,
+        claim: filters.outstandingClaim,
+        includeNonAssignment: filters.includeNonAssignment,
+        includeInactivePolicies: filters.includeInactivePolicies,
+      });
+    }
+
+    if (filters.reportFilter && ['unsent', 'errored', 'rejected', 'history', 'predetermination'].includes(lowerTab)) {
+      if (lowerTab !== 'predetermination' &&
+        ((filters.reportAttachment && filters.reportAttachment !== 'all') ||
+          filters.reportStatus === 'An error occurred when submitting the claim attachments')) {
+        const documents = await this.getDocumentsForClaims(claims.map((claim) => claim.id));
+        claims = claims.map((claim) => ({ ...claim, attachments: documents.get(claim.id) ?? [] }));
+      }
+      claims = filterOutstandingClaims(claims, {
+        sort: filters.reportSort,
+        claimType: filters.reportClaimType,
+        carrier: filters.reportCarrier,
+        attachment: filters.reportAttachment,
+        status: filters.reportStatus,
+        filterDate: filters.reportDate,
+        startDate: filters.reportStart,
+        endDate: filters.reportEnd,
+        search: filters.reportSearch,
+        patient: filters.reportPatient,
+        claim: filters.reportClaim,
+        includeNonAssignment: true,
+        includeInactivePolicies: true,
+        hideInactivePolicies: lowerTab === 'predetermination' && !filters.reportIncludeInactive,
       });
     }
 
@@ -2517,6 +2711,7 @@ export class ClaimService {
       deniedDate: Date | null;
       denialReason: string | null;
       paidDate: Date | null;
+      printedDate: Date;
       corrections: Record<string, unknown>;
       providerSignature: string;
       patientSignature: string;
@@ -2567,6 +2762,9 @@ export class ClaimService {
       deductibleReservedByRow: currentMeta.deductibleReservedByRow,
       deductibleHeld: currentMeta.deductibleHeld,
       patientSignature: updates.patientSignature ?? currentMeta.patientSignature,
+      printedDate: updates.printedDate
+        ? (updates.printedDate instanceof Date ? updates.printedDate.toISOString() : new Date(updates.printedDate).toISOString())
+        : currentMeta.printedDate,
       notes: updates.notes ?? currentMeta.notes,
       delayReasonCode: updates.delayReasonCode ?? currentMeta.delayReasonCode,
       attachmentTransmissionCode: updates.attachmentTransmissionCode ?? currentMeta.attachmentTransmissionCode,
@@ -3097,9 +3295,52 @@ export class ClaimService {
 
     const rows = await prisma.claim.findMany({
       where,
-      include: { patient: true },
+      include: {
+        patient: true,
+        insplan_claim_PlanNumToinsplan: {
+          include: { carrier: true },
+        },
+        inssub_claim_InsSubNumToinssub: {
+          include: { patient: true },
+        },
+        inssub_claim_InsSubNum2Toinssub: {
+          include: { patient: true },
+        },
+      },
       orderBy: { DateService: 'desc' },
     });
+
+    const patNums = Array.from(
+      new Set(rows.map((r) => r.PatNum).filter((p): p is bigint => Boolean(p)))
+    );
+
+    const patPlans = patNums.length > 0
+      ? await prisma.patplan.findMany({
+          where: {
+            PatNum: { in: patNums },
+            OR: [{ IsPending: 0 }, { IsPending: null }],
+          },
+          orderBy: { Ordinal: 'asc' },
+          include: {
+            inssub: {
+              include: { patient: true },
+            },
+          },
+        })
+      : [];
+
+    const fallbackInssubByPatNum = new Map<string, any>();
+    for (const pp of patPlans) {
+      if (pp.PatNum && pp.inssub?.SubscriberID && !fallbackInssubByPatNum.has(pp.PatNum.toString())) {
+        fallbackInssubByPatNum.set(pp.PatNum.toString(), pp.inssub);
+      }
+    }
+    for (const row of rows) {
+      const inssub = (row as any).inssub_claim_InsSubNumToinssub || (row as any).inssub_claim_InsSubNum2Toinssub;
+      if (row.PatNum && inssub?.SubscriberID) {
+        fallbackInssubByPatNum.set(row.PatNum.toString(), inssub);
+      }
+    }
 
     const metas = rows.map((row) => parseJson<ClaimMeta>(row.Narrative));
 
@@ -3119,8 +3360,9 @@ export class ClaimService {
       const meta = metas[index] ?? {};
       const invoice = meta.invoiceId ? invoiceById.get(meta.invoiceId) : null;
       const insurance = meta.insuranceCompanyId ? insuranceById.get(meta.insuranceCompanyId) : null;
+      const fallbackInssub = row.PatNum ? fallbackInssubByPatNum.get(row.PatNum.toString()) : null;
 
-      const mapped = this.mapClaim(row, meta, { invoice, insurance }) as any;
+      const mapped = this.mapClaim(row, meta, { invoice, insurance, inssub: fallbackInssub }) as any;
 
       const sentDate = mapped.submissionDate ? new Date(mapped.submissionDate) : new Date(mapped.createdAt || row.DateService);
       const diffTime = Math.abs(new Date().getTime() - sentDate.getTime());
@@ -3193,9 +3435,52 @@ export class ClaimService {
 
     const rows = await prisma.claim.findMany({
       where,
-      include: { patient: true },
+      include: {
+        patient: true,
+        insplan_claim_PlanNumToinsplan: {
+          include: { carrier: true },
+        },
+        inssub_claim_InsSubNumToinssub: {
+          include: { patient: true },
+        },
+        inssub_claim_InsSubNum2Toinssub: {
+          include: { patient: true },
+        },
+      },
       orderBy: { DateService: 'desc' },
     });
+
+    const patNums = Array.from(
+      new Set(rows.map((r) => r.PatNum).filter((p): p is bigint => Boolean(p)))
+    );
+
+    const patPlans = patNums.length > 0
+      ? await prisma.patplan.findMany({
+          where: {
+            PatNum: { in: patNums },
+            OR: [{ IsPending: 0 }, { IsPending: null }],
+          },
+          orderBy: { Ordinal: 'asc' },
+          include: {
+            inssub: {
+              include: { patient: true },
+            },
+          },
+        })
+      : [];
+
+    const fallbackInssubByPatNum = new Map<string, any>();
+    for (const pp of patPlans) {
+      if (pp.PatNum && pp.inssub?.SubscriberID && !fallbackInssubByPatNum.has(pp.PatNum.toString())) {
+        fallbackInssubByPatNum.set(pp.PatNum.toString(), pp.inssub);
+      }
+    }
+    for (const row of rows) {
+      const inssub = (row as any).inssub_claim_InsSubNumToinssub || (row as any).inssub_claim_InsSubNum2Toinssub;
+      if (row.PatNum && inssub?.SubscriberID) {
+        fallbackInssubByPatNum.set(row.PatNum.toString(), inssub);
+      }
+    }
 
     const metas = rows.map((row) => parseJson<ClaimMeta>(row.Narrative));
 
@@ -3226,8 +3511,9 @@ export class ClaimService {
       const meta = metas[index] ?? {};
       const invoice = meta.invoiceId ? invoiceById.get(meta.invoiceId) : null;
       const insurance = meta.insuranceCompanyId ? insuranceById.get(meta.insuranceCompanyId) : null;
+      const fallbackInssub = row.PatNum ? fallbackInssubByPatNum.get(row.PatNum.toString()) : null;
 
-      const mapped = this.mapClaim(row, meta, { invoice, insurance }) as any;
+      const mapped = this.mapClaim(row, meta, { invoice, insurance, inssub: fallbackInssub }) as any;
 
       const prov = row.ProvBill ? providerById.get(row.ProvBill.toString()) : null;
       const treatingProvider = prov
@@ -3566,21 +3852,38 @@ export class ClaimService {
     return { message: 'EOB deleted successfully', eobs: meta.eobs || [] };
   }
 
-  async getDenticalReports() {
+  async getDenticalReports(page = 1, limit = 100, search = '') {
     const rows = await prisma.eobattach.findMany({
       orderBy: { DateTCreated: 'desc' },
-      take: 50,
+      include: {
+        claim: { include: { patient: true } },
+        claimpayment: { include: { claimproc: { include: { patient: true, claim: true }, take: 1 } } },
+      },
     });
 
-    return rows.map((row) => ({
-      id: row.EobAttachNum.toString(),
-      fileName: row.FileName ?? `eob_report_${row.EobAttachNum}.pdf`,
-      reportDate: row.DateTCreated?.toLocaleDateString() ?? '',
-      dateCreated: row.DateTCreated?.toLocaleDateString() ?? '',
-    }));
+    const reports = rows.map((row) => {
+      const claim = row.claim ?? row.claimpayment?.claimproc[0]?.claim;
+      const patient = row.claim?.patient ?? row.claimpayment?.claimproc[0]?.patient;
+      return {
+        id: row.EobAttachNum.toString(),
+        fileName: row.FileName ?? `eob_report_${row.EobAttachNum}.pdf`,
+        reportDate: row.DateTCreated?.toLocaleDateString() ?? '',
+        dateCreated: row.DateTCreated?.toLocaleDateString() ?? '',
+        patientName: patient ? `${patient.FName ?? ''} ${patient.LName ?? ''}`.trim() : '',
+        claimNumber: claim ? String(claim.PreAuthString ?? claim.ClaimIdentifier ?? claim.ClaimNum) : '',
+      };
+    }).filter((report) => !search ||
+      [report.fileName, report.reportDate, report.dateCreated, report.patientName, report.claimNumber]
+        .some((value) => value.toLowerCase().includes(search.toLowerCase())));
+    const total = reports.length;
+    return {
+      reports: reports.slice((page - 1) * limit, page * limit),
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+    };
   }
 
-  async getEraReports(eraTab = 'active', search?: string, page = 1, limit = 10) {
+  async getEraReports(eraTab = 'active', search?: string, page = 1, limit = 10,
+    filters: { status?: string; paymentType?: string; carrier?: string; startDate?: string; endDate?: string } = {}) {
     // ERA reports map to claimpayment (insurance checks/EFTs) joined to claimproc for per-claim detail
     const claimpayments = await prisma.claimpayment.findMany({
       include: {
@@ -3594,7 +3897,6 @@ export class ClaimService {
         definition_claimpayment_PayTypeTodefinition: true,
       },
       orderBy: { CheckDate: 'desc' },
-      take: 200,
     });
 
     let reports = claimpayments.map((cp) => {
@@ -3628,6 +3930,7 @@ export class ClaimService {
         patientResponsibility: Math.max(0, patientResponsibility),
         writeOff,
         dateReceived: cp.CheckDate?.toLocaleDateString() ?? '',
+        receivedAt: cp.CheckDate ?? null,
         paymentType: payTypeName ?? (cp.CheckNum ? 'Check' : 'EFT'),
         eraTab: resolvedEraTab,
       };
@@ -3641,9 +3944,16 @@ export class ClaimService {
         (r) =>
           r.patientName.toLowerCase().includes(q) ||
           r.carrier.toLowerCase().includes(q) ||
-          r.claimNumber.toLowerCase().includes(q)
+          r.claimNumber.toLowerCase().includes(q) ||
+          r.patientId?.toLowerCase().includes(q)
       );
     }
+
+    if (filters.status && filters.status !== 'all') reports = reports.filter((r) => r.status === filters.status);
+    if (filters.paymentType && filters.paymentType !== 'all') reports = reports.filter((r) => r.paymentType === filters.paymentType);
+    if (filters.carrier) reports = reports.filter((r) => r.carrier.toLowerCase().includes(filters.carrier!.toLowerCase()));
+    if (filters.startDate) reports = reports.filter((r) => r.receivedAt && r.receivedAt >= new Date(filters.startDate!));
+    if (filters.endDate) reports = reports.filter((r) => r.receivedAt && r.receivedAt < new Date(filters.endDate!));
 
     const total = reports.length;
     const skip = (page - 1) * limit;
@@ -4695,6 +5005,8 @@ export class ClaimService {
       const meta = {
         claimId,
         documentType: 'claim_attachment',
+        deliveryStatus: 'pending',
+        deliveryErrorMessage: null,
         description: null,
         storagePath,
         fileSizeInBytes: file.size,
@@ -4922,6 +5234,8 @@ export class ClaimService {
       const meta = {
         claimId,
         documentType: 'claim_attachment',
+        deliveryStatus: 'pending',
+        deliveryErrorMessage: null,
         description: null,
         storagePath,
         uploadedBy: userId ?? null,
