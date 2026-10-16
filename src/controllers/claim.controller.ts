@@ -114,6 +114,7 @@ export class ClaimController {
           claimAmount: req.body.claimAmount,
           submittedAmount: req.body.submittedAmount,
           policyNumber: req.body.policyNumber,
+          payerReferenceNumber: req.body.payerReferenceNumber,
           notes: req.body.notes,
         },
         req.userId
@@ -178,6 +179,7 @@ export class ClaimController {
           paidAmount: req.body.paidAmount,
           patientResponsibility: req.body.patientResponsibility,
           policyNumber: req.body.policyNumber,
+          payerReferenceNumber: req.body.payerReferenceNumber,
           notes: req.body.notes,
           submissionDate: req.body.submissionDate ? new Date(req.body.submissionDate) : undefined,
           deniedDate:

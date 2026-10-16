@@ -94,6 +94,7 @@ export const updateClaimValidator: ValidationChain[] = [
   body('paidAmount').optional().isFloat({ min: 0 }).withMessage('paidAmount must be >= 0'),
   body('patientResponsibility').optional().isFloat({ min: 0 }).withMessage('patientResponsibility must be >= 0'),
   body('policyNumber').optional({ nullable: true }).isString().withMessage('policyNumber must be a string'),
+  body('payerReferenceNumber').optional({ nullable: true }).isString().withMessage('payerReferenceNumber must be a string'),
   body('notes').optional({ nullable: true }).isString().isLength({ max: 2000 }).withMessage('notes must be less than 2000 characters'),
   body('submissionDate').optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage('submissionDate must be a valid date'),
   body('deniedDate').optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage('deniedDate must be a valid date'),
