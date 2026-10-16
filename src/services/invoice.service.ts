@@ -1143,7 +1143,8 @@ export class InvoiceService {
 
     if (isCdtCode) {
       const catKey = mapCodeToCategory(cleanCode);
-      const tierKey = tierKeyFromCoverageCategory(ctx.coverageCategoryByCode.get(cleanCode));
+      const tierKey = tierKeyFromCoverageCategory(ctx.coverageCategoryByCode.get(cleanCode))
+        ?? (catKey === 'preventative' ? 'preventative' : null);
 
       // A plan can split one numeric CDT category into Basic and Major tiers.
       // The procedure code's own `CoverageCategory` is the only authoritative

@@ -145,7 +145,7 @@ export const CDT_2026_PROCEDURES: CDTProcedureSeedItem[] = [
   { code: 'D1301', desc: 'Immunization counseling', abbr: 'Immunization counsel', cat: 'Preventive', treatArea: 'MOUTH' },
   { code: 'D1310', desc: 'Nutritional counseling for control of dental disease', abbr: 'Nutrition counsel', cat: 'Preventive', coverage: 'Preventive Services', treatArea: 'MOUTH' },
   { code: 'D1320', desc: 'Tobacco counseling for control and prevention of oral disease', abbr: 'Tobacco counsel', cat: 'Preventive', coverage: 'Preventive Services', treatArea: 'MOUTH' },
-  { code: 'D1321', desc: 'Counseling for control and prevention of high-risk substance use adverse effects', abbr: 'Substance use counsel', cat: 'Preventive', treatArea: 'MOUTH' },
+  { code: 'D1321', desc: 'Counseling for control and prevention of high-risk substance use adverse effects', abbr: 'Substance use counsel', cat: 'Preventive', coverage: 'Preventive Services', treatArea: 'MOUTH' },
   { code: 'D1330', desc: 'Oral Hygiene Instructions', abbr: 'OHI', cat: 'Preventive', coverage: 'Preventive Services', treatArea: 'MOUTH' },
   { code: 'D1351', desc: 'Sealant – per tooth', abbr: 'Sealant', cat: 'Preventive', coverage: 'Preventive Services', treatArea: 'TOOTH' },
   { code: 'D1352', desc: 'Preventive resin restoration', abbr: 'Preventive resin', cat: 'Preventive', coverage: 'Preventive Services', treatArea: 'TOOTH' },

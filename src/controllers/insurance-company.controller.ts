@@ -72,15 +72,18 @@ export class InsuranceCompanyController {
       const search = req.query.search as string | undefined;
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 10;
+      const includePlans = req.query.includePlans === 'true';
 
       const filters: {
         search?: string;
         isActive?: boolean;
         page: number;
         limit: number;
+        includePlans: boolean;
       } = {
         page,
         limit,
+        includePlans,
       };
       
       if (search) filters.search = search;
