@@ -76,6 +76,7 @@ type ClaimMeta = {
     remittanceDate: string | null;
   };
   policyNumber?: string;
+  payerReferenceNumber?: string;
   notes?: string;
   submissionDate?: string;
   deniedDate?: string;
@@ -446,6 +447,7 @@ export class ClaimService {
       denialDate: meta.deniedDate ? new Date(meta.deniedDate) : null,
       paidDate: meta.paidDate ? new Date(meta.paidDate) : null,
       policyNumber: meta.policyNumber ?? row.RefNumString ?? null,
+      payerReferenceNumber: meta.payerReferenceNumber ?? null,
       notes: meta.notes ?? row.ClaimNote ?? null,
       createdAt: row.CreatedAt ?? row.SecDateEntry ?? row.DateService ?? null,
       updatedAt: meta.updatedAt ? new Date(meta.updatedAt) : row.SecDateTEdit ?? null,
@@ -1300,6 +1302,7 @@ export class ClaimService {
       claimAmount?: number;
       submittedAmount?: number;
       policyNumber?: string;
+      payerReferenceNumber?: string;
       notes?: string;
     },
     userId?: string
@@ -2512,6 +2515,7 @@ export class ClaimService {
       paidAmount: number;
       patientResponsibility: number;
       policyNumber: string;
+      payerReferenceNumber: string | null;
       notes: string;
       submissionDate: Date;
       deniedDate: Date | null;
@@ -2559,6 +2563,7 @@ export class ClaimService {
       patientResponsibility: updates.patientResponsibility ?? currentMeta.patientResponsibility,
       claimFormat: (updates.claimFormat as any) ?? currentMeta.claimFormat,
       policyNumber: updates.policyNumber ?? currentMeta.policyNumber,
+      payerReferenceNumber: updates.payerReferenceNumber ?? currentMeta.payerReferenceNumber,
       providerSignature: updates.providerSignature ?? currentMeta.providerSignature,
       // Must be carried through explicitly: `nextMeta` is a field whitelist, and
       // dropping the estimate here would strand the claim with a held flag but no

@@ -4,6 +4,8 @@ import { getNextId } from '../utils/opendental-ids.util';
 import { mapPatientToApi } from '../utils/opendental-mappers.util';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { providerResolutionService } from './provider-resolution.service.js';
+import fs from 'node:fs';
+import path from 'node:path';
 
 type AuthorizationStatus = 'requested' | 'pending' | 'approved' | 'denied' | 'expired' | 'cancelled';
 
@@ -380,25 +382,49 @@ export class AuthorizationService {
     if (meta.procedures && meta.procedures.length > 0) {
       procedures = meta.procedures;
     } else if (meta.procedureIds && meta.procedureIds.length > 0) {
-      const procRows = await prisma.procedurecode.findMany({
-        where: {
-          OR: [
-            {
-              CodeNum: {
-                in: meta.procedureIds
-                  .map((id) => toBigInt(id))
-                  .filter((id): id is bigint => id !== null),
+      const procedureIds = meta.procedureIds
+        .map((id) => toBigInt(id))
+        .filter((id): id is bigint => id !== null);
+      const treatmentPlanProcedures = procedureIds.length > 0
+        ? await prisma.proctp.findMany({
+          where: {
+            ProcTPNum: { in: procedureIds },
+            PatNum: auth.PatNum,
+          },
+          orderBy: { ItemOrder: 'asc' },
+        })
+        : [];
+
+      if (treatmentPlanProcedures.length > 0) {
+        procedures = treatmentPlanProcedures.map((proc) => ({
+          _id: proc.ProcTPNum.toString(),
+          cptCode: proc.ProcCode ?? null,
+          code: proc.ProcCode ?? null,
+          name: proc.Descript ?? proc.ProcCode ?? 'Service',
+          description: proc.Descript ?? proc.ProcCode ?? 'Service',
+          fee: proc.FeeAmt ?? 0,
+          tooth: proc.ToothNumTP ?? null,
+          surface: proc.Surf ?? null,
+        }));
+      } else {
+        const procRows = await prisma.procedurecode.findMany({
+          where: {
+            OR: [
+              {
+                CodeNum: {
+                  in: procedureIds,
+                },
               },
-            },
-            {
-              ProcCode: {
-                in: meta.procedureIds.map((id) => String(id)),
+              {
+                ProcCode: {
+                  in: meta.procedureIds.map((id) => String(id)),
+                },
               },
-            },
-          ],
-        },
-      });
-      procedures = procRows.map((proc) => buildServiceView(proc)).filter(Boolean);
+            ],
+          },
+        });
+        procedures = procRows.map((proc) => buildServiceView(proc)).filter(Boolean);
+      }
     }
 
     return this.buildAuthorization(auth, meta, {
@@ -903,10 +929,17 @@ export class AuthorizationService {
   }
 
   async getPrintableAuthorizationForm(authorizationId: string): Promise<Buffer> {
+    return this.generateAdaAuthorizationPdf(authorizationId);
+    /*
+     * Kept below as a reference for the previous authorization-summary layout.
+     * The printable preauthorization now uses the same ADA claim template as
+     * regular claim printing.
+     */
+    /* istanbul ignore next */
     const authorization = await this.getAuthorizationById(authorizationId);
 
     const patientName = authorization.patient
-      ? `${authorization.patient.firstName || ''} ${authorization.patient.lastName || ''}`.trim()
+      ? `${authorization.patient!.firstName || ''} ${authorization.patient!.lastName || ''}`.trim()
       : 'Unknown Patient';
 
     // Resolve requestedBy from user ID to a human-readable name
@@ -914,10 +947,10 @@ export class AuthorizationService {
     if (requestedByName && /^\d+$/.test(String(requestedByName))) {
       try {
         const user = await prisma.userod.findUnique({
-          where: { UserNum: BigInt(requestedByName) },
+          where: { UserNum: BigInt(requestedByName as string) },
         });
         if (user) {
-          requestedByName = user.UserName || requestedByName;
+          requestedByName = user!.UserName || requestedByName;
         }
       } catch {
         // keep raw value if lookup fails
@@ -938,7 +971,7 @@ export class AuthorizationService {
           orderBy: { InsSubNum: 'asc' },
         });
         if (patSub?.insplan?.carrier) {
-          insuranceCompany = buildInsuranceCompanyView(patSub.insplan.carrier);
+          insuranceCompany = buildInsuranceCompanyView(patSub!.insplan!.carrier);
         }
       } catch {
         // keep null if lookup fails
@@ -1033,6 +1066,116 @@ export class AuthorizationService {
 
     const pdfBytes = await pdfDoc.save();
     return Buffer.from(pdfBytes);
+  }
+
+  private async generateAdaAuthorizationPdf(authorizationId: string): Promise<Buffer> {
+    const authorization = await this.getAuthorizationById(authorizationId);
+    const claim = await prisma.claim.findUnique({
+      where: { ClaimNum: BigInt(authorizationId) },
+      include: {
+        patient: true,
+        provider_claim_ProvTreatToprovider: true,
+        provider_claim_ProvBillToprovider: true,
+        insplan_claim_PlanNumToinsplan: { include: { carrier: true } },
+      },
+    });
+
+    if (!claim) throw new NotFoundError('Authorization not found');
+
+    const sourceTemplatePath = path.join(process.cwd(), 'src/assets/templates/ada-claim-template.pdf');
+    const compiledTemplatePath = path.join(process.cwd(), 'dist/assets/templates/ada-claim-template.pdf');
+    const templatePath = fs.existsSync(sourceTemplatePath) ? sourceTemplatePath : compiledTemplatePath;
+    const templateBytes = await fs.promises.readFile(templatePath);
+    const pdfDoc = await PDFDocument.load(templateBytes);
+    while (pdfDoc.getPageCount() > 1) {
+      pdfDoc.removePage(pdfDoc.getPageCount() - 1);
+    }
+    const page = pdfDoc.getPages()[0];
+    const drawText = (value: unknown, x: number, y: number, size = 8) => {
+      if (value === null || value === undefined || String(value).trim() === '') return;
+      page.drawText(String(value), { x, y, size, color: rgb(0, 0, 0) });
+    };
+    const fillCheckbox = (x: number, y: number) => {
+      page.drawRectangle({ x, y, width: 7, height: 7, color: rgb(0, 0, 0) });
+    };
+    const patient = claim.patient;
+    const carrier = claim.insplan_claim_PlanNumToinsplan?.carrier;
+    const treating = claim.provider_claim_ProvTreatToprovider;
+    const billing = claim.provider_claim_ProvBillToprovider || treating;
+    const procedures = Array.isArray(authorization.procedures) ? authorization.procedures : [];
+    const procedureCodes = procedures
+      .map((procedure: any) => procedure.code || procedure.procedureCode || procedure.cptCode || procedure.ProcCode)
+      .filter(Boolean)
+      .map(String);
+    const procedureIds = procedures
+      .map((procedure: any) => procedure.id || procedure._id || procedure.procedureId)
+      .filter((id: any) => id !== undefined && id !== null && /^\d+$/.test(String(id)))
+      .map((id: any) => BigInt(String(id)));
+    const treatmentPlanRows = claim.PatNum && (procedureCodes.length || procedureIds.length)
+      ? await prisma.proctp.findMany({
+        where: {
+          PatNum: claim.PatNum,
+          OR: [
+            ...(procedureCodes.length ? [{ ProcCode: { in: procedureCodes } }] : []),
+            ...(procedureIds.length ? [{ ProcTPNum: { in: procedureIds } }] : []),
+          ],
+        },
+        orderBy: { ItemOrder: 'asc' },
+      })
+      : [];
+
+    // Insurance and subscriber sections.
+    drawText(carrier?.CarrierName, 55, 648, 8);
+    drawText(carrier?.Address, 55, 638, 7);
+    drawText([carrier?.City, carrier?.State, carrier?.Zip].filter(Boolean).join(', '), 55, 628, 7);
+    drawText(authorization.authorizationNumber, 480, 595, 8);
+
+    if (patient) {
+      const patientName = `${patient.LName || ''}, ${patient.FName || ''} ${patient.MiddleI || ''}`.trim();
+      drawText(patientName, 360, 545, 9);
+      drawText(patient.Address, 360, 532, 9);
+      drawText(`${patient.City || ''}, ${patient.State || ''} ${patient.Zip || ''}`.trim(), 360, 519, 9);
+      if (patient.Birthdate) {
+        const dob = new Date(patient.Birthdate);
+        drawText(`${String(dob.getMonth() + 1).padStart(2, '0')}/${String(dob.getDate()).padStart(2, '0')}/${dob.getFullYear()}`, 360, 482, 9);
+      }
+      drawText(patient.PatNum?.toString(), 480, 482, 9);
+      if (patient.Gender === 0) fillCheckbox(386, 482);
+      if (patient.Gender === 1) fillCheckbox(415, 482);
+    }
+
+    // A single provider is intentionally used for both treating and billing.
+    const billingName = `${billing?.LName || ''}, ${billing?.FName || ''}`.trim();
+    drawText(billingName, 55, 100, 9);
+    drawText(billing?.NationalProvID, 45, 40, 9);
+    drawText(treating?.NationalProvID || billing?.NationalProvID, 370, 75, 9);
+    drawText(treating?.StateLicense || billing?.StateLicense, 520, 75, 9);
+
+    const serviceDate = claim.DateService ? new Date(claim.DateService) : new Date();
+    const dateText = `${String(serviceDate.getMonth() + 1).padStart(2, '0')}/${String(serviceDate.getDate()).padStart(2, '0')}/${serviceDate.getFullYear()}`;
+    let y = 435;
+    let totalFee = 0;
+    for (const procedure of procedures.slice(0, 10)) {
+      const procedureCode = String(procedure.code || procedure.procedureCode || procedure.cptCode || procedure.ProcCode || '');
+      const procedureId = String(procedure.id || procedure._id || procedure.procedureId || '');
+      const treatmentPlanRow = treatmentPlanRows.find((row: any) => (
+        String(row.ProcCode || '') === procedureCode || String(row.ProcTPNum || '') === procedureId
+      ));
+      const fee = Number(
+        procedure.fee ?? procedure.amount ?? procedure.charge ?? procedure.negRate ?? treatmentPlanRow?.FeeAmt ?? 0
+      ) || 0;
+      drawText(dateText, 50, y, 8);
+      drawText(procedure.tooth || procedure.site || procedure.surf, 160, y, 8);
+      drawText(procedure.surface || procedure.Surf, 240, y, 8);
+      drawText(procedure.code || procedure.procedureCode || procedure.cptCode, 275, y, 8);
+      drawText(procedure.description || procedure.name || procedure.treatment, 380, y, 8);
+      drawText(fee.toFixed(2), 560, y, 8);
+      totalFee += fee;
+      y -= 13.75;
+    }
+    drawText(totalFee.toFixed(2), 560, 290, 9);
+
+    return Buffer.from(await pdfDoc.save());
   }
 
   async deleteAuthorization(authorizationId: string) {
