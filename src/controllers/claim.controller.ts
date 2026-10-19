@@ -3,6 +3,7 @@ import { claimService } from '../services/claim.service';
 import { edi837Service, isValidNPI } from '../services/edi837.service';
 import { prisma } from '../config/db';
 import { assertNotLocked } from '../utils/lock-date.util';
+import { BadRequestError } from '../utils/error.util';
 
 const extractId = (value: unknown): string | undefined => {
   if (value === undefined || value === null) {
@@ -60,6 +61,31 @@ export class ClaimController {
         showHidden: req.query.showHidden as string | undefined,
         patientName: req.query.patientName as string | undefined,
         tab: req.query.tab as string | undefined,
+        outstandingSort: req.query.outstandingSort as string | undefined,
+        outstandingClaimType: req.query.outstandingClaimType as string | undefined,
+        outstandingCarrier: req.query.outstandingCarrier as string | undefined,
+        outstandingAttachment: req.query.outstandingAttachment as string | undefined,
+        outstandingStatus: req.query.outstandingStatus as string | undefined,
+        outstandingDate: req.query.outstandingDate as string | undefined,
+        outstandingStart: req.query.outstandingStart as string | undefined,
+        outstandingEnd: req.query.outstandingEnd as string | undefined,
+        outstandingPatient: req.query.outstandingPatient as string | undefined,
+        outstandingClaim: req.query.outstandingClaim as string | undefined,
+        includeNonAssignment: req.query.includeNonAssignment === 'true',
+        includeInactivePolicies: req.query.includeInactivePolicies === 'true',
+        reportFilter: req.query.reportFilter === 'true',
+        reportSort: req.query.reportSort as string | undefined,
+        reportClaimType: req.query.reportClaimType as string | undefined,
+        reportCarrier: req.query.reportCarrier as string | undefined,
+        reportAttachment: req.query.reportAttachment as string | undefined,
+        reportStatus: req.query.reportStatus as string | undefined,
+        reportDate: req.query.reportDate as string | undefined,
+        reportStart: req.query.reportStart as string | undefined,
+        reportEnd: req.query.reportEnd as string | undefined,
+        reportSearch: req.query.reportSearch as string | undefined,
+        reportPatient: req.query.reportPatient as string | undefined,
+        reportClaim: req.query.reportClaim as string | undefined,
+        reportIncludeInactive: req.query.reportIncludeInactive === 'true',
       });
 
       res.status(200).json({
@@ -155,6 +181,10 @@ export class ClaimController {
       const claimId = req.params.claimId as string;
       const insuranceCompanyId = extractId(req.body.insuranceCompanyId);
       const invoiceId = extractId(req.body.invoiceId);
+      const printedDate = req.body.printedDate === undefined ? undefined : new Date(req.body.printedDate);
+      if (printedDate && Number.isNaN(printedDate.getTime())) {
+        throw new BadRequestError('Invalid printed date');
+      }
       
       if (!req.userId) {
         return res.status(401).json({ success: false, error: { message: 'User not authenticated' } });
@@ -176,6 +206,7 @@ export class ClaimController {
           submittedAmount: req.body.submittedAmount,
           totalAmount: req.body.totalAmount,
           paidAmount: req.body.paidAmount,
+          printedDate,
           patientResponsibility: req.body.patientResponsibility,
           policyNumber: req.body.policyNumber,
           notes: req.body.notes,
@@ -595,7 +626,9 @@ export class ClaimController {
 
   async getDenticalReports(req: Request, res: Response, next: NextFunction) {
     try {
-      const reports = await claimService.getDenticalReports();
+      const page = Math.max(1, parseInt(req.query.page as string) || 1);
+      const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 100));
+      const reports = await claimService.getDenticalReports(page, limit, req.query.search as string || '');
       res.status(200).json({
         success: true,
         data: reports,
@@ -612,7 +645,13 @@ export class ClaimController {
       const eraTab = (req.query.eraTab as string) || 'active';
       const search = req.query.search as string | undefined;
 
-      const result = await claimService.getEraReports(eraTab, search, page, limit);
+      const result = await claimService.getEraReports(eraTab, search, page, limit, {
+        status: req.query.status as string | undefined,
+        paymentType: req.query.paymentType as string | undefined,
+        carrier: req.query.carrier as string | undefined,
+        startDate: req.query.startDate as string | undefined,
+        endDate: req.query.endDate as string | undefined,
+      });
       res.status(200).json({
         success: true,
         data: result,
