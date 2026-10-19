@@ -290,6 +290,103 @@ describe('teeth-limited coverage in the primary pricing loop', () => {
   });
 });
 
+describe('teeth-limited DOWNGRADE in the pricing loop', () => {
+  // D2391 downgrades to D2140 only on teeth 1 and 2. The rule's teeth live on
+  // the downgrade-target row (D2140), which is where the coverage book stores a
+  // downgrade tooth selection.
+  const meta = {
+    coverageCategoryTable: [{ category: 'Restorative', coverage: 100 }],
+    coverageBookData: [
+      { code: 'D2391', hasDowngrade: true, downgrade: 'D2140', maxAllowed: '50' },
+      { code: 'D2140', teethLimit: '1, 2' },
+    ],
+  };
+
+  it('downgrades a line on a tooth the rule allows', async () => {
+    const [line] = await run([{ code: 'D2391', charge: 100, site: '1 (MO)' }], meta);
+    expect(line.downgraded).toBe(true);
+    expect(line.effectiveCode).toBe('D2140');
+    // Priced on the substitute's fee (50), not the billed charge (100).
+    expect(line.insPortion).toBe(50);
+  });
+
+  it('does NOT downgrade a line on a tooth outside the rule', async () => {
+    const [line] = await run([{ code: 'D2391', charge: 100, site: '5 (MO)' }], meta);
+    expect(line.downgraded).toBe(false);
+    expect(line.downgradeSkipped).toBe('tooth');
+    expect(line.insPortion).toBe(100);
+  });
+
+  it('does NOT downgrade a line with no tooth', async () => {
+    const [line] = await run([{ code: 'D2391', charge: 100 }], meta);
+    expect(line.downgraded).toBe(false);
+    expect(line.downgradeSkipped).toBe('tooth');
+    expect(line.insPortion).toBe(100);
+  });
+
+  it('downgrades on every tooth when the rule has no teeth limit', async () => {
+    const [line] = await run(
+      [{ code: 'D2391', charge: 100, site: '5 (MO)' }],
+      {
+        coverageCategoryTable: [{ category: 'Restorative', coverage: 100 }],
+        coverageBookData: [
+          { code: 'D2391', hasDowngrade: true, downgrade: 'D2140', maxAllowed: '50' },
+        ],
+      },
+    );
+    expect(line.downgraded).toBe(true);
+    expect(line.effectiveCode).toBe('D2140');
+    expect(line.insPortion).toBe(50);
+  });
+});
+
+describe('teeth-limited DOWNGRADE for the SECONDARY plan', () => {
+  const SECONDARY_PLAN = {
+    PatPlanNum: 22n,
+    PatNum: 1n,
+    InsSubNum: 202n,
+    Relationship: 'Self',
+    Ordinal: 2,
+    inssub: {
+      DateEffective: new Date('2026-01-01T00:00:00Z'),
+      insplan: { AllowedFeeSched: null, FeeSched: null },
+    },
+  };
+
+  const runSecondary = (items: any[], secondaryMeta: Record<string, any>) => {
+    // Only the Ordinal-2 lookup returns a plan; the primary lookup gets the empty
+    // plan so its own downgrades do not interfere with the assertion.
+    db.patplan.findFirst.mockImplementation(async (args: any) =>
+      args?.where?.Ordinal === 2 ? SECONDARY_PLAN : PRIMARY_PLAN,
+    );
+    metaByPlan.current = {
+      '11': { coverageCategoryTable: [{ category: 'Restorative', coverage: 0 }] },
+      '22': secondaryMeta,
+    };
+    return new InvoiceService().calculateInsuranceEstimates(1n, items, { db: db as any });
+  };
+
+  const secondaryBook = {
+    coverageCategoryTable: [{ category: 'Restorative', coverage: 100 }],
+    coverageBookData: [
+      { code: 'D2391', hasDowngrade: true, downgrade: 'D2140', maxAllowed: '50' },
+      { code: 'D2140', teethLimit: '1, 2' },
+    ],
+  };
+
+  it('downgrades on a tooth the secondary rule allows', async () => {
+    const [line] = await runSecondary([{ code: 'D2391', charge: 100, site: '1 (MO)' }], secondaryBook);
+    expect(line.secondaryDowngraded).toBe(true);
+    expect(line.secondaryEffectiveCode).toBe('D2140');
+  });
+
+  it('does NOT downgrade on a tooth outside the secondary rule', async () => {
+    const [line] = await runSecondary([{ code: 'D2391', charge: 100, site: '5 (MO)' }], secondaryBook);
+    expect(line.secondaryDowngraded).toBe(false);
+    expect(line.secondaryDowngradeSkipped).toBe('tooth');
+  });
+});
+
 describe('fixed-benefit (Copay/Fixed Plan) pricing', () => {
   it('prices off the flat plan portion and ignores a stored percentage', async () => {
     const [line] = await run(
