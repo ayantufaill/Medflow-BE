@@ -8,6 +8,7 @@ import {
   mapPatientToApi,
 } from '../utils/opendental-mappers.util';
 import { getPatientMeta, getPatientsMeta, setPatientMeta, getPatientInsurancesMeta } from '../utils/opendental-auth.util';
+import { benefitPeriodStart, individualUsedSnapshot } from '../utils/insurance-benefit-usage.util';
 import { recareService } from './recare.service';
 import {
   mapProcedureStatusToText,
@@ -645,7 +646,7 @@ async getPatientBalance(patientId: string) {
 }
 
   /**
-   * Get patient's insurance benefit usage (primary & secondary)
+   * Get patient benefit usage for each active coverage, plus primary/secondary aliases.
    */
   async getInsuranceUsage(patientId: string) {
     const patient = await prisma.patient.findUnique({
@@ -657,8 +658,6 @@ async getPatientBalance(patientId: string) {
     }
 
     const patNum = BigInt(patientId);
-    const currentYear = new Date().getFullYear();
-    const startOfYear = new Date(currentYear, 0, 1);
 
     // Active patplan records ordered by Ordinal ASC
     const patPlans = await prisma.patplan.findMany({
@@ -684,6 +683,7 @@ async getPatientBalance(patientId: string) {
       return {
         primaryInsurance: null,
         secondaryInsurance: null,
+        coverages: [],
       };
     }
 
@@ -702,37 +702,51 @@ async getPatientBalance(patientId: string) {
     const buildPlanUsage = async (plan: (typeof patPlans)[0]) => {
       const planMeta = metaMap[plan.PatPlanNum.toString()] || {};
       const planName = plan.inssub?.insplan?.carrier?.CarrierName || 'Unknown Plan';
+      const rawRenewalMonth = Number(plan.inssub?.insplan?.MonthRenew ?? planMeta.renewalMonth);
+      const renewalMonth = Number.isInteger(rawRenewalMonth) && rawRenewalMonth >= 1 && rawRenewalMonth <= 12
+        ? rawRenewalMonth : 1;
+      const now = new Date();
+      const startOfYear = benefitPeriodStart({ renewalMonth }, now);
+      const snapshot = individualUsedSnapshot(planMeta, startOfYear, now);
 
-      let usedAmount = 0;
-      if (plan.InsSubNum && plan.InsSubNum !== 0n) {
+      let paidSinceSnapshot = 0;
+      if (snapshot.claimsFrom && plan.InsSubNum && plan.InsSubNum !== 0n) {
         const claimProcAgg = await prisma.claimproc.aggregate({
           where: {
             PatNum: patNum,
             InsSubNum: plan.InsSubNum,
             Status: { in: [1, 4] },
-            DateCP: { gte: startOfYear },
+            DateCP: { gte: snapshot.claimsFrom },
           },
           _sum: {
             InsPayAmt: true,
           },
         });
-        usedAmount = claimProcAgg._sum.InsPayAmt ?? 0;
+        paidSinceSnapshot = claimProcAgg._sum.InsPayAmt ?? 0;
       }
+      const usedAmount = Math.max(0, (snapshot.amount ?? 0) + paidSinceSnapshot);
 
+      let coverageLimits = planMeta.coverageLimits;
+      if (typeof coverageLimits === 'string') {
+        try { coverageLimits = JSON.parse(coverageLimits); } catch { coverageLimits = null; }
+      }
       const rawAnnualMax =
+        coverageLimits?.individual?.annualMax ??
         planMeta.annualMax ??
-        planMeta.coverageLimits?.individual?.annualMax ??
-        planMeta.coverageLimits?.annualMax ??
+        coverageLimits?.annualMax ??
         planMeta.individualAnnualMax;
 
-      const annualMax = parseNumber(rawAnnualMax) ?? 0;
-      const renewalMonth = planMeta.renewalMonth ? Number(planMeta.renewalMonth) : 1;
-      const remaining = annualMax > 0 ? Math.max(0, parseFloat((annualMax - usedAmount).toFixed(2))) : 0;
+      const parsedAnnualMax = parseNumber(rawAnnualMax);
+      const annualMax = parsedAnnualMax ?? 0;
+      const remaining = parsedAnnualMax !== null
+        ? Math.max(0, parseFloat((annualMax - usedAmount).toFixed(2))) : null;
 
       return {
+        coverageId: plan.PatPlanNum.toString(),
         planName,
         usedAmount: parseFloat(usedAmount.toFixed(2)),
         annualMax: parseFloat(annualMax.toFixed(2)),
+        annualMaxAvailable: parsedAnnualMax !== null,
         remaining,
         renewalMonth,
       };
@@ -741,12 +755,16 @@ async getPatientBalance(patientId: string) {
     const primaryPlan = patPlans.find((p) => p.Ordinal === 1) || patPlans[0];
     const secondaryPlan = patPlans.find((p) => p.Ordinal === 2) || (patPlans.length > 1 && patPlans[1].PatPlanNum !== primaryPlan?.PatPlanNum ? patPlans[1] : null);
 
-    const primaryInsurance = primaryPlan ? await buildPlanUsage(primaryPlan) : null;
-    const secondaryInsurance = secondaryPlan ? await buildPlanUsage(secondaryPlan) : null;
+    const coverages = await Promise.all(patPlans.map(buildPlanUsage));
+    const primaryInsurance = primaryPlan
+      ? coverages.find((usage) => usage.coverageId === primaryPlan.PatPlanNum.toString()) ?? null : null;
+    const secondaryInsurance = secondaryPlan
+      ? coverages.find((usage) => usage.coverageId === secondaryPlan.PatPlanNum.toString()) ?? null : null;
 
     return {
       primaryInsurance,
       secondaryInsurance,
+      coverages,
     };
   }
 

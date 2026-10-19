@@ -110,12 +110,18 @@ export class InsuranceCompanyService {
     isActive?: boolean;
     page?: number;
     limit?: number;
+    includePlans?: boolean;
   } = {}) {
-    const { search, isActive, page = 1, limit = 10 } = options;
+    const { search, isActive, page = 1, limit = 10, includePlans = false } = options;
     const where: any = {};
+    const activePlanWhere = { OR: [{ IsHidden: 0 }, { IsHidden: null }] };
 
     if (isActive !== undefined) {
-      where.IsHidden = isActive ? 0 : 1;
+      if (isActive) {
+        where.AND = [{ OR: [{ IsHidden: 0 }, { IsHidden: null }] }];
+      } else {
+        where.IsHidden = 1;
+      }
     }
 
     if (search) {
@@ -123,6 +129,16 @@ export class InsuranceCompanyService {
         { CarrierName: { contains: search } },
         { ElectID: { contains: search } },
         { Phone: { contains: search } },
+        { Address: { contains: search } },
+        { Address2: { contains: search } },
+        { City: { contains: search } },
+        { State: { contains: search } },
+        { Zip: { contains: search } },
+        { insplan: { some: { AND: [activePlanWhere, { OR: [
+          { GroupName: { contains: search } },
+          { GroupNum: { contains: search } },
+          { employer: { is: { EmpName: { contains: search } } } },
+        ] }] } } },
       ];
     }
 
@@ -130,7 +146,20 @@ export class InsuranceCompanyService {
     const [companies, total] = await Promise.all([
       prisma.carrier.findMany({
         where,
-        orderBy: { CarrierName: 'asc' },
+        include: includePlans ? {
+          insplan: {
+            where: activePlanWhere,
+            select: {
+              PlanNum: true,
+              GroupName: true,
+              GroupNum: true,
+              EmployerNum: true,
+              employer: { select: { EmpName: true } },
+            },
+            orderBy: { PlanNum: 'desc' },
+          },
+        } : undefined,
+        orderBy: [{ CarrierName: 'asc' }, { CarrierNum: 'asc' }],
         skip,
         take: limit,
       }),
@@ -151,6 +180,20 @@ export class InsuranceCompanyService {
           city: c.City ?? null,
           state: c.State ?? null,
           zipCode: c.Zip ?? null,
+          plans: (('insplan' in c && Array.isArray(c.insplan) ? c.insplan : []) as Array<{
+            PlanNum: bigint;
+            GroupName: string | null;
+            GroupNum: string | null;
+            EmployerNum: bigint | null;
+            employer: { EmpName: string | null } | null;
+          }>).map((plan) => ({
+            id: plan.PlanNum.toString(),
+            groupName: plan.GroupName ?? '',
+            groupNumber: plan.GroupNum ?? '',
+            planName: plan.GroupName ?? '',
+            employerId: plan.EmployerNum?.toString() ?? null,
+            employerName: plan.employer?.EmpName ?? '',
+          })),
           email: meta?.email ?? c.TIN ?? null,
           fax: meta?.fax ?? null,
           website: meta?.website ?? null,
