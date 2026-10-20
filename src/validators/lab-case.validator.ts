@@ -4,7 +4,7 @@ export const getLabCasesValidator = [
   query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
   query('limit').optional().isInt({ min: 1 }).withMessage('Limit must be a positive integer'),
   query('patientId').optional().isString().withMessage('Patient ID must be a string'),
-  query('status').optional().isString().isIn(['New', 'Sent', 'Received', 'Quality Checked', 'Completed', 'In Progress', 'All']).withMessage('Invalid status'),
+  query('status').optional().isString().isIn(['New', 'Sent', 'Received', 'Quality Checked', 'Completed', 'In Progress', 'Ready', 'Returned', 'Draft', 'All']).withMessage('Invalid status'),
   query('tab').optional().isString().isIn(['Active', 'Completed', 'Archived']).withMessage('Invalid tab'),
   query('sortBy').optional().isString().isIn(['dueDate', 'patient', 'status']).withMessage('Invalid sortBy'),
   query('order').optional().isString().isIn(['asc', 'desc', 'Ascending', 'Descending']).withMessage('Invalid order'),
@@ -37,9 +37,13 @@ export const updateLabCaseValidator = [
   body('dateSent').optional().isISO8601(),
   body('dateReceived').optional().isISO8601(),
   body('dateChecked').optional().isISO8601(),
+  body('createdDate').optional().isISO8601(),
+  body('dateCreated').optional().isISO8601(),
   body('instructions').optional().isString(),
   body('labFee').optional().isFloat({ min: 0 }),
   body('invoiceNum').optional().isString(),
+  body('status').optional().isString(),
+  body('providerNum').optional().isString(),
 ];
 
 export const getLabsValidator = [

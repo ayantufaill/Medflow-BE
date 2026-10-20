@@ -3,7 +3,23 @@ import { NotFoundError } from '../utils/error.util';
 import { getNextId } from '../utils/opendental-ids.util';
 
 export class LabCaseService {
+  // Date-only endDate strings ('YYYY-MM-DD') would otherwise parse to midnight,
+  // excluding everything due later that day. Extend them to end-of-day (UTC),
+  // matching how date-only startDate strings parse to UTC midnight.
+  private endOfDay(endDate: string): Date {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      return new Date(`${endDate}T23:59:59.999Z`);
+    }
+    return new Date(endDate);
+  }
+
   private deriveStatus(labcase: any): string {
+    if (labcase.Instructions) {
+      const match = String(labcase.Instructions).match(/^Status:\s*(.+)$/mi);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    }
     if (labcase.DateTimeChecked) return 'Quality Checked'; // Or 'Completed' depending on business logic
     if (labcase.DateTimeRecd) return 'Received';
     if (labcase.DateTimeSent) return 'Sent';
@@ -40,12 +56,12 @@ export class LabCaseService {
     if (startDate && endDate) {
       where.DateTimeDue = {
         gte: new Date(startDate),
-        lte: new Date(endDate),
+        lte: this.endOfDay(endDate),
       };
     } else if (startDate) {
       where.DateTimeDue = { gte: new Date(startDate) };
     } else if (endDate) {
-      where.DateTimeDue = { lte: new Date(endDate) };
+      where.DateTimeDue = { lte: this.endOfDay(endDate) };
     }
 
     const [rows, total] = await Promise.all([
@@ -271,15 +287,64 @@ export class LabCaseService {
     dateSent: string;
     dateReceived: string;
     dateChecked: string;
+    createdDate: string;
     instructions: string;
     labFee: number;
     invoiceNum: string;
+    status: string;
+    providerNum: string;
   }>) {
     const lc = await prisma.labcase.findUnique({
       where: { LabCaseNum: BigInt(planId) },
     });
     if (!lc) {
       throw new NotFoundError('Lab case not found');
+    }
+
+    // Status is derived from the DateTime* columns, so translate the requested
+    // status into timestamps. Accepts both FE vocabulary (Draft/Complete/Ready/Returned) and
+    // backend vocabulary (New/Quality Checked).
+    const statusUpdates: { DateTimeSent?: Date | null; DateTimeRecd?: Date | null; DateTimeChecked?: Date | null } = {};
+    if (updates.status) {
+      const s = updates.status.trim().toLowerCase();
+      if (s === 'draft' || s === 'new') {
+        statusUpdates.DateTimeSent = null;
+        statusUpdates.DateTimeRecd = null;
+        statusUpdates.DateTimeChecked = null;
+      } else if (s === 'sent' || s === 'printed') {
+        statusUpdates.DateTimeSent = lc.DateTimeSent ?? new Date();
+        statusUpdates.DateTimeRecd = null;
+        statusUpdates.DateTimeChecked = null;
+      } else if (s === 'received') {
+        statusUpdates.DateTimeSent = lc.DateTimeSent ?? new Date();
+        statusUpdates.DateTimeRecd = new Date();
+        statusUpdates.DateTimeChecked = null;
+      } else if (s === 'ready' || s === 'complete' || s === 'completed' || s === 'quality checked') {
+        statusUpdates.DateTimeSent = lc.DateTimeSent ?? new Date();
+        statusUpdates.DateTimeRecd = lc.DateTimeRecd ?? new Date();
+        statusUpdates.DateTimeChecked = new Date();
+      } else if (s === 'returned') {
+        statusUpdates.DateTimeSent = lc.DateTimeSent ?? new Date();
+        statusUpdates.DateTimeRecd = null;
+        statusUpdates.DateTimeChecked = null;
+      }
+    }
+
+    let finalInstructions = updates.instructions;
+    if (updates.status) {
+      if (finalInstructions !== undefined) {
+        if (/^Status:\s*.+$/mi.test(finalInstructions)) {
+          finalInstructions = finalInstructions.replace(/^Status:\s*.+$/mi, `Status: ${updates.status}`);
+        } else {
+          finalInstructions = `${finalInstructions}\nStatus: ${updates.status}`;
+        }
+      } else if (lc.Instructions) {
+        if (/^Status:\s*.+$/mi.test(lc.Instructions)) {
+          finalInstructions = lc.Instructions.replace(/^Status:\s*.+$/mi, `Status: ${updates.status}`);
+        } else {
+          finalInstructions = `${lc.Instructions}\nStatus: ${updates.status}`;
+        }
+      }
     }
 
     let laboratoryNum: bigint | undefined = undefined;
@@ -308,16 +373,31 @@ export class LabCaseService {
       } catch (e) {}
     }
 
+    let provNum: bigint | undefined = undefined;
+    if (updates.providerNum) {
+      try {
+        const targetProv = BigInt(updates.providerNum);
+        const provExists = await prisma.provider.findUnique({
+          where: { ProvNum: targetProv },
+        });
+        if (provExists) {
+          provNum = targetProv;
+        }
+      } catch (e) {}
+    }
+
     const updated = await prisma.labcase.update({
       where: { LabCaseNum: lc.LabCaseNum },
       data: {
         LaboratoryNum: laboratoryNum,
         AptNum: aptNum,
+        ProvNum: provNum,
         DateTimeDue: updates.dueDate ? new Date(updates.dueDate) : undefined,
-        DateTimeSent: updates.dateSent ? new Date(updates.dateSent) : undefined,
-        DateTimeRecd: updates.dateReceived ? new Date(updates.dateReceived) : undefined,
-        DateTimeChecked: updates.dateChecked ? new Date(updates.dateChecked) : undefined,
-        Instructions: updates.instructions !== undefined ? updates.instructions : undefined,
+        DateTimeCreated: updates.createdDate ? new Date(updates.createdDate) : undefined,
+        DateTimeSent: updates.dateSent ? new Date(updates.dateSent) : statusUpdates.DateTimeSent,
+        DateTimeRecd: updates.dateReceived ? new Date(updates.dateReceived) : statusUpdates.DateTimeRecd,
+        DateTimeChecked: updates.dateChecked ? new Date(updates.dateChecked) : statusUpdates.DateTimeChecked,
+        Instructions: finalInstructions !== undefined ? finalInstructions : undefined,
         LabFee: updates.labFee !== undefined ? updates.labFee : undefined,
         InvoiceNum: updates.invoiceNum !== undefined ? updates.invoiceNum : undefined,
       },
@@ -334,11 +414,36 @@ export class LabCaseService {
       throw new NotFoundError('Lab case not found');
     }
 
+    const s = (status || '').trim().toLowerCase();
     const updates: any = {};
-    if (status === 'Sent') updates.DateTimeSent = new Date();
-    if (status === 'Received') updates.DateTimeRecd = new Date();
-    if (status === 'Quality Checked' || status === 'Completed') updates.DateTimeChecked = new Date();
-    // Assuming 'In Progress' means received by lab but not in office? or Sent. 
+    if (s === 'draft' || s === 'new') {
+      updates.DateTimeSent = null;
+      updates.DateTimeRecd = null;
+      updates.DateTimeChecked = null;
+    } else if (s === 'sent' || s === 'printed') {
+      updates.DateTimeSent = lc.DateTimeSent ?? new Date();
+      updates.DateTimeRecd = null;
+      updates.DateTimeChecked = null;
+    } else if (s === 'received') {
+      updates.DateTimeSent = lc.DateTimeSent ?? new Date();
+      updates.DateTimeRecd = new Date();
+      updates.DateTimeChecked = null;
+    } else if (s === 'ready' || s === 'complete' || s === 'completed' || s === 'quality checked') {
+      updates.DateTimeSent = lc.DateTimeSent ?? new Date();
+      updates.DateTimeRecd = lc.DateTimeRecd ?? new Date();
+      updates.DateTimeChecked = new Date();
+    } else if (s === 'returned') {
+      updates.DateTimeSent = lc.DateTimeSent ?? new Date();
+      updates.DateTimeRecd = null;
+      updates.DateTimeChecked = null;
+    }
+
+    let newInstructions = lc.Instructions;
+    if (newInstructions && /^Status:\s*.+$/mi.test(newInstructions)) {
+      updates.Instructions = newInstructions.replace(/^Status:\s*.+$/mi, `Status: ${status}`);
+    } else if (newInstructions) {
+      updates.Instructions = `${newInstructions}\nStatus: ${status}`;
+    }
 
     if (Object.keys(updates).length > 0) {
       await prisma.labcase.update({
