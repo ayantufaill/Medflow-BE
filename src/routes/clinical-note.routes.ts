@@ -213,6 +213,10 @@ router.get(
   clinicalNoteController.getClinicalNoteById
 );
 
+router.get('/:clinicalNoteId/history', authenticate, requirePhiAccess, resolveBranchAccess,
+  enterTenantContext, requirePermission('clinical-notes.read'),
+  validate(clinicalNoteIdValidator), clinicalNoteController.getHistory);
+
 /**
  * @swagger
  * /clinical-notes:

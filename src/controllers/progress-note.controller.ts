@@ -1,7 +1,22 @@
 import { Request, Response, NextFunction } from 'express';
 import { progressNoteService } from '../services/progress-note.service';
+import { getNoteHistory } from '../services/note-history.service';
+import { logActivity } from '../utils/activity-logger.util';
 
 export class ProgressNoteController {
+  getProgressNote = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const progressNote = await progressNoteService.getProgressNoteById(req.params.id);
+      res.status(200).json({ success: true, data: { progressNote } });
+    } catch (error) { next(error); }
+  };
+
+  getHistory = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const history = await getNoteHistory(req.params.id, 'progress_notes');
+      res.status(200).json({ success: true, data: { history } });
+    } catch (error) { next(error); }
+  };
   getProgressNotes = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const page = req.query.page ? parseInt(req.query.page as string, 10) : 1;
@@ -26,7 +41,7 @@ export class ProgressNoteController {
 
   createProgressNote = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { patientId, category, description, providerId } = req.body;
+      const { patientId, category, description, providerId, title, tags } = req.body;
       
       if (!patientId) {
         return res.status(400).json({ success: false, message: 'patientId is required' });
@@ -39,8 +54,11 @@ export class ProgressNoteController {
         patientId,
         category,
         description,
-        providerId
+        providerId,
+        title,
+        tags
       });
+      if (req.userId) await logActivity(req.userId, 'created', 'progress_notes', result.id, undefined, result);
 
       res.status(201).json({
         success: true,
@@ -56,8 +74,10 @@ export class ProgressNoteController {
     try {
       const noteId = req.params.id;
       const { procedureCode } = req.body;
+      const before = await progressNoteService.getProgressNoteById(noteId);
 
       const result = await progressNoteService.addProcedureToNote(noteId, procedureCode);
+      if (req.userId) await logActivity(req.userId, 'updated', 'progress_notes', noteId, before, await progressNoteService.getProgressNoteById(noteId));
 
       res.status(200).json({
         success: true,
@@ -71,12 +91,16 @@ export class ProgressNoteController {
   updateProgressNote = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const { description, category } = req.body;
+    const { description, category, title, tags } = req.body;
+    const before = await progressNoteService.getProgressNoteById(id);
     
     const result = await progressNoteService.updateProgressNote(id, {
       description,
-      category
+      category,
+      title,
+      tags
     });
+    if (req.userId) await logActivity(req.userId, 'updated', 'progress_notes', id, before, await progressNoteService.getProgressNoteById(id));
 
     res.status(200).json({
       success: true,
@@ -90,8 +114,9 @@ export class ProgressNoteController {
 archiveProgressNote = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    
+    const before = await progressNoteService.getProgressNoteById(id);
     const result = await progressNoteService.archiveProgressNote(id);
+    if (req.userId) await logActivity(req.userId, 'status_updated', 'progress_notes', id, before, await progressNoteService.getProgressNoteById(id));
 
     res.status(200).json({
       success: true,
@@ -106,8 +131,9 @@ archiveProgressNote = async (req: Request, res: Response, next: NextFunction) =>
 unarchiveProgressNote = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    
+    const before = await progressNoteService.getProgressNoteById(id);
     const result = await progressNoteService.unarchiveProgressNote(id);
+    if (req.userId) await logActivity(req.userId, 'status_updated', 'progress_notes', id, before, await progressNoteService.getProgressNoteById(id));
 
     res.status(200).json({
       success: true,
@@ -122,13 +148,14 @@ signProgressNote = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
     const { signedBy } = req.body;
-    
+    const before = await progressNoteService.getProgressNoteById(id);
     const userId = req.userId;
     
     const result = await progressNoteService.signProgressNote(id, {
       signedBy: signedBy || userId?.toString() || 'Unknown',
       signedDate: new Date().toISOString()
     });
+    if (req.userId) await logActivity(req.userId, 'status_updated', 'progress_notes', id, before, await progressNoteService.getProgressNoteById(id));
 
     res.status(200).json({
       success: true,

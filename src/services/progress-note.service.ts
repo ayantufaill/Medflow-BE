@@ -15,6 +15,21 @@ const parseJson = (value?: string | null): any => {
 const buildJson = (value: any) => JSON.stringify(value);
 
 export class ProgressNoteService {
+  async getProgressNoteById(noteId: string) {
+    const row = await prisma.commlog.findUnique({ where: { CommlogNum: BigInt(noteId) } });
+    const meta = parseJson(row?.Note);
+    if (!row?.PatNum || !meta.isProgressNote) throw new NotFoundError('Progress note not found');
+    const patient = await prisma.patient.findFirst({ where: { PatNum: row.PatNum }, select: { PatNum: true } });
+    if (!patient) throw new NotFoundError('Progress note not found');
+    return {
+      id: row.CommlogNum.toString(), patientId: row.PatNum?.toString(),
+      date: row.CommDateTime, category: meta.category || 'General Notes',
+      title: meta.title || '', description: meta.description || '', tags: meta.tags || [],
+      procedures: meta.procedures || [], isArchived: Boolean(meta.isArchived),
+      provider: meta.providerId ? await this.getProviderName(meta.providerId) : 'Unknown Provider',
+      status: meta.status || 'saved', signedBy: meta.signedBy || null, signedDate: meta.signedDate || null,
+    };
+  }
   async getAllProgressNotes(filters: { patientId?: string; category?: string; tab?: string }, page = 1, limit = 25) {
     const skip = (page - 1) * limit;
     const where: any = {};
@@ -60,9 +75,13 @@ export class ProgressNoteService {
         date: row.CommDateTime,
         procedures: meta.procedures || [],
         description: meta.description || '',
+        title: meta.title || '',
+        tags: meta.tags || [],
         provider: providerName,
         signedBy: meta.signedBy || providerName,
         signedDate: meta.signedDate || row.CommDateTime,
+        status: meta.status || 'saved',
+        isSigned: meta.status === 'signed',
         category: meta.category || 'General Notes',
         isExpanded: false
       };
@@ -89,7 +108,7 @@ export class ProgressNoteService {
     };
   }
 
-  async createProgressNote(data: { patientId: string; category: string; description: string; providerId: string }) {
+  async createProgressNote(data: { patientId: string; category: string; description: string; providerId: string; title?: string; tags?: string[] }) {
     const commlogNum = await getNextId('commlog', 'CommlogNum');
     
     // Fetch provider name for signature
@@ -102,6 +121,8 @@ export class ProgressNoteService {
       isProgressNote: true,
       category: data.category,
       description: data.description,
+      title: data.title || '',
+      tags: data.tags || [],
       providerId: data.providerId,
       procedures: [],
       signedBy: providerName,
@@ -121,9 +142,12 @@ export class ProgressNoteService {
 
     return {
       id: row.CommlogNum.toString(),
+      patientId: row.PatNum?.toString(),
       date: row.CommDateTime,
       procedures: meta.procedures,
       description: meta.description,
+      title: meta.title || '',
+      tags: meta.tags || [],
       provider: providerName,
       signedBy: meta.signedBy,
       signedDate: meta.signedDate,
@@ -167,7 +191,7 @@ export class ProgressNoteService {
   
   async updateProgressNote(
   noteId: string, 
-  data: { description?: string; category?: string }
+  data: { description?: string; category?: string; title?: string; tags?: string[] }
 ) {
   // 1. Check if note exists
   const note = await prisma.commlog.findUnique({
@@ -198,6 +222,14 @@ export class ProgressNoteService {
     meta.category = data.category;
   }
 
+  if (data.title !== undefined) {
+    meta.title = data.title;
+  }
+
+  if (data.tags !== undefined) {
+    meta.tags = data.tags;
+  }
+
   // 5. Update the note
   const updatedNote = await prisma.commlog.update({
     where: { CommlogNum: BigInt(noteId) },
@@ -218,6 +250,8 @@ export class ProgressNoteService {
     date: updatedNote.CommDateTime,
     procedures: meta.procedures || [],
     description: meta.description || '',
+    title: meta.title || '',
+    tags: meta.tags || [],
     provider: providerName,
     signedBy: meta.signedBy || providerName,
     signedDate: meta.signedDate || updatedNote.CommDateTime,
