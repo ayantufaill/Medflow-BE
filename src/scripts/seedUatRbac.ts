@@ -42,6 +42,7 @@ const USERS: TestUser[] = [
   { email: 'emma.uptown@sunrisedental.test', firstName: 'Emma', lastName: 'Uptown', role: 'branch_admin', branches: ['B'] },
   { email: 'dr.chen@sunrisedental.test', firstName: 'Sarah', lastName: 'Chen', role: 'dentist', branches: ['B'], provider: { abbr: 'DRCHN' } },
   { email: 'owner@citysmiles.test', firstName: 'Raj', lastName: 'Patel', role: 'group_admin', branches: ['CS'] },
+  { email: 'dr.nguyen@citysmiles.test', firstName: 'Mina', lastName: 'Nguyen', role: 'dentist', branches: ['CS'], provider: { abbr: 'DRNGN' } },
   // Portals
   { email: 'ali.tariq@patient.test', firstName: 'Ali', lastName: 'Tariq', role: 'Patient', branches: ['A'] },
   { email: 'lab@crownlab.test', firstName: 'Crown Lab', lastName: 'Co.', role: 'Lab', branches: ['A'] },
@@ -77,10 +78,10 @@ const findOrCreateGroup = async (name: string) =>
   (await prisma.practicegroup.findFirst({ where: { name } })) ??
   (await prisma.practicegroup.create({ data: { name } }));
 
-const findOrCreateClinic = async (description: string, groupId: number, city: string, state: string) => {
+const findOrCreateClinic = async (description: string, groupId: number, city: string, state: string, timeZone: string) => {
   const existing = await prisma.clinic.findFirst({ where: { Description: description } });
   // Feature flags start off (T-FD-02 turns treatment_coordinator on for Branch A).
-  const data = { GroupNum: groupId, City: city, State: state, IsHidden: 0, features: { treatment_coordinator: false } };
+  const data = { GroupNum: groupId, City: city, State: state, TimeZone: timeZone, IsHidden: 0, features: { treatment_coordinator: false } };
   if (existing) return prisma.clinic.update({ where: { ClinicNum: existing.ClinicNum }, data });
   return prisma.clinic.create({
     data: { ClinicNum: await getNextId('clinic', 'ClinicNum'), Description: description, ...data },
@@ -137,10 +138,13 @@ async function main() {
   const sunrise = await findOrCreateGroup('Sunrise Dental Group');
   const citySmiles = await findOrCreateGroup('City Smiles');
 
-  const clinics: Record<BranchKey, { ClinicNum: bigint }> = {
-    A: await findOrCreateClinic('Sunrise Downtown', sunrise.id, 'Austin', 'TX'),
-    B: await findOrCreateClinic('Sunrise Uptown', sunrise.id, 'Austin', 'TX'),
-    CS: await findOrCreateClinic('City Smiles Main', citySmiles.id, 'Dallas', 'TX'),
+  // Deliberately distinct IANA zones so the clinic-clock behaviour (default
+  // date, "past" slots, displayed times) can be exercised from one machine by
+  // logging in as a user from each branch.
+  const clinics: Record<BranchKey, { ClinicNum: bigint; timeZone: string }> = {
+    A: { ...(await findOrCreateClinic('Sunrise Downtown', sunrise.id, 'New York', 'NY', 'America/New_York')), timeZone: 'America/New_York' },
+    B: { ...(await findOrCreateClinic('Sunrise Uptown', sunrise.id, 'Los Angeles', 'CA', 'America/Los_Angeles')), timeZone: 'America/Los_Angeles' },
+    CS: { ...(await findOrCreateClinic('City Smiles Main', citySmiles.id, 'Chicago', 'IL', 'America/Chicago')), timeZone: 'America/Chicago' },
   };
   await ensureOperatory(clinics.A.ClinicNum, 'Downtown Op 1', 'DT-1');
   await ensureOperatory(clinics.B.ClinicNum, 'Uptown Op 1', 'UT-1');
@@ -231,16 +235,26 @@ async function main() {
   console.log('\n✅ UAT RBAC fixtures ready');
   console.log(`   Password for every account: ${PASSWORD}\n`);
   console.log('   Branches (guide ClinicNum → actual):');
-  console.log(`     Branch A  ${branchName.A.padEnd(18)} ClinicNum ${clinics.A.ClinicNum}  GroupNum ${sunrise.id}`);
-  console.log(`     Branch B  ${branchName.B.padEnd(18)} ClinicNum ${clinics.B.ClinicNum}  GroupNum ${sunrise.id}`);
-  console.log(`     City      ${branchName.CS.padEnd(18)} ClinicNum ${clinics.CS.ClinicNum}  GroupNum ${citySmiles.id}`);
+  console.log(`     Branch A  ${branchName.A.padEnd(18)} ClinicNum ${clinics.A.ClinicNum}  GroupNum ${sunrise.id}  TZ ${clinics.A.timeZone}`);
+  console.log(`     Branch B  ${branchName.B.padEnd(18)} ClinicNum ${clinics.B.ClinicNum}  GroupNum ${sunrise.id}  TZ ${clinics.B.timeZone}`);
+  console.log(`     City      ${branchName.CS.padEnd(18)} ClinicNum ${clinics.CS.ClinicNum}  GroupNum ${citySmiles.id}  TZ ${clinics.CS.timeZone}`);
   console.log('\n   Patients (guide PT-xxx → actual PatNum):');
   for (const p of patientRows) {
     console.log(`     ${p.label}  ${p.name.padEnd(10)} PatNum ${p.patNum}  (${branchName[p.branch as BranchKey]})`);
   }
   console.log('\n   Demo payments: Ali Tariq $100 (Downtown), Sara Khan $40 (Uptown), John Doe $60 (City Smiles)');
-  console.log('\n   Accounts:');
-  for (const u of USERS) console.log(`     ${u.role.padEnd(16)} ${u.email}`);
+  console.log('\n   Accounts (same password for all; branch and zone shown per login):');
+  const roleWidth = Math.max(...USERS.map((u) => u.role.length)) + 2;
+  const branchWidth = Math.max(
+    ...USERS.map((u) => u.branches.map((b) => `${branchName[b]} (${clinics[b].timeZone})`).join(' + ').length)
+  ) + 2;
+  console.log(`     ${'ROLE'.padEnd(roleWidth)}${'BRANCH (ZONE)'.padEnd(branchWidth)}LOGIN`);
+  for (const u of USERS) {
+    const branches = u.branches
+      .map((b) => `${branchName[b]} (${clinics[b].timeZone})`)
+      .join(' + ');
+    console.log(`     ${u.role.padEnd(roleWidth)}${branches.padEnd(branchWidth)}${u.email}`);
+  }
 }
 
 main()

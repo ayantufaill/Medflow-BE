@@ -678,16 +678,8 @@ export class WaitlistService {
 
       console.log(`[Waitlist Engine] Found ${candidates.length} active waitlist candidate(s) in database.`);
 
-      const toDateStr = (d: Date) => {
-        const year = d.getFullYear();
-        const month = String(d.getMonth() + 1).padStart(2, '0');
-        const day = String(d.getDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-      };
-
-      const slotDateOnlyLocal = toDateStr(cancelled.appointmentDateTime);
       const slotDateOnlyUtc = cancelled.appointmentDateTime.toISOString().slice(0, 10);
-      const slotMinutes = cancelled.appointmentDateTime.getHours() * 60 + cancelled.appointmentDateTime.getMinutes();
+      const slotMinutes = cancelled.appointmentDateTime.getUTCHours() * 60 + cancelled.appointmentDateTime.getUTCMinutes();
       const toMinutes = (d: Date) => d.getUTCHours() * 60 + d.getUTCMinutes();
 
       const matches = candidates.filter((entry) => {
@@ -696,9 +688,8 @@ export class WaitlistService {
 
         const preferredDate = entry.schedule?.SchedDate;
         if (preferredDate) {
-          const prefLocal = toDateStr(preferredDate);
           const prefUtc = preferredDate.toISOString().slice(0, 10);
-          const dateMatches = prefLocal === slotDateOnlyLocal || prefUtc === slotDateOnlyUtc || prefLocal === slotDateOnlyUtc || prefUtc === slotDateOnlyLocal;
+          const dateMatches = prefUtc === slotDateOnlyUtc;
           if (!dateMatches) return false;
         }
 

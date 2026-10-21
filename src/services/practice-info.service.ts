@@ -2,6 +2,7 @@ import type { clinic } from '@prisma/client';
 import { prisma } from '../config/db';
 import { NotFoundError } from '../utils/error.util';
 import { getNextId } from '../utils/opendental-ids.util';
+import { resolveClinicTimeZone } from '../utils/datetime.util';
 
 // Scope resolution for the practice-info -> clinic mapping. Read this before
 // touching getPracticeInfo/getPracticeInfoById/updatePracticeInfo/
@@ -130,6 +131,7 @@ type PracticeInfoPayload = {
   logoPath?: string;
   businessHours?: Map<string, unknown> | Record<string, unknown>;
   timezone?: string;
+  effectiveTimezone?: string;
   appointmentBufferMinutes?: number;
   billingContactEmail?: string;
   billingOutOfNetwork?: string;
@@ -311,6 +313,10 @@ export class PracticeInfoService {
       logoPath: meta.logoPath ?? null,
       businessHours: meta.businessHours ?? {},
       timezone: row.TimeZone ?? 'UTC',
+      // The zone appointment logic actually uses: configured IANA zone,
+      // else the server's zone (resolveClinicTimeZone). FE "is past/today"
+      // checks must read this so every machine agrees with the backend.
+      effectiveTimezone: resolveClinicTimeZone(row.TimeZone),
       appointmentBufferMinutes: meta.appointmentBufferMinutes ?? 0,
       billingContactEmail: meta.billingContactEmail ?? null,
       billingOutOfNetwork: meta.billingOutOfNetwork ?? 'no',
