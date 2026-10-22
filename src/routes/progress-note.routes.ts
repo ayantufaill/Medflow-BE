@@ -9,7 +9,8 @@ import { validate } from '../middleware/validation.middleware';
 import {
   getProgressNotesValidator,
   createProgressNoteValidator,
-  addProcedureValidator
+  addProcedureValidator,
+  progressNoteIdValidator
 } from '../validators/progress-note.validator';
 
 const router = Router();
@@ -98,6 +99,11 @@ router.get(
   validate(getProgressNotesValidator),
   progressNoteController.getProgressNotes
 );
+
+router.get('/:id/history', authenticate, requirePhiAccess, resolveBranchAccess, enterTenantContext,
+  requirePermission('clinical-notes.read'), validate(progressNoteIdValidator), progressNoteController.getHistory);
+router.get('/:id', authenticate, requirePhiAccess, resolveBranchAccess, enterTenantContext,
+  requirePermission('clinical-notes.read'), validate(progressNoteIdValidator), progressNoteController.getProgressNote);
 
 /**
  * @swagger
