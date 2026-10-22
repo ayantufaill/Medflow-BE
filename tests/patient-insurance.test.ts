@@ -43,6 +43,8 @@ describe('Patient Insurance Reordering', () => {
       .set(authHeader)
       .send({
         insuranceType: 'primary',
+        groupNumber: 'TEST-PRIMARY',
+        groupName: 'Test Primary Group',
         insuranceCompanyId: carrierNum1.toString(),
         relationshipToPatient: 'self',
         effectiveDate: new Date().toISOString(),
@@ -50,7 +52,7 @@ describe('Patient Insurance Reordering', () => {
         subscriberName: `SubName`,
         subscriberDateOfBirth: new Date(1990, 0, 1).toISOString(),
       });
-    expect(res1.status).toBe(201);
+    expect(res1.status, JSON.stringify(res1.body)).toBe(201);
     const ins1 = res1.body.data.insurance;
 
     // Add secondary insurance
@@ -59,6 +61,8 @@ describe('Patient Insurance Reordering', () => {
       .set(authHeader)
       .send({
         insuranceType: 'secondary',
+        groupNumber: 'TEST-SECONDARY',
+        groupName: 'Test Secondary Group',
         insuranceCompanyId: carrierNum2.toString(),
         relationshipToPatient: 'self',
         effectiveDate: new Date().toISOString(),
@@ -66,7 +70,7 @@ describe('Patient Insurance Reordering', () => {
         subscriberName: `SubName`,
         subscriberDateOfBirth: new Date(1990, 0, 1).toISOString(),
       });
-    expect(res2.status).toBe(201);
+    expect(res2.status, JSON.stringify(res2.body)).toBe(201);
     const ins2 = res2.body.data.insurance;
 
     // Verify initial database order (ins1 = Ordinal 1, ins2 = Ordinal 2)

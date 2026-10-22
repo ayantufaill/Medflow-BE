@@ -10,9 +10,9 @@ const db = vi.hoisted(() => ({
   document: { create: vi.fn(), findMany: vi.fn() },
   treatplan: { findMany: vi.fn() }, preference: { findFirst: vi.fn() }, paysplit: { findMany: vi.fn() },
 }));
-const meta = vi.hoisted(() => ({ patients: vi.fn(), policies: vi.fn(), providers: vi.fn(), appointments: vi.fn() }));
+const meta = vi.hoisted(() => ({ patients: vi.fn(), policies: vi.fn(), providers: vi.fn(), appointments: vi.fn(), rxs: vi.fn() }));
 vi.mock('../src/config/db', () => ({ prisma: db }));
-vi.mock('../src/utils/opendental-auth.util', () => ({ getPatientsMeta: meta.patients, getPatientInsurancesMeta: meta.policies, getProvidersMeta: meta.providers, getAppointmentsMeta: meta.appointments }));
+vi.mock('../src/utils/opendental-auth.util', () => ({ getPatientsMeta: meta.patients, getPatientInsurancesMeta: meta.policies, getProvidersMeta: meta.providers, getAppointmentsMeta: meta.appointments, getRxsMeta: meta.rxs }));
 vi.mock('../src/services/clinical-note.service', () => ({ clinicalNoteService: {} }));
 // vitest.config has restoreMocks: true, which wipes an implementation given at
 // creation time before every test — so the id is (re)set in beforeEach.
@@ -38,6 +38,7 @@ beforeEach(() => {
   meta.patients.mockReset().mockResolvedValue({});
   meta.policies.mockReset().mockResolvedValue({});
   meta.providers.mockReset().mockResolvedValue({});
+  meta.rxs.mockReset().mockResolvedValue({});
   ids.getNextId.mockReset().mockResolvedValue(999n);
 });
 const now = new Date('2026-10-08T12:00:00Z');
@@ -139,7 +140,7 @@ describe('report output contains recorded facts', () => {
   it('does not invent prescription or deposit metadata', async () => {
     db.rxpat.findMany.mockResolvedValue([{ RxNum: 1n }]); db.deposit.findMany.mockResolvedValue([{ DepositNum: 1n, Amount: 0 }]);
     const service = new ReportGenerationService();
-    expect((await service.getClinicalReport('rx', {}))[0]).toMatchObject({ drugName: null, duration: null, longTerm: null });
+    expect((await service.getClinicalReport('rx', {}))[0]).toMatchObject({ drugName: null, duration: '', longTerm: '' });
     expect((await service.getFinancialReport('deposit-slips', {}))[0]).toMatchObject({ bank: null, status: null, amount: 0 });
   });
 });
