@@ -85,3 +85,6 @@ main()
   .finally(async () => {
     await prisma.$disconnect();
   });
+
+  //ending file with a new line
+  
