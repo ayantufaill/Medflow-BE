@@ -7,6 +7,8 @@ import {
   lateFeeJobController,
 } from '../controllers/late-fee.controller';
 import { authenticate } from '../middleware/auth.middleware';
+import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
+import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { validate } from '../middleware/validation.middleware';
 import {
@@ -26,6 +28,8 @@ const router = Router();
 router.get(
   '/clinics/:clinicId/settings',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('billing.late_fee.view'),
   lateFeePolicyController.getSettings.bind(lateFeePolicyController)
 );
@@ -33,6 +37,8 @@ router.get(
 router.patch(
   '/clinics/:clinicId/settings',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('billing.late_fee.policy_manage'),
   validate(lateFeeSettingsValidator),
   lateFeePolicyController.updateSettings.bind(lateFeePolicyController)
@@ -41,6 +47,8 @@ router.patch(
 router.get(
   '/applications',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('billing.late_fee.view'),
   validate(lateFeeApplicationsValidator),
   lateFeeApplicationController.list.bind(lateFeeApplicationController)
@@ -49,6 +57,8 @@ router.get(
 router.post(
   '/run-job',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('billing.late_fee.policy_manage'),
   lateFeeJobController.runJob.bind(lateFeeJobController)
 );
@@ -56,6 +66,8 @@ router.post(
 router.post(
   '/clinics/:clinicId/late-fee-policy',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('billing.late_fee.policy_manage'),
   validate(createLateFeePolicyValidator),
   lateFeePolicyController.createPolicy.bind(lateFeePolicyController)
@@ -64,6 +76,8 @@ router.post(
 router.get(
   '/clinics/:clinicId/late-fee-policy',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('billing.late_fee.view'),
   lateFeePolicyController.getPolicy.bind(lateFeePolicyController)
 );
@@ -71,6 +85,8 @@ router.get(
 router.get(
   '/clinics/:clinicId/late-fee-policy/:version',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('billing.late_fee.view'),
   lateFeePolicyController.getPolicy.bind(lateFeePolicyController)
 );
@@ -78,6 +94,8 @@ router.get(
 router.patch(
   '/clinics/:clinicId/late-fee-policy/:version',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('billing.late_fee.policy_manage'),
   validate(updateLateFeePolicyValidator),
   lateFeePolicyController.updatePolicy.bind(lateFeePolicyController)
@@ -86,6 +104,8 @@ router.patch(
 router.post(
   '/clinics/:clinicId/late-fee-policy/:version/activate',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('billing.late_fee.policy_manage'),
   lateFeePolicyController.activatePolicy.bind(lateFeePolicyController)
 );
@@ -93,6 +113,8 @@ router.post(
 router.get(
   '/clinics/:clinicId/late-fee-policy/:version/terms',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('billing.late_fee.view'),
   validate(policyTermsValidator),
   lateFeePolicyController.getTerms.bind(lateFeePolicyController)
@@ -101,6 +123,8 @@ router.get(
 router.post(
   '/patients/:patientId/late-fee-acceptance',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('billing.late_fee.policy_manage'),
   validate(recordAcceptanceValidator),
   lateFeeAcceptanceController.recordAcceptance.bind(lateFeeAcceptanceController)
@@ -109,6 +133,8 @@ router.post(
 router.get(
   '/patients/:patientId/late-fee-acceptance',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('billing.late_fee.view'),
   validate(patientAcceptanceHistoryValidator),
   lateFeeAcceptanceController.getAcceptanceHistory.bind(lateFeeAcceptanceController)
@@ -117,6 +143,8 @@ router.get(
 router.post(
   '/late-fee/applications/:applicationId/waive',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('billing.late_fee.waive'),
   validate(waiveLateFeeValidator),
   lateFeeWaiverController.waiveFee.bind(lateFeeWaiverController)
@@ -125,6 +153,8 @@ router.post(
 router.get(
   '/reports/late-fee-waivers',
   authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
   requirePermission('billing.late_fee.view'),
   validate(waiverReportValidator),
   lateFeeWaiverController.getWaiverReport.bind(lateFeeWaiverController)
