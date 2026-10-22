@@ -4,7 +4,7 @@ import { getNextId } from './opendental-ids.util';
 
 // OpenDental userodpref.FkeyType is tinyint (0-255). Keep custom values in range.
 const ROLE_META_FKEYTYPE = 200;
-const USER_META_FKEYTYPE = 201;
+export const USER_META_FKEYTYPE = 201;
 const PROVIDER_META_FKEYTYPE = 202;
 const APPOINTMENT_TYPE_META_FKEYTYPE = 205;
 export const PATIENT_META_FKEYTYPE = 206;
