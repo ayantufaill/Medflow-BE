@@ -705,15 +705,17 @@ export class AppointmentService {
     let resolvedStatus = meta?.status ?? dbStatus;
 
     // Evaluate on-demand auto-no-show:
-    // If status is in ['scheduled', 'unconfirmed', 'preconfirmed', 'confirmed'] and past end_time + 60m
+    // If status is in ['scheduled', 'unconfirmed', 'preconfirmed', 'confirmed'] and past end_time + 60m in clinic timezone
     if (
       appointment.AptDateTime &&
       ['scheduled', 'unconfirmed', 'preconfirmed', 'confirmed'].includes(resolvedStatus.toLowerCase())
     ) {
       const durationMinutes = getDurationMinutesFromPattern(appointment.Pattern);
-      const endTime = new Date(new Date(appointment.AptDateTime).getTime() + durationMinutes * 60 * 1000);
-      const cutoffTime = new Date(endTime.getTime() + 60 * 60 * 1000);
-      if (Date.now() > cutoffTime.getTime()) {
+      const clinicTimeZone = await getAppointmentTimeZone(appointment.ClinicNum, null);
+      const realStart = scheduledStartInstant(new Date(appointment.AptDateTime), clinicTimeZone);
+      const realEnd = realStart + durationMinutes * 60 * 1000;
+      const cutoffTime = realEnd + 60 * 60 * 1000;
+      if (Date.now() > cutoffTime) {
         this.evaluateAutoNoShow(appointment, meta).catch(() => {});
         resolvedStatus = 'no_show';
       }
