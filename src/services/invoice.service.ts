@@ -213,7 +213,7 @@ const parseLocalDate = (value?: string | null): Date | null => {
   if (!value) return null;
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
   if (match) {
-    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
   }
   const fallback = new Date(value);
   return Number.isNaN(fallback.getTime()) ? null : fallback;
@@ -4040,7 +4040,7 @@ export class InvoiceService {
             AptNum: resolvedAptNum,
             ProvNum: provNum,
             ClinicNum: data.branchId ? BigInt(data.branchId) : null,
-            ProcDate: item.date ? new Date(item.date) : new Date(),
+            ProcDate: item.date ? new Date(item.date) : new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z'),
             ProcFee: Number(item.charge ?? 0),
             UnitQty: 1,
             CodeNum: service?.CodeNum ?? null,

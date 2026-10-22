@@ -127,8 +127,8 @@ export class LateFeeSchedulerService {
   }
 
   private async getOverdueInvoices(clinicId: bigint, policy: LateFeePolicyConfig, runDate: Date): Promise<InvoiceForLateFee[]> {
-    const periodStart = new Date(runDate.getFullYear(), runDate.getMonth(), 1);
-    const periodEnd = new Date(runDate.getFullYear(), runDate.getMonth() + 1, 0, 23, 59, 59);
+    const periodStart = new Date(Date.UTC(runDate.getUTCFullYear(), runDate.getUTCMonth(), 1));
+    const periodEnd = new Date(Date.UTC(runDate.getUTCFullYear(), runDate.getUTCMonth() + 1, 0, 23, 59, 59));
 
     const statements = await prisma.statement.findMany({
       where: {
@@ -200,8 +200,8 @@ export class LateFeeSchedulerService {
     details: string | undefined,
     runDate: Date
   ): Promise<void> {
-    const periodStart = new Date(runDate.getFullYear(), runDate.getMonth(), 1);
-    const periodEnd = new Date(runDate.getFullYear(), runDate.getMonth() + 1, 0, 23, 59, 59);
+    const periodStart = new Date(Date.UTC(runDate.getUTCFullYear(), runDate.getUTCMonth(), 1));
+    const periodEnd = new Date(Date.UTC(runDate.getUTCFullYear(), runDate.getUTCMonth() + 1, 0, 23, 59, 59));
 
     await prisma.lateFeeApplication.create({
       data: {
@@ -240,8 +240,8 @@ export class LateFeeSchedulerService {
     cumulativeFees: number,
     runDate: Date
   ): Promise<void> {
-    const periodStart = new Date(runDate.getFullYear(), runDate.getMonth(), 1);
-    const periodEnd = new Date(runDate.getFullYear(), runDate.getMonth() + 1, 0, 23, 59, 59);
+    const periodStart = new Date(Date.UTC(runDate.getUTCFullYear(), runDate.getUTCMonth(), 1));
+    const periodEnd = new Date(Date.UTC(runDate.getUTCFullYear(), runDate.getUTCMonth() + 1, 0, 23, 59, 59));
 
     const application = await prisma.lateFeeApplication.create({
       data: {

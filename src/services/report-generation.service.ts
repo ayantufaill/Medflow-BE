@@ -121,11 +121,11 @@ export class ReportGenerationService {
     
     if (query.startDate) {
       startDate = new Date(query.startDate);
-      startDate.setHours(0, 0, 0, 0);
+      startDate.setUTCHours(0, 0, 0, 0);
     }
     if (query.endDate) {
       endDate = new Date(query.endDate);
-      endDate.setHours(23, 59, 59, 999);
+      endDate.setUTCHours(23, 59, 59, 999);
     }
     const name = String(reportName).toLowerCase();
 
@@ -1568,7 +1568,7 @@ export class ReportGenerationService {
     if (query.startDate && query.endDate) {
       sDate = new Date(query.startDate);
       eDate = new Date(query.endDate);
-      eDate.setHours(23, 59, 59, 999);
+      eDate.setUTCHours(23, 59, 59, 999);
     }
 
     // Query all courtesy credit adjustments directly — this is the authoritative source
@@ -2923,7 +2923,7 @@ export class ReportGenerationService {
       if (apptStartDate) apptWhere.AptDateTime.gte = new Date(apptStartDate);
       if (apptEndDate) {
         const end = new Date(apptEndDate);
-        end.setHours(23, 59, 59, 999);
+        end.setUTCHours(23, 59, 59, 999);
         apptWhere.AptDateTime.lte = end;
       }
     } else if (apptFilterType === 'before' && apptSingleDate) {
@@ -3132,7 +3132,7 @@ export class ReportGenerationService {
       if (apptStartDate) apptWhere.AptDateTime.gte = new Date(apptStartDate);
       if (apptEndDate) {
         const end = new Date(apptEndDate);
-        end.setHours(23, 59, 59, 999);
+        end.setUTCHours(23, 59, 59, 999);
         apptWhere.AptDateTime.lte = end;
       }
     } else if (apptFilterType === 'before' && apptSingleDate) {
@@ -3680,7 +3680,7 @@ export class ReportGenerationService {
     }
     if (query?.endDate) {
       const endOfDay = new Date(query.endDate);
-      endOfDay.setHours(23, 59, 59, 999);
+      endOfDay.setUTCHours(23, 59, 59, 999);
       apptWhere.AptDateTime = { ...apptWhere.AptDateTime, lte: endOfDay };
     }
     if (query?.provider && query.provider !== 'all') {
@@ -3807,7 +3807,7 @@ export class ReportGenerationService {
     }
     if (query?.endDate) {
       const endOfDay = new Date(query.endDate);
-      endOfDay.setHours(23, 59, 59, 999);
+      endOfDay.setUTCHours(23, 59, 59, 999);
       where.RefDate = { ...where.RefDate, lte: endOfDay };
     }
     
@@ -4650,8 +4650,8 @@ export class ReportGenerationService {
       const start = new Date(customStart);
       const end = new Date(customEnd);
       if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-        start.setHours(0, 0, 0, 0);
-        end.setHours(23, 59, 59, 999);
+        start.setUTCHours(0, 0, 0, 0);
+        end.setUTCHours(23, 59, 59, 999);
         return { startDate: start, endDate: end };
       }
     }
@@ -4661,64 +4661,64 @@ export class ReportGenerationService {
     let endDate = new Date(baseDate);
 
     if (range === 'Daily' || range === 'today') {
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
+      startDate.setUTCHours(0, 0, 0, 0);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'Weekly' || range === 'this_week') {
       const day = baseDate.getDay();
       const diff = baseDate.getDate() - day + (day === 0 ? -6 : 1);
       startDate = new Date(baseDate);
       startDate.setDate(diff);
-      startDate.setHours(0, 0, 0, 0);
+      startDate.setUTCHours(0, 0, 0, 0);
       endDate = new Date(startDate);
       endDate.setDate(startDate.getDate() + 6);
-      endDate.setHours(23, 59, 59, 999);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'last_7_days') {
       startDate.setDate(baseDate.getDate() - 6);
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
+      startDate.setUTCHours(0, 0, 0, 0);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'last_week') {
       const day = baseDate.getDay();
       const diffToLastWeekStart = baseDate.getDate() - day - 7 + (day === 0 ? -6 : 1);
       startDate = new Date(baseDate);
       startDate.setDate(diffToLastWeekStart);
-      startDate.setHours(0, 0, 0, 0);
+      startDate.setUTCHours(0, 0, 0, 0);
       endDate = new Date(startDate);
       endDate.setDate(startDate.getDate() + 6);
-      endDate.setHours(23, 59, 59, 999);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'last_4_weeks') {
       startDate.setDate(baseDate.getDate() - 28);
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
+      startDate.setUTCHours(0, 0, 0, 0);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'Monthly' || range === 'this_month') {
       startDate.setDate(1);
-      startDate.setHours(0, 0, 0, 0);
+      startDate.setUTCHours(0, 0, 0, 0);
       endDate.setMonth(baseDate.getMonth() + 1, 0);
-      endDate.setHours(23, 59, 59, 999);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'last_month') {
       startDate.setMonth(baseDate.getMonth() - 1, 1);
-      startDate.setHours(0, 0, 0, 0);
+      startDate.setUTCHours(0, 0, 0, 0);
       endDate.setMonth(baseDate.getMonth(), 0);
-      endDate.setHours(23, 59, 59, 999);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'last_3_months') {
       startDate.setMonth(baseDate.getMonth() - 3);
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
+      startDate.setUTCHours(0, 0, 0, 0);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'last_12_months') {
       startDate.setFullYear(baseDate.getFullYear() - 1);
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
+      startDate.setUTCHours(0, 0, 0, 0);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'year_to_date') {
       startDate.setMonth(0, 1);
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
+      startDate.setUTCHours(0, 0, 0, 0);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'Yearly') {
       startDate.setMonth(0, 1);
-      startDate.setHours(0, 0, 0, 0);
+      startDate.setUTCHours(0, 0, 0, 0);
       endDate.setMonth(11, 31);
-      endDate.setHours(23, 59, 59, 999);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else {
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
+      startDate.setUTCHours(0, 0, 0, 0);
+      endDate.setUTCHours(23, 59, 59, 999);
     }
 
     return { startDate, endDate };

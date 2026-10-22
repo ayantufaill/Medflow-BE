@@ -376,12 +376,12 @@ export class PatientService {
       where.Birthdate = {};
       if (dobStart) {
         const startDate = new Date(dobStart);
-        startDate.setHours(0, 0, 0, 0);
+        startDate.setUTCHours(0, 0, 0, 0);
         where.Birthdate.gte = startDate;
       }
       if (dobEnd) {
         const endDate = new Date(dobEnd);
-        endDate.setHours(23, 59, 59, 999);
+        endDate.setUTCHours(23, 59, 59, 999);
         where.Birthdate.lte = endDate;
       }
     }

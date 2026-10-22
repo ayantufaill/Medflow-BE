@@ -62,13 +62,13 @@ const generateOccurrences = (meta: RecurringMeta, count: number) => {
   let currentDate = new Date(meta.startDate);
   const [hours = 0, minutes = 0] = meta.preferredTime.split(':').map(Number);
   if (Number.isFinite(hours) && Number.isFinite(minutes)) {
-    currentDate.setHours(hours, minutes, 0, 0);
+    currentDate.setUTCHours(hours, minutes, 0, 0);
   }
 
   if (meta.preferredDayOfWeek !== undefined) {
-    const currentDay = currentDate.getDay();
+    const currentDay = currentDate.getUTCDay();
     const daysToAdd = (meta.preferredDayOfWeek - currentDay + 7) % 7;
-    currentDate.setDate(currentDate.getDate() + daysToAdd);
+    currentDate.setUTCDate(currentDate.getUTCDate() + daysToAdd);
   }
 
   for (let i = 0; i < count; i++) {
@@ -76,17 +76,17 @@ const generateOccurrences = (meta: RecurringMeta, count: number) => {
     occurrences.push(new Date(currentDate));
 
     if (meta.frequency === 'weekly') {
-      currentDate.setDate(currentDate.getDate() + 7 * meta.frequencyValue);
+      currentDate.setUTCDate(currentDate.getUTCDate() + 7 * meta.frequencyValue);
     } else if (meta.frequency === 'monthly') {
-      currentDate.setMonth(currentDate.getMonth() + meta.frequencyValue);
+      currentDate.setUTCMonth(currentDate.getUTCMonth() + meta.frequencyValue);
     } else {
-      currentDate.setMonth(currentDate.getMonth() + 3 * meta.frequencyValue);
+      currentDate.setUTCMonth(currentDate.getUTCMonth() + 3 * meta.frequencyValue);
     }
 
     if (meta.preferredDayOfWeek !== undefined) {
-      const currentDay = currentDate.getDay();
+      const currentDay = currentDate.getUTCDay();
       const daysToAdd = (meta.preferredDayOfWeek - currentDay + 7) % 7;
-      currentDate.setDate(currentDate.getDate() + daysToAdd);
+      currentDate.setUTCDate(currentDate.getUTCDate() + daysToAdd);
     }
   }
 
@@ -440,9 +440,9 @@ export class RecurringAppointmentService {
 
     const previewAppointments = generateOccurrences(meta, totalAppointments).map((date, idx) => {
       const endTimeDate = new Date(date);
-      endTimeDate.setMinutes(endTimeDate.getMinutes() + 30);
-      const startTime = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-      const endTime = `${endTimeDate.getHours().toString().padStart(2, '0')}:${endTimeDate.getMinutes().toString().padStart(2, '0')}`;
+      endTimeDate.setUTCMinutes(endTimeDate.getUTCMinutes() + 30);
+      const startTime = `${date.getUTCHours().toString().padStart(2, '0')}:${date.getUTCMinutes().toString().padStart(2, '0')}`;
+      const endTime = `${endTimeDate.getUTCHours().toString().padStart(2, '0')}:${endTimeDate.getUTCMinutes().toString().padStart(2, '0')}`;
       return {
         appointmentNumber: idx + 1,
         date,
@@ -490,9 +490,9 @@ export class RecurringAppointmentService {
     for (const occurrence of occurrences) {
       try {
         const endTimeDate = new Date(occurrence);
-        endTimeDate.setMinutes(endTimeDate.getMinutes() + 30);
-        const startTime = `${occurrence.getHours().toString().padStart(2, '0')}:${occurrence.getMinutes().toString().padStart(2, '0')}`;
-        const endTime = `${endTimeDate.getHours().toString().padStart(2, '0')}:${endTimeDate.getMinutes().toString().padStart(2, '0')}`;
+        endTimeDate.setUTCMinutes(endTimeDate.getUTCMinutes() + 30);
+        const startTime = `${occurrence.getUTCHours().toString().padStart(2, '0')}:${occurrence.getUTCMinutes().toString().padStart(2, '0')}`;
+        const endTime = `${endTimeDate.getUTCHours().toString().padStart(2, '0')}:${endTimeDate.getUTCMinutes().toString().padStart(2, '0')}`;
 
         const appointment = await appointmentService.createAppointment(
           {

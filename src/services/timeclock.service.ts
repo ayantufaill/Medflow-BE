@@ -37,17 +37,17 @@ export class TimeClockService {
     if (startDate && endDate) {
       start = new Date(startDate);
       end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
+      end.setUTCHours(23, 59, 59, 999);
     } else if (dateRange) {
       if (dateRange === 'This Week') {
         const dayOfWeek = now.getDay();
         const firstDayOfWeek = new Date(now);
         firstDayOfWeek.setDate(now.getDate() - dayOfWeek);
-        firstDayOfWeek.setHours(0, 0, 0, 0);
+        firstDayOfWeek.setUTCHours(0, 0, 0, 0);
 
         const lastDayOfWeek = new Date(firstDayOfWeek);
         lastDayOfWeek.setDate(firstDayOfWeek.getDate() + 6);
-        lastDayOfWeek.setHours(23, 59, 59, 999);
+        lastDayOfWeek.setUTCHours(23, 59, 59, 999);
 
         start = firstDayOfWeek;
         end = lastDayOfWeek;
@@ -55,11 +55,11 @@ export class TimeClockService {
         const dayOfWeek = now.getDay();
         const lastDayOfLastWeek = new Date(now);
         lastDayOfLastWeek.setDate(now.getDate() - dayOfWeek - 1);
-        lastDayOfLastWeek.setHours(23, 59, 59, 999);
+        lastDayOfLastWeek.setUTCHours(23, 59, 59, 999);
 
         const firstDayOfLastWeek = new Date(lastDayOfLastWeek);
         firstDayOfLastWeek.setDate(lastDayOfLastWeek.getDate() - 6);
-        firstDayOfLastWeek.setHours(0, 0, 0, 0);
+        firstDayOfLastWeek.setUTCHours(0, 0, 0, 0);
 
         start = firstDayOfLastWeek;
         end = lastDayOfLastWeek;

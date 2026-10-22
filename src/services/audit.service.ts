@@ -222,8 +222,8 @@ export async function getAuditLogs(page: number = 1, limit: number = 50, filters
   if (filters.permType) where.PermType = Number(filters.permType);
   if (filters.startDate || filters.endDate) {
     where.LogDateTime = {};
-    if (filters.startDate) where.LogDateTime.gte = new Date(filters.startDate);
-    if (filters.endDate) where.LogDateTime.lte = new Date(filters.endDate);
+    if (filters.startDate) where.LogDateTime.gte = new Date(`${filters.startDate}T00:00:00.000Z`);
+    if (filters.endDate) where.LogDateTime.lte = new Date(`${filters.endDate}T23:59:59.999Z`);
   }
 
   // Group-scoped audit queries: only show logs for patients or users in the allowed clinics
