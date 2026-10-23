@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { patientInsuranceController } from '../controllers/patient-insurance.controller';
+import { eligibilityController } from '../controllers/eligibility.controller';
 import { authenticate } from '../middleware/auth.middleware';
 import { requirePermission } from '../middleware/permission.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
@@ -7,7 +8,7 @@ import { enterTenantContext } from '../middleware/tenantContext.middleware';
 import { requirePhiAccess } from '../middleware/phi.middleware';
 import { validate } from '../middleware/validation.middleware';
 import { patientIdValidator } from '../validators/patient.validator';
-import { createPatientInsuranceValidator, updatePatientInsuranceValidator, patientInsuranceIdValidator, reorderInsurancesValidator } from '../validators/insurance.validator';
+import { createPatientInsuranceValidator, updatePatientInsuranceValidator, patientInsuranceIdValidator, reorderInsurancesValidator, eligibilityCheckValidator } from '../validators/insurance.validator';
 
 const router = Router();
 router.use(authenticate);
@@ -470,6 +471,63 @@ router.post(
   requirePermission('insurance.update'),
   validate([...patientIdValidator, ...reorderInsurancesValidator]),
   patientInsuranceController.reorderPatientInsurances.bind(patientInsuranceController)
+);
+
+/**
+ * @swagger
+ * /patients/{patientId}/insurance/{patientInsuranceId}/eligibility:
+ *   post:
+ *     summary: Run a real-time eligibility check (270/271 via Stedi)
+ *     tags: [Patient Insurance]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: patientId
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: path
+ *         name: patientInsuranceId
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               providerId: { type: integer, description: 'Defaults to the patient primary provider' }
+ *               dateOfService: { type: string, format: date, description: 'Defaults to today' }
+ *               serviceTypeCodes: { type: array, items: { type: string }, example: ['35'] }
+ *     responses:
+ *       200:
+ *         description: Eligibility result (status, summary per network, normalized benefit rows)
+ *       400:
+ *         description: Missing data needed for the check (payer ID, member ID, DOB, NPI)
+ *       502:
+ *         description: Stedi unreachable
+ *   get:
+ *     summary: Get the latest stored eligibility result
+ *     tags: [Patient Insurance]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Latest eligibility result, or null if never checked
+ */
+router.post(
+  '/:patientId/insurance/:patientInsuranceId/eligibility',
+  requirePermission('insurance.update'),
+  validate([...patientIdValidator, ...patientInsuranceIdValidator, ...eligibilityCheckValidator]),
+  eligibilityController.checkEligibility.bind(eligibilityController)
+);
+
+router.get(
+  '/:patientId/insurance/:patientInsuranceId/eligibility',
+  requirePermission('insurance.read'),
+  validate([...patientIdValidator, ...patientInsuranceIdValidator]),
+  eligibilityController.getLatestEligibility.bind(eligibilityController)
 );
 
 export default router;

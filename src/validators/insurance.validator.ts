@@ -686,3 +686,22 @@ export const reorderInsurancesValidator: ValidationChain[] = [
     .withMessage('Each insuranceId must be a valid numeric ID string'),
 ];
 
+
+export const eligibilityCheckValidator: ValidationChain[] = [
+  body('providerId')
+    .optional({ nullable: true })
+    .isInt({ min: 1 })
+    .withMessage('providerId must be a valid provider ID'),
+  body('dateOfService')
+    .optional({ nullable: true })
+    .isISO8601()
+    .withMessage('dateOfService must be a valid date (YYYY-MM-DD)'),
+  body('serviceTypeCodes')
+    .optional()
+    .isArray({ min: 1, max: 99 })
+    .withMessage('serviceTypeCodes must be a non-empty array'),
+  body('serviceTypeCodes.*')
+    .isString()
+    .matches(/^[A-Z0-9]{1,2}$/)
+    .withMessage('Each service type code must be 1-2 letters/digits (e.g. "35")'),
+];
