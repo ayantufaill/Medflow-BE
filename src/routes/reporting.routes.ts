@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { reportingController } from '../controllers/reporting.controller';
+import { reportBuilderFields } from '../services/report-builder.service';
 import { authenticate } from '../middleware/auth.middleware';
 import { resolveBranchAccess } from '../middleware/branchAccess.middleware';
 import { enterTenantContext } from '../middleware/tenantContext.middleware';
@@ -14,6 +15,10 @@ import {
 } from '../validators/reporting.validator';
 
 const router = Router();
+
+router.get('/fields', authenticate, resolveBranchAccess, enterTenantContext, requirePermission('reports.read'), (_req, res) => {
+  res.json({ success: true, data: reportBuilderFields() });
+});
 
 /**
  * @swagger
@@ -416,6 +421,24 @@ router.get(
  *       200:
  *         description: Clinical report data compiled successfully
  */
+router.post(
+  '/clinical/recare/reset',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('reports.read'),
+  reportGenerationController.resetRecarePatient.bind(reportGenerationController)
+);
+
+router.post(
+  '/clinical/recare/:patientId/reset',
+  authenticate,
+  resolveBranchAccess,
+  enterTenantContext,
+  requirePermission('reports.read'),
+  reportGenerationController.resetRecarePatient.bind(reportGenerationController)
+);
+
 router.get(
   '/clinical/:reportName',
   authenticate,

@@ -21,6 +21,7 @@ export interface BranchSummary {
   id: string;
   name: string;
   city: string | null;
+  timeZone?: string | null;
 }
 
 interface MonthBucket {
@@ -132,7 +133,7 @@ export class BranchService {
 
     const clinics = await prisma.clinic.findMany({
       where,
-      select: { ClinicNum: true, Description: true, City: true, State: true },
+      select: { ClinicNum: true, Description: true, City: true, State: true, TimeZone: true },
       orderBy: { Description: 'asc' },
     });
 
@@ -140,6 +141,7 @@ export class BranchService {
       id: c.ClinicNum.toString(),
       name: c.Description ?? `Branch ${c.ClinicNum}`,
       city: formatCity(c.City, c.State),
+      timeZone: c.TimeZone ?? null,
     }));
   }
 

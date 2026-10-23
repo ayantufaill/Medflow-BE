@@ -186,3 +186,37 @@ export const wallClockToInstant = (wallClock: WallClock, timeZone: string): numb
  */
 export const scheduledStartInstant = (appointmentDateTime: Date, timeZone: string): number =>
   wallClockToInstant(utcWallClock(appointmentDateTime), timeZone);
+
+/**
+ * Returns the UTC instant that equals midnight of the given calendar date
+ * (`"YYYY-MM-DD"`) in the clinic's wall-clock. Stored appointment/invoice
+ * datetimes are pseudo-instants (UTC wall-clock == clinic wall-clock), so this
+ * is the correct lower bound for a Prisma range query on such columns.
+ */
+export const clinicUTCMidnight = (dateStr: string, _timeZone: string): Date => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr.trim());
+  if (!match) throw new Error(`Invalid date string: ${dateStr}`);
+  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+};
+
+/**
+ * Returns the clinic calendar date (`"YYYY-MM-DD"`) for a real UTC instant.
+ */
+export const clinicDateStr = (instant: Date, _timeZone: string): string =>
+  instant.toISOString().slice(0, 10);
+
+/**
+ * Returns the pseudo-instant range `[midnight, 23:59:59.999]` for a clinic
+ * calendar date, suitable for `where: { AptDateTime: { gte, lte } }`.
+ */
+export const clinicDayRange = (dateStr: string, timeZone: string): { gte: Date; lte: Date } => {
+  const start = clinicUTCMidnight(dateStr, timeZone);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+  return { gte: start, lte: end };
+};
+
+/**
+ * Day-of-week (0 = Sunday) of a stored pseudo-instant, i.e. the clinic's
+ * calendar day. Use this instead of `Date#getDay()` on stored appointment dates.
+ */
+export const clinicDayOfWeek = (date: Date): number => date.getUTCDay();

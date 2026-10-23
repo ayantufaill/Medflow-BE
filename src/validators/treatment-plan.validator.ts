@@ -11,6 +11,7 @@ export const treatmentPlanIdValidator = [
 ];
 
 export const createTreatmentPlanValidator = [
+  body('creationRequestId').optional().isUUID().withMessage('Invalid draft request ID.'),
   body('patientId').notEmpty().withMessage('Patient ID is required.'),
   body('title').notEmpty().withMessage('Title is required.'),
   body('status').optional().isIn(['C', 'D', 'P', 'A', 'X', 'F', '!', 'EO', 'EX', 'R', 'S']).withMessage('Invalid status code.'),

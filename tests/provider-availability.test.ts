@@ -66,7 +66,8 @@ describe('Provider Availability Refined', () => {
     const patientId = patient.PatNum;
 
     // Create appointment at 10:00 AM for 30 minutes
-    const appointmentDate = new Date('2026-06-15T10:00:00');
+    // Appointments store clinic wall-clock time in the UTC components.
+    const appointmentDate = new Date('2026-06-15T10:00:00Z');
     const appointment = await prisma.appointment.create({
       data: {
         AptNum: BigInt(Date.now() % 100000000),

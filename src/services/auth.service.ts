@@ -2,7 +2,7 @@ import { prisma } from '../config/db';
 import { hashPassword, comparePassword } from '../utils/password.util';
 import { generateTokens } from '../utils/jwt.util';
 import { AuthenticationError, NotFoundError, ConflictError } from '../utils/error.util';
-import { emailService } from './email.service';
+import { emailService, PASSWORD_RESET_CODE_TTL_MINUTES } from './email.service';
 import { logSecurityEvent } from '../utils/activity-logger.util';
 import crypto from 'crypto';
 import type { RegisterRequest, LoginRequest, AuthResponse, UserWithRoles } from '../types/auth.types';
@@ -19,6 +19,7 @@ import {
   findResetByToken,
   clearReset,
   parsePrefJson,
+  USER_META_FKEYTYPE,
 } from '../utils/opendental-auth.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { PermissionService } from './permission.service';
@@ -27,6 +28,38 @@ export class AuthService {
   private async sanitizeUser(user: any) {
     const { passwordHash, ...rest } = user;
     return rest;
+  }
+
+  /**
+   * Resolve a userod row from an email. Matches login name first, then falls
+   * back to the email stored in user meta (for accounts whose UserName is not
+   * their email, e.g. OpenDental-style usernames).
+   */
+  private async findUserByEmail(email: string) {
+    const normalized = email.trim().toLowerCase();
+    const byUserName = await prisma.userod.findFirst({
+      where: { UserName: normalized },
+    });
+    if (byUserName) return byUserName;
+
+    const pref = await prisma.userodpref.findFirst({
+      where: {
+        FkeyType: USER_META_FKEYTYPE,
+        UserNum: { not: null },
+        ValueString: { contains: `"email":"${normalized}"` },
+      },
+    });
+    if (!pref?.UserNum) return null;
+
+    return prisma.userod.findFirst({ where: { UserNum: pref.UserNum } });
+  }
+
+  /** Mirrors the login gate (login(): meta.isActive === false || user.IsHidden). */
+  private isAccountInactive(
+    user: { IsHidden?: number | null },
+    meta?: Record<string, any> | null
+  ) {
+    return !!user.IsHidden || meta?.isActive === false;
   }
 
   async initiateRegistration(data: RegisterRequest): Promise<{ message: string; email: string }> {
@@ -314,19 +347,29 @@ export class AuthService {
   }
 
   async requestPasswordReset(email: string): Promise<{ message: string; email: string }> {
-    const user = await prisma.userod.findFirst({
-      where: { UserName: email.toLowerCase() },
-    });
+    const normalized = email.trim().toLowerCase();
+
+    const user = await this.findUserByEmail(email);
     if (!user) {
-      throw new NotFoundError('User not found');
+      throw new NotFoundError('This email is not registered');
     }
 
-    const token = crypto.randomInt(100000, 1000000).toString(); // 6-digit numeric code
-const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
-await setReset(user.UserNum, token, expiresAt);
+    const meta = await getUserMeta(user.UserNum);
+    // Pending/hidden accounts have no usable password — they must finish
+    // registration instead of resetting, and must not receive reset codes.
+    if (this.isAccountInactive(user, meta)) {
+      throw new AuthenticationError(
+        'This account has been inactive. Please complete your registration first.'
+      );
+    }
 
-await emailService.sendPasswordResetCode(email, token);
-    return { message: 'Password reset link sent', email: email.toLowerCase() };
+    const targetEmail = (meta?.email as string) || normalized;
+    const token = crypto.randomInt(100000, 1000000).toString(); // 6-digit numeric code
+    const expiresAt = new Date(Date.now() + PASSWORD_RESET_CODE_TTL_MINUTES * 60 * 1000);
+    await setReset(user.UserNum, token, expiresAt);
+
+    await emailService.sendPasswordResetCode(targetEmail, token, meta?.firstName);
+    return { message: 'Password reset code sent', email: targetEmail };
   }
 
   async resendPasswordResetCode(email: string): Promise<{ message: string; email: string }> {
@@ -339,10 +382,13 @@ await emailService.sendPasswordResetCode(email, token);
       throw new AuthenticationError('Invalid or expired reset code');
     }
 
-    const user = await prisma.userod.findFirst({
-      where: { UserName: email.toLowerCase() },
-    });
+    const user = await this.findUserByEmail(email);
     if (!user || reset.UserNum?.toString() !== user.UserNum.toString()) {
+      throw new AuthenticationError('Invalid or expired reset code');
+    }
+
+    const meta = await getUserMeta(user.UserNum);
+    if (this.isAccountInactive(user, meta)) {
       throw new AuthenticationError('Invalid or expired reset code');
     }
 
@@ -360,10 +406,13 @@ await emailService.sendPasswordResetCode(email, token);
       throw new AuthenticationError('Invalid or expired reset code');
     }
 
-    const user = await prisma.userod.findFirst({
-      where: { UserName: email.toLowerCase() },
-    });
+    const user = await this.findUserByEmail(email);
     if (!user || reset.UserNum?.toString() !== user.UserNum.toString()) {
+      throw new AuthenticationError('Invalid or expired reset code');
+    }
+
+    const meta = await getUserMeta(user.UserNum);
+    if (this.isAccountInactive(user, meta)) {
       throw new AuthenticationError('Invalid or expired reset code');
     }
 
@@ -378,7 +427,6 @@ await emailService.sendPasswordResetCode(email, token);
       data: { Password: passwordHash },
     });
 
-    const meta = await getUserMeta(user.UserNum);
     await setUserMeta(user.UserNum, {
       ...meta,
       passwordHash,

@@ -4,9 +4,11 @@
  * Deliberately a pure module: no Prisma / Express imports, so the calculation
  * rules are unit-testable independently of the persistence layer.
  *
- * Model — every row in `deductiblesGrid` is an INDEPENDENT pool
- * (Standard / Preventative / Basic / Major / Orthodontics, plus any
- * CDT-code-specific rows the user added). A procedure drains exactly one pool,
+ * Model — category rows normally have independent pools. A category with its
+ * `standard` flag checked shares the Standard row's pool with every other
+ * checked category. CDT-code-specific rows remain independent unless their
+ * own Standard flag is checked. A procedure
+ * drains exactly one pool,
  * resolved as:
  *
  *     exact CDT code  ->  category row  ->  Standard row  ->  no deductible
@@ -64,14 +66,6 @@ export type DeductibleLineResult = {
 };
 
 const round2 = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100;
-
-/**
- * The deductible grid represents separate deductible configurations, so the
- * `standard` flag is stored as metadata only. Treating it as a "deductible
- * waived" gate would silently zero out real deductibles until that meaning is
- * confirmed with the client.
- */
-export const STANDARD_FLAG_IS_METADATA_ONLY = true;
 
 const CODE_ROW_RE = /^D?\d{4,5}$/i;
 const CODE_KEY_RE = /^D?(\d{4,5})$/;
@@ -237,6 +231,14 @@ export const normalizeDeductibleRows = (grid: unknown): NormalizedDeductibleRow[
       metDate: row.metDate || null,
     });
   }
+  // The Standard row's checkbox is a global category selection. Expand it
+  // during normalization so older grids and direct API writes use one shared
+  // Standard pool even when the individual category flags were not sent.
+  if (rows.some((row) => row.typeKey === 'standard' && row.standard)) {
+    for (const row of rows) {
+      if (!row.typeKey.startsWith('code:')) row.standard = true;
+    }
+  }
   return rows;
 };
 
@@ -297,11 +299,26 @@ export class DeductibleLedger {
     return this.tier;
   }
 
+  private resolveCategory(key: string): { row: NormalizedDeductibleRow | null; key: string | null } {
+    const category = this.byCategory.get(key);
+    if (!category) return { row: null, key: null };
+    // Checked categories all debit the same Standard balance. Their saved
+    // individual amounts and met amounts stay intact for later unchecking.
+    if (key !== 'standard' && category.standard) {
+      const standard = this.byCategory.get('standard');
+      return { row: standard ?? null, key: standard ? 'standard' : null };
+    }
+    return { row: category, key };
+  }
+
   /** exact CDT row -> category row -> Standard row -> no deductible */
   resolve(code: unknown): { row: NormalizedDeductibleRow | null; key: string | null } {
     const normalized = normalizeCode(code);
     if (normalized && this.byCode.has(normalized)) {
-      return { row: this.byCode.get(normalized)!, key: `code:${normalized}` };
+      const codeRow = this.byCode.get(normalized)!;
+      return codeRow.standard
+        ? this.resolveCategory('standard')
+        : { row: codeRow, key: `code:${normalized}` };
     }
 
     // The plan splits the same procedure category into Basic / Major pools, so a
@@ -310,12 +327,12 @@ export class DeductibleLedger {
     // The category string lives on the procedure code itself.
     const explicitTier = tierKeyFromCoverageCategory(normalized ? this.tierByCode.get(normalized) : undefined);
     if (explicitTier && this.byCategory.has(explicitTier)) {
-      return { row: this.byCategory.get(explicitTier)!, key: explicitTier };
+      return this.resolveCategory(explicitTier);
     }
 
     const categoryRow = categoryToDeductibleRow(mapCodeToCategory(code));
     if (categoryRow && this.byCategory.has(categoryRow)) {
-      return { row: this.byCategory.get(categoryRow)!, key: categoryRow };
+      return this.resolveCategory(categoryRow);
     }
 
     if (this.byCategory.has('standard')) {
@@ -366,18 +383,30 @@ export class DeductibleLedger {
  *
  * `basisFee` MUST be the allowed/contracted fee — never the provider's billed
  * fee — and never a figure that already has the write-off subtracted.
+ *
+ * `flatAmount` is the plan's flat benefit for this code (per the coverage book),
+ * when one is configured. It REPLACES the percentage: the deductible still comes
+ * off first, so the plan pays `min(flat, basis − deductibleApplied)`. The pool
+ * is drained exactly as on a percentage line, and the flat amount is clamped to
+ * the basis so a flat of $300 on a $200 fee cannot over-pay. Pass null/undefined
+ * for the normal percentage behaviour.
  */
 export const applyDeductible = (
   ledger: DeductibleLedger,
   code: unknown,
   basisFee: number,
   coveragePercent: number | undefined,
+  flatAmount?: number | null,
 ): DeductibleLineResult => {
   const basis = round2(Math.max(0, Number(basisFee) || 0));
+  const hasFlat = flatAmount !== undefined && flatAmount !== null && Number.isFinite(Number(flatAmount));
+  const flat = hasFlat ? round2(Math.max(0, Number(flatAmount))) : 0;
   const { row, key } = ledger.resolve(code);
 
   if (!row) {
-    const insurancePortion = round2((basis * (coveragePercent ?? 0)) / 100);
+    const insurancePortion = hasFlat
+      ? round2(Math.min(flat, basis))
+      : round2((basis * (coveragePercent ?? 0)) / 100);
     const coinsurance = round2(basis - insurancePortion);
     return {
       deductibleApplied: 0,
@@ -391,7 +420,9 @@ export const applyDeductible = (
 
   const deductibleApplied = round2(Math.min(ledger.remaining(key), basis));
   const afterDeductible = round2(basis - deductibleApplied);
-  const insurancePortion = round2((afterDeductible * (coveragePercent ?? 0)) / 100);
+  const insurancePortion = hasFlat
+    ? round2(Math.min(flat, afterDeductible))
+    : round2((afterDeductible * (coveragePercent ?? 0)) / 100);
   const coinsurance = round2(afterDeductible - insurancePortion);
 
   ledger.recordApplied(key, deductibleApplied);
@@ -510,6 +541,34 @@ export const normalizeDeductibleGrid = (grid: unknown): Record<string, any>[] =>
     metAmount: row.metAmount,
     metDate: row.metDate,
   }));
+
+/** Preserve claim progress only for fields omitted from an update row. */
+export const mergeDeductibleGridForUpdate = (incoming: unknown, persisted: unknown): Record<string, any>[] => {
+  if (!Array.isArray(incoming)) return normalizeDeductibleGrid(persisted);
+
+  const previousByKey = new Map(normalizeDeductibleRows(persisted).map((row) => [row.typeKey, row]));
+  const submittedByKey = new Map<string, DeductibleRow>();
+  for (const entry of incoming) {
+    if (!entry || typeof entry !== 'object') continue;
+    const row = entry as DeductibleRow;
+    const key = deriveTypeKey(row.type);
+    if (key) submittedByKey.set(key, row);
+  }
+
+  return normalizeDeductibleGrid(incoming).map((row) => {
+    const submitted = submittedByKey.get(row.typeKey);
+    const previous = previousByKey.get(row.typeKey);
+    if (!submitted || !previous) return row;
+
+    const hasMetAmount = Object.prototype.hasOwnProperty.call(submitted, 'metAmount');
+    const hasMetDate = Object.prototype.hasOwnProperty.call(submitted, 'metDate');
+    if (!hasMetAmount) row.metAmount = previous.metAmount;
+    if (!hasMetDate) row.metDate = previous.metDate;
+    // A manual reset to zero starts a fresh deductible balance.
+    if (hasMetAmount && row.metAmount === 0) row.metDate = null;
+    return row;
+  });
+};
 
 /**
  * The scalar `deductibleAmount` is a legacy plan-summary field: the plan's TOTAL

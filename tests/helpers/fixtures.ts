@@ -70,6 +70,46 @@ export const createPatientRecord = async (token: string) =>
     });
   });
 
+/**
+ * Deletes a fixture patient and the rows that hold a foreign key to it.
+ *
+ * WHY A HELPER AND NOT `prisma.patient.delete`
+ * --------------------------------------------
+ * Two tables reference `patient` and are written as a SIDE EFFECT of normal
+ * API traffic, so a test that merely reads its own patient through the API can
+ * no longer delete it:
+ *
+ *   securitylog   every patient read is audited (PermType 1051, the PHI
+ *                 access audit), as are the coordination-of-benefits
+ *                 decisions (1060-1069). securityloghash chains off it, so
+ *                 that goes first.
+ *   famaging      aging rows, written by agingService whenever a balance is
+ *                 recalculated.
+ *
+ * Neither is something a test asks for, which is why the failure shows up in
+ * teardown as `fk_securitylog_2_PatNum` / `fk_famaging_1_PatNum` long after
+ * the assertions have already passed — the test is green and reported red.
+ *
+ * This mirrors what src/scripts/deleteTestPatients.ts already does for the
+ * same reason (see its step 14d); it is not a new policy, just the same one
+ * available to tests.
+ *
+ * Deleting audit rows is acceptable ONLY because these are fixture patients in
+ * a disposable database. Never do this to real patient data: the chain in
+ * securityloghash is what makes the audit tamper-evident.
+ */
+export const deletePatientRecord = async (patNum: bigint) => {
+  await prisma.securityloghash.deleteMany({
+    where: { securitylog: { PatNum: patNum } },
+  });
+  await prisma.securitylog.deleteMany({ where: { PatNum: patNum } });
+  // Raw SQL: `famaging` is declared in schema.prisma but has no primary key,
+  // so Prisma does not expose it on the client (`prisma.famaging` is
+  // undefined). aging.service.ts writes it with raw SQL for the same reason.
+  await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patNum);
+  await prisma.patient.deleteMany({ where: { PatNum: patNum } });
+};
+
 export const createProviderRecord = async (token: string) => {
   const ProvNum = nextUniqueId();
   return prisma.provider.create({

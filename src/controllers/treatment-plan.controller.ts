@@ -35,7 +35,7 @@ export class TreatmentPlanController {
 
   createTreatmentPlan = async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { patientId, title, notes, status, totalAmount, items } = req.body;
+      const { patientId, title, notes, status, totalAmount, items, creationRequestId } = req.body;
       
       if (!patientId) {
         return res.status(400).json({ success: false, message: 'patientId is required' });
@@ -47,7 +47,8 @@ export class TreatmentPlanController {
         notes,
         status,
         totalAmount,
-        items
+        items,
+        creationRequestId,
       });
       
       res.status(201).json({

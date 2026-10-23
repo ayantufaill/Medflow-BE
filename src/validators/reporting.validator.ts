@@ -14,7 +14,7 @@ export const runReportValidator: ValidationChain[] = [
   body('columns').isArray().withMessage('Columns must be an array of strings'),
   body('columns.*').isString().notEmpty().withMessage('Each column name must be a string'),
   body('page').optional().isInt({ min: 1 }).withMessage('page must be a positive integer'),
-  body('limit').optional().isInt({ min: 1 }).withMessage('limit must be a positive integer'),
+  body('limit').optional().isInt({ min: 1, max: 500 }).withMessage('limit must be between 1 and 500'),
 ];
 
 export const reportIdParamValidator: ValidationChain[] = [

@@ -49,6 +49,7 @@ const seedFahadAppointments = async () => {
           status: appt.status,
           insuranceVerified: false,
           reminderSent: appt.status === 'confirmed',
+          allowPast: true,
         },
         userId,
       );

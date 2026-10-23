@@ -270,6 +270,7 @@ const seedAppointments = async () => {
               status: cluster.status,
               insuranceVerified: cluster.status === 'completed',
               reminderSent: cluster.status !== 'scheduled',
+              allowPast: true,
               ...(branchId ? { branchId } : {}),
               ...(roomId ? { roomId } : {}),
             },

@@ -22,7 +22,7 @@ const providers = [
       lastName: 'Mitchell',
     },
     profile: {
-      npiNumber: '1234567890',
+      npiNumber: '1234567893',
       licenseNumber: 'TX-DDS-44821',
       title: 'DDS',
       specialty: 'General Dentistry',
@@ -41,7 +41,7 @@ const providers = [
       lastName: 'Patel',
     },
     profile: {
-      npiNumber: '2345678901',
+      npiNumber: '2345678900',
       licenseNumber: 'TX-DMD-39204',
       title: 'DMD',
       specialty: 'Orthodontics',
@@ -60,7 +60,7 @@ const providers = [
       lastName: 'Chen',
     },
     profile: {
-      npiNumber: '3456789012',
+      npiNumber: '3456789015',
       licenseNumber: 'FL-DDS-71053',
       title: 'DDS',
       specialty: 'Periodontics',
@@ -79,7 +79,7 @@ const providers = [
       lastName: 'Torres',
     },
     profile: {
-      npiNumber: '4567890123',
+      npiNumber: '4567890122',
       licenseNumber: 'NY-DDS-58830',
       title: 'DDS',
       specialty: 'Oral Surgery',
@@ -98,7 +98,7 @@ const providers = [
       lastName: 'Kim',
     },
     profile: {
-      npiNumber: '5678901234',
+      npiNumber: '5678901237',
       licenseNumber: 'CA-DMD-62917',
       title: 'DMD',
       specialty: 'Endodontics',

@@ -662,9 +662,9 @@ export class ProviderService {
     }
 
     const startRange = new Date(datesToQuery[0]!);
-    startRange.setHours(0, 0, 0, 0);
+    startRange.setUTCHours(0, 0, 0, 0);
     const endRange = new Date(datesToQuery[datesToQuery.length - 1]!);
-    endRange.setHours(23, 59, 59, 999);
+    endRange.setUTCHours(23, 59, 59, 999);
 
     const existingAppointments = await prisma.appointment.findMany({
       where: {
@@ -702,7 +702,7 @@ export class ProviderService {
     const allSlots: Array<{ start: string; end: string; isBooked: boolean }> = [];
 
     for (const targetDate of datesToQuery) {
-      const dayOfWeek = targetDate.getDay();
+      const dayOfWeek = targetDate.getUTCDay();
       const daySchedule = workingHoursList.find((wh: any) => wh.dayOfWeek === dayOfWeek);
 
       let startTime = '09:00';
@@ -723,24 +723,24 @@ export class ProviderService {
         continue;
       }
 
-      const year = targetDate.getFullYear();
-      const month = String(targetDate.getMonth() + 1).padStart(2, '0');
-      const day = String(targetDate.getDate()).padStart(2, '0');
+      const year = targetDate.getUTCFullYear();
+      const month = String(targetDate.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(targetDate.getUTCDate()).padStart(2, '0');
       const dateStr = `${year}-${month}-${day}`;
 
       const dayAppointments = existingAppointments.filter((apt) => {
         if (!apt.AptDateTime) return false;
         const aptDate = new Date(apt.AptDateTime);
         return (
-          aptDate.getFullYear() === targetDate.getFullYear() &&
-          aptDate.getMonth() === targetDate.getMonth() &&
-          aptDate.getDate() === targetDate.getDate()
+          aptDate.getUTCFullYear() === targetDate.getUTCFullYear() &&
+          aptDate.getUTCMonth() === targetDate.getUTCMonth() &&
+          aptDate.getUTCDate() === targetDate.getUTCDate()
         );
       });
 
       const bookedSlots = dayAppointments.map((apt) => {
         const aptStartTime = apt.AptDateTime ? formatTime(
-          apt.AptDateTime.getHours() * 60 + apt.AptDateTime.getMinutes()
+          apt.AptDateTime.getUTCHours() * 60 + apt.AptDateTime.getUTCMinutes()
         ) : '00:00';
         const duration = getDurationMinutesFromPattern(apt.Pattern);
         const aptEndTime = formatTime(parseTime(aptStartTime) + duration);

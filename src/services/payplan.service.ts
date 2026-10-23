@@ -244,6 +244,23 @@ export class PayPlanService {
       let currentPrincipal = amountToFinance;
       
       let baseChargeNum = await getNextId('payplancharge', 'PayPlanChargeNum');
+      let chargeIndex = 0;
+
+      // Add Down Payment Charge if applicable
+      if (data.downPayment && data.downPayment > 0) {
+        chargeData.push({
+          PayPlanChargeNum: baseChargeNum + BigInt(chargeIndex),
+          PayPlanNum: payPlanNum,
+          Guarantor: BigInt(data.patientId),
+          PatNum: BigInt(data.patientId),
+          ChargeDate: resolvedStartDate,
+          Principal: data.downPayment,
+          Interest: 0,
+          Note: 'Down Payment',
+          IsDownPayment: 1,
+        });
+        chargeIndex++;
+      }
       
       for (let i = 0; i < numPayments; i++) {
         const chargeDate = new Date(resolvedStartDate);
@@ -255,7 +272,7 @@ export class PayPlanService {
         }
         
         chargeData.push({
-          PayPlanChargeNum: baseChargeNum + BigInt(i),
+          PayPlanChargeNum: baseChargeNum + BigInt(chargeIndex),
           PayPlanNum: payPlanNum,
           Guarantor: BigInt(data.patientId),
           PatNum: BigInt(data.patientId),
@@ -265,6 +282,7 @@ export class PayPlanService {
           Note: `Installment ${i + 1} of ${numPayments}`,
         });
         
+        chargeIndex++;
         currentPrincipal -= principalForMonth;
       }
       

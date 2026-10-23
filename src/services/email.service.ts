@@ -45,6 +45,18 @@ export type AppointmentConfirmationDetails = {
  * - Mailgun (via SMTP)
  */
 
+/** Shared TTL for password reset codes. Email copy and auth.service must both use this value. */
+export const PASSWORD_RESET_CODE_TTL_MINUTES = 60;
+
+/** Env vars required per EMAIL_PROVIDER before we attempt to send real mail. */
+const REQUIRED_ENV_BY_PROVIDER: Record<string, string[]> = {
+  smtp: ['SMTP_HOST', 'SMTP_USER', 'SMTP_PASSWORD'],
+  gmail: ['EMAIL_USER', 'EMAIL_PASSWORD'],
+  sendgrid: ['SENDGRID_API_KEY'],
+  ses: ['SES_SMTP_USERNAME', 'SES_SMTP_PASSWORD'],
+  mailgun: ['MAILGUN_SMTP_USER', 'MAILGUN_SMTP_PASSWORD'],
+};
+
 /** Copy that varies by notification kind - keeps one shared template instead of four near-duplicates. */
 const NOTIFICATION_COPY: Record<
   AppointmentNotificationKind,
@@ -101,9 +113,21 @@ export class EmailService {
       case 'gmail':
       case 'sendgrid':
       case 'ses':
-      case 'mailgun':
+      case 'mailgun': {
+        const missing = (REQUIRED_ENV_BY_PROVIDER[emailProvider] || []).filter(
+          (key) => !process.env[key]?.trim()
+        );
+        if (missing.length > 0) {
+          console.warn(
+            `[EMAIL] EMAIL_PROVIDER="${emailProvider}" is missing required env vars: ${missing.join(', ')}. ` +
+              'Falling back to CONSOLE MODE - emails will only be written to the server logs, not actually sent.'
+          );
+          this.transporter = null;
+          break;
+        }
         this.transporter = nodemailer.createTransport(this.getSMTPConfig());
         break;
+      }
       case 'console':
       default:
         // Use console logging for development
@@ -253,7 +277,7 @@ You requested to reset your password for your MedFlow account.
 
 Your password reset code is: ${code}
 
-This code will expire in 15 minutes.
+This code will expire in ${PASSWORD_RESET_CODE_TTL_MINUTES} minutes.
 
 If you didn't request this password reset, please ignore this email and your password will remain unchanged.
 
@@ -271,6 +295,7 @@ MedFlow Team
 
     // If transporter is not initialized (console mode), log to console
     if (!this.transporter) {
+      console.warn('[EMAIL] SMTP not configured (EMAIL_PROVIDER unset/console) - password reset code will be logged below instead of emailed.');
       console.log('='.repeat(50));
       console.log('PASSWORD RESET CODE (Console Mode)');
       console.log('='.repeat(50));
@@ -956,7 +981,7 @@ ${clinicName}${addressLine ? `\n${addressLine}` : ''}${clinic?.phone ? `\n${clin
       <p>You requested to reset your password for your MedFlow account.</p>
       <p>Your password reset code is:</p>
       <div class="code">${code}</div>
-      <p>This code will expire in 15 minutes.</p>
+      <p>This code will expire in ${PASSWORD_RESET_CODE_TTL_MINUTES} minutes.</p>
       <div class="warning">
         <strong>Security Notice:</strong> If you didn't request this password reset, please ignore this email and your password will remain unchanged.
       </div>

@@ -50,7 +50,10 @@ export class InvoiceController {
   async getInvoiceById(req: Request, res: Response, next: NextFunction) {
     try {
       const invoiceId = req.params.invoiceId as string;
-      const result = await invoiceService.getInvoiceById(invoiceId);
+      // Voided procedures are only listed when explicitly asked for, so the
+      // default view stays clean.
+      const includeVoided = req.query.includeVoided === 'true';
+      const result = await invoiceService.getInvoiceById(invoiceId, includeVoided);
 
       if (req.userId) {
         await logActivityFromRequest(req, 'viewed', 'invoices', invoiceId);
@@ -59,6 +62,18 @@ export class InvoiceController {
       res.status(200).json({
         success: true,
         data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getNextInvoiceNumber(req: Request, res: Response, next: NextFunction) {
+    try {
+      const nextInvoiceNumber = await invoiceService.getNextInvoiceNumber();
+      res.status(200).json({
+        success: true,
+        data: { nextInvoiceNumber },
       });
     } catch (error) {
       next(error);
@@ -161,6 +176,30 @@ export class InvoiceController {
       res.status(200).json({
         success: true,
         data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async voidInvoiceItem(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const invoiceId = req.params.invoiceId as string;
+      const itemId = req.params.itemId as string;
+      const reason = req.body.reason as string | undefined;
+      const result = await invoiceService.voidInvoiceItem(invoiceId, itemId, reason, req.userId);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+        message: 'Invoice item voided successfully',
       });
     } catch (error) {
       next(error);
@@ -345,6 +384,66 @@ export class InvoiceController {
       next(error);
     }
   }
+
+  async getLateFeeEligibility(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const { patientId } = req.params;
+      // Absent tier means "any overdue invoice" (flat-rate / percentage), not an
+      // error — Number(undefined) is NaN, so this must be parsed explicitly.
+      const rawTier = (req.query.tier ?? '') as string | number;
+      const tier = rawTier === '' || rawTier === 'any' ? null : Number(rawTier);
+
+      const result = await invoiceService.getLateFeeEligibility(patientId, tier);
+
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async applyLateFee(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not authenticated' },
+        });
+      }
+
+      const { patientId, invoiceIds, mode, rate, basis, branchId } = req.body || {};
+
+      const result = await invoiceService.applyLateFee(
+        {
+          patientId,
+          tier: req.body?.tier ?? null,
+          invoiceIds,
+          mode: mode === 'percentage' ? 'percentage' : 'flat',
+          rate,
+          basis: basis === 'total' ? 'total' : 'patient',
+          branchId,
+        },
+        req.userId,
+      );
+
+      res.status(201).json({
+        success: true,
+        data: result,
+        message: `Adjustment applied to ${result.charged.length} invoice(s)`,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
   async transferRejectedClaim(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.userId) {
@@ -456,6 +555,22 @@ export class InvoiceController {
         success: true,
         data: result,
       });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getLateFeeTerms(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { invoiceId } = req.params;
+      const terms = await invoiceService.getLateFeeTerms(invoiceId);
+      if (!terms) {
+        return res.status(404).json({
+          success: false,
+          error: { message: 'No late fee policy found for this invoice' },
+        });
+      }
+      res.status(200).json({ success: true, data: terms });
     } catch (error) {
       next(error);
     }

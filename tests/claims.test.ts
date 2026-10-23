@@ -4,7 +4,11 @@ import app from '../src/app';
 import { prisma } from '../src/config/db';
 import { getAdminAuthHeader } from './helpers/auth';
 import { uniqueToken } from './helpers/unique';
-import { createPatientRecord, createInvoiceStatement } from './helpers/fixtures';
+import {
+  createPatientRecord,
+  createInvoiceStatement,
+  deletePatientRecord,
+} from './helpers/fixtures';
 
 describe('Claims Procedures Fallback', () => {
   let authHeader: { Authorization: string };
@@ -93,10 +97,10 @@ describe('Claims Procedures Fallback', () => {
     await prisma.procedurelog.delete({ where: { ProcNum: procNum } });
     await prisma.claim.delete({ where: { ClaimNum: BigInt(createdClaim.id) } });
     await prisma.statement.delete({ where: { StatementNum: statement.StatementNum } });
-    // Claim creation triggers agingService.updatePatientAging(), which upserts a famaging
-    // row for the patient (no Prisma model — raw delete, same as aging.service.ts does).
-    await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
-    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    // Claim creation triggers agingService.updatePatientAging(), which upserts
+    // a famaging row, and reading the patient through the API writes an audit
+    // row. deletePatientRecord clears both before removing the patient.
+    await deletePatientRecord(patient.PatNum);
   });
 
   it('guarantees ProvTreat is populated for claim created from invoice with no assigned item or patient provider', async () => {
@@ -160,8 +164,7 @@ describe('Claims Procedures Fallback', () => {
     await prisma.procedurelog.delete({ where: { ProcNum: procNum } });
     await prisma.claim.delete({ where: { ClaimNum: BigInt(createdClaim.id) } });
     await prisma.statement.delete({ where: { StatementNum: statement.StatementNum } });
-    await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
-    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    await deletePatientRecord(patient.PatNum);
   });
 
   it('automatically generates a draft claim for an unbilled invoice when new insurance is added', async () => {
@@ -181,7 +184,7 @@ describe('Claims Procedures Fallback', () => {
       data: {
         CarrierNum: carrierNum,
         CarrierName: `Carrier-${alphanumericToken}`,
-        ElectID: `EL${alphanumericToken.substring(0, 3)}`,
+        ElectID: `EL${alphanumericToken}`,
       },
     });
 
@@ -191,6 +194,8 @@ describe('Claims Procedures Fallback', () => {
       .set(authHeader)
       .send({
         insuranceType: 'primary',
+        groupNumber: 'TEST-PRIMARY',
+        groupName: 'Test Primary Group',
         insuranceCompanyId: carrierNum.toString(),
         relationshipToPatient: 'self',
         effectiveDate: new Date().toISOString(),
@@ -199,7 +204,7 @@ describe('Claims Procedures Fallback', () => {
         subscriberDateOfBirth: new Date(1990, 0, 1).toISOString(),
       });
 
-    expect(res.status).toBe(201);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
     const createdInsurance = res.body?.data;
     expect(createdInsurance).toBeDefined();
 
@@ -233,8 +238,7 @@ describe('Claims Procedures Fallback', () => {
     }
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
     await prisma.statement.delete({ where: { StatementNum: statement.StatementNum } });
-    await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
-    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    await deletePatientRecord(patient.PatNum);
   });
 
   it('correctly filters claims by patientName, carrierName, hasAttachment, and claimFormat', async () => {
@@ -318,8 +322,7 @@ describe('Claims Procedures Fallback', () => {
     await prisma.claim.delete({ where: { ClaimNum: BigInt(createdClaim.id) } });
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
     await prisma.statement.delete({ where: { StatementNum: statement.StatementNum } });
-    await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
-    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    await deletePatientRecord(patient.PatNum);
   });
 
   it('returns 404 when updating patient insurance with non-existent carrier ID', async () => {
@@ -344,6 +347,8 @@ describe('Claims Procedures Fallback', () => {
       .set(authHeader)
       .send({
         insuranceType: 'primary',
+        groupNumber: 'TEST-PRIMARY',
+        groupName: 'Test Primary Group',
         insuranceCompanyId: carrierNum.toString(),
         relationshipToPatient: 'self',
         effectiveDate: new Date().toISOString(),
@@ -352,7 +357,7 @@ describe('Claims Procedures Fallback', () => {
         subscriberDateOfBirth: new Date(1990, 0, 1).toISOString(),
       });
 
-    expect(insRes.status).toBe(201);
+    expect(insRes.status, JSON.stringify(insRes.body)).toBe(201);
     const insurance = insRes.body?.data?.insurance;
     expect(insurance).toBeDefined();
 
@@ -376,7 +381,7 @@ describe('Claims Procedures Fallback', () => {
       await prisma.insplan.delete({ where: { PlanNum: plan.PlanNum } });
     }
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
-    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    await deletePatientRecord(patient.PatNum);
   });
 
   it('generates and retrieves the ADA claim form PDF', async () => {
@@ -429,7 +434,7 @@ describe('Claims Procedures Fallback', () => {
     await prisma.claim.delete({ where: { ClaimNum: claimNum } });
     await prisma.insplan.delete({ where: { PlanNum: insPlanNum } });
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
-    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    await deletePatientRecord(patient.PatNum);
   });
 
   it('allows uploading multiple attachments for a claim', async () => {
@@ -475,7 +480,7 @@ describe('Claims Procedures Fallback', () => {
       .attach('attachments', Buffer.from('file contents 1'), 'doc1.pdf')
       .attach('attachments', Buffer.from('file contents 2'), 'doc2.png');
 
-    expect(res.status).toBe(201);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body.success).toBe(true);
     expect(res.body.data.attachments).toBeDefined();
     expect(res.body.data.attachments.length).toBe(2);
@@ -503,7 +508,7 @@ describe('Claims Procedures Fallback', () => {
     await prisma.claim.delete({ where: { ClaimNum: claimNum } });
     await prisma.insplan.delete({ where: { PlanNum: insPlanNum } });
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
-    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    await deletePatientRecord(patient.PatNum);
   });
 
   it('deletes claim attachments from both document and claimattach tables', async () => {
@@ -586,7 +591,7 @@ describe('Claims Procedures Fallback', () => {
     await prisma.claim.delete({ where: { ClaimNum: claimNum } });
     await prisma.insplan.delete({ where: { PlanNum: insPlanNum } });
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
-    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    await deletePatientRecord(patient.PatNum);
   });
 
   it('correctly calculates patient coverage (90%) for invoice and claim patbalance / insbalance', async () => {
@@ -611,6 +616,8 @@ describe('Claims Procedures Fallback', () => {
       .set(authHeader)
       .send({
         insuranceType: 'primary',
+        groupNumber: 'TEST-PRIMARY',
+        groupName: 'Test Primary Group',
         insuranceCompanyId: carrierNum.toString(),
         relationshipToPatient: 'self',
         effectiveDate: new Date().toISOString(),
@@ -629,7 +636,7 @@ describe('Claims Procedures Fallback', () => {
         ],
       });
 
-    expect(insRes.status).toBe(201);
+    expect(insRes.status, JSON.stringify(insRes.body)).toBe(201);
 
     // Create an invoice for patient
     const statement = await createInvoiceStatement({
@@ -659,6 +666,7 @@ describe('Claims Procedures Fallback', () => {
       .set(authHeader)
       .send({
         cptCode: 'D2140',
+        addClaim: true,
         description: 'Amalgam - one surface, primary or permanent',
         quantity: 1,
         unitPrice: 100,
@@ -669,23 +677,19 @@ describe('Claims Procedures Fallback', () => {
     expect(restItemData.insPortion).toBe(90);
     expect(restItemData.ptPortion).toBe(10);
 
-    // Claim generation/update is asynchronous (setImmediate) — adding the second item triggers
-    // a background update of the claim's insurance totals. Wait for it before asserting, same
-    // pattern used above for the initial async claim generation.
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    // Fetch the claim generated for invoice
-    const claimsRes = await request(app)
-      .get(`/api/claims?patientId=${patient.PatNum}`)
-      .set(authHeader);
-
-    expect(claimsRes.status).toBe(200);
-    const claims = claimsRes.body?.data?.claims || [];
-    const claim = claims[0];
-    expect(claim).toBeDefined();
-    expect(claim.insbalance).toBe(150);
-    expect(claim.patbalance).toBe(50);
-    expect(claim.patientResponsibility).toBe(50);
+    // Claim creation is explicit and asynchronous. Wait for the requested claim
+    // and its final totals rather than assuming a fixed background delay.
+    await expect.poll(async () => {
+      const claimsRes = await request(app)
+        .get(`/api/claims?patientId=${patient.PatNum}`)
+        .set(authHeader);
+      expect(claimsRes.status).toBe(200);
+      return claimsRes.body?.data?.claims?.[0];
+    }, { timeout: 10000 }).toMatchObject({
+      insbalance: 150,
+      patbalance: 50,
+      patientResponsibility: 50,
+    });
 
     // Clean up all claims for patient
     const patClaims = await prisma.claim.findMany({ where: { PatNum: patient.PatNum } });
@@ -704,8 +708,7 @@ describe('Claims Procedures Fallback', () => {
     }
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
     await prisma.statement.delete({ where: { StatementNum: statement.StatementNum } });
-    await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
-    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    await deletePatientRecord(patient.PatNum);
   });
 
   it('correctly calculates Basic (80%) vs Major (50%) Periodontics coverage estimates', async () => {
@@ -727,6 +730,8 @@ describe('Claims Procedures Fallback', () => {
       .set(authHeader)
       .send({
         insuranceType: 'primary',
+        groupNumber: 'TEST-PRIMARY',
+        groupName: 'Test Primary Group',
         insuranceCompanyId: carrierNum.toString(),
         relationshipToPatient: 'self',
         effectiveDate: new Date().toISOString(),
@@ -744,7 +749,7 @@ describe('Claims Procedures Fallback', () => {
         ],
       });
 
-    expect(insRes.status).toBe(201);
+    expect(insRes.status, JSON.stringify(insRes.body)).toBe(201);
 
     // Create an invoice
     const statement = await createInvoiceStatement({
@@ -802,8 +807,7 @@ describe('Claims Procedures Fallback', () => {
     }
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum } });
     await prisma.statement.delete({ where: { StatementNum: statement.StatementNum } });
-    await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
-    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    await deletePatientRecord(patient.PatNum);
   });
 
   it('supports uploading and deleting claim-level EOB documents', async () => {
@@ -869,8 +873,7 @@ describe('Claims Procedures Fallback', () => {
 
     // Clean up
     await prisma.claim.delete({ where: { ClaimNum: claimNum } });
-    await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
-    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    await deletePatientRecord(patient.PatNum);
   });
 
   describe('Void and Recreate Claim', () => {
@@ -932,8 +935,7 @@ describe('Claims Procedures Fallback', () => {
       // Clean up
       await prisma.claimtracking.deleteMany({ where: { ClaimNum: claimNum } });
       await prisma.claim.delete({ where: { ClaimNum: claimNum } });
-      await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
-      await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+      await deletePatientRecord(patient.PatNum);
     });
   });
 
@@ -978,8 +980,7 @@ describe('Claims Procedures Fallback', () => {
 
       // Clean up
       await prisma.statement.deleteMany({ where: { PatNum: patient.PatNum } });
-      await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
-      await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+      await deletePatientRecord(patient.PatNum);
     });
 
     it('returns pending procedures with descriptions resolved from procedurecode', async () => {
@@ -1142,8 +1143,7 @@ describe('Claims Procedures Fallback', () => {
       await prisma.claimproc.deleteMany({ where: { ClaimNum: claimNum } });
       await prisma.claim.delete({ where: { ClaimNum: claimNum } });
       await prisma.procedurecode.delete({ where: { ProcCode: testProcCode } });
-      await prisma.$executeRawUnsafe(`DELETE FROM famaging WHERE "PatNum" = $1`, patient.PatNum);
-      await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+      await deletePatientRecord(patient.PatNum);
     });
   });
 });

@@ -4,7 +4,7 @@ import app from '../src/app';
 import { prisma } from '../src/config/db';
 import { getAdminAuthHeader } from './helpers/auth';
 import { uniqueToken } from './helpers/unique';
-import { createPatientRecord } from './helpers/fixtures';
+import { createPatientRecord, deletePatientRecord } from './helpers/fixtures';
 
 describe('Patient Insurance Reordering', () => {
   let authHeader: { Authorization: string };
@@ -43,6 +43,8 @@ describe('Patient Insurance Reordering', () => {
       .set(authHeader)
       .send({
         insuranceType: 'primary',
+        groupNumber: 'TEST-PRIMARY',
+        groupName: 'Test Primary Group',
         insuranceCompanyId: carrierNum1.toString(),
         relationshipToPatient: 'self',
         effectiveDate: new Date().toISOString(),
@@ -50,7 +52,7 @@ describe('Patient Insurance Reordering', () => {
         subscriberName: `SubName`,
         subscriberDateOfBirth: new Date(1990, 0, 1).toISOString(),
       });
-    expect(res1.status).toBe(201);
+    expect(res1.status, JSON.stringify(res1.body)).toBe(201);
     const ins1 = res1.body.data.insurance;
 
     // Add secondary insurance
@@ -59,6 +61,8 @@ describe('Patient Insurance Reordering', () => {
       .set(authHeader)
       .send({
         insuranceType: 'secondary',
+        groupNumber: 'TEST-SECONDARY',
+        groupName: 'Test Secondary Group',
         insuranceCompanyId: carrierNum2.toString(),
         relationshipToPatient: 'self',
         effectiveDate: new Date().toISOString(),
@@ -66,7 +70,7 @@ describe('Patient Insurance Reordering', () => {
         subscriberName: `SubName`,
         subscriberDateOfBirth: new Date(1990, 0, 1).toISOString(),
       });
-    expect(res2.status).toBe(201);
+    expect(res2.status, JSON.stringify(res2.body)).toBe(201);
     const ins2 = res2.body.data.insurance;
 
     // Verify initial database order (ins1 = Ordinal 1, ins2 = Ordinal 2)
@@ -105,6 +109,10 @@ describe('Patient Insurance Reordering', () => {
     }
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum1 } });
     await prisma.carrier.delete({ where: { CarrierNum: carrierNum2 } });
-    await prisma.patient.delete({ where: { PatNum: patient.PatNum } });
+    // Adding insurance through the API writes audit rows tied to this patient
+    // (the PHI read audit, plus the coordination-of-benefits evaluation that
+    // runs when a coverage is added), so the patient cannot be deleted until
+    // those are cleared — see deletePatientRecord.
+    await deletePatientRecord(patient.PatNum);
   });
 });

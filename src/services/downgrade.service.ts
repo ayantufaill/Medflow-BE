@@ -33,7 +33,7 @@
 import { normalizeCode, toAmount } from './deductible.service';
 
 /** Where the teeth limit for a rule was found, for auditing/debugging. */
-export type TeethSource = 'downgrade-row' | 'billed-row' | 'none';
+export type TeethSource = 'downgrade-row' | 'none';
 
 export type DowngradeRule = {
   /** The billed procedure code this rule applies to (canonical `D####`). */
@@ -174,10 +174,18 @@ export const parseTeethLimit = (raw: unknown): ToothKey[] | null => {
  * Expand a procedure's `site` into the tooth keys it covers.
  *
  * `invoice.service.ts` treats a `site` longer than two characters as a RANGE
- * (e.g. `1-3`, `4,5,6`), so a range must expand to its members and be allowed
- * when the limit covers ANY of them. A procedure spanning both an included and
- * an excluded tooth is ambiguous, so this returns `null` for a mixed range —
- * the caller then treats the line as unprovable and declines to downgrade.
+ * (e.g. `1-3`, `4,5,6`), so a range must expand to its members. A procedure
+ * spanning both an included and an excluded tooth is ambiguous, so this returns
+ * `null` for a mixed range — the caller then treats the line as unprovable and
+ * declines to apply a tooth-limited rule.
+ *
+ * The UI writes a site in several shapes, all of which must reduce to the tooth
+ * alone without letting a surface annotation masquerade as a tooth:
+ *   `14` / `#14` / `1-3` / `1,2,3`
+ *   `14 (MO)` / `1,2 (MO)`                  (invoice modal)
+ *   `#14 MO` / `#14 MO, #15 MO`             (treatment plan; surfaces trail the
+ *                                            tooth as separate tokens)
+ *   `None` / `Office` / `MO`                (no tooth)
  *
  * Returns a single-element array for a plain tooth, or `null` when the site
  * names no recognizable tooth.
@@ -188,32 +196,32 @@ export const parseTeethRange = (raw: unknown): ToothKey[] | null => {
   const text = String(raw).trim().toUpperCase();
   if (!text || text === 'NONE') return null;
 
-  // Plain single tooth: no separators, so it short-circuits to one key.
-  if (!/[-,/]/.test(text)) {
-    const single = normalizeTooth(text);
-    return single ? [single] : null;
-  }
-
-  // A pure numeric span like "1-3" must be handled BEFORE splitting, otherwise
-  // the separator consumes the span and it degrades to just its endpoints.
-  const wholeSpan = text.match(/^(\d{1,2})\s*-\s*(\d{1,2})$/);
-  if (wholeSpan) {
-    const lo = parseInt(wholeSpan[1], 10);
-    const hi = parseInt(wholeSpan[2], 10);
-    if (lo >= 1 && hi <= 32 && hi >= lo) {
-      const keys: ToothKey[] = [];
-      for (let n = lo; n <= hi; n++) keys.push(`P:${n}`);
-      return keys;
-    }
-    return null;
-  }
-
-  const parts = text.split(/[-,/]/).map((p) => p.trim()).filter(Boolean);
-  if (parts.length === 0) return null;
-
   const keys: ToothKey[] = [];
-  for (const part of parts) {
-    const single = normalizeTooth(part);
+
+  // Split on commas into one segment per site, then reduce each segment to its
+  // tooth. A segment is `[#]<tooth>[ surfaces...]` or a numeric span `1-3`.
+  for (const segment of text.split(',').map((s) => s.trim()).filter(Boolean)) {
+    // A parenthesized surface group ("14 (MO)") is never part of the tooth.
+    const withoutSurfaces = segment.replace(/\([^)]*\)/g, ' ').trim();
+
+    // A numeric span like "1-3" expands to its members.
+    const span = withoutSurfaces.match(/^#?(\d{1,2})\s*-\s*(\d{1,2})\b/);
+    if (span) {
+      const lo = parseInt(span[1], 10);
+      const hi = parseInt(span[2], 10);
+      if (lo >= 1 && hi <= 32 && hi >= lo) {
+        for (let n = lo; n <= hi; n++) keys.push(`P:${n}`);
+      }
+      continue;
+    }
+
+    // Otherwise the FIRST token is the tooth; any following tokens are surfaces
+    // (`#14 MO` -> tooth 14, surfaces M and O) and must be ignored so a surface
+    // letter is never read as a primary tooth.
+    const toothToken = withoutSurfaces.split(/\s+/)[0]?.replace(/^#/, '');
+    if (!toothToken) continue;
+
+    const single = normalizeTooth(toothToken);
     if (single) keys.push(single);
   }
 
@@ -257,10 +265,10 @@ export const normalizeDowngradeRows = (coverageBookData: unknown): DowngradeRule
       !!row && typeof row === 'object' && !Array.isArray(row)
   );
 
-  // Pass 1: collect every row keyed by its own code. Used to resolve a limit
-  // stored on either the billed row or the downgrade row — the UI has written
-  // it to both places over time (the summary table stores teeth under the
-  // downgrade code, older configs stored them on the billed row).
+  // Pass 1: collect every row keyed by its own code so a rule can read the
+  // downgrade row's teeth limit. Teeth on the *billed* row are a coverage
+  // limit (see coverage-limits.service.ts) and must never be read here — the
+  // two selections are independent in the UI.
   const byCode = new Map<string, Record<string, unknown>>();
   for (const row of rows) {
     const code = normalizeCode(row.code);
@@ -278,13 +286,14 @@ export const normalizeDowngradeRows = (coverageBookData: unknown): DowngradeRule
     if (!code || !downgradeCode) continue;
     if (code === downgradeCode) continue;
 
-    // Prefer the downgrade row's limit (current UI behaviour), fall back to the
-    // billed row so plans configured before that change still restrict teeth.
-    const dgTeeth = parseTeethLimit(byCode.get(downgradeCode)?.teethLimit);
-    const billedTeeth = parseTeethLimit(row.teethLimit);
-    const teethLimit = dgTeeth ?? billedTeeth ?? [];
-    const teethSource: TeethSource =
-      dgTeeth !== null ? 'downgrade-row' : billedTeeth !== null ? 'billed-row' : 'none';
+    // The downgrade's teeth come from the downgrade row only. A limit on the
+    // billed row is a coverage restriction and must not narrow the downgrade.
+    // The UI writes both a `teethLimit` string and a `teeth` array, so accept
+    // either — a selection stored only as the array must not be dropped.
+    const dgRow = byCode.get(downgradeCode);
+    const dgTeeth = parseTeethLimit(dgRow?.teethLimit) ?? parseTeethLimit(dgRow?.teeth);
+    const teethLimit = dgTeeth ?? [];
+    const teethSource: TeethSource = dgTeeth !== null ? 'downgrade-row' : 'none';
 
     const maxAllowed = toAmount(row.maxAllowed) || undefined;
 

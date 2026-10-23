@@ -8,12 +8,48 @@ import {
   normalizeCode,
   normalizeDeductibleRows,
   normalizeDeductibleGrid,
+  mergeDeductibleGridForUpdate,
   resolveDeductibleTier,
   orderIndexesByDate,
   splitSecondaryPortion,
   accumulateMetAmount,
   deriveDeductibleAmount,
 } from '../src/services/deductible.service';
+
+describe('editing deductible progress', () => {
+  const persisted = [
+    { type: 'Standard', individual: 1000, metAmount: 500, metDate: '2026-01-15' },
+    { type: 'Basic', individual: 300, metAmount: 40, metDate: '2026-01-10' },
+  ];
+
+  it('saves an explicit zero and clears its met date', () => {
+    const rows = mergeDeductibleGridForUpdate(
+      [{ type: 'Standard', individual: 1000, metAmount: '0', metDate: '2026-01-15' }],
+      persisted,
+    );
+    expect(rows[0]).toMatchObject({ metAmount: 0, metDate: null });
+  });
+
+  it('saves a changed positive amount', () => {
+    const rows = mergeDeductibleGridForUpdate(
+      [{ type: 'Standard', individual: 1000, metAmount: '200', metDate: '2026-02-01' }],
+      persisted,
+    );
+    expect(rows[0]).toMatchObject({ metAmount: 200, metDate: '2026-02-01' });
+  });
+
+  it('preserves an old amount and date when those fields are omitted', () => {
+    const rows = mergeDeductibleGridForUpdate(
+      [{ type: 'Standard', individual: 1200 }, { type: 'Basic', individual: 400, metAmount: 0 }],
+      persisted,
+    );
+    expect(rows[0]).toMatchObject({ individual: 1200, metAmount: 500, metDate: '2026-01-15' });
+    expect(rows[1]).toMatchObject({ individual: 400, metAmount: 0, metDate: null });
+    expect(mergeDeductibleGridForUpdate(undefined, persisted)[0]).toMatchObject({
+      metAmount: 500, metDate: '2026-01-15',
+    });
+  });
+});
 
 const row = (type: string, individual: number, extra: Record<string, any> = {}) => ({
   type,
@@ -123,6 +159,49 @@ describe('Example 1 — simple deductible on allowed fee', () => {
     const ledger = new DeductibleLedger([row('Standard', 50)], 'individual');
     const r = price(ledger, 'D2740', 200, 80);
     expect(r.deductibleApplied).toBeGreaterThan(200 * 0.2);
+  });
+});
+
+describe('flat plan portion — deductible first, ledger still drained', () => {
+  it('pays exactly the flat amount when the deductible is already met', () => {
+    const ledger = new DeductibleLedger([row('Standard', 0)], 'individual');
+    const r = applyDeductible(ledger, 'D2740', 200, 80, 50);
+    expect(r.insurancePortion).toBe(50);
+    expect(r.deductibleApplied).toBe(0);
+    expect(r.patientPortion).toBe(150);
+  });
+
+  it('subtracts the deductible before applying the flat amount', () => {
+    const ledger = new DeductibleLedger([row('Standard', 50)], 'individual');
+    const r = applyDeductible(ledger, 'D2740', 200, 80, 200);
+    // min(200, 200 − 50) = 150; the pool is drained as on a percentage line.
+    expect(r.deductibleApplied).toBe(50);
+    expect(r.afterDeductible).toBe(150);
+    expect(r.insurancePortion).toBe(150);
+    expect(r.patientPortion).toBe(50);
+  });
+
+  it('clamps the flat amount to the allowed fee', () => {
+    const ledger = new DeductibleLedger([row('Standard', 0)], 'individual');
+    const r = applyDeductible(ledger, 'D2740', 200, 80, 300);
+    expect(r.insurancePortion).toBe(200);
+    expect(r.patientPortion).toBe(0);
+  });
+
+  it('drains the pool once so a later line does not re-apply the deductible', () => {
+    const ledger = new DeductibleLedger([row('Standard', 50)], 'individual');
+    const first = applyDeductible(ledger, 'D2740', 200, 80, 200);
+    expect(first.deductibleApplied).toBe(50);
+
+    const second = applyDeductible(ledger, 'D2740', 200, 80, 200);
+    expect(second.deductibleApplied).toBe(0);
+    expect(second.insurancePortion).toBe(200);
+  });
+
+  it('falls back to the percentage when no flat amount is given', () => {
+    const ledger = new DeductibleLedger([row('Standard', 50)], 'individual');
+    const r = applyDeductible(ledger, 'D2740', 200, 80, null);
+    expect(r.insurancePortion).toBe(120);
   });
 });
 
@@ -264,6 +343,83 @@ describe('Case 5 — per-row pools are independent', () => {
     expect(r.deductibleApplied).toBe(0);
     expect(r.insurancePortion).toBe(160);
     expect(r.patientPortion).toBe(40);
+  });
+});
+
+describe('checked categories share the Standard deductible', () => {
+  it('uses one Standard pool for every category when the Standard row checkbox is set', () => {
+    const grid = [
+      row('Standard', 100, { standard: true }),
+      row('Preventative', 300), row('Basic', 300), row('Major', 300), row('Orthodontics', 300),
+    ];
+    expect(normalizeDeductibleGrid(grid).slice(0, 5).every((entry) => entry.standard)).toBe(true);
+    const ledger = new DeductibleLedger(grid);
+    expect(price(ledger, 'D1110', 30, 100)).toMatchObject({ rowKey: 'standard', deductibleApplied: 30 });
+    expect(price(ledger, 'D2391', 30, 80)).toMatchObject({ rowKey: 'standard', deductibleApplied: 30 });
+    expect(price(ledger, 'D7210', 30, 50)).toMatchObject({ rowKey: 'standard', deductibleApplied: 30 });
+    expect(price(ledger, 'D8680', 30, 50)).toMatchObject({ rowKey: 'standard', deductibleApplied: 10 });
+    expect(ledger.appliedByRow()).toEqual({ standard: 100 });
+  });
+
+  it('sums Basic and Major applications against one Standard limit and persists one met amount', () => {
+    const grid = [
+      row('Standard', 100),
+      row('Basic', 300, { standard: true, metAmount: 40 }),
+      row('Major', 500, { standard: true }),
+      row('Orthodontics', 25),
+    ];
+    const ledger = new DeductibleLedger(grid, 'individual');
+
+    expect(price(ledger, 'D2391', 60, 80)).toMatchObject({ rowKey: 'standard', deductibleApplied: 60 });
+    expect(price(ledger, 'D7210', 70, 80)).toMatchObject({ rowKey: 'standard', deductibleApplied: 40 });
+    expect(price(ledger, 'D3330', 70, 80)).toMatchObject({ rowKey: 'standard', deductibleApplied: 0 });
+    expect(price(ledger, 'D8680', 30, 80)).toMatchObject({ rowKey: 'orthodontics', deductibleApplied: 25 });
+    expect(ledger.appliedByRow()).toEqual({ standard: 100, orthodontics: 25 });
+
+    const saved = accumulateMetAmount(grid, ledger.appliedByRow(), '2026-10-15') as any[];
+    expect(saved.find((entry) => entry.typeKey === 'standard').metAmount).toBe(100);
+    expect(saved.find((entry) => entry.typeKey === 'basic').metAmount).toBe(40);
+    expect(saved.find((entry) => entry.typeKey === 'major').metAmount).toBe(0);
+    expect(price(new DeductibleLedger(saved, 'individual'), 'D7210', 50, 80).deductibleApplied).toBe(0);
+  });
+
+  it('uses the Standard family limit and honors explicit category routing', () => {
+    const ledger = new DeductibleLedger(
+      [row('Standard', 100, { family: 200, metAmount: 50 }), row('Major', 500, { standard: true })],
+      'family',
+      new Map([['D2740', 'Major']]),
+    );
+    expect(price(ledger, 'D2740', 300, 80)).toMatchObject({ rowKey: 'standard', deductibleApplied: 150 });
+  });
+
+  it('keeps an exact CDT row independent even when its category is checked', () => {
+    const ledger = new DeductibleLedger(
+      [row('Standard', 100), row('Basic', 300, { standard: true }), row('D2391', 25)],
+    );
+    expect(price(ledger, 'D2391', 50, 80)).toMatchObject({ rowKey: 'code:D2391', deductibleApplied: 25 });
+    expect(ledger.remaining('standard')).toBe(100);
+  });
+
+  it('shares Standard for an exact CDT row whose own checkbox is checked', () => {
+    const ledger = new DeductibleLedger(
+      [row('Standard', 100), row('Basic', 300), row('D2391', 25, { standard: true })],
+    );
+    expect(price(ledger, 'D2391', 50, 80)).toMatchObject({ rowKey: 'standard', deductibleApplied: 50 });
+    expect(ledger.remaining('standard')).toBe(50);
+  });
+
+  it('restores an independent category pool when the checkbox is cleared', () => {
+    const grid = [row('Standard', 100), row('Basic', 300, { standard: true, metAmount: 40 })];
+    expect(price(new DeductibleLedger(grid), 'D2391', 50, 80).rowKey).toBe('standard');
+    grid[1].standard = false;
+    expect(price(new DeductibleLedger(grid), 'D2391', 50, 80)).toMatchObject({
+      rowKey: 'basic', deductibleApplied: 50,
+    });
+  });
+
+  it('does not use hidden category amounts when Standard has no configured row', () => {
+    const ledger = new DeductibleLedger([row('Basic', 300, { standard: true })]);
+    expect(price(ledger, 'D2391', 50, 80)).toMatchObject({ rowKey: null, deductibleApplied: 0 });
   });
 });
 

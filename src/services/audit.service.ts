@@ -23,14 +23,36 @@ import { getNextId } from '../utils/opendental-ids.util';
 import { getClientIp } from '../utils/activity-logger.util';
 
 export interface WriteAuditParams {
-  userNum: bigint;
+  /**
+   * The acting user, or null when there is none.
+   *
+   * null is written as NULL (securitylog.UserNum is nullable), which is the
+   * correct record for a system-triggered event — an ERA auto-post, a
+   * scheduled job, a fan-out across patients. The alternative, a sentinel
+   * like 0, violates fk_securitylog_1_UserNum and the whole audit row is
+   * then lost to the catch below: the event goes unrecorded precisely when
+   * nobody is watching.
+   */
+  userNum: bigint | null;
   permType: number;
-  patNum?: bigint;
-  clinicNum?: bigint;
+  patNum?: bigint | null;
+  clinicNum?: bigint | null;
   text: string;
   source?: number;
   req?: Request;
 }
+
+export const AuditEventType = {
+  LATE_FEE_APPLIED: 'late_fee_applied',
+  LATE_FEE_SKIPPED: 'late_fee_skipped',
+  LATE_FEE_WAIVED: 'late_fee_waived',
+  LATE_FEE_POLICY_CREATED: 'late_fee_policy_created',
+  LATE_FEE_POLICY_UPDATED: 'late_fee_policy_updated',
+  LATE_FEE_POLICY_ACTIVATED: 'late_fee_policy_activated',
+  LATE_FEE_ACCEPTANCE_RECORDED: 'late_fee_acceptance_recorded',
+} as const;
+
+export type AuditEventType = typeof AuditEventType[keyof typeof AuditEventType];
 
 /**
  * Write an audit row into securitylog.
@@ -66,7 +88,10 @@ export async function writeAudit(params: WriteAuditParams): Promise<boolean> {
         data: {
           SecurityLogNum: logNum,
           PermType: permType,
-          UserNum: userNum,
+          // securitylog has no "system" sentinel user: the late-fee scheduler
+          // passes 0n, which fails fk_securitylog_1_UserNum. UserNum is nullable,
+          // so a job (no human actor) is recorded as NULL instead.
+          UserNum: userNum === 0n ? null : userNum,
           PatNum: patNum ?? null,
           CompName: compName,
           LogSource: source ?? null,
@@ -102,6 +127,35 @@ export async function writeAudit(params: WriteAuditParams): Promise<boolean> {
     return false;
   }
   return true;
+}
+
+export async function writeLateFeeAudit(params: {
+  userNum: bigint;
+  patNum?: bigint;
+  clinicNum?: bigint;
+  eventType: AuditEventType;
+  invoiceId?: bigint;
+  feeAmount?: number;
+  reason?: string;
+  details?: Record<string, any>;
+  req?: Request;
+}): Promise<boolean> {
+  const text = JSON.stringify({
+    eventType: params.eventType,
+    invoiceId: params.invoiceId?.toString(),
+    feeAmount: params.feeAmount,
+    reason: params.reason,
+    details: params.details,
+  });
+  return writeAudit({
+    userNum: params.userNum,
+    permType: 999,
+    patNum: params.patNum,
+    clinicNum: params.clinicNum,
+    text,
+    source: 1,
+    req: params.req,
+  });
 }
 
 export async function verifyAuditChain() {
@@ -168,8 +222,8 @@ export async function getAuditLogs(page: number = 1, limit: number = 50, filters
   if (filters.permType) where.PermType = Number(filters.permType);
   if (filters.startDate || filters.endDate) {
     where.LogDateTime = {};
-    if (filters.startDate) where.LogDateTime.gte = new Date(filters.startDate);
-    if (filters.endDate) where.LogDateTime.lte = new Date(filters.endDate);
+    if (filters.startDate) where.LogDateTime.gte = new Date(`${filters.startDate}T00:00:00.000Z`);
+    if (filters.endDate) where.LogDateTime.lte = new Date(`${filters.endDate}T23:59:59.999Z`);
   }
 
   // Group-scoped audit queries: only show logs for patients or users in the allowed clinics

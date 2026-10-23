@@ -1,3 +1,4 @@
+import path from 'path';
 import multer from 'multer';
 import { isValidImageType, isValidFileSize } from '../utils/s3.util';
 
@@ -6,10 +7,10 @@ const storage = multer.memoryStorage();
 
 // File filter for images only
 const fileFilter = (req: Express.Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-  if (isValidImageType(file.mimetype)) {
+  if (file.mimetype.startsWith('image/') || isValidImageType(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Invalid file type. Only images (JPEG, PNG, GIF, WebP) are allowed.'));
+    cb(new Error('Invalid file type. Only images are allowed.'));
   }
 };
 
@@ -24,13 +25,55 @@ const documentFileFilter = (
     'image/png',
     'image/gif',
     'image/webp',
+    'image/svg+xml',
+    'image/bmp',
+    'image/x-ms-bmp',
+    'image/tiff',
+    'image/x-tiff',
+    'image/heic',
+    'image/heif',
+    'image/heic-sequence',
+    'image/heif-sequence',
+    'image/avif',
     'application/pdf',
     'text/plain',
     'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'text/csv',
+    'application/dicom',
   ];
 
-  if (validTypes.includes(file.mimetype)) {
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  const validExtensions = [
+    '.jpg',
+    '.jpeg',
+    '.png',
+    '.gif',
+    '.webp',
+    '.svg',
+    '.bmp',
+    '.tif',
+    '.tiff',
+    '.heic',
+    '.heif',
+    '.avif',
+    '.pdf',
+    '.txt',
+    '.doc',
+    '.docx',
+    '.xls',
+    '.xlsx',
+    '.csv',
+    '.dcm',
+  ];
+
+  if (
+    file.mimetype.startsWith('image/') ||
+    validTypes.includes(file.mimetype) ||
+    validExtensions.includes(ext)
+  ) {
     cb(null, true);
   } else {
     cb(new Error('Invalid file type. Upload an image, PDF, TXT, DOC, or DOCX file.'));

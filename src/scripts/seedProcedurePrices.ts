@@ -1,5 +1,13 @@
+// Unrestricted tenant context for RLS — must be imported before any query.
+//
+// `fee` has row-level security. Its policy passes a row whose ClinicNum is
+// NULL, which is how this script got away with no context, but a fee carrying
+// a ClinicNum would be refused with 42501 and the price would silently not be
+// written. Every other seed script imports this for the same reason.
+import '../config/seed-context';
 import { prisma } from '../config/db';
 import { getNextId } from '../utils/opendental-ids.util';
+import { mapCodeToCategory } from '../services/deductible.service';
 
 /**
  * High-performance batch ID allocator for sequences.
@@ -32,7 +40,47 @@ async function getNextBatchIds(table: string, column: string, count: number): Pr
 }
 
 /**
- * Deterministic price generator between $60.00 and $190.00 based on procedure code string.
+ * Plausible price band per CDT category, in dollars.
+ *
+ * WHY NOT ONE FLAT $60-$190 BAND
+ * ------------------------------
+ * This script used to hash the code string into a single $60-$190 range for
+ * every procedure, which priced a porcelain crown at $89 and a periodic oral
+ * evaluation at $136 — the exam cost more than the crown. Any estimate,
+ * treatment plan or COB calculation built on that is nonsense in a way that
+ * looks plausible until a human reads the number.
+ *
+ * The bands below are rough US private-practice ranges by category, which is
+ * enough for the data to behave correctly (a crown outranks a cleaning, a
+ * deductible actually bites, a secondary estimate is meaningful). They are
+ * still SEED data, not a real fee guide — a practice sets its own in
+ * Fee Management, and `seedFeeSchedules` carries hand-picked realistic
+ * amounts for 11 common codes which this script now leaves alone.
+ */
+const CATEGORY_PRICE_BANDS: Record<string, [number, number]> = {
+  diagnostic: [40, 180],
+  preventative: [60, 220],
+  restorative: [140, 420],
+  endodontics: [600, 1400],
+  periodonticsbasic: [120, 400],
+  periodonticsmajor: [600, 1800],
+  prosthodonticsremovable: [900, 2600],
+  maxillofacialprosthetics: [800, 3000],
+  implantservices: [1400, 4500],
+  prosthodonticsfixed: [800, 2200],
+  oralsurgery: [150, 900],
+  orthodontics: [1500, 6500],
+  adjunctgeneral: [60, 400],
+};
+
+/** Codes that map to no category (non-CDT, custom) fall back to this band. */
+const DEFAULT_PRICE_BAND: [number, number] = [60, 190];
+
+/**
+ * Deterministic price for a code, inside its category's band.
+ *
+ * Deterministic on purpose: re-running the seed must not churn every price,
+ * and two developers' databases should agree.
  */
 function generatePriceForCode(code: string, varianceMultiplier = 1.0): number {
   let hash = 0;
@@ -41,12 +89,15 @@ function generatePriceForCode(code: string, varianceMultiplier = 1.0): number {
     hash |= 0;
   }
   const positiveHash = Math.abs(hash);
-  // Generate integer step between 60 and 190 (step of 5 for clean dental pricing, e.g. 60, 65, 70... 190)
-  const steps = 26; // (190 - 60) / 5 = 26
-  const basePrice = 60 + (positiveHash % (steps + 1)) * 5;
-  const adjustedPrice = Math.round(basePrice * varianceMultiplier);
-  // Clamp between 60 and 190
-  return Math.min(190, Math.max(60, adjustedPrice));
+
+  const category = mapCodeToCategory(code);
+  const [low, high] = (category && CATEGORY_PRICE_BANDS[category]) || DEFAULT_PRICE_BAND;
+
+  // Step in $5 increments across the band, the way a real fee guide is written.
+  const steps = Math.max(1, Math.floor((high - low) / 5));
+  const basePrice = low + (positiveHash % (steps + 1)) * 5;
+  const adjusted = Math.round(basePrice * varianceMultiplier);
+  return Math.min(high, Math.max(low, adjusted));
 }
 
 /**
@@ -54,7 +105,7 @@ function generatePriceForCode(code: string, varianceMultiplier = 1.0): number {
  * across all active procedure codes and fee schedules using fast bulk operations.
  */
 async function seedProcedurePrices() {
-  console.log('🚀 Starting Fast Procedure Code Prices Seeding ($60 - $190)...');
+  console.log('🚀 Seeding procedure code prices by CDT category (gaps only)...');
 
   try {
     // 1. Fetch or create the default standard fee schedule
@@ -128,7 +179,16 @@ async function seedProcedurePrices() {
 
         if (!existing) {
           toCreate.push({ CodeNum: proc.CodeNum, Amount: price });
-        } else if (existing.Amount === null || existing.Amount === 0 || existing.Amount !== price) {
+        } else if (existing.Amount === null || existing.Amount === 0) {
+          // FILL GAPS ONLY. The previous condition also fired on
+          // `existing.Amount !== price`, so every run overwrote any amount
+          // that was not exactly this generator's output — which meant it
+          // clobbered the hand-picked realistic fees seedFeeSchedules and
+          // seedFees had just written, AND silently reset any price a
+          // practice had edited in Fee Management the next time the seed ran.
+          //
+          // A seed may create a missing price. It must never overwrite one
+          // somebody chose.
           toUpdate.push({ FeeNum: existing.FeeNum, Amount: price });
         }
       }
@@ -176,7 +236,7 @@ async function seedProcedurePrices() {
     console.log(`\n🎉 Procedure prices successfully seeded!`);
     console.log(`   - New fee entries created: ${totalCreated}`);
     console.log(`   - Existing fee entries updated: ${totalUpdated}`);
-    console.log(`   - Price range: $60.00 – $190.00`);
+    console.log('   - Priced by CDT category; existing non-zero fees left untouched');
 
     // 4. Update any existing procedurelog records that have ProcFee = 0 or null
     const zeroFeeProcs = await prisma.procedurelog.findMany({

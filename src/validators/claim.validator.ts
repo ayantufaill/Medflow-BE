@@ -94,6 +94,7 @@ export const updateClaimValidator: ValidationChain[] = [
   body('paidAmount').optional().isFloat({ min: 0 }).withMessage('paidAmount must be >= 0'),
   body('patientResponsibility').optional().isFloat({ min: 0 }).withMessage('patientResponsibility must be >= 0'),
   body('policyNumber').optional({ nullable: true }).isString().withMessage('policyNumber must be a string'),
+  body('payerReferenceNumber').optional({ nullable: true }).isString().withMessage('payerReferenceNumber must be a string'),
   body('notes').optional({ nullable: true }).isString().isLength({ max: 2000 }).withMessage('notes must be less than 2000 characters'),
   body('submissionDate').optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage('submissionDate must be a valid date'),
   body('deniedDate').optional({ nullable: true, checkFalsy: true }).isISO8601().withMessage('deniedDate must be a valid date'),
@@ -230,7 +231,17 @@ export const createManualClaimValidator: ValidationChain[] = [
   body('selectedItems.*.amount')
     .isNumeric()
     .withMessage('amount must be a number')
-    .custom((value) => value > 0)
+    .custom((value, { req }) => {
+      // A secondary claim still has to carry procedures whose remaining
+      // insurance balance is $0 — e.g. after the primary adjudicated them to
+      // nothing, the whole insurance portion moved to the patient, leaving no
+      // secondary estimate. The service derives the real amount from the
+      // procedure record, so a zero amount is valid for secondary claims only.
+      const isSecondary =
+        String(req.body?.claimType || '').toLowerCase() === 'secondary' ||
+        String(req.body?.insuranceType || '').toLowerCase() === 'secondary';
+      return isSecondary ? Number(value) >= 0 : Number(value) > 0;
+    })
     .withMessage('amount must be greater than 0'),
 
   body('selectedItems.*.code').optional().isString(),

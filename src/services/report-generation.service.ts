@@ -1,7 +1,10 @@
 import { prisma } from '../config/db';
-import { getPatientsMeta, PATIENT_META_FKEYTYPE } from '../utils/opendental-auth.util';
+import { getPatientsMeta, PATIENT_META_FKEYTYPE, getRxsMeta } from '../utils/opendental-auth.util';
 import { BadRequestError } from '../utils/error.util';
 import { clinicalNoteService } from './clinical-note.service';
+import { recarePatientRows } from './recare-reporting.service';
+import { paymentPlanReport } from '../utils/payment-plan-report.util';
+import { reportingClinicWhere, reportingClinicIds } from '../utils/reporting-scope.util';
 
 export class ReportGenerationService {
   private getProviderName(prov: any) {
@@ -66,7 +69,7 @@ export class ReportGenerationService {
 
       case 'payment-plans':
       case 'payment-lines':
-        return this.getPaymentPlansReport(name === 'payment-lines');
+        return this.getPaymentPlansReport(name === 'payment-lines', startDate, endDate, query.branchId);
 
       case 'payment-request':
         return this.getPaymentRequestsReport(startDate, endDate);
@@ -84,10 +87,7 @@ export class ReportGenerationService {
         return this.getReferralProductionReport(startDate, endDate);
 
       default:
-        // Fallback for any unhandled financial report
-        return [
-          { date: query.date || new Date().toLocaleDateString(), description: `${reportName} details`, amount: 150.00 }
-        ];
+        throw new BadRequestError(`Unsupported report: ${reportName}`);
     }
   }
 
@@ -100,18 +100,16 @@ export class ReportGenerationService {
 
     switch (name) {
       case 'recare':
-        return this.getRecareReport(startDate, endDate);
+        return this.getRecareReport(query);
 
       case 'unsigned-progress-notes':
         return this.getUnsignedProgressNotesReport(startDate, endDate, query);
 
       case 'rx':
-        return this.getRxReport(startDate, endDate);
+        return this.getRxReport(startDate, endDate, query.branchId);
 
       default:
-        return [
-          { date: query.date || new Date().toLocaleDateString(), status: 'Pending', description: `${reportName} clinical log` }
-        ];
+        throw new BadRequestError(`Unsupported report: ${reportName}`);
     }
   }
 
@@ -123,11 +121,11 @@ export class ReportGenerationService {
     
     if (query.startDate) {
       startDate = new Date(query.startDate);
-      startDate.setHours(0, 0, 0, 0);
+      startDate.setUTCHours(0, 0, 0, 0);
     }
     if (query.endDate) {
       endDate = new Date(query.endDate);
-      endDate.setHours(23, 59, 59, 999);
+      endDate.setUTCHours(23, 59, 59, 999);
     }
     const name = String(reportName).toLowerCase();
 
@@ -187,9 +185,7 @@ export class ReportGenerationService {
         return this.getPatientTrackers(startDate, endDate, query);
 
       default:
-        return [
-          { id: 1, name: 'Francis Fuller', email: 'fuller@example.com', date: new Date().toLocaleDateString() }
-        ];
+        throw new BadRequestError(`Unsupported report: ${reportName}`);
     }
   }
 
@@ -208,9 +204,7 @@ export class ReportGenerationService {
         return this.getAuditReport(startDate, endDate, query);
 
       default:
-        return [
-          { timestamp: new Date().toISOString(), user: 'admin', action: `Executed ${reportName}` }
-        ];
+        throw new BadRequestError(`Unsupported report: ${reportName}`);
     }
   }
 
@@ -550,15 +544,15 @@ export class ReportGenerationService {
   private async getDepositSlipsReport(start: Date, end: Date) {
     const deposits = await prisma.deposit.findMany({
       where: { DateDeposit: { gte: start, lte: end } },
-      take: 20
+      include: { definition: true }
     });
 
     return deposits.map(d => ({
       depositId: d.DepositNum.toString(),
       date: d.DateDeposit?.toLocaleDateString() || '',
       amount: d.Amount ?? 0,
-      bank: 'Chase Bank',
-      status: 'Cleared'
+      bank: d.BankAccountInfo?.trim() || d.definition?.ItemName?.trim() || null,
+      status: null
     }));
   }
 
@@ -1574,7 +1568,7 @@ export class ReportGenerationService {
     if (query.startDate && query.endDate) {
       sDate = new Date(query.startDate);
       eDate = new Date(query.endDate);
-      eDate.setHours(23, 59, 59, 999);
+      eDate.setUTCHours(23, 59, 59, 999);
     }
 
     // Query all courtesy credit adjustments directly — this is the authoritative source
@@ -2408,186 +2402,18 @@ export class ReportGenerationService {
     });
   }
 
-  private async getPaymentPlansReport(linesOnly = false) {
+  private async getPaymentPlansReport(linesOnly = false, startDate?: Date, endDate?: Date, branchId?: string) {
     const plans = await prisma.payplan.findMany({
+      where: { patient_payplan_PatNumTopatient: reportingClinicWhere(branchId) },
       include: {
-        patient_payplan_PatNumTopatient: {
-          select: { PatNum: true, FName: true, LName: true }
-        },
-        payplancharge: {
-          orderBy: { ChargeDate: 'asc' }
-        }
+        definition: true,
+        patient_payplan_PatNumTopatient: { select: { PatNum: true, FName: true, LName: true } },
+        payplancharge: { orderBy: { ChargeDate: 'asc' }, include: { paysplit: { select: { SplitAmt: true, DatePay: true } } } },
       },
-      take: 50
+      orderBy: { PayPlanNum: 'asc' },
     });
-
-    const fmt = (n: number) =>
-      `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // No payment plans found
-    if (plans.length === 0) {
-      return [];
-    }
-
-    const results = plans.map(plan => {
-      const pat = plan.patient_payplan_PatNumTopatient;
-      const patientId = pat ? pat.PatNum.toString() : '';
-      const patientName = pat
-        ? `${pat.FName ?? ''} ${pat.LName ?? ''}`.trim()
-        : 'Unknown Patient';
-
-      const charges = plan.payplancharge ?? [];
-      // Only debit-type charges (ChargeType 0 = debit/charge row, 1 = credit/payment row)
-      const debitCharges = charges.filter(c => (c.ChargeType ?? 0) === 0);
-      const totalPayments = debitCharges.length || plan.NumberOfPayments || 0;
-
-      // Installment amount per charge row; fallback to PayAmt field
-      const installmentAmt = debitCharges.length > 0
-        ? Number(debitCharges[0]?.Principal ?? 0) + Number(debitCharges[0]?.Interest ?? 0)
-        : Number(plan.PayAmt ?? 0);
-
-      // Credit/payment rows represent completed payments
-      const creditCharges = charges.filter(c => (c.ChargeType ?? 0) === 1);
-      const completedPayments = creditCharges.length;
-      const remainingPayments = Math.max(0, totalPayments - completedPayments);
-
-      // Remaining balance = remaining installments × installment amount
-      const remainingBalance = remainingPayments * installmentAmt;
-
-      // Next due = earliest future debit charge date
-      const futureDue = debitCharges
-        .filter(c => c.ChargeDate && c.ChargeDate >= today)
-        .map(c => c.ChargeDate as Date);
-      const nextDueDate = futureDue.length > 0 ? futureDue[0] : null;
-      const nextDue = nextDueDate ? nextDueDate.toLocaleDateString() : '';
-
-      // Missed = past debit charges not covered by credits
-      const pastDue = debitCharges.filter(c => c.ChargeDate && c.ChargeDate < today).length;
-      const missed = Math.max(0, pastDue - completedPayments);
-
-      // Last billed = latest debit charge date in the past
-      const pastDebits = debitCharges.filter(c => c.ChargeDate && c.ChargeDate < today);
-      const lastBilledDate = pastDebits.length > 0
-        ? pastDebits[pastDebits.length - 1]?.ChargeDate
-        : null;
-      const lastBilled = lastBilledDate ? (lastBilledDate as Date).toLocaleDateString() : '';
-
-      // Last payment = latest credit date
-      const lastCreditDate = creditCharges.length > 0
-        ? creditCharges[creditCharges.length - 1]?.ChargeDate
-        : null;
-      const lastPayment = lastCreditDate ? (lastCreditDate as Date).toLocaleDateString() : '';
-
-      // Plan status
-      let status = 'Scheduled';
-      if (plan.IsClosed === 1 || remainingPayments === 0) {
-        status = 'Paid';
-      } else if (missed > 0) {
-        status = 'Failed';
-      } else if (completedPayments > 0) {
-        status = 'Active';
-      }
-
-      // Plan type from PaySchedule: 0 = Manual, 1 = Regular Invoice, else Other
-      const typeMap: Record<number, string> = { 0: 'Manual Fee', 1: 'Regular Invoice', 2: 'Membership Plan' };
-      const type = typeMap[plan.PaySchedule ?? 1] ?? 'Regular Invoice';
-
-      // Plan creation date
-      const createdOn = plan.PayPlanDate
-        ? (plan.PayPlanDate as Date).toLocaleDateString()
-        : plan.DatePayPlanStart
-          ? (plan.DatePayPlanStart as Date).toLocaleDateString()
-          : '';
-
-      // Build history from debit charge rows
-      const history = debitCharges.map((c, idx) => {
-        const dueDate = c.ChargeDate ? (c.ChargeDate as Date).toLocaleDateString() : '';
-        const created = plan.PayPlanDate ? (plan.PayPlanDate as Date).toLocaleDateString() : dueDate;
-        const isPaid = idx < completedPayments;
-        const isPast = c.ChargeDate ? c.ChargeDate < today : false;
-        const isFailed = isPast && !isPaid;
-        const chargeAmt = (c.Principal ?? 0) + (c.Interest ?? 0);
-
-        // Match a credit row to this charge by index order
-        const matchedCredit = creditCharges[idx];
-        const chargedDate = isPaid && matchedCredit?.ChargeDate
-          ? (matchedCredit.ChargeDate as Date).toLocaleDateString()
-          : '';
-        const failedDate = isFailed ? (c.ChargeDate as Date).toLocaleDateString() : '';
-
-        return {
-          id: c.PayPlanChargeNum ? c.PayPlanChargeNum.toString() : plan.PayPlanNum.toString() + '-' + idx,
-          patientId,
-          patient: patientName,
-          amount: fmt(chargeAmt > 0 ? chargeAmt : installmentAmt),
-          status: isPaid ? 'Paid' : isFailed ? 'Failed' : 'Scheduled',
-          created,
-          dueDate,
-          downPayment: c.IsDownPayment === 1 ? 'Yes' : 'No',
-          chargedOn: chargedDate,
-          failedOn: failedDate,
-          failedAttempts: isFailed ? 1 : 0,
-          error: isFailed ? 'Transaction declined: Insufficient Funds' : ''
-        };
-      });
-
-      return {
-        patient: patientName,
-        createdOn,
-        amount: fmt(installmentAmt),
-        totalPayments,
-        remainingPayments,
-        remainingBalance: fmt(remainingBalance),
-        nextDue,
-        missed,
-        lastBilled,
-        lastPayment,
-        type,
-        status,
-        history
-      };
-    });
-
-    if (linesOnly) {
-      // Flatten all history items to return flat individual payment lines
-      const flatLines: any[] = [];
-      results.forEach(plan => {
-        if (plan.history && plan.history.length > 0) {
-          plan.history.forEach(line => {
-            flatLines.push({
-              id: (line as any).id,
-              patientId: (line as any).patientId,
-              patient: line.patient,
-              amount: line.amount,
-              downPayment: line.downPayment,
-              dueDate: line.dueDate,
-              chargedOn: line.chargedOn,
-              failedOn: line.failedOn,
-              failedAttempts: (line as any).failedAttempts,
-              status: line.status,
-              error: line.error
-            });
-          });
-        }
-      });
-
-      if (flatLines.length === 0) {
-        // Fallback dummy individual lines
-        return [
-          { id: '966', patient: 'Patient One', amount: '$65.00', downPayment: 'No', dueDate: '05/15/2026', chargedOn: '', failedOn: '', failedAttempts: 0, status: 'Scheduled', error: '' },
-          { id: '232', patient: 'Patient Two', amount: '$42.00', downPayment: 'No', dueDate: '05/20/2026', chargedOn: '', failedOn: '', failedAttempts: 0, status: 'Scheduled', error: '' },
-          { id: '1247', patient: 'Patient Three', amount: '$599.50', downPayment: 'No', dueDate: '05/22/2026', chargedOn: '', failedOn: '', failedAttempts: 0, status: 'Scheduled', error: '' },
-          { id: '856', patient: 'Patient Four', amount: '$266.67', downPayment: 'No', dueDate: '05/22/2026', chargedOn: '', failedOn: '', failedAttempts: 0, status: 'Scheduled', error: '' },
-          { id: '986', patient: 'Patient Five', amount: '$1,295.67', downPayment: 'No', dueDate: '05/23/2026', chargedOn: '', failedOn: '', failedAttempts: 0, status: 'Scheduled', error: '' },
-        ];
-      }
-      return flatLines;
-    }
-
-    return results;
+    const results = plans.map(plan => paymentPlanReport(plan));
+    return linesOnly ? results.flatMap(plan => plan.history).filter(line => line.dueDate && (!startDate || line.dueDate >= startDate.toISOString().slice(0, 10)) && (!endDate || line.dueDate <= endDate.toISOString().slice(0, 10))) : results;
   }
 
   private async getPaymentRequestsReport(start: Date, end: Date) {
@@ -2802,62 +2628,11 @@ export class ReportGenerationService {
   // CLINICAL REPORTS QUERY HELPERS
   // ==========================================
 
-  private async getRecareReport(startDate?: Date, endDate?: Date) {
-    const where: any = { IsDisabled: 0 };
-    if (startDate && endDate) {
-      where.DateDue = { gte: startDate, lte: endDate };
-    } else if (startDate) {
-      where.DateDue = { gte: startDate };
-    } else if (endDate) {
-      where.DateDue = { lte: endDate };
-    }
-
-    const recalls = await prisma.recall.findMany({
-      where,
-      include: { patient: true },
-      take: 500
-    });
-
-    const getAge = (birthDate: Date | null) => {
-      if (!birthDate) return 40;
-      const today = new Date();
-      let age = today.getFullYear() - birthDate.getFullYear();
-      const m = today.getMonth() - birthDate.getMonth();
-      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-        age--;
-      }
-      return age;
-    };
-
-    return recalls.map((r, idx) => {
-      const p = r.patient;
-      const patientName = p ? `${p.FName} ${p.LName}` : 'Patient';
-      const age = p ? getAge(p.Birthdate) : 40;
-      const contact = p ? (p.WirelessPhone || p.HmPhone || p.WkPhone || '(555) 123-4567') : '(555) 123-4567';
-      const recallDate = r.DateDue ? (r.DateDue as Date).toLocaleDateString() : '';
-      const lastExam = r.DatePrevious ? (r.DatePrevious as Date).toLocaleDateString() : '';
-      const lastProphy = r.DatePrevious ? (r.DatePrevious as Date).toLocaleDateString() : '';
-
-      return {
-        id: r.RecallNum ? r.RecallNum.toString() : idx.toString(),
-        patient: patientName,
-        flags: r.Priority === 1 ? 'red' : '',
-        age,
-        contact,
-        recallDate,
-        lastExam,
-        lastProphy,
-        lastMaintenance: '',
-        lastComm: '',
-        note: r.Note || '',
-        contactAgain: 'Y',
-        followUp: '',
-        apptDate: r.DateScheduled ? (r.DateScheduled as Date).toLocaleDateString() : '',
-        contactCount: 0,
-        dentistId: p?.PriProv ? p.PriProv.toString() : '',
-        hygienistId: p?.SecProv ? p.SecProv.toString() : ''
-      };
-    });
+  private async getRecareReport(query: any = {}) {
+    const asOf = query.asOf ? new Date(query.asOf) : new Date();
+    if (Number.isNaN(asOf.getTime())) throw new BadRequestError('Invalid recare as-of date');
+    const rows = await recarePatientRows({ asOf, clinicIds: reportingClinicIds(query.branchId) ?? undefined });
+    return rows.filter(row => (!query.startDate || !row.recallDate || row.recallDate >= query.startDate) && (!query.endDate || !row.recallDate || row.recallDate <= query.endDate));
   }
 
   private async getUnsignedProgressNotesReport(start: Date, end: Date, query?: any) {
@@ -3099,30 +2874,35 @@ export class ReportGenerationService {
     };
   }
 
-  private async getRxReport(start: Date, end: Date) {
+  private async getRxReport(start: Date, end: Date, branchId?: string) {
     const prescriptions = await prisma.rxpat.findMany({
-      where: { RxDate: { gte: start, lte: end } },
-      include: { patient: true, provider: true },
-      take: 50
+      where: { RxDate: { gte: start, lte: end }, ...reportingClinicWhere(branchId) },
+      include: { patient: true, provider: true }
     });
 
-    const report = prescriptions.map(r => ({
-      id: Number(r.RxNum),
-      provider: r.provider ? `Dr. ${r.provider.LName}` : 'Dr. Smith',
-      patient: r.patient ? `${r.patient.FName} ${r.patient.LName}` : 'Patient',
-      startDate: r.RxDate ? (r.RxDate as Date).toLocaleDateString() : '',
-      dose: r.Sig ?? '5MG',
-      refills: Number(r.Refills) || 0,
-      duration: r.DaysOfSupply ? `${r.DaysOfSupply} Days` : '2 Week',
-      longTerm: r.IsControlled === 1 ? 'Yes' : 'No',
-      prints: 0,
-      notes: r.Notes ?? '',
-      drugName: r.Drug ?? 'FLEXERIL'
-    }));
-
-    if (report.length === 0) {
+    if (prescriptions.length === 0) {
       return [];
     }
+
+    const rxNums = prescriptions.map((r) => r.RxNum);
+    const rxsMetaMap = await getRxsMeta(rxNums);
+
+    const report = prescriptions.map(r => {
+      const meta = rxsMetaMap[r.RxNum.toString()] ?? {};
+      return {
+        id: Number(r.RxNum),
+        provider: r.provider ? [r.provider.FName, r.provider.LName].filter(Boolean).join(' ') : null,
+        patient: r.patient ? `${r.patient.FName} ${r.patient.LName}` : 'Patient',
+        startDate: r.RxDate ? (r.RxDate as Date).toLocaleDateString() : '',
+        dose: r.Disp || '',
+        refills: r.Refills || '',
+        duration: meta.duration || '',
+        longTerm: meta.longTerm || '',
+        prints: meta.prints || '0',
+        notes: r.Sig || r.PatientInstruction || '',
+        drugName: r.Drug ?? null
+      };
+    });
 
     return report;
   }
@@ -3143,7 +2923,7 @@ export class ReportGenerationService {
       if (apptStartDate) apptWhere.AptDateTime.gte = new Date(apptStartDate);
       if (apptEndDate) {
         const end = new Date(apptEndDate);
-        end.setHours(23, 59, 59, 999);
+        end.setUTCHours(23, 59, 59, 999);
         apptWhere.AptDateTime.lte = end;
       }
     } else if (apptFilterType === 'before' && apptSingleDate) {
@@ -3352,7 +3132,7 @@ export class ReportGenerationService {
       if (apptStartDate) apptWhere.AptDateTime.gte = new Date(apptStartDate);
       if (apptEndDate) {
         const end = new Date(apptEndDate);
-        end.setHours(23, 59, 59, 999);
+        end.setUTCHours(23, 59, 59, 999);
         apptWhere.AptDateTime.lte = end;
       }
     } else if (apptFilterType === 'before' && apptSingleDate) {
@@ -3900,7 +3680,7 @@ export class ReportGenerationService {
     }
     if (query?.endDate) {
       const endOfDay = new Date(query.endDate);
-      endOfDay.setHours(23, 59, 59, 999);
+      endOfDay.setUTCHours(23, 59, 59, 999);
       apptWhere.AptDateTime = { ...apptWhere.AptDateTime, lte: endOfDay };
     }
     if (query?.provider && query.provider !== 'all') {
@@ -4027,7 +3807,7 @@ export class ReportGenerationService {
     }
     if (query?.endDate) {
       const endOfDay = new Date(query.endDate);
-      endOfDay.setHours(23, 59, 59, 999);
+      endOfDay.setUTCHours(23, 59, 59, 999);
       where.RefDate = { ...where.RefDate, lte: endOfDay };
     }
     
@@ -4870,8 +4650,8 @@ export class ReportGenerationService {
       const start = new Date(customStart);
       const end = new Date(customEnd);
       if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-        start.setHours(0, 0, 0, 0);
-        end.setHours(23, 59, 59, 999);
+        start.setUTCHours(0, 0, 0, 0);
+        end.setUTCHours(23, 59, 59, 999);
         return { startDate: start, endDate: end };
       }
     }
@@ -4881,64 +4661,64 @@ export class ReportGenerationService {
     let endDate = new Date(baseDate);
 
     if (range === 'Daily' || range === 'today') {
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
+      startDate.setUTCHours(0, 0, 0, 0);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'Weekly' || range === 'this_week') {
       const day = baseDate.getDay();
       const diff = baseDate.getDate() - day + (day === 0 ? -6 : 1);
       startDate = new Date(baseDate);
       startDate.setDate(diff);
-      startDate.setHours(0, 0, 0, 0);
+      startDate.setUTCHours(0, 0, 0, 0);
       endDate = new Date(startDate);
       endDate.setDate(startDate.getDate() + 6);
-      endDate.setHours(23, 59, 59, 999);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'last_7_days') {
       startDate.setDate(baseDate.getDate() - 6);
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
+      startDate.setUTCHours(0, 0, 0, 0);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'last_week') {
       const day = baseDate.getDay();
       const diffToLastWeekStart = baseDate.getDate() - day - 7 + (day === 0 ? -6 : 1);
       startDate = new Date(baseDate);
       startDate.setDate(diffToLastWeekStart);
-      startDate.setHours(0, 0, 0, 0);
+      startDate.setUTCHours(0, 0, 0, 0);
       endDate = new Date(startDate);
       endDate.setDate(startDate.getDate() + 6);
-      endDate.setHours(23, 59, 59, 999);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'last_4_weeks') {
       startDate.setDate(baseDate.getDate() - 28);
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
+      startDate.setUTCHours(0, 0, 0, 0);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'Monthly' || range === 'this_month') {
       startDate.setDate(1);
-      startDate.setHours(0, 0, 0, 0);
+      startDate.setUTCHours(0, 0, 0, 0);
       endDate.setMonth(baseDate.getMonth() + 1, 0);
-      endDate.setHours(23, 59, 59, 999);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'last_month') {
       startDate.setMonth(baseDate.getMonth() - 1, 1);
-      startDate.setHours(0, 0, 0, 0);
+      startDate.setUTCHours(0, 0, 0, 0);
       endDate.setMonth(baseDate.getMonth(), 0);
-      endDate.setHours(23, 59, 59, 999);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'last_3_months') {
       startDate.setMonth(baseDate.getMonth() - 3);
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
+      startDate.setUTCHours(0, 0, 0, 0);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'last_12_months') {
       startDate.setFullYear(baseDate.getFullYear() - 1);
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
+      startDate.setUTCHours(0, 0, 0, 0);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'year_to_date') {
       startDate.setMonth(0, 1);
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
+      startDate.setUTCHours(0, 0, 0, 0);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'Yearly') {
       startDate.setMonth(0, 1);
-      startDate.setHours(0, 0, 0, 0);
+      startDate.setUTCHours(0, 0, 0, 0);
       endDate.setMonth(11, 31);
-      endDate.setHours(23, 59, 59, 999);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else {
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
+      startDate.setUTCHours(0, 0, 0, 0);
+      endDate.setUTCHours(23, 59, 59, 999);
     }
 
     return { startDate, endDate };

@@ -1,19 +1,22 @@
+import { reportingClinicIds } from '../utils/reporting-scope.util';
+import { normalizeReportingGoals, workingHoursInRange, productionGoal, collectionGoal, goalPercent, goalIsConfigured, goalLabel } from '../utils/reporting-goals.util';
+import { recarePatientRows, countRecareCategories } from './recare-reporting.service';
 import { prisma } from '../config/db';
 import { getProvidersMeta } from '../utils/opendental-auth.util';
 
 export interface MetricCard {
   pVal: number;
   pGoal: number;
-  pPercent: number;
+  pPercent: number | null;
   cVal: number;
   cGoal: number;
-  cPercent: number;
+  cPercent: number | null;
   gpVal: number;
   gpGoal: number;
-  gpPercent: number;
+  gpPercent: number | null;
   gcVal: number;
   gcGoal: number;
-  gcPercent: number;
+  gcPercent: number | null;
   perHourStr: string;
   perVisitStr: string;
 }
@@ -48,6 +51,9 @@ export interface DashboardMetrics {
     late12mAppt: number;
     late12mBroken: number;
     late12mNoAppt: number;
+    lateUnder12mAppt: number;
+    lateUnder12mBroken: number;
+    lateUnder12mNoAppt: number;
   };
 }
 
@@ -65,38 +71,13 @@ export interface DashboardGoals {
   [key: string]: any;
 }
 
-const DEFAULT_GOALS: DashboardGoals = {
-  dentistHourlyGoal: 0,
-  hygienistHourlyGoal: 0,
-  collectionPercentGoal: 0,
-  newPatientsGoal: 0,
-  monthlyVisitsGoal: 0,
-  hygieneVisitsPercent: 0,
-  treatmentVisitsPercent: 0,
-  reappointmentPercentGoal: 0,
-  newPtCaseAcceptPercent: 0,
-  existingPtCaseAcceptPercent: 0,
-  totalVisitGoal: 0,
-  dentistVisitGoal: 0,
-  hygienistVisitGoal: 0,
-};
-
 export class DashboardMetricsService {
   /**
    * Fetch custom goals from the preference table or return defaults
    */
   async getDashboardGoals(): Promise<DashboardGoals> {
-    try {
-      const pref = await prisma.preference.findFirst({
-        where: { PrefName: 'DashboardGoals' },
-      });
-      if (pref && pref.ValueString) {
-        return JSON.parse(pref.ValueString) as DashboardGoals;
-      }
-    } catch (e) {
-      // Return defaults if reading fails
-    }
-    return DEFAULT_GOALS;
+    const pref = await prisma.preference.findFirst({ where: { PrefName: 'DashboardGoals' } });
+    return normalizeReportingGoals(pref?.ValueString ? JSON.parse(pref.ValueString) : {}) as DashboardGoals;
   }
 
   /**
@@ -104,7 +85,7 @@ export class DashboardMetricsService {
    */
   async saveDashboardGoals(goals: Partial<DashboardGoals>): Promise<DashboardGoals> {
     const currentGoals = await this.getDashboardGoals();
-    const updatedGoals = { ...currentGoals, ...goals };
+    const updatedGoals = normalizeReportingGoals({ ...currentGoals, ...goals, configuredKeys: [...new Set([...(currentGoals.configuredKeys ?? []), ...Object.keys(goals).filter(key => key !== 'configuredKeys')])] }) as DashboardGoals;
     const valueString = JSON.stringify(updatedGoals);
 
     const existing = await prisma.preference.findFirst({
@@ -154,18 +135,14 @@ export class DashboardMetricsService {
 
     // 0. Resolve target ClinicNums
     let targetClinicNums: bigint[] | undefined = undefined;
-    if (branchId && branchId !== 'All') {
+    if (branchId && branchId.toLowerCase() !== 'all') {
       targetClinicNums = [BigInt(branchId)];
     } else if (groupId && groupId !== 'All') {
       const clinics = await prisma.clinic.findMany({ where: { GroupNum: Number(groupId) }, select: { ClinicNum: true } });
       targetClinicNums = clinics.map(c => c.ClinicNum);
-    } else if (userId) {
-      // If "All" is selected but we want to scope to user's assigned branches
-      const userClinics = await prisma.userclinic.findMany({ where: { UserNum: BigInt(userId) }, select: { ClinicNum: true } });
-      if (userClinics.length > 0) {
-        targetClinicNums = userClinics.map(uc => uc.ClinicNum).filter((c): c is bigint => c !== null);
-      }
     }
+    const allowedClinics = reportingClinicIds(branchId);
+    targetClinicNums = targetClinicNums ? targetClinicNums.filter(id => allowedClinics === null || allowedClinics.includes(id)) : allowedClinics ?? undefined;
 
     // 1. Fetch & classify active providers
     const providers = await prisma.provider.findMany({
@@ -182,13 +159,13 @@ export class DashboardMetricsService {
 
     for (const p of providers) {
       // If clinic filter is active, only include providers who are attached to at least one of the target clinics
-      if (targetClinicNums && targetClinicNums.length > 0) {
+      if (targetClinicNums !== undefined) {
         const hasClinic = p.providerclinic.some(pc => pc.ClinicNum && targetClinicNums?.includes(pc.ClinicNum));
         if (!hasClinic) continue;
       }
 
       const spec = p.definition?.ItemName?.toLowerCase() || '';
-      const isHygienist = spec.includes('hygiene') || spec.includes('hygienist');
+      const isHygienist = p.IsSecondary === 1 || spec.includes('hygiene') || spec.includes('hygienist');
       if (isHygienist) {
         hygienistIds.push(p.ProvNum);
       } else {
@@ -225,13 +202,15 @@ export class DashboardMetricsService {
       }
     }
 
+    if (!providerId || providerId.toLowerCase() === 'all') targetProvNums = [...providerMap.values()].map(p => p.provNum);
+
     // 2. Query Completed & Planned Procedures
     const completedProcs = await prisma.procedurelog.findMany({
       where: {
         ProcDate: { gte: startDate, lte: endDate },
         ProcStatus: 2, // Completed
-        ...(targetProvNums.length > 0 ? { ProvNum: { in: targetProvNums } } : {}),
-        ...(targetClinicNums && targetClinicNums.length > 0 ? { ClinicNum: { in: targetClinicNums } } : {}),
+        ProvNum: { in: targetProvNums },
+        ...(targetClinicNums !== undefined ? { ClinicNum: { in: targetClinicNums } } : {}),
       },
     });
 
@@ -239,8 +218,8 @@ export class DashboardMetricsService {
       where: {
         ProcDate: { gte: startDate, lte: endDate },
         ProcStatus: 1, // Planned
-        ...(targetProvNums.length > 0 ? { ProvNum: { in: targetProvNums } } : {}),
-        ...(targetClinicNums && targetClinicNums.length > 0 ? { ClinicNum: { in: targetClinicNums } } : {}),
+        ProvNum: { in: targetProvNums },
+        ...(targetClinicNums !== undefined ? { ClinicNum: { in: targetClinicNums } } : {}),
       },
     });
 
@@ -299,8 +278,8 @@ export class DashboardMetricsService {
       where: {
         DatePay: { gte: startDate, lte: endDate },
         IsDiscount: 0,
-        ...(targetProvNums.length > 0 ? { ProvNum: { in: targetProvNums } } : {}),
-        ...(targetClinicNums && targetClinicNums.length > 0 ? { ClinicNum: { in: targetClinicNums } } : {}),
+        ProvNum: { in: targetProvNums },
+        ...(targetClinicNums !== undefined ? { ClinicNum: { in: targetClinicNums } } : {}),
       },
       select: { DatePay: true, SplitAmt: true, ProvNum: true },
     });
@@ -309,8 +288,8 @@ export class DashboardMetricsService {
       where: {
         DateCP: { gte: startDate, lte: endDate },
         Status: { in: [1, 4] },
-        ...(targetProvNums.length > 0 ? { ProvNum: { in: targetProvNums } } : {}),
-        ...(targetClinicNums && targetClinicNums.length > 0 ? { ClinicNum: { in: targetClinicNums } } : {}),
+        ProvNum: { in: targetProvNums },
+        ...(targetClinicNums !== undefined ? { ClinicNum: { in: targetClinicNums } } : {}),
       },
       select: { DateCP: true, InsPayAmt: true, ProvNum: true },
     });
@@ -353,40 +332,17 @@ export class DashboardMetricsService {
 
     for (const p of providers) {
       const spec = p.definition?.ItemName?.toLowerCase() || '';
-      const isHygienist = spec.includes('hygiene') || spec.includes('hygienist');
+      const isHygienist = p.IsSecondary === 1 || spec.includes('hygiene') || spec.includes('hygienist');
 
       // Filter by provider filter
-      if (targetProvNums.length > 0 && !targetProvNums.includes(p.ProvNum)) {
+      if (!targetProvNums.includes(p.ProvNum)) {
         continue;
       }
 
+      if (!providerMap.has(p.ProvNum.toString())) continue;
       // Check user preferences for working hours
       const meta = providersMeta[p.ProvNum.toString()] ?? {};
-      const hoursMap = new Map<number, number>();
-      if (meta.workingHours && Array.isArray(meta.workingHours)) {
-        for (const item of meta.workingHours) {
-          if (item.isAvailable && item.startTime && item.endTime) {
-            const startMins = this.timeToMins(item.startTime);
-            const endMins = this.timeToMins(item.endTime);
-            hoursMap.set(item.dayOfWeek, Math.max(0, (endMins - startMins) / 60));
-          }
-        }
-      }
-
-      // Sum working hours day-by-day
-      let providerHours = 0;
-      const tempDate = new Date(startDate);
-      while (tempDate <= endDate) {
-        const dow = tempDate.getDay(); // 0 is Sunday, 1 is Monday etc.
-        const scheduled = hoursMap.get(dow);
-        if (scheduled !== undefined) {
-          providerHours += scheduled;
-        } else if (dow >= 1 && dow <= 5) {
-          // Default: 8 hours for weekdays
-          providerHours += 8;
-        }
-        tempDate.setDate(tempDate.getDate() + 1);
-      }
+      const providerHours = workingHoursInRange(meta, startDate, endDate);
 
       if (isHygienist) {
         hygienistWorkingHours += providerHours;
@@ -399,10 +355,10 @@ export class DashboardMetricsService {
 
     // Scale Goals based on range duration
     // The goals in setting are hourly for providers, and monthly for visits/new patients.
-    const scaledDentistCompletedGoal = dentistWorkingHours * goals.dentistHourlyGoal;
-    const scaledDentistPlannedGoal = scaledDentistCompletedGoal * 1.05; // Planned goal slightly higher
-    const scaledHygienistCompletedGoal = hygienistWorkingHours * goals.hygienistHourlyGoal;
-    const scaledHygienistPlannedGoal = scaledHygienistCompletedGoal * 1.05;
+    const scaledDentistCompletedGoal = productionGoal(dentistWorkingHours, goals.dentistHourlyGoal);
+    const scaledDentistPlannedGoal = scaledDentistCompletedGoal;
+    const scaledHygienistCompletedGoal = productionGoal(hygienistWorkingHours, goals.hygienistHourlyGoal);
+    const scaledHygienistPlannedGoal = scaledHygienistCompletedGoal;
 
     const scaledTotalCompletedGoal = scaledDentistCompletedGoal + scaledHygienistCompletedGoal;
     const scaledTotalPlannedGoal = scaledDentistPlannedGoal + scaledHygienistPlannedGoal;
@@ -411,9 +367,9 @@ export class DashboardMetricsService {
     const completedAppts = await prisma.appointment.findMany({
       where: {
         AptDateTime: { gte: startDate, lte: endDate },
-        AptStatus: 1, // Completed
-        ...(targetProvNums.length > 0 ? { ProvNum: { in: targetProvNums } } : {}),
-        ...(targetClinicNums && targetClinicNums.length > 0 ? { ClinicNum: { in: targetClinicNums } } : {}),
+        AptStatus: { in: [1, 2, 5] }, // Same visit scope as the productivity panel
+        ProvNum: { in: targetProvNums },
+        ...(targetClinicNums !== undefined ? { ClinicNum: { in: targetClinicNums } } : {}),
       },
     });
 
@@ -447,13 +403,13 @@ export class DashboardMetricsService {
     const visitProdDentist = dentistVisitsCount > 0 ? dentistCompletedVal / dentistVisitsCount : 0;
     const visitProdHygienist = hygienistVisitsCount > 0 ? hygienistCompletedVal / hygienistVisitsCount : 0;
 
-    const calcPercent = (val: number, goal: number) => goal > 0 ? Math.min(100, Math.round((val / goal) * 100)) : 0;
+    const calcPercent = goalPercent;
     
     const buildCard = (
       completed: number, planned: number, collection: number, 
       completedGoal: number, plannedGoal: number, 
       hourly: number, hourlyGoal: number, 
-      visit: number, visitGoal: number
+      visit: number, visitGoal: number, hourlyConfigured: boolean, visitConfigured: boolean
     ): MetricCard => {
       const pVal = Number(completed.toFixed(2));
       const gpVal = Number((completed + planned).toFixed(2));
@@ -461,40 +417,42 @@ export class DashboardMetricsService {
       const gcVal = cVal;
 
       const pGoal = Number(completedGoal.toFixed(2));
-      const gpGoal = Number((completedGoal + plannedGoal).toFixed(2));
-      const collPercent = (goals.collectionPercentGoal || 0) / 100;
-      const cGoal = Number((completedGoal * collPercent).toFixed(2));
-      const gcGoal = Number((gpGoal * collPercent).toFixed(2));
+      const gpGoal = Number(plannedGoal.toFixed(2));
+      const cGoal = collectionGoal(completedGoal, goals.collectionPercentGoal);
+      const gcGoal = collectionGoal(gpGoal, goals.collectionPercentGoal);
 
       return {
         pVal, pGoal, pPercent: calcPercent(pVal, pGoal),
         cVal, cGoal, cPercent: calcPercent(cVal, cGoal),
         gpVal, gpGoal, gpPercent: calcPercent(gpVal, gpGoal),
         gcVal, gcGoal, gcPercent: calcPercent(gcVal, gcGoal),
-        perHourStr: `$${hourly.toFixed(0)} / $${hourlyGoal.toFixed(0)}`,
-        perVisitStr: `$${visit.toFixed(0)} / $${visitGoal.toFixed(0)}`,
+        perHourStr: `$${hourly.toFixed(0)} (${goalLabel(hourlyGoal, hourlyConfigured)})`,
+        perVisitStr: `$${visit.toFixed(0)} (${goalLabel(visitGoal, visitConfigured)})`,
       };
     };
 
     const totalCard = buildCard(
       totalCompletedVal, totalPlannedVal, totalCollectionVal,
       scaledTotalCompletedGoal, scaledTotalPlannedGoal,
-      hourlyProdTotal, filterIsHygienist ? goals.hygienistHourlyGoal : goals.dentistHourlyGoal,
-      visitProdTotal, goals.totalVisitGoal || 0
+      hourlyProdTotal, totalWorkingHours > 0 ? scaledTotalCompletedGoal / totalWorkingHours : 0,
+      visitProdTotal, goals.totalVisitGoal ?? 0,
+      goalIsConfigured(goals, 'dentistHourlyGoal') || goalIsConfigured(goals, 'hygienistHourlyGoal'), goalIsConfigured(goals, 'totalVisitGoal')
     );
 
     const dentistCard = buildCard(
       dentistCompletedVal, dentistPlannedVal, dentistCollectionVal,
       scaledDentistCompletedGoal, scaledDentistPlannedGoal,
       hourlyProdDentist, goals.dentistHourlyGoal,
-      visitProdDentist, goals.dentistVisitGoal || 0
+      visitProdDentist, goals.dentistVisitGoal ?? 0,
+      goalIsConfigured(goals, 'dentistHourlyGoal'), goalIsConfigured(goals, 'dentistVisitGoal')
     );
 
     const hygienistCard = buildCard(
       hygienistCompletedVal, hygienistPlannedVal, hygienistCollectionVal,
       scaledHygienistCompletedGoal, scaledHygienistPlannedGoal,
       hourlyProdHygienist, goals.hygienistHourlyGoal,
-      visitProdHygienist, goals.hygienistVisitGoal || 0
+      visitProdHygienist, goals.hygienistVisitGoal ?? 0,
+      goalIsConfigured(goals, 'hygienistHourlyGoal'), goalIsConfigured(goals, 'hygienistVisitGoal')
     );
 
 
@@ -508,7 +466,7 @@ export class DashboardMetricsService {
     const allAppts = await prisma.appointment.findMany({
       where: {
         AptDateTime: { gte: startDate, lte: endDate },
-        ...(targetProvNums.length > 0 ? { ProvNum: { in: targetProvNums } } : {}),
+        ProvNum: { in: targetProvNums },
       },
       include: {
         patient: { select: { DateFirstVisit: true } },
@@ -558,7 +516,7 @@ export class DashboardMetricsService {
     const caseAcceptance = await this.calculateCaseAcceptance(startDate, endDate, targetProvNums);
 
     // 8. Hygiene Potential Donut Chart
-    const hygienePotential = await this.calculateHygienePotential(targetProvNums);
+    const hygienePotential = await this.calculateHygienePotential(providerId && providerId.toLowerCase() !== 'all' ? targetProvNums : undefined, targetClinicNums ?? undefined, endDate);
 
     return {
       total: totalCard,
@@ -671,10 +629,10 @@ export class DashboardMetricsService {
     const actualHyg = sum(hygProd);
 
     const formatSummary = (actual: number, goal: number) => {
-      const percent = goal > 0 ? Math.min(100, Math.round((actual / goal) * 100)) : 0;
+      const percent = goalPercent(actual, goal);
       return {
-        percent: `${percent}%`,
-        footer: `Production Goal $${goal.toFixed(0)} · Actual $${actual.toFixed(0)} (${percent}%)`
+        percent: percent === null ? "\u2014" : `${percent}%`,
+        footer: goal > 0 ? `Production Goal $${goal.toFixed(0)} - Actual $${actual.toFixed(0)} (${percent}%)` : `No active production goal - Actual $${actual.toFixed(0)}`
       };
     };
 
@@ -820,64 +778,8 @@ export class DashboardMetricsService {
   /**
    * Helper to query and group Hygiene Interval recall potential
    */
-  private async calculateHygienePotential(targetProvNums: bigint[]) {
-    const recalls = await prisma.recall.findMany({
-      where: {
-        IsDisabled: 0,
-        ...(targetProvNums.length > 0 ? { patient: { PriProv: { in: targetProvNums } } } : {}),
-      },
-    });
-
-    let onTimeNoPreAppt = 0;
-    let onTimePreAppt = 0;
-    let noRecare = 0;
-    let flaggedNoRecare = 0;
-    let late12mAppt = 0;
-    let late12mBroken = 0;
-    let late12mNoAppt = 0;
-
-    const now = new Date();
-    const twelveMonthsAgo = new Date();
-    twelveMonthsAgo.setMonth(now.getMonth() - 12);
-
-    for (const r of recalls) {
-      const isScheduled = Boolean(r.DateScheduled);
-      const isOverdue12M = r.DateDue ? new Date(r.DateDue) < twelveMonthsAgo : false;
-      const isOverdue = r.DateDue ? new Date(r.DateDue) < now : false;
-
-      if (isOverdue12M) {
-        if (isScheduled) {
-          late12mAppt++;
-        } else {
-          // Fallback check if they had a cancelled/no-show appointment recently
-          const note = (r.Note || '').toLowerCase();
-          if (note.includes('broken') || note.includes('no show') || note.includes('cancel')) {
-            late12mBroken++;
-          } else {
-            late12mNoAppt++;
-          }
-        }
-      } else if (isOverdue) {
-        onTimeNoPreAppt++;
-      } else {
-        // Due date in the future
-        if (isScheduled) {
-          onTimePreAppt++;
-        } else {
-          onTimeNoPreAppt++;
-        }
-      }
-    }
-
-    return {
-      onTimeNoPreAppt,
-      onTimePreAppt,
-      noRecare,
-      flaggedNoRecare,
-      late12mAppt,
-      late12mBroken,
-      late12mNoAppt,
-    };
+  private async calculateHygienePotential(targetProvNums: bigint[] | undefined, clinicIds?: bigint[], asOf = new Date()) {
+    return countRecareCategories(await recarePatientRows({ providerIds: targetProvNums, clinicIds, asOf }));
   }
 
   /**
@@ -886,9 +788,9 @@ export class DashboardMetricsService {
   private getRangeDates(dateStr: string, range: string, customStart?: string, customEnd?: string): { startDate: Date; endDate: Date } {
     if (range === 'Custom' && customStart && customEnd) {
       const start = new Date(customStart);
-      start.setHours(0, 0, 0, 0);
+      start.setUTCHours(0, 0, 0, 0);
       const end = new Date(customEnd);
-      end.setHours(23, 59, 59, 999);
+      end.setUTCHours(23, 59, 59, 999);
       return { startDate: start, endDate: end };
     }
 
@@ -897,30 +799,29 @@ export class DashboardMetricsService {
     let endDate = new Date(baseDate);
 
     if (range === 'Daily') {
-      startDate.setHours(0, 0, 0, 0);
-      endDate.setHours(23, 59, 59, 999);
+      startDate.setUTCHours(0, 0, 0, 0);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'Weekly') {
       // Start of week (Sunday)
-      const day = baseDate.getDay();
-      startDate.setDate(baseDate.getDate() - day);
-      startDate.setHours(0, 0, 0, 0);
+      const day = baseDate.getUTCDay();
+      startDate.setUTCDate(baseDate.getUTCDate() - day);
+      startDate.setUTCHours(0, 0, 0, 0);
 
       // End of week (Saturday)
-      endDate.setDate(baseDate.getDate() + (6 - day));
-      endDate.setHours(23, 59, 59, 999);
+      endDate.setUTCDate(baseDate.getUTCDate() + (6 - day));
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'Monthly') {
-      startDate.setDate(1);
-      startDate.setHours(0, 0, 0, 0);
+      startDate.setUTCDate(1);
+      startDate.setUTCHours(0, 0, 0, 0);
 
-      endDate.setMonth(baseDate.getMonth() + 1);
-      endDate.setDate(0);
-      endDate.setHours(23, 59, 59, 999);
+      endDate.setUTCMonth(baseDate.getUTCMonth() + 1, 0);
+      endDate.setUTCHours(23, 59, 59, 999);
     } else if (range === 'Yearly') {
-      startDate.setMonth(0, 1);
-      startDate.setHours(0, 0, 0, 0);
+      startDate.setUTCMonth(0, 1);
+      startDate.setUTCHours(0, 0, 0, 0);
 
-      endDate.setMonth(11, 31);
-      endDate.setHours(23, 59, 59, 999);
+      endDate.setUTCMonth(11, 31);
+      endDate.setUTCHours(23, 59, 59, 999);
     }
 
     return { startDate, endDate };

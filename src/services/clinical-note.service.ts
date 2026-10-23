@@ -56,10 +56,12 @@ const CLINICAL_NOTE_META_KEYS: (keyof ClinicalNoteMeta)[] = [
   'physicalExam',
 ];
 
-const isClinicalNoteMeta = (meta: Record<string, unknown>): boolean =>
-  CLINICAL_NOTE_META_KEYS.some(
-    (key) => meta[key] !== undefined && meta[key] !== null && meta[key] !== ''
+const isClinicalNoteMeta = (meta: Record<string, unknown>): boolean => {
+  if (!meta || typeof meta !== 'object' || meta.type) return false;
+  return CLINICAL_NOTE_META_KEYS.some(
+    (key) => key !== 'appointmentId' && meta[key] !== undefined && meta[key] !== null && meta[key] !== ''
   );
+};
 
 export class ClinicalNoteService {
   private async enrichClinicalNotes(notes: any[]) {
@@ -333,11 +335,12 @@ export class ClinicalNoteService {
   }
 
   async getClinicalNoteByAppointment(appointmentId: string) {
-    const row = await prisma.commlog.findFirst({
+    const rows = await prisma.commlog.findMany({
       where: { Note: { contains: `"appointmentId":"${appointmentId}"` } },
       orderBy: { CommDateTime: 'desc' },
     });
 
+    const row = rows.find((r) => isClinicalNoteMeta(parseJson<ClinicalNoteMeta>(r.Note)));
     if (!row) return null;
     const meta = parseJson<ClinicalNoteMeta>(row.Note);
     const mapped = this.mapCommlogToClinicalNote(row, meta);
@@ -367,12 +370,14 @@ export class ClinicalNoteService {
     },
     userId: string
   ) {
-    const existing = await prisma.commlog.findFirst({
+    const rows = await prisma.commlog.findMany({
       where: {
         PatNum: BigInt(data.patientId),
         Note: { contains: `"appointmentId":"${data.appointmentId}"` },
       },
     });
+
+    const existing = rows.find((r) => isClinicalNoteMeta(parseJson<ClinicalNoteMeta>(r.Note)));
 
     if (existing) {
       throw new ConflictError('A clinical note already exists for this appointment');

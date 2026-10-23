@@ -1,4 +1,5 @@
 import { body, param, query, ValidationChain } from 'express-validator';
+import { validateGroupFields } from '../utils/insurance-group-validation.util';
 
 /**
  * Shared per-row schema for `deductiblesGrid`.
@@ -286,17 +287,21 @@ export const createPatientInsuranceValidator: ValidationChain[] = [
     .matches(/^[A-Za-z0-9\s-]+$/)
     .withMessage('Policy number must be alphanumeric, and can contain spaces or hyphens'),
   body('groupNumber')
-    .optional()
-    .trim()
-    .isLength({ max: 30 })
-    .withMessage('Group number must not exceed 30 characters')
-    .matches(/^[A-Za-z0-9\s-]*$/)
-    .withMessage('Group number must be alphanumeric, and can contain spaces or hyphens'),
+    .optional({ nullable: true }).isString().withMessage('Group Number must be text'),
   body('groupName')
-    .optional()
-    .trim()
-    .isLength({ max: 100 })
-    .withMessage('Group name must be less than 100 characters'),
+    .optional({ nullable: true }).isString().withMessage('Group Name must be text'),
+  body('insurancePlanName')
+    .optional({ nullable: true }).isString().isLength({ max: 255 }).withMessage('Insurance Plan Name must be at most 255 characters'),
+  body('employerName')
+    .optional({ nullable: true }).isString().isLength({ max: 255 }).withMessage('Employer Name must be at most 255 characters'),
+  body('employerId')
+    .optional({ nullable: true }).isInt({ min: 1 }).withMessage('Invalid employer ID format'),
+  body().custom((_value, { req }) => {
+    const { errors } = validateGroupFields(req.body);
+    const message = Object.values(errors)[0];
+    if (message) throw new Error(message);
+    return true;
+  }),
   body('subscriberName')
     .trim()
     .notEmpty()
@@ -485,15 +490,15 @@ export const updatePatientInsuranceValidator: ValidationChain[] = [
     .isLength({ max: 50 })
     .withMessage('Policy number must be less than 50 characters'),
   body('groupNumber')
-    .optional()
-    .trim()
-    .isLength({ max: 50 })
-    .withMessage('Group number must be less than 50 characters'),
+    .optional({ nullable: true }).isString().withMessage('Group Number must be text'),
   body('groupName')
-    .optional()
-    .trim()
-    .isLength({ max: 100 })
-    .withMessage('Group name must be less than 100 characters'),
+    .optional({ nullable: true }).isString().withMessage('Group Name must be text'),
+  body('insurancePlanName')
+    .optional({ nullable: true }).isString().isLength({ max: 255 }).withMessage('Insurance Plan Name must be at most 255 characters'),
+  body('employerName')
+    .optional({ nullable: true }).isString().isLength({ max: 255 }).withMessage('Employer Name must be at most 255 characters'),
+  body('employerId')
+    .optional({ nullable: true }).isInt({ min: 1 }).withMessage('Invalid employer ID format'),
   body('subscriberName')
     .optional()
     .trim()
@@ -681,3 +686,22 @@ export const reorderInsurancesValidator: ValidationChain[] = [
     .withMessage('Each insuranceId must be a valid numeric ID string'),
 ];
 
+
+export const eligibilityCheckValidator: ValidationChain[] = [
+  body('providerId')
+    .optional({ nullable: true })
+    .isInt({ min: 1 })
+    .withMessage('providerId must be a valid provider ID'),
+  body('dateOfService')
+    .optional({ nullable: true })
+    .isISO8601()
+    .withMessage('dateOfService must be a valid date (YYYY-MM-DD)'),
+  body('serviceTypeCodes')
+    .optional()
+    .isArray({ min: 1, max: 99 })
+    .withMessage('serviceTypeCodes must be a non-empty array'),
+  body('serviceTypeCodes.*')
+    .isString()
+    .matches(/^[A-Z0-9]{1,2}$/)
+    .withMessage('Each service type code must be 1-2 letters/digits (e.g. "35")'),
+];

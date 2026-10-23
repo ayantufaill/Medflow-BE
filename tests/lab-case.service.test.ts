@@ -144,7 +144,7 @@ describe('LabCaseService.getAllLabCases', () => {
         where: expect.objectContaining({
           DateTimeDue: {
             gte: new Date('2025-08-01'),
-            lte: new Date('2025-08-31'),
+            lte: new Date('2025-08-31T23:59:59.999Z'),
           },
         }),
       })

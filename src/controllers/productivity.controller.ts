@@ -86,7 +86,9 @@ export class ProductivityController {
         }
       }
 
-      const clinicNum = (req as any).user?.clinicNum ? BigInt((req as any).user.clinicNum) : undefined;
+      const branch = req.query.branchId ? String(req.query.branchId) : req.header('x-branch-id');
+      if (branch && branch.toLowerCase() !== 'all' && !/^\d+$/.test(branch)) throw new BadRequestError('Invalid reporting branch');
+      const clinicNum = branch && branch.toLowerCase() !== 'all' ? BigInt(branch) : undefined;
       const data = await productivityService.getPanelSummary(dateStr, typeof providerId === 'string' ? providerId : undefined, clinicNum);
 
       res.json({

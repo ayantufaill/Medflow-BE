@@ -119,11 +119,20 @@ export const createPaymentValidator: ValidationChain[] = [
   body('procedures.*.wo').optional().isNumeric().withMessage('Writeoff must be a number'),
   body('procedures.*.pay').optional().isNumeric().withMessage('Pay amount must be a number'),
   body('procedures.*.ded').optional().isNumeric().withMessage('Deductible must be a number'),
+  body('procedures.*.excess').optional().isNumeric().withMessage('excess must be a number'),
   body('procedures.*.updateAllowedFee').optional().isBoolean().withMessage('updateAllowedFee must be a boolean'),
   body('procedures.*.updateInsFlatPortion').optional().isBoolean().withMessage('updateInsFlatPortion must be a boolean'),
   body('procedures.*.moveToNewClaim').optional().isBoolean().withMessage('moveToNewClaim must be a boolean'),
   body('procedures.*.claimId').optional().isString().withMessage('Claim ID must be a string'),
   body('isPartialPayment').optional().isBoolean().withMessage('isPartialPayment must be a boolean'),
+  body('deferUnderpaymentToSecondary')
+    .optional()
+    .isBoolean()
+    .withMessage('deferUnderpaymentToSecondary must be a boolean'),
+  body('claimStatus')
+    .optional()
+    .isIn(['rejected', 'denied', 'paid', 'partial'])
+    .withMessage('claimStatus must be rejected, denied, paid, or partial'),
   body('overpaymentAmount')
     .optional()
     .isFloat({ min: 0 })
@@ -154,4 +163,19 @@ export const voidPaymentValidator: ValidationChain[] = [
     .trim()
     .isLength({ max: 500 })
     .withMessage('reason must be less than 500 characters'),
+];
+
+export const updatePaymentValidator: ValidationChain[] = [
+  body('notes').optional().isString().withMessage('Notes must be a string'),
+  body('amount')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('Amount must be 0 or greater'),
+  body('method').optional().isString().withMessage('Method must be a string'),
+  body('chequeNo').optional().isString().withMessage('Cheque number must be a string'),
+  body('status').optional().isString().withMessage('Status must be a string'),
+  body('paidAt')
+    .optional()
+    .isISO8601()
+    .withMessage('Paid date must be a valid date'),
 ];

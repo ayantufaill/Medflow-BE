@@ -120,7 +120,7 @@ export const basePrisma = new Proxy({} as PrismaClient, {
   },
 });
 
-/** Interactive transactions do not pass through the per-model RLS extension. */
+/** Apply tenant scope to a transaction opened on the unextended client. */
 export const applyTenantContextToTransaction = async (tx: Prisma.TransactionClient) => {
   const ctx = tenantContextStorage.getStore();
   if (!ctx) return;
@@ -133,6 +133,16 @@ export const applyTenantContextToTransaction = async (tx: Prisma.TransactionClie
            set_config('app.shared', ${ctx.sharing ?? ''}, true)
   `;
 };
+
+/** Keep model queries and raw row locks on the same connection. Transactions
+ * opened on the extended client would inherit its per-query transaction wrapper. */
+export const withTenantTransaction = <T>(
+  work: (tx: Prisma.TransactionClient) => Promise<T>,
+  options: { maxWait?: number; timeout?: number } = {},
+): Promise<T> => getBasePrisma().$transaction(async (tx) => {
+  await applyTenantContextToTransaction(tx);
+  return work(tx);
+}, { maxWait: 10000, timeout: 60000, ...options });
 
 // ─── Row-Level Security startup guard ──────────────────────────────────────
 //

@@ -72,7 +72,7 @@ router.use(enterTenantContext);
  *               npiNumber:
  *                 type: string
  *                 description: NPI (National Provider Identifier) number
- *                 example: "1234567890"
+ *                 example: "1234567893"
  *     responses:
  *       201:
  *         description: Provider created

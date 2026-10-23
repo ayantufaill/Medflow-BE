@@ -69,7 +69,7 @@ export class LabCaseController {
   updateLabCase = async (req: Request, res: Response, next: NextFunction) => {
     try {
       const planId = req.params.id;
-      const { laboratoryId, appointmentId, dueDate, dateSent, dateReceived, dateChecked, instructions, labFee, invoiceNum } = req.body;
+      const { laboratoryId, appointmentId, dueDate, dateSent, dateReceived, dateChecked, createdDate, dateCreated, instructions, labFee, invoiceNum, status, providerNum } = req.body;
       
       const result = await labCaseService.updateLabCase(planId, {
         laboratoryId,
@@ -78,9 +78,12 @@ export class LabCaseController {
         dateSent,
         dateReceived,
         dateChecked,
+        createdDate: createdDate || dateCreated,
         instructions,
         labFee,
-        invoiceNum
+        invoiceNum,
+        status,
+        providerNum
       });
       
       res.status(200).json({

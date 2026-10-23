@@ -1,4 +1,5 @@
 import { prisma } from '../config/db';
+import { resolveUserDisplayNames } from '../utils/user-display.util';
 
 export class FinanceDashboardService {
   async getLedgerByPatient(patientId: string) {
@@ -24,6 +25,16 @@ export class FinanceDashboardService {
 
     const ledger: any[] = [];
 
+    const statementCreator = (noteBold: string | null): string | null => {
+      if (!noteBold) return null;
+      try {
+        const meta = JSON.parse(noteBold);
+        return meta?.createdBy ? String(meta.createdBy) : null;
+      } catch {
+        return null;
+      }
+    };
+
     invoices.forEach(inv => {
       ledger.push({
         id: `inv_${inv.StatementNum.toString()}`,
@@ -32,6 +43,7 @@ export class FinanceDashboardService {
         description: inv.Note || 'Invoice Generated',
         charges: Number(inv.BalTotal) || 0,
         credits: 0,
+        createdBy: statementCreator(inv.NoteBold),
       });
     });
 
@@ -52,6 +64,7 @@ export class FinanceDashboardService {
         description: `Payment - ${method}`,
         charges: 0,
         credits: Number(pay.PayAmt) || 0,
+        createdBy: pay.SecUserNumEntry ? pay.SecUserNumEntry.toString() : null,
       });
     });
 
@@ -64,8 +77,11 @@ export class FinanceDashboardService {
         description: adj.AdjNote || 'Adjustment',
         charges: amt > 0 ? amt : 0,
         credits: amt < 0 ? Math.abs(amt) : 0,
+        createdBy: adj.SecUserNumEntry ? adj.SecUserNumEntry.toString() : null,
       });
     });
+
+    const nameMap = await resolveUserDisplayNames(ledger.map(e => e.createdBy));
 
     // Sort ascending by date to calculate running balance
     ledger.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -75,6 +91,7 @@ export class FinanceDashboardService {
       balance += entry.charges - entry.credits;
       return {
         ...entry,
+        createdByName: entry.createdBy ? nameMap[entry.createdBy] ?? null : null,
         balance
       };
     });
@@ -94,10 +111,11 @@ export class FinanceDashboardService {
     // Resolve patient & family members
     const patient = await prisma.patient.findUnique({
       where: { PatNum: patNum },
-      select: { PatNum: true, Guarantor: true }
+      select: { PatNum: true, Guarantor: true, FName: true, LName: true }
     });
 
     let patNums: bigint[] = [patNum];
+    let familyMembersList: Array<{ PatNum: bigint; FName: string | null; LName: string | null }> = [];
     if (patient) {
       const guarantorId = (patient.Guarantor && patient.Guarantor > 0n) ? patient.Guarantor : patNum;
       const familyMembers = await prisma.patient.findMany({
@@ -107,10 +125,13 @@ export class FinanceDashboardService {
             { PatNum: guarantorId }
           ]
         },
-        select: { PatNum: true }
+        select: { PatNum: true, FName: true, LName: true }
       });
       if (familyMembers.length > 0) {
+        familyMembersList = familyMembers;
         patNums = Array.from(new Set(familyMembers.map(m => m.PatNum)));
+      } else {
+        familyMembersList = [patient];
       }
     }
 
@@ -233,7 +254,7 @@ export class FinanceDashboardService {
       if (inv.NoteBold) {
         try {
           const meta = JSON.parse(inv.NoteBold);
-          const origTotal = Number(meta.totalAmount || 0);
+          const origTotal = Number(meta.balanceBasis === 'patient' ? meta.patientPortion : meta.totalAmount) || 0;
           const bal = Number(inv.BalTotal || 0);
           if (origTotal > bal) {
             totalStatementPayments += (origTotal - bal);
@@ -252,7 +273,13 @@ export class FinanceDashboardService {
     sortedStatements.forEach(inv => {
       const balTotal = Number(inv.BalTotal) || 0;
       const insEst = Number(inv.InsEst) || 0;
-      let patientPortion = Math.max(0, balTotal - insEst);
+      // Recalculated invoices already store the unpaid patient share. Legacy
+      // statements store the combined balance and still need insurance removed.
+      let isPatientBalance = false;
+      try {
+        isPatientBalance = JSON.parse(inv.NoteBold || '{}').balanceBasis === 'patient';
+      } catch {}
+      let patientPortion = Math.max(0, isPatientBalance ? balTotal : balTotal - insEst);
 
       if (remainingPayment > 0) {
         if (remainingPayment >= patientPortion) {
@@ -345,26 +372,72 @@ export class FinanceDashboardService {
 
     let patientAccountCredit = 0;
     let insuranceAccountCredit = 0;
+    const memberCreditMap = new Map<string, number>();
 
-    for (const split of unearnedPaysplits) {
+    for (const split of (unearnedPaysplits || [])) {
       const splitAmt = Number(split.SplitAmt) || 0;
       const unearnedType = Number(split.UnearnedType) || 0;
       if (unearnedType === 2) {
         insuranceAccountCredit += splitAmt;
-      } else {
-        patientAccountCredit += splitAmt;
+      } else if (split.PatNum) {
+        const pNumKey = split.PatNum.toString();
+        memberCreditMap.set(pNumKey, (memberCreditMap.get(pNumKey) || 0) + splitAmt);
+        if (split.PatNum === patNum) {
+          patientAccountCredit += splitAmt;
+        }
       }
     }
 
     patientAccountCredit = round2(patientAccountCredit);
     insuranceAccountCredit = round2(insuranceAccountCredit);
 
+    let familyCreditTotal = 0;
+    const familyCredits = (familyMembersList || []).map(m => {
+      const pNumKey = m.PatNum.toString();
+      const credit = round2(memberCreditMap.get(pNumKey) || 0);
+      familyCreditTotal += credit;
+      return {
+        patNum: pNumKey,
+        name: `${m.FName || ''} ${m.LName || ''}`.trim() || 'Unknown',
+        credit,
+        isCurrentPatient: m.PatNum === patNum
+      };
+    });
+    familyCreditTotal = round2(familyCreditTotal);
+
+    // ─────────────────────────────────────────────────────────────
+    // 5. Courtesy Credit
+    // ─────────────────────────────────────────────────────────────
+    let courtesyCreditTotal = 0;
+    try {
+      const courtesyAdjustments = await prisma.adjustment.findMany({
+        where: {
+          PatNum: { in: patNums },
+          AdjNote: { contains: 'Courtesy Credit' }
+        },
+        select: { AdjAmt: true }
+      });
+      if (Array.isArray(courtesyAdjustments)) {
+        for (const adj of courtesyAdjustments) {
+          courtesyCreditTotal += Math.abs(Number(adj.AdjAmt) || 0);
+        }
+      }
+    } catch {
+      // Graceful fallback if adjustments query fails
+    }
+    courtesyCreditTotal = round2(courtesyCreditTotal);
+
     return {
       familyOutstanding,
       familyBalance,
       insuranceBalance,
       patientAccountCredit,
-      insuranceAccountCredit
+      insuranceAccountCredit,
+      patientCredit: patientAccountCredit,
+      accountCredit: patientAccountCredit,
+      familyCredit: familyCreditTotal,
+      familyCredits,
+      courtesyCredit: courtesyCreditTotal
     };
   }
 

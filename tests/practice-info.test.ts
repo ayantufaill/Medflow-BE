@@ -2,6 +2,9 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import app from '../src/app';
 import { getAdminAuthHeader } from './helpers/auth';
+import { createProviderRecord } from './helpers/fixtures';
+import { uniqueToken } from './helpers/unique';
+import { prisma } from '../src/config/db';
 
 describe('Practice Info', () => {
   let authHeader: { Authorization: string };
@@ -148,17 +151,30 @@ describe('Practice Info', () => {
   });
 
   it('simulates move provider future data', async () => {
-    const moveRes = await request(app)
-      .post('/api/practice-info/move-provider')
-      .set(authHeader)
-      .send({
-        fromProvider: 'Dr. John Doe',
-        toProvider: 'Dr. Jane Smith',
+    const token = uniqueToken('move-provider');
+    const fromProvider = await createProviderRecord(`${token}-from`);
+    const toProvider = await createProviderRecord(`${token}-to`);
+    try {
+      const moveRes = await request(app)
+        .post('/api/practice-info/move-provider')
+        .set(authHeader)
+        .send({
+          fromProvider: fromProvider.ProvNum.toString(),
+          toProvider: toProvider.ProvNum.toString(),
+        });
+      expect(moveRes.status).toBe(200);
+      expect(moveRes.body.success).toBe(true);
+      expect(moveRes.body.data.fromProvider).toMatchObject({
+        id: fromProvider.ProvNum.toString(),
+        name: `Dr. ${fromProvider.FName} ${fromProvider.LName}`, exists: true,
       });
-    expect(moveRes.status).toBe(200);
-    expect(moveRes.body.success).toBe(true);
-    expect(moveRes.body.data.fromProvider.name).toBe('Dr. John Doe');
-    expect(moveRes.body.data.toProvider.name).toBe('Dr. Jane Smith');
+      expect(moveRes.body.data.toProvider).toMatchObject({
+        id: toProvider.ProvNum.toString(),
+        name: `Dr. ${toProvider.FName} ${toProvider.LName}`, exists: true,
+      });
+    } finally {
+      await prisma.provider.deleteMany({ where: { ProvNum: { in: [fromProvider.ProvNum, toProvider.ProvNum] } } });
+    }
   });
 });
 

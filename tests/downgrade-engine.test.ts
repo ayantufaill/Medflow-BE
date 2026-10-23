@@ -117,6 +117,38 @@ describe('isToothAllowed', () => {
   });
 });
 
+describe('parseTeethRange', () => {
+  it('parses the shapes written by the invoice and treatment-plan UIs', () => {
+    // Invoice modal: teeth comma-joined, then a parenthesized surface group.
+    expect(parseTeethRange('28,29 (MO)')).toEqual(['P:28', 'P:29']);
+    expect(parseTeethRange('3 (MO)')).toEqual(['P:3']);
+    // Treatment plan: `#` charting prefix and surfaces trailing as tokens.
+    expect(parseTeethRange('#14 MO')).toEqual(['P:14']);
+    expect(parseTeethRange('#14 MO, #15 MO')).toEqual(['P:14', 'P:15']);
+  });
+
+  it('never reads a surface annotation as a tooth', () => {
+    // Regression: "MO" previously matched primary tooth M, which blocked a
+    // correctly-covered tooth because the phantom key was not in the limit.
+    expect(parseTeethRange('14 (MO)')).toEqual(['P:14']);
+    expect(parseTeethRange('#14 MOD')).toEqual(['P:14']);
+  });
+
+  it('returns null when the site names no tooth', () => {
+    expect(parseTeethRange('None')).toBeNull();
+    expect(parseTeethRange('-')).toBeNull();
+    expect(parseTeethRange('')).toBeNull();
+    expect(parseTeethRange(null)).toBeNull();
+  });
+
+  it('lets a correctly-covered tooth through the limit check', () => {
+    const limit = parseTeethLimit('3, 14')!;
+    expect(isToothAllowed(limit, parseTeethRange('14 (MO)'))).toBe(true);
+    expect(isToothAllowed(limit, parseTeethRange('#14 MO'))).toBe(true);
+    expect(isToothAllowed(limit, parseTeethRange('5 (MO)'))).toBe(false);
+  });
+});
+
 describe('normalizeDowngradeRows', () => {
   it('builds a rule from a row with the flag on', () => {
     const rules = normalizeDowngradeRows(
@@ -149,7 +181,7 @@ describe('normalizeDowngradeRows', () => {
     expect(normalizeDowngradeRows('nope')).toEqual([]);
   });
 
-  it('reads the teeth limit off the downgrade row first', () => {
+  it('reads the teeth limit off the downgrade row', () => {
     const rules = normalizeDowngradeRows(
       book(
         { code: 'D2391', hasDowngrade: true, downgrade: 'D2140' },
@@ -160,18 +192,31 @@ describe('normalizeDowngradeRows', () => {
     expect(rules[0].teethSource).toBe('downgrade-row');
   });
 
-  it('falls back to the billed row when the downgrade row has no limit', () => {
+  it('reads the downgrade teeth from a `teeth` array when no string is stored', () => {
+    // The tooth dialog writes both fields, but a row persisted with only the
+    // array must still apply the limit.
+    const rules = normalizeDowngradeRows(
+      book(
+        { code: 'D2391', hasDowngrade: true, downgrade: 'D2140' },
+        { code: 'D2140', teeth: ['1', '2'] }
+      )
+    );
+    expect(rules[0].teethLimit).toEqual(['P:1', 'P:2']);
+    expect(rules[0].teethSource).toBe('downgrade-row');
+  });
+
+  it('ignores teeth on the billed row (they are a coverage limit)', () => {
     const rules = normalizeDowngradeRows(
       book(
         { code: 'D2392', hasDowngrade: true, downgrade: 'D2150', teethLimit: '4, 5, 6' },
         { code: 'D2150' }
       )
     );
-    expect(rules[0].teethLimit).toEqual(['P:4', 'P:5', 'P:6']);
-    expect(rules[0].teethSource).toBe('billed-row');
+    expect(rules[0].teethLimit).toEqual([]);
+    expect(rules[0].teethSource).toBe('none');
   });
 
-  it('reports no limit when neither row carries one', () => {
+  it('reports no limit when the downgrade row carries none', () => {
     const rules = normalizeDowngradeRows(
       book(
         { code: 'D2740', hasDowngrade: true, downgrade: 'D2791' },

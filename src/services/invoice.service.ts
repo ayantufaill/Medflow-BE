@@ -5,11 +5,19 @@ import { logActivity } from '../utils/activity-logger.util';
 import { getNextId } from '../utils/opendental-ids.util';
 import { mapPatientToApi, mapProviderToApi } from '../utils/opendental-mappers.util';
 import { getPatientInsuranceMeta } from '../utils/opendental-auth.util';
+import {
+  annualMaximum,
+  benefitPeriodStart,
+  remainingAnnualBenefit,
+} from '../utils/insurance-benefit-usage.util';
+import { resolveUserDisplayNames } from '../utils/user-display.util';
 import { adjustmentService } from './adjustment.service';
 import { paymentService } from './payment.service';
 import { claimService } from './claim.service';
 import { patientInsuranceService } from './patient-insurance.service';
 import { agingService } from './aging.service';
+import { lateFee } from './late-fee.service';
+import { LateFeeGuardrails } from './late-fee-guardrails.service';
 import {
   DeductibleLedger,
   applyDeductible,
@@ -26,6 +34,18 @@ import {
   resolveDowngrade,
   type DowngradeRule,
 } from './downgrade.service';
+import {
+  computeAge,
+  evaluateAge,
+  evaluateFrequency,
+  evaluateLifetime,
+  evaluateNotCovered,
+  evaluateTeeth,
+  evaluateWaiting,
+  normalizeCoverageLimits,
+  type CoverageRule,
+  type UsageEntry,
+} from './coverage-limits.service';
 const roundCurrency = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
 /**
@@ -48,15 +68,49 @@ type PlanPricingContext = {
   deductibleLedger: DeductibleLedger;
   downgradeMap: Map<string, DowngradeRule>;
   coverageCategoryByCode: Map<string, string>;
+  /** Coverage-book limits (age/frequency/lifetime/flat/not-covered) by code. */
+  coverageLimitMap: Map<string, CoverageRule>;
+  /**
+   * True for a fixed-benefit ("Copay/Fixed Plan") plan. Such plans price every
+   * code off its flat plan portion, so the percentage ladder is inert — a code
+   * with no flat portion pays $0 rather than falling back to a CDT default.
+   */
+  isFixedBenefitPlan: boolean;
+  /** Waiting months by normalized category key, same key space as percentages. */
+  categoryWaiting: Map<string, number>;
+  /** Waiting months by procedure code, mirroring `procCodePercentages`. */
+  procCodeWaiting: Map<string, number>;
+  /** The subscriber's policy start (`insSub.DateEffective`), for the waiting rule. */
+  policyStart: Date | null;
+  /** The patient's birth date, for the age rule. */
+  patientDob: Date | null;
+  /**
+   * Mutable per-plan running state for the frequency and lifetime rules. Seeded
+   * from usage history and advanced as covered lines are priced, kept separate
+   * per plan so the primary and secondary never consume each other's limits.
+   */
+  coverageTally: CoverageTally;
+};
+
+/** Running usage state for one plan's coverage limits. */
+type CoverageTally = {
+  /** Prior service dates per code, for the rolling frequency window. */
+  datesByCode: Map<string, UsageEntry[]>;
+  /** Insurance paid to date per code, for the lifetime dollar cap. */
+  lifetimePaidByCode: Map<string, number>;
 };
 
 /** Coverage-percentage lookup tables, keyed by normalized category name. */
 type CoveragePercentTables = {
   procCodePercentages: Map<string, number>;
   categoryPercentages: Map<string, number>;
+  categoryWaiting: Map<string, number>;
+  procCodeWaiting: Map<string, number>;
 };
 
 type StatementMeta = {
+  /** BalTotal is the unpaid patient share, with insurance tracked in InsEst. */
+  balanceBasis?: 'patient';
   appointmentId?: string;
   providerId?: string;
   insuranceCompanyId?: string;
@@ -79,6 +133,7 @@ type StatementMeta = {
   dueDate?: string;
   voidReason?: string;
   claimId?: string; // Added to store generated claim ID
+  lateFeePolicyVersionId?: string;
   /**
    * Set when the invoice's deductible has been made permanent, i.e. when the
    * fully patient-responsible portion was folded into the plan's `metAmount`.
@@ -96,6 +151,41 @@ type ItemMeta = {
   quantity?: number;
   cptCode?: string;
   serviceId?: string;
+  ptPortion?: number;
+  insPortion?: number;
+  primaryInsPortion?: number;
+  secondaryInsPortion?: number;
+  totalInsPortion?: number;
+  writeoff?: number;
+  estimatedWriteOff?: number;
+  allowedFee?: number;
+  coveragePct?: number;
+  // Set when a coverage-book limit blocks the line (not-covered / waiting-period
+  // / age / frequency / lifetime-limit). Absent or null means the line priced.
+  coverageBlockedReason?: string | null;
+  deductibleApplied?: number;
+  paidAmount?: number;
+  patientPaidAmount?: number;
+  insurancePaidAmount?: number;
+  insuranceExpected?: number;
+  insuranceBalance?: number;
+  // Primary underpayment held back for a pending secondary claim (released to
+  // the patient when the secondary payment is applied). See payment.service.ts.
+  deferredInsShortfall?: number;
+  dbi?: boolean;
+  site?: string;
+  provider?: string;
+  completed?: boolean;
+  isManuallyAdjusted?: boolean;
+  isPatientPenalty?: boolean;
+  patientOnly?: boolean;
+  isAccountPenalty?: boolean;
+  noBillIns?: boolean;
+  // Voided procedures keep their StatementNum so the invoice can still list them
+  // under "include voided transactions"; every total filters them out.
+  isVoided?: boolean;
+  voidReason?: string | null;
+  voidedAt?: string | null;
 };
 
 const parseJson = <T>(value?: string | null): T => {
@@ -113,6 +203,22 @@ const buildJson = (value: Record<string, unknown>) => JSON.stringify(value);
 const toBigInt = (value?: string | null): bigint | null => {
   if (!value) return null;
   return /^\d+$/.test(value) ? BigInt(value) : null;
+};
+
+/**
+ * Parse a calendar date (YYYY-MM-DD, as sent by the invoice modal) as LOCAL
+ * midnight. Parsing such a string with `new Date("YYYY-MM-DD")` yields UTC
+ * midnight, which displays as the previous day in UTC-negative timezones —
+ * so the date a user picked in the UI would round-trip one day early.
+ */
+const parseLocalDate = (value?: string | null): Date | null => {
+  if (!value) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (match) {
+    return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  }
+  const fallback = new Date(value);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
 };
 
 const getInvoiceNumber = async (db: Prisma.TransactionClient | typeof prisma = prisma): Promise<string> => {
@@ -138,7 +244,8 @@ export const isPatientPenaltyOrNonIns = (item: any): boolean => {
     item.isAccountPenalty ||
     item.patientOnly ||
     item.noBillIns ||
-    item.accountPenalty
+    item.accountPenalty ||
+    item.dbi === true
   ) {
     return true;
   }
@@ -177,6 +284,10 @@ export const isPatientPenaltyOrNonIns = (item: any): boolean => {
 };
 
 export class InvoiceService {
+  async getNextInvoiceNumber(): Promise<string> {
+    return getInvoiceNumber();
+  }
+
   /** Attach the completed OpenDental procedures already created by a treatment plan. */
   async createInvoiceFromCompletedProcedures(
     tx: Prisma.TransactionClient,
@@ -223,6 +334,10 @@ export class InvoiceService {
       secondaryInsPortion: Number(pricedItems[index]?.secondaryInsPortion || 0),
       totalInsPortion: Number(pricedItems[index]?.totalInsPortion ?? pricedItems[index]?.insPortion ?? 0),
       writeoff: Number(pricedItems[index]?.writeoff || 0), completed: true,
+      coveragePct: pricedItems[index]?.coveragePct ?? parseJson<any>(proc.BillingNote)?.coveragePct ?? null,
+      coverageBlockedReason: pricedItems[index]?.coverageBlockedReason ?? null,
+      allowedFee: pricedItems[index]?.allowedFee ?? parseJson<any>(proc.BillingNote)?.allowedFee ?? null,
+      allowedFeeSource: pricedItems[index]?.allowedFeeSource ?? parseJson<any>(proc.BillingNote)?.allowedFeeSource ?? null,
     }]));
     const totalAmount = roundCurrency(procedures.reduce((sum, proc) => sum + Number(proc.ProcFee || 0), 0));
     const insurancePortion = roundCurrency(procedures.reduce((sum, proc) => sum + Number(itemMetaByProc.get(proc.ProcNum.toString())?.totalInsPortion || 0), 0));
@@ -272,19 +387,34 @@ export class InvoiceService {
       quantity,
       unitPrice,
       totalPrice,
-      ptPortion: isPenalty ? totalPrice : Number((meta as any).ptPortion || 0),
-      insPortion: isPenalty ? 0 : Number((meta as any).totalInsPortion || (Number((meta as any).insPortion || 0) + Number((meta as any).secondaryInsPortion || 0))),
-      primaryInsPortion: isPenalty ? 0 : Number((meta as any).primaryInsPortion || (meta as any).insPortion || 0),
-      secondaryInsPortion: isPenalty ? 0 : Number((meta as any).secondaryInsPortion || 0),
-      totalInsPortion: isPenalty ? 0 : Number((meta as any).totalInsPortion || (Number((meta as any).insPortion || 0) + Number((meta as any).secondaryInsPortion || 0))),
-      writeoff: isPenalty ? 0 : Number((meta as any).writeoff || (meta as any).estimatedWriteOff || 0),
-      estimatedWriteOff: isPenalty ? 0 : Number((meta as any).estimatedWriteOff || (meta as any).writeoff || 0),
-      allowedFee: isPenalty ? null : ((meta as any).allowedFee ? Number((meta as any).allowedFee) : null),
-      paidAmount: Number((meta as any).paidAmount || 0),
-      dbi: (meta as any).dbi !== undefined ? Boolean((meta as any).dbi) : null,
-      site: (meta as any).site || null,
-      provider: (meta as any).provider || null,
-      completed: (meta as any).completed !== undefined ? Boolean((meta as any).completed) : null,
+      ptPortion: isPenalty ? totalPrice : Number(meta.ptPortion || 0),
+      insPortion: isPenalty ? 0 : Number(meta.totalInsPortion || (Number(meta.insPortion || 0) + Number(meta.secondaryInsPortion || 0))),
+      primaryInsPortion: isPenalty ? 0 : Number(meta.primaryInsPortion || meta.insPortion || 0),
+      secondaryInsPortion: isPenalty ? 0 : Number(meta.secondaryInsPortion || 0),
+      totalInsPortion: isPenalty ? 0 : Number(meta.totalInsPortion || (Number(meta.insPortion || 0) + Number(meta.secondaryInsPortion || 0))),
+      writeoff: isPenalty ? 0 : Number(meta.writeoff || meta.estimatedWriteOff || 0),
+      estimatedWriteOff: isPenalty ? 0 : Number(meta.estimatedWriteOff || meta.writeoff || 0),
+      allowedFee: isPenalty ? null : (meta.allowedFee ? Number(meta.allowedFee) : null),
+      coveragePct: isPenalty ? null : (meta.coveragePct !== undefined && meta.coveragePct !== null ? Number(meta.coveragePct) : null),
+      // Why the plan paid nothing on this line, if a coverage-book limit blocked
+      // it (not-covered / waiting-period / age / frequency / lifetime-limit).
+      // Penalty lines are suppressed for the same reason their money is.
+      coverageBlockedReason: isPenalty ? null : (meta.coverageBlockedReason ?? null),
+      deductibleApplied: isPenalty ? 0 : Number(meta.deductibleApplied || 0),
+      paidAmount: Number(meta.paidAmount || 0),
+      patientPaidAmount: Number(meta.patientPaidAmount || 0),
+      insurancePaidAmount: Number(meta.insurancePaidAmount || 0),
+      insuranceExpected: Number(meta.insuranceExpected || meta.totalInsPortion || meta.insPortion || 0),
+      insuranceBalance: Number(meta.insuranceBalance != null ? meta.insuranceBalance : Math.max(0, Number(meta.totalInsPortion || meta.insPortion || 0) - Number(meta.insurancePaidAmount || 0))),
+      dbi: meta.dbi !== undefined ? Boolean(meta.dbi) : null,
+      // Voided procedures keep their StatementNum so the invoice can still list
+      // them under "include voided transactions"; they are excluded from every
+      // total by the callers that do not ask for them.
+      isVoided: Boolean(meta.isVoided),
+      voidReason: meta.voidReason ?? null,
+      site: meta.site || null,
+      provider: meta.provider || null,
+      completed: meta.completed !== undefined ? Boolean(meta.completed) : null,
       isPatientPenalty: isPenalty,
       patientOnly: isPenalty,
       isAccountPenalty: isPenalty,
@@ -302,18 +432,37 @@ export class InvoiceService {
   private buildCoveragePercentTables(coverageCategoryTable: any): CoveragePercentTables {
     const procCodePercentages = new Map<string, number>();
     const categoryPercentages = new Map<string, number>();
+    // Waiting months share the EXACT key space the percentages use, so the same
+    // category key that resolves a code's coverage also resolves its waiting
+    // period — the two can never disagree about which category a code is in. A
+    // procedure-code item's own waiting is keyed by code, mirroring
+    // `procCodePercentages`, so a coded row that also carries a coverage % does
+    // not silently drop its waiting period.
+    const categoryWaiting = new Map<string, number>();
+    const procCodeWaiting = new Map<string, number>();
 
     const normalizeCat = (str: string) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-    const addCategoryPercentage = (catName: string, cov: number, subLabel?: string) => {
-      if (!catName || typeof cov !== 'number') return;
+    const addCategoryPercentage = (
+      catName: string,
+      cov: number | undefined,
+      subLabel?: string,
+      waiting?: number,
+    ) => {
+      if (!catName) return;
+      if (typeof cov !== 'number' && typeof waiting !== 'number') return;
       const norm = normalizeCat(catName);
       const normSub = subLabel ? normalizeCat(subLabel) : '';
 
+      const write = (key: string) => {
+        if (typeof cov === 'number') categoryPercentages.set(key, cov);
+        if (typeof waiting === 'number') categoryWaiting.set(key, waiting);
+      };
+
       if (normSub) {
-        categoryPercentages.set(`${norm}${normSub}`, cov);
+        write(`${norm}${normSub}`);
       } else {
-        categoryPercentages.set(norm, cov);
+        write(norm);
       }
 
       // Map common category aliases
@@ -335,36 +484,51 @@ export class InvoiceService {
 
       for (const alias of aliases) {
         if (normSub) {
-          categoryPercentages.set(`${alias}${normSub}`, cov);
+          write(`${alias}${normSub}`);
         } else {
-          categoryPercentages.set(alias, cov);
+          write(alias);
         }
       }
     };
+
+    const asNumber = (value: unknown): number | undefined =>
+      typeof value === 'number' ? value : undefined;
 
     // Process coverageCategoryTable (can be Array or Object)
     if (Array.isArray(coverageCategoryTable)) {
       for (const catEntry of coverageCategoryTable) {
         if (catEntry && typeof catEntry === 'object') {
           const catName = catEntry.category || catEntry.title || catEntry.label || catEntry.name;
-          if (catName && typeof catEntry.coverage === 'number') {
-            addCategoryPercentage(catName, catEntry.coverage);
+          const catCov = asNumber(catEntry.coverage);
+          const catWaiting = asNumber(catEntry.waiting);
+          if (catName && (catCov !== undefined || catWaiting !== undefined)) {
+            addCategoryPercentage(catName, catCov, undefined, catWaiting);
           }
           if (Array.isArray(catEntry.items)) {
             for (const subItem of catEntry.items) {
-              if (subItem.code && typeof subItem.coverage === 'number') {
-                procCodePercentages.set(String(subItem.code).toUpperCase().trim(), subItem.coverage);
-              } else if (subItem.label && typeof subItem.coverage === 'number') {
+              const cov = asNumber(subItem.coverage);
+              const waiting = asNumber(subItem.waiting);
+              if (subItem.code) {
+                const codeKey = String(subItem.code).toUpperCase().trim();
+                if (cov !== undefined) procCodePercentages.set(codeKey, cov);
+                if (waiting !== undefined) procCodeWaiting.set(codeKey, waiting);
+              } else if (subItem.label && (cov !== undefined || waiting !== undefined)) {
                 const subLabel = String(subItem.label);
                 const normSub = normalizeCat(subLabel);
-                if (!categoryPercentages.has(normSub)) {
-                  categoryPercentages.set(normSub, subItem.coverage);
+                if (cov !== undefined && !categoryPercentages.has(normSub)) {
+                  categoryPercentages.set(normSub, cov);
+                }
+                if (waiting !== undefined && !categoryWaiting.has(normSub)) {
+                  categoryWaiting.set(normSub, waiting);
                 }
                 if (catName) {
-                  addCategoryPercentage(catName, subItem.coverage, subLabel);
+                  addCategoryPercentage(catName, cov, subLabel, waiting);
                   const normCat = normalizeCat(catName);
-                  if (!categoryPercentages.has(normCat)) {
-                    categoryPercentages.set(normCat, subItem.coverage);
+                  if (cov !== undefined && !categoryPercentages.has(normCat)) {
+                    categoryPercentages.set(normCat, cov);
+                  }
+                  if (waiting !== undefined && !categoryWaiting.has(normCat)) {
+                    categoryWaiting.set(normCat, waiting);
                   }
                 }
               }
@@ -378,18 +542,28 @@ export class InvoiceService {
           addCategoryPercentage(catKey, value);
         } else if (Array.isArray(value)) {
           for (const subItem of value as any[]) {
-            if (subItem.code && typeof subItem.coverage === 'number') {
-              procCodePercentages.set(String(subItem.code).toUpperCase().trim(), subItem.coverage);
-            } else if (subItem.label && typeof subItem.coverage === 'number') {
+            const cov = asNumber(subItem.coverage);
+            const waiting = asNumber(subItem.waiting);
+            if (subItem.code) {
+              const codeKey = String(subItem.code).toUpperCase().trim();
+              if (cov !== undefined) procCodePercentages.set(codeKey, cov);
+              if (waiting !== undefined) procCodeWaiting.set(codeKey, waiting);
+            } else if (subItem.label && (cov !== undefined || waiting !== undefined)) {
               const subLabel = String(subItem.label);
               const normSub = normalizeCat(subLabel);
-              if (!categoryPercentages.has(normSub)) {
-                categoryPercentages.set(normSub, subItem.coverage);
+              if (cov !== undefined && !categoryPercentages.has(normSub)) {
+                categoryPercentages.set(normSub, cov);
               }
-              addCategoryPercentage(catKey, subItem.coverage, subLabel);
+              if (waiting !== undefined && !categoryWaiting.has(normSub)) {
+                categoryWaiting.set(normSub, waiting);
+              }
+              addCategoryPercentage(catKey, cov, subLabel, waiting);
               const normCat = normalizeCat(catKey);
-              if (!categoryPercentages.has(normCat)) {
-                categoryPercentages.set(normCat, subItem.coverage);
+              if (cov !== undefined && !categoryPercentages.has(normCat)) {
+                categoryPercentages.set(normCat, cov);
+              }
+              if (waiting !== undefined && !categoryWaiting.has(normCat)) {
+                categoryWaiting.set(normCat, waiting);
               }
             }
           }
@@ -397,7 +571,7 @@ export class InvoiceService {
       }
     }
 
-    return { procCodePercentages, categoryPercentages };
+    return { procCodePercentages, categoryPercentages, categoryWaiting, procCodeWaiting };
   }
 
   /**
@@ -426,6 +600,136 @@ export class InvoiceService {
    */
   private resolveDowngradeFee(code: string, ctx: PlanPricingContext): number | undefined {
     return ctx.allowedFeeMap.get(code) ?? ctx.planFeeMap.get(code);
+  }
+
+  /**
+   * Load a plan's prior usage: the service dates per code (for the rolling
+   * frequency window) and the insurance paid per code (for the lifetime cap).
+   *
+   * History is scoped to this plan's `InsSubNum`, so the two plans on a patient
+   * keep independent frequency and lifetime tallies. Rows belonging to the
+   * invoice being re-priced are excluded, so a recalculation cannot count its
+   * own lines as prior usage and block itself.
+   */
+  private async loadCoverageUsage(
+    patPlan: any,
+    excludedInvoiceId: bigint | string | null,
+    db: Prisma.TransactionClient | typeof prisma,
+  ): Promise<CoverageTally> {
+    const datesByCode = new Map<string, UsageEntry[]>();
+    const lifetimePaidByCode = new Map<string, number>();
+
+    if (!patPlan?.PatNum) return { datesByCode, lifetimePaidByCode };
+
+    let excluded: bigint | null = null;
+    if (excludedInvoiceId !== null && excludedInvoiceId !== undefined && excludedInvoiceId !== '') {
+      try {
+        excluded = BigInt(excludedInvoiceId as any);
+      } catch {
+        excluded = null;
+      }
+    }
+
+    // Only performed services count toward a frequency window; TP / Referred /
+    // Deleted / Condition rows represent work that never happened.
+    const procs = await db.procedurelog.findMany({
+      where: { PatNum: patPlan.PatNum, ProcStatus: { in: [2, 3, 4] } },
+      select: { ProcNum: true, CodeNum: true, ProcDate: true, StatementNum: true },
+    });
+
+    const codeNums = new Set<string>();
+    const procCodeNum = new Map<string, bigint>();
+    const excludedProcNums = new Set<string>();
+    for (const p of procs) {
+      if (p.ProcNum === null || p.ProcNum === undefined) continue;
+      const procNum = p.ProcNum.toString();
+      if (p.CodeNum !== null && p.CodeNum !== undefined) {
+        procCodeNum.set(procNum, p.CodeNum);
+        codeNums.add(p.CodeNum.toString());
+      }
+      if (
+        excluded !== null &&
+        p.StatementNum !== null &&
+        p.StatementNum !== undefined &&
+        p.StatementNum === excluded
+      ) {
+        excludedProcNums.add(procNum);
+      }
+    }
+
+    // Insurance paid per code, for the lifetime cap. Scoped to this plan's
+    // InsSubNum. claimproc reaches its code through `ProcNum -> procedurelog`.
+    const claimprocs = await db.claimproc.findMany({
+      where: {
+        PatNum: patPlan.PatNum,
+        ...(patPlan.InsSubNum != null ? { InsSubNum: patPlan.InsSubNum } : {}),
+        Status: { in: [1, 4] },
+      },
+      select: { InsPayAmt: true, ProcNum: true },
+    });
+
+    // A paid procedure may not be in the status-filtered set above (e.g. a
+    // deleted proc still carrying a posted payment), so resolve any missing
+    // ProcNum -> CodeNum links before grouping.
+    const missingPaidProcNums = claimprocs
+      .map((cp) => cp.ProcNum)
+      .filter((n): n is bigint => n !== null && n !== undefined)
+      .filter((n) => !procCodeNum.has(n.toString()));
+    const missingProcNums = [...new Set(missingPaidProcNums.map((n) => n.toString()))];
+    const paidProcs = missingProcNums.length
+      ? await db.procedurelog.findMany({
+          where: { ProcNum: { in: missingProcNums.map((n) => BigInt(n)) } },
+          select: { ProcNum: true, CodeNum: true },
+        })
+      : [];
+    for (const p of paidProcs) {
+      if (p.ProcNum === null || p.ProcNum === undefined) continue;
+      if (p.CodeNum !== null && p.CodeNum !== undefined) {
+        procCodeNum.set(p.ProcNum.toString(), p.CodeNum);
+        codeNums.add(p.CodeNum.toString());
+      }
+    }
+
+    const codeNumList = [...codeNums].map((n) => BigInt(n));
+    const codes = codeNumList.length
+      ? await db.procedurecode.findMany({
+          where: { CodeNum: { in: codeNumList } },
+          select: { CodeNum: true, ProcCode: true },
+        })
+      : [];
+    const procCodeByCodeNum = new Map<string, string>();
+    for (const c of codes) {
+      if (c.CodeNum !== null && c.CodeNum !== undefined && c.ProcCode) {
+        procCodeByCodeNum.set(c.CodeNum.toString(), c.ProcCode.toUpperCase().trim());
+      }
+    }
+
+    for (const p of procs) {
+      if (!p.ProcDate || p.CodeNum === null || p.CodeNum === undefined) continue;
+      if (p.ProcNum !== null && p.ProcNum !== undefined && excludedProcNums.has(p.ProcNum.toString())) {
+        continue;
+      }
+      const code = procCodeByCodeNum.get(p.CodeNum.toString());
+      if (!code) continue;
+      const list = datesByCode.get(code) ?? [];
+      list.push({ date: p.ProcDate });
+      datesByCode.set(code, list);
+    }
+
+    for (const cp of claimprocs) {
+      if (cp.ProcNum === null || cp.ProcNum === undefined) continue;
+      const procNum = cp.ProcNum.toString();
+      if (excludedProcNums.has(procNum)) continue;
+      const codeNum = procCodeNum.get(procNum);
+      if (!codeNum) continue;
+      const code = procCodeByCodeNum.get(codeNum.toString());
+      if (!code) continue;
+      const amount = roundCurrency(Number(cp.InsPayAmt) || 0);
+      if (amount <= 0) continue;
+      lifetimePaidByCode.set(code, roundCurrency((lifetimePaidByCode.get(code) ?? 0) + amount));
+    }
+
+    return { datesByCode, lifetimePaidByCode };
   }
 
   /**
@@ -468,24 +772,19 @@ export class InvoiceService {
     await loadSchedule(insPlan.FeeSched, planFeeMap);
 
     const meta: any = await getPatientInsuranceMeta(patPlan.PatPlanNum);
-    const { procCodePercentages, categoryPercentages } = this.buildCoveragePercentTables(
-      meta?.coverageCategoryTable || [],
-    );
+    const { procCodePercentages, categoryPercentages, categoryWaiting, procCodeWaiting } =
+      this.buildCoveragePercentTables(meta?.coverageCategoryTable || []);
 
     // Map each code's own tier — crowns and other Major Services must never be
     // priced with the Basic sub-row just because the numeric CDT range groups
     // them together.
     const coverageCategoryByCode = new Map<string, string>();
-    const scheduleCodes = [...new Set([...allowedFeeMap.keys(), ...planFeeMap.keys()])];
-    if (scheduleCodes.length > 0) {
-      const procRows = await db.procedurecode.findMany({
-        where: { ProcCode: { in: scheduleCodes } },
-        select: { ProcCode: true, CoverageCategory: true },
-      });
-      for (const r of procRows) {
-        if (r.ProcCode && r.CoverageCategory) {
-          coverageCategoryByCode.set(r.ProcCode.toUpperCase().trim(), r.CoverageCategory);
-        }
+    const procRows = await db.procedurecode.findMany({
+      select: { ProcCode: true, CoverageCategory: true },
+    });
+    for (const r of procRows) {
+      if (r.ProcCode && r.CoverageCategory) {
+        coverageCategoryByCode.set(r.ProcCode.toUpperCase().trim(), r.CoverageCategory);
       }
     }
 
@@ -524,6 +823,34 @@ export class InvoiceService {
       }
     }
 
+    // Coverage-book limits (not-covered/age/frequency/waiting/lifetime/flat).
+    // Built from the same `coverageBookData` the downgrade map uses, so a code
+    // can never be blocked by a limit the book never declared.
+    const coverageLimitMap = normalizeCoverageLimits(meta?.coverageBookData);
+
+    // A fixed-benefit ("Copay/Fixed Plan") prices off flat plan portions only;
+    // its percentage ladder is ignored so uncovered codes pay $0 instead of a
+    // CDT default. Mirrors the FE's `isFixedBenefitPlan`.
+    const coverageType = String(meta?.coverageType ?? '').toLowerCase().trim();
+    const isFixedBenefitPlan = coverageType === 'flat' || coverageType === 'copay';
+
+    // Prior usage for this plan's frequency/lifetime checks, excluding claims
+    // bound to the invoice being re-priced (they are counted once via the
+    // per-line tally push instead).
+    const coverageTally = await this.loadCoverageUsage(patPlan, opts.excludeInvoiceId ?? null, db);
+
+    // Age is evaluated on the service date; DOB may legitimately be missing.
+    let patientDob: Date | null = null;
+    if (patPlan.PatNum) {
+      const patient = await db.patient.findUnique({
+        where: { PatNum: patPlan.PatNum },
+        select: { Birthdate: true },
+      });
+      patientDob = patient?.Birthdate ?? null;
+    }
+
+    const policyStart = patPlan.inssub?.DateEffective ?? null;
+
     return {
       patPlan,
       insPlan,
@@ -531,10 +858,154 @@ export class InvoiceService {
       planFeeMap,
       procCodePercentages,
       categoryPercentages,
+      categoryWaiting,
+      procCodeWaiting,
       deductibleLedger,
       downgradeMap: buildDowngradeMap(meta?.coverageBookData),
       coverageCategoryByCode,
+      coverageLimitMap,
+      isFixedBenefitPlan,
+      policyStart,
+      patientDob,
+      coverageTally,
     };
+  }
+
+  /**
+   * How much of a plan's annual maximum is left to spend on this estimate.
+   *
+   * The "used" figure mirrors reporting-patient-data.service exactly: the sum
+   * of posted insurance payments (claimproc Status 1/4) for THIS plan's
+   * InsSubNum since the benefit period opened. Keeping the two identical means
+   * the "Ins Remain" a report shows is the same number pricing enforces.
+   *
+   * Claims bound to the invoice being re-priced are excluded, the same way the
+   * deductible ledger does it — otherwise a recalculation would count its own
+   * past payments as spent benefit and cap the line it is trying to re-price.
+   *
+   * Returns null when the coverage carries no annual maximum (unlimited) or
+   * the plan cannot be attributed to a subscriber, so no cap is applied.
+   */
+  private async remainingAnnualBenefitForPlan(
+    patPlan: any,
+    excludeInvoiceId: string | null,
+    db: Prisma.TransactionClient | typeof prisma,
+  ): Promise<number | null> {
+    if (patPlan?.InsSubNum == null) return null;
+
+    const meta = (await getPatientInsuranceMeta(patPlan.PatPlanNum)) ?? {};
+    const maximum = annualMaximum(meta);
+    if (maximum === null) return null;
+
+    const now = new Date();
+    const periodStart = benefitPeriodStart(meta, now);
+
+    const claims = await db.claim.findMany({
+      where: { PatNum: patPlan.PatNum, InsSubNum: patPlan.InsSubNum },
+      select: { ClaimNum: true, Narrative: true },
+    });
+    const countedClaimNums = claims
+      .filter((claim) => {
+        if (excludeInvoiceId === null) return true;
+        const claimMeta = parseJson<any>(claim.Narrative || '{}');
+        return String(claimMeta.invoiceId ?? '') !== excludeInvoiceId;
+      })
+      .map((claim) => claim.ClaimNum);
+
+    const posted = await db.claimproc.aggregate({
+      where: {
+        PatNum: patPlan.PatNum,
+        InsSubNum: patPlan.InsSubNum,
+        Status: { in: [1, 4] },
+        DateCP: { gte: periodStart, lte: now },
+        ClaimNum: { in: countedClaimNums },
+      },
+      _sum: { InsPayAmt: true },
+    });
+
+    const used = Number(posted._sum.InsPayAmt ?? 0);
+    return remainingAnnualBenefit(maximum, used);
+  }
+
+  /**
+   * Cap one item's insurance portion at a plan's remaining annual maximum and
+   * push anything over the cap onto the patient.
+   *
+   * Once the benefit is gone the line reads exactly as it would if the patient
+   * had no insurance at all: the whole charge lands on their balance. The
+   * budget object is shared across the whole invoice so the cap is consumed in
+   * service-date order and never spent twice.
+   *
+   * `adjustPt` is false only where the caller recomputes the patient portion as
+   * a residual afterwards (the independently priced secondary), which would
+   * otherwise overwrite the increment made here.
+   */
+  private applyAnnualMaximumCap(
+    budget: { remaining: number },
+    item: any,
+    insKey: 'insPortion' | 'secondaryInsPortion',
+    adjustPt: boolean,
+  ) {
+    const benefit = roundCurrency(Number(item[insKey] ?? 0));
+    const capped = roundCurrency(Math.min(benefit, budget.remaining));
+    const excess = roundCurrency(benefit - capped);
+
+    item[insKey] = capped;
+    budget.remaining = roundCurrency(budget.remaining - capped);
+
+    if (adjustPt && excess > 0) {
+      item.ptPortion = roundCurrency(Number(item.ptPortion ?? 0) + excess);
+    }
+    return excess;
+  }
+
+  /**
+   * Cap a line's insurance by the code's lifetime dollar limit, after the annual
+   * maximum has taken its share. The remaining room is the limit minus everything
+   * already paid for this code on this plan (seeded from `claimproc`, plus this
+   * run's earlier lines). Excess moves to the patient, same as the annual max.
+   */
+  private applyLifetimeCap(
+    ctx: PlanPricingContext,
+    cleanCode: string,
+    item: any,
+    charge: number,
+  ) {
+    const rule = ctx.coverageLimitMap.get(cleanCode);
+    if (!rule || rule.lifetimeLimit === null) return;
+
+    const paidToDate = ctx.coverageTally.lifetimePaidByCode.get(cleanCode) ?? 0;
+    const room = roundCurrency(Math.max(0, rule.lifetimeLimit - paidToDate));
+    const benefit = roundCurrency(Number(item.insPortion ?? 0));
+    const capped = roundCurrency(Math.min(benefit, room));
+    const excess = roundCurrency(benefit - capped);
+
+    item.insPortion = capped;
+    if (excess > 0) {
+      item.ptPortion = roundCurrency(Number(item.ptPortion ?? 0) + excess);
+    }
+  }
+
+  /**
+   * Record a paid service against the plan's frequency/lifetime tally: its
+   * service date (for the rolling frequency window) and the insurance the plan
+   * paid (for the lifetime dollar cap). Only called for lines that actually paid.
+   */
+  private recordCoverageUsage(
+    ctx: PlanPricingContext,
+    cleanCode: string,
+    item: any,
+    amount: number,
+  ) {
+    const serviceDate =
+      item.date ?? item.procDate ?? item.dateOfService ?? item.ProcDate ?? new Date();
+
+    const dates = ctx.coverageTally.datesByCode.get(cleanCode) ?? [];
+    dates.push({ date: serviceDate as Date | string });
+    ctx.coverageTally.datesByCode.set(cleanCode, dates);
+
+    const prior = ctx.coverageTally.lifetimePaidByCode.get(cleanCode) ?? 0;
+    ctx.coverageTally.lifetimePaidByCode.set(cleanCode, roundCurrency(prior + amount));
   }
 
   /**
@@ -593,6 +1064,13 @@ export class InvoiceService {
     const { procCodePercentages, categoryPercentages } = ctx;
     let percent: number | undefined;
 
+    // Fixed-benefit plans carry no percentage: insurance is the code's flat plan
+    // portion (applied later via `limits.flat`), so the ladder must resolve to 0
+    // rather than any configured or CDT-default percentage.
+    if (ctx.isFixedBenefitPlan) {
+      return 0;
+    }
+
     // 1. Specific Procedure Code Override (e.g. "D2140" or "2140")
     if (procCodePercentages.has(cleanCode)) {
       percent = procCodePercentages.get(cleanCode);
@@ -602,45 +1080,15 @@ export class InvoiceService {
 
     // 2. CDT Code Range Category Mapping (12 standard categories)
     // Shared with the deductible engine so the two can never disagree —
-    // if they diverge, every estimate silently mis-deducts.
-    if (percent === undefined && isCdtCode) {
-      const catKey = mapCodeToCategory(cleanCode);
-      const tierKey = tierKeyFromCoverageCategory(ctx.coverageCategoryByCode.get(cleanCode));
-
-      // A plan can split one numeric CDT category into Basic and Major tiers.
-      // The procedure code's own `CoverageCategory` is the only authoritative
-      // arbiter for which side of the split it belongs to — the CDT range alone
-      // would price every code in that range off the first sub-row the client
-      // happened to list (typically Basic).
-      if (catKey && tierKey) {
-        const tieredKey = `${catKey}${tierKey}`;
-        if (categoryPercentages.has(tieredKey)) {
-          percent = categoryPercentages.get(tieredKey);
-        }
-      }
-
-      const perioBase = catKey?.replace(/basic$|major$/, '');
-
-      // Periodontics splits Basic vs Major and falls back to the base key.
-      if (percent === undefined && perioBase === 'periodontics') {
-        percent = categoryPercentages.get(catKey!)
-          ?? categoryPercentages.get(perioBase)
-          ?? categoryPercentages.get(catKey === 'periodonticsbasic' ? 'basic' : 'major');
-      } else if (percent === undefined && catKey && categoryPercentages.has(catKey)) {
-        percent = categoryPercentages.get(catKey);
-      }
-    }
-
-    // 3. OpenDental CovSpan / CovCat Fallback
+    // if they diverge, every estimate silently mis-deducts. The candidate
+    // category keys come from the SAME helper the waiting-period lookup uses,
+    // so coverage and waiting can never resolve a code to different categories.
     if (percent === undefined) {
-      const span = covSpans.find((s) => s.FromCode && s.ToCode && cleanCode >= s.FromCode && cleanCode <= s.ToCode);
-      if (span && span.CovCatNum) {
-        const odCategoryName = covCatMap.get(span.CovCatNum.toString());
-        if (odCategoryName) {
-          const normOdCat = odCategoryName.toLowerCase().replace(/[^a-z0-9]/g, '');
-          if (categoryPercentages.has(normOdCat)) {
-            percent = categoryPercentages.get(normOdCat);
-          }
+      for (const key of this.categoryKeysForCode(cleanCode, isCdtCode, ctx, covSpans, covCatMap)) {
+        const candidate = categoryPercentages.get(key);
+        if (candidate !== undefined) {
+          percent = candidate;
+          break;
         }
       }
     }
@@ -674,6 +1122,141 @@ export class InvoiceService {
     }
 
     return percent ?? 0;
+  }
+
+  /**
+   * Ordered candidate category keys for one procedure code, shared by BOTH the
+   * coverage-percentage ladder and the waiting-period lookup so the two can
+   * never resolve a code to different categories.
+   *
+   * Priority matches `resolveCoveragePercent` exactly: procedure-code override
+   * (handled separately) → CDT category + tier → the perio base/tier fallback →
+   * the bare category → the OpenDental CovSpan/CovCat name. Later keys are only
+   * consulted when no earlier key yields a value.
+   */
+  private categoryKeysForCode(
+    cleanCode: string,
+    isCdtCode: boolean,
+    ctx: PlanPricingContext,
+    covSpans: any[],
+    covCatMap: Map<string, string>,
+  ): string[] {
+    const keys: string[] = [];
+
+    if (isCdtCode) {
+      const catKey = mapCodeToCategory(cleanCode);
+      const tierKey = tierKeyFromCoverageCategory(ctx.coverageCategoryByCode.get(cleanCode))
+        ?? (catKey === 'preventative' ? 'preventative' : null);
+
+      // A plan can split one numeric CDT category into Basic and Major tiers.
+      // The procedure code's own `CoverageCategory` is the only authoritative
+      // arbiter for which side of the split it belongs to — the CDT range alone
+      // would price every code in that range off the first sub-row the client
+      // happened to list (typically Basic).
+      if (catKey && tierKey) keys.push(`${catKey}${tierKey}`);
+
+      const perioBase = catKey?.replace(/basic$|major$/, '');
+      if (perioBase === 'periodontics') {
+        // Periodontics splits Basic vs Major and falls back to the base key.
+        if (catKey) keys.push(catKey);
+        keys.push(perioBase!);
+        keys.push(catKey === 'periodonticsbasic' ? 'basic' : 'major');
+      } else if (catKey) {
+        keys.push(catKey);
+      }
+    }
+
+    const span = covSpans.find(
+      (s) => s.FromCode && s.ToCode && cleanCode >= s.FromCode && cleanCode <= s.ToCode,
+    );
+    if (span && span.CovCatNum) {
+      const odCategoryName = covCatMap.get(span.CovCatNum.toString());
+      if (odCategoryName) keys.push(odCategoryName.toLowerCase().replace(/[^a-z0-9]/g, ''));
+    }
+
+    return keys;
+  }
+
+  /**
+   * Waiting months for one code, resolved through the SAME category keys the
+   * coverage percentage uses. Returns 0 when no waiting period is configured,
+   * which makes the waiting check inert for the common case.
+   */
+  private resolveWaitingMonthsForCode(
+    cleanCode: string,
+    isCdtCode: boolean,
+    ctx: PlanPricingContext,
+    covSpans: any[],
+    covCatMap: Map<string, string>,
+  ): number {
+    // Procedure-code item's own waiting wins, exactly like the percentage ladder.
+    const codeWaiting =
+      ctx.procCodeWaiting.get(cleanCode) ??
+      (cleanCode.startsWith('D') ? ctx.procCodeWaiting.get(cleanCode.substring(1)) : undefined);
+    if (codeWaiting !== undefined) return codeWaiting;
+
+    for (const key of this.categoryKeysForCode(cleanCode, isCdtCode, ctx, covSpans, covCatMap)) {
+      const waiting = ctx.categoryWaiting.get(key);
+      if (waiting !== undefined) return waiting;
+    }
+    return 0;
+  }
+
+  /**
+   * Evaluate every coverage-book limit for one line on one plan.
+   *
+   * `blocked` means insurance is zeroed for this plan and NOTHING is pushed into
+   * its frequency/lifetime tally. `flat` is the plan's flat benefit for the code
+   * (null when the line uses the percentage). A missing limit never blocks.
+   */
+  private evaluateCoverageLimits(
+    ctx: PlanPricingContext,
+    cleanCode: string,
+    isCdtCode: boolean,
+    serviceDate: Date | string,
+    covSpans: any[],
+    covCatMap: Map<string, string>,
+    site?: unknown,
+  ): { blocked: boolean; reason: string | null; flat: number | null } {
+    const rule = ctx.coverageLimitMap.get(cleanCode);
+
+    if (evaluateNotCovered(rule)) {
+      return { blocked: true, reason: 'not-covered', flat: null };
+    }
+
+    // A code may be covered on specific teeth only. The line's tooth comes from
+    // its `site` (a plain tooth, a range, or an arch token); a line that cannot
+    // be proven to fall on a covered tooth is not covered.
+    if (evaluateTeeth(rule, parseTeethRange(site))) {
+      return { blocked: true, reason: 'teeth-limit', flat: null };
+    }
+
+    const waitingMonths = this.resolveWaitingMonthsForCode(
+      cleanCode,
+      isCdtCode,
+      ctx,
+      covSpans,
+      covCatMap,
+    );
+    if (evaluateWaiting(waitingMonths, ctx.policyStart, serviceDate)) {
+      return { blocked: true, reason: 'waiting-period', flat: null };
+    }
+
+    // Age: blocks only over the limit; a missing limit or unknown DOB never blocks.
+    const ageOnService = ctx.patientDob ? computeAge(ctx.patientDob, serviceDate) : null;
+    if (evaluateAge(rule, ageOnService)) {
+      return { blocked: true, reason: 'age', flat: null };
+    }
+
+    if (evaluateFrequency(rule, serviceDate, ctx.coverageTally.datesByCode.get(cleanCode) ?? [])) {
+      return { blocked: true, reason: 'frequency', flat: null };
+    }
+
+    if (evaluateLifetime(rule, ctx.coverageTally.lifetimePaidByCode.get(cleanCode) ?? 0)) {
+      return { blocked: true, reason: 'lifetime-limit', flat: null };
+    }
+
+    return { blocked: false, reason: null, flat: rule?.flatPlanPortion ?? null };
   }
 
   /**
@@ -736,6 +1319,13 @@ export class InvoiceService {
 
     const coveragePct = this.resolveCoveragePercent(billedCode, isCdtCode, ctx, covSpans, covCatMap);
 
+    // The secondary's OWN coverage-book limits, resolved against its own
+    // subscription and usage tally — a primary downgrade or primary block says
+    // nothing about this plan's rules. The service date is read off the item's
+    // own field rather than the primary's resolved value.
+    const serviceDate = item.date ?? item.procDate ?? item.dateOfService ?? item.ProcDate ?? new Date();
+    const limits = this.evaluateCoverageLimits(ctx, billedCode, isCdtCode, serviceDate, covSpans, covCatMap, item.site);
+
     // A manually entered per-line allowance still wins, matching the primary's
     // precedence — but it must be the allowance as it arrived on the item.
     // The primary loop overwrites `item.allowedFee` with the value it resolved
@@ -783,12 +1373,34 @@ export class InvoiceService {
     // The secondary's OWN deductible pool, drained once. `deductibleApplied`
     // from the primary is deliberately not consulted — that deductible is
     // already satisfied and belongs to the patient, not to this plan.
-    const priced = applyDeductible(ctx.deductibleLedger, billedCode, insuranceBasis, coveragePct);
+    const priced = limits.blocked
+      ? { insurancePortion: 0, rowKey: null }
+      : applyDeductible(ctx.deductibleLedger, billedCode, insuranceBasis, coveragePct, limits.flat);
+
+    let benefit = roundCurrency(priced.insurancePortion);
+
+    // Same lifetime dollar cap the primary applies, but against THIS plan's own
+    // paid-to-date and its own limit. Trimming here keeps the coordination-of-
+    // benefits caller from capping a benefit the plan would never have paid.
+    if (!limits.blocked) {
+      const rule = ctx.coverageLimitMap.get(billedCode);
+      if (rule && rule.lifetimeLimit !== null) {
+        const paidToDate = ctx.coverageTally.lifetimePaidByCode.get(billedCode) ?? 0;
+        benefit = roundCurrency(Math.min(benefit, Math.max(0, rule.lifetimeLimit - paidToDate)));
+      }
+
+      // A paid service advances this plan's own frequency window and lifetime
+      // cap. Blocked and $0-paying lines push nothing, matching the primary.
+      if (benefit > 0) {
+        this.recordCoverageUsage(ctx, billedCode, item, benefit);
+      }
+    }
 
     return {
-      benefit: roundCurrency(priced.insurancePortion),
+      benefit,
       billedCode,
-      coveragePct,
+      // A blocked or flat-benefit line carries no effective percentage.
+      coveragePct: limits.blocked || limits.flat !== null ? 0 : coveragePct,
       downgraded: !!downgradeRule,
       effectiveCode: downgradeRule ? downgradeRule.downgradeCode : null,
       downgradeSkipped,
@@ -907,6 +1519,16 @@ export class InvoiceService {
       }
       const { deductibleLedger, downgradeMap } = primaryCtx;
 
+      // The primary plan's annual maximum, resolved once and drawn down as each
+      // line is priced in service-date order.
+      const primaryBudgetValue = await this.remainingAnnualBenefitForPlan(
+        patPlan,
+        excludedInvoiceId,
+        db,
+      );
+      const primaryBudget =
+        primaryBudgetValue === null ? null : { remaining: primaryBudgetValue };
+
       // The SECONDARY, loaded through the SAME builder so it is priced on its own
       // fee schedules, its own coverage percentages, its own deductible pools and
       // its own alternate-benefit rules. A null context (no `insplan`) is the only
@@ -925,6 +1547,28 @@ export class InvoiceService {
             db,
           })
         : null;
+      const secondaryBudgetValue = secondaryPatPlan
+        ? await this.remainingAnnualBenefitForPlan(
+            secondaryPatPlan,
+            excludedInvoiceId,
+            db,
+          )
+        : null;
+      const secondaryBudget =
+        secondaryBudgetValue === null ? null : { remaining: secondaryBudgetValue };
+
+      // The secondary's not-covered codes, needed even when it cannot be priced.
+      // A plan with no `insplan` has no fee schedule or percentage, but its
+      // coverage book can still say a code is excluded outright — and a code the
+      // secondary excludes must not receive the coinsurance transfer from the
+      // conservative fallback below.
+      const secondaryNotCoveredCodes = new Set<string>();
+      if (secondaryPatPlan && !secondaryCtx) {
+        const secondaryMeta: any = await getPatientInsuranceMeta(secondaryPatPlan.PatPlanNum);
+        for (const [code, rule] of normalizeCoverageLimits(secondaryMeta?.coverageBookData)) {
+          if (rule.notCovered) secondaryNotCoveredCodes.add(code);
+        }
+      }
 
       const pricedOrder = orderIndexesByDate(items);
 
@@ -989,6 +1633,22 @@ export class InvoiceService {
         const cleanCode = String(procCodeString).toUpperCase().trim();
         const isCdtCode = /^D\d{4}/i.test(cleanCode) || /^\d{4}$/.test(cleanCode);
         const percent = this.resolveCoveragePercent(cleanCode, isCdtCode, primaryCtx, covSpans, covCatMap);
+
+        // Coverage-book limits (not-covered / waiting / age / frequency / lifetime).
+        // A blocked line is priced at $0 insurance, does NOT drain the deductible
+        // pool, and does NOT contribute a usage entry to the tally — the only
+        // thing that advances a frequency window or lifetime cap is a service
+        // this plan actually paid for. A $0-paying line (annual max exhausted,
+        // flat amount zero) likewise pushes nothing.
+        const limits = this.evaluateCoverageLimits(
+          primaryCtx,
+          cleanCode,
+          isCdtCode,
+          item.date ?? item.procDate ?? item.dateOfService ?? item.ProcDate ?? new Date(),
+          covSpans,
+          covCatMap,
+          item.site,
+        );
 
         // Alternate benefit (downgrade): the plan may substitute a cheaper
         // procedure for this one, so insurance is priced on the SUBSTITUTE's
@@ -1087,16 +1747,39 @@ export class InvoiceService {
         // second call would charge the deductible twice against the same pool.
         // `cleanCode` — the BILLED code — selects the pool, which is the safe
         // default: downgrades almost always stay within one category.
-        const priced = applyDeductible(deductibleLedger, cleanCode, insuranceBasis, percent);
+        const priced = limits.blocked
+          ? { insurancePortion: 0, patientPortion: roundCurrency(Math.max(0, basisFee)), coinsurance: roundCurrency(Math.max(0, basisFee)), deductibleApplied: 0, afterDeductible: basisFee, rowKey: null }
+          : applyDeductible(deductibleLedger, cleanCode, insuranceBasis, percent, limits.flat);
 
+        // The line's Allowed fee is the billed code's contracted fee (for write-off calc).
+        // The insurance basis (downgrade fee when applicable) is stored separately.
+        item.allowedFee = basisFee;
+        item.allowedFeeSource = 'plan';
+        // Store the insurance basis separately for downgraded procedures
+        if (downgradeRule) {
+          item.downgradeAllowedFee = insuranceBasis;
+        }
         item.insPortion = priced.insurancePortion;
         item.deductibleApplied = priced.deductibleApplied;
         item.deductibleRowKey = priced.rowKey;
-        if (percent !== undefined) {
-          item.coveragePct = percent;
+        // A blocked line reports zero coverage, and a flat-benefit line reports
+        // zero percent too — the plan paid a fixed dollar amount, not a share.
+        if (limits.blocked) {
+          item.coveragePct = 0;
+          item.coverageBlockedReason = limits.reason;
+        } else {
+          if (percent !== undefined) {
+            item.coveragePct = limits.flat !== null ? 0 : percent;
+          }
+          delete item.coverageBlockedReason;
         }
 
-        if (downgradeRule) {
+        if (limits.blocked) {
+          // The plan pays nothing, so the patient owes the whole charge less any
+          // contractual discount already applied. No coinsurance to report.
+          item.ptPortion = roundCurrency(Math.max(0, charge - Number(item.writeoff ?? 0)));
+          item.coinsurance = 0;
+        } else if (downgradeRule) {
           // `applyDeductible` derives the patient share from the basis it was
           // given, and that basis was the downgrade fee. The patient received
           // the real procedure, so their share must be recomputed from the
@@ -1137,6 +1820,28 @@ export class InvoiceService {
         // the line by the whole downgrade gap.
         item.balance = charge;
         item.secondaryInsPortion = 0;
+
+        // The plan only pays up to its remaining annual maximum. Anything the
+        // percentage would have covered beyond that moves to the patient, so a
+        // line priced past the limit reads as it would with no coverage left —
+        // and once the benefit is exhausted the whole charge is theirs.
+        if (primaryBudget) {
+          this.applyAnnualMaximumCap(primaryBudget, item, 'insPortion', true);
+        }
+
+        // Lifetime dollar cap for this code. Trims AFTER the annual max, so the
+        // cap sees the plan's real obligation. Anything over the remaining room
+        // moves to the patient.
+        this.applyLifetimeCap(primaryCtx, cleanCode, item, charge);
+
+        // Tally push: a usage entry is recorded only when this plan actually
+        // paid for the service. A blocked line, or one the annual/lifetime caps
+        // reduced to $0, does not advance a frequency window or the lifetime
+        // cap — otherwise a capped service would consume the patient's benefit
+        // without paying them a cent.
+        if (!limits.blocked && Number(item.insPortion ?? 0) > 0) {
+          this.recordCoverageUsage(primaryCtx, cleanCode, item, Number(item.insPortion));
+        }
       }
 
       // ── Secondary insurance ─────────────────────────────────────────────────
@@ -1181,6 +1886,11 @@ export class InvoiceService {
           item.secondaryInsPortion = roundCurrency(
             Math.min(Math.max(0, secondary.benefit), remainingAfterPrimary)
           );
+          // The secondary's own annual maximum caps it too; the excess is left
+          // for the residual below to hand to the patient.
+          if (secondaryBudget) {
+            this.applyAnnualMaximumCap(secondaryBudget, item, 'secondaryInsPortion', false);
+          }
           // A downgraded secondary rule that matched but had no fee for the
           // substitute cannot be priced, so the line is left unestimated rather
           // than priced against $0. `secondaryNotEstimated` means ONLY "the
@@ -1223,13 +1933,26 @@ export class InvoiceService {
             continue;
           }
           item.primaryInsPortion = item.insPortion;
+          // A code the secondary's coverage book excludes outright transfers
+          // nothing — the residual stays with the patient, matching what the
+          // independently-priced branch returns for a not-covered line.
+          const secondaryExcludesCode = secondaryNotCoveredCodes.has(
+            String(item.cptCode || item.code || item.procedureCode || item.procCode || '')
+              .toUpperCase()
+              .trim(),
+          );
           // Only coinsurance is secondary-claimable. The deductible the patient
           // already satisfied must stay with them, otherwise the secondary
           // carrier is over-paid and the patient balance is understated.
-          if (item.ptPortion > 0) {
+          if (!secondaryExcludesCode && item.ptPortion > 0) {
             const split = splitSecondaryPortion(item.ptPortion, item.deductibleApplied ?? 0);
             item.secondaryInsPortion = split.secondaryPortion;
             item.ptPortion = split.patientPortion;
+          }
+          // The secondary's annual maximum caps the transfer; anything over it
+          // returns to the patient.
+          if (secondaryBudget) {
+            this.applyAnnualMaximumCap(secondaryBudget, item, 'secondaryInsPortion', true);
           }
           item.secondaryNotEstimated = true;
           // The fallback is a coinsurance transfer, not a plan quote, so it has
@@ -1282,6 +2005,8 @@ export class InvoiceService {
       }
     } catch (err) {
       console.warn('[InvoiceService] Failed to calculate insurance estimates:', err);
+      // Transactional saves must roll back instead of persisting partial estimates.
+      if (options.db) throw err;
     }
     return items;
   }
@@ -1678,11 +2403,16 @@ export class InvoiceService {
     };
   }
 
-  private async getInvoiceItems(statementNum: bigint) {
-    const items = await prisma.procedurelog.findMany({
+  private async getInvoiceItems(statementNum: bigint, includeVoided = false) {
+    const allItems = await prisma.procedurelog.findMany({
       where: { StatementNum: statementNum },
       orderBy: { ProcNum: 'asc' },
     });
+    // Voided procedures are opt-in: they stay on the invoice but are only
+    // listed when the caller asks for them.
+    const items = includeVoided
+      ? allItems
+      : allItems.filter((item) => !parseJson<ItemMeta>(item.BillingNote)?.isVoided);
     const codeNums = items
       .map((item) => item.CodeNum)
       .filter((codeNum): codeNum is bigint => codeNum !== null && codeNum !== undefined);
@@ -1729,10 +2459,15 @@ export class InvoiceService {
       prisma.statement.count({ where }),
     ]);
 
-    const mappedInvoices = rows.map((row) => {
+    const mappedInvoices: any[] = rows.map((row) => {
       const meta = parseJson<StatementMeta>(row.NoteBold);
       return this.mapStatementToInvoice(row, meta);
     });
+
+    const createdByNameMap = await resolveUserDisplayNames(mappedInvoices.map((i) => i.createdBy));
+    for (const invoice of mappedInvoices) {
+      invoice.createdByName = invoice.createdBy ? createdByNameMap[invoice.createdBy] ?? null : null;
+    }
 
     const uniquePatientIds = [...new Set(mappedInvoices.map((i) => i.patientId).filter((id): id is string => typeof id === 'string' && /^\d+$/.test(id)))];
     const uniqueProviderIds = [...new Set(mappedInvoices.map((i) => i.providerId).filter((id): id is string => typeof id === 'string' && /^\d+$/.test(id)))];
@@ -1767,29 +2502,63 @@ export class InvoiceService {
     return { invoices, pagination: { page, limit, total, pages: Math.ceil(total / limit) } };
   }
 
-  async getInvoiceById(invoiceId: string) {
+  async getInvoiceById(invoiceId: string, includeVoided = false) {
     const invoice = await this.getStatementById(invoiceId);
     if (!invoice) throw new NotFoundError('Invoice not found');
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
 
-    const [patient, appointment, directProvider, insuranceCompany, items] = await Promise.all([
+    const [patient, appointment, directProvider, insuranceCompany, secondaryInsuranceCompany, items] = await Promise.all([
       invoice.PatNum
         ? prisma.patient.findUnique({ where: { PatNum: invoice.PatNum } })
         : null,
       this.resolveAppointment(meta.appointmentId ?? null),
       this.resolveProvider(meta.providerId ?? null),
       this.resolveInsuranceCompany(meta.insuranceCompanyId ?? null),
-      this.getInvoiceItems(invoice.StatementNum),
+      this.resolveInsuranceCompany(meta.secondaryInsuranceCompanyId ?? null),
+      this.getInvoiceItems(invoice.StatementNum, includeVoided),
     ]);
 
     const provider = directProvider ?? (appointment?.providerId ? await this.resolveProvider(appointment.providerId) : null);
 
+    const createdByNameMap = await resolveUserDisplayNames([meta.createdBy]);
+    const createdByName = meta.createdBy ? createdByNameMap[meta.createdBy] ?? null : null;
+
+    // The estimators price from the patient's ACTIVE coverage, but
+    // `meta.insuranceCompanyId` is only populated when the invoice was created
+    // from an appointment that had a carrier explicitly attached. For an invoice
+    // built any other way it is null, so the carrier names a display needs have
+    // to come from the patient's coverages, ordered by ordinal — ordinal 1 is
+    // primary, 2 is secondary, which is exactly the split the line items are
+    // priced into.
+    let coverages: Array<{ insuranceType: string; name: string | null }> = [];
+    if (invoice.PatNum) {
+      try {
+        const active = await patientInsuranceService.getPatientInsurances(String(invoice.PatNum), true);
+        coverages = (active || [])
+          .map((ins: any) => ({
+            insuranceType: ins.insuranceType,
+            // patient-insurance.service returns the resolved carrier under the
+            // (confusingly named) `insuranceCompanyId` key, not `insuranceCompany`.
+            // Accept either so this does not silently break if that is renamed.
+            name: ins.insuranceCompany?.name ?? ins.insuranceCompanyId?.name ?? null,
+          }))
+          .filter((c) => !!c.name);
+      } catch {
+        // Coverage names are display-only. A failure here must not stop the
+        // invoice from loading.
+        coverages = [];
+      }
+    }
+
     return {
       invoice: {
         ...this.mapStatementToInvoice(invoice, meta),
+        createdByName,
         patient: patient ? mapPatientToApi(patient) : null,
         provider,
         insuranceCompany,
+        secondaryInsuranceCompany,
+        coverages,
         appointment,
         dateOfService: appointment?.appointmentDate ?? null,
       },
@@ -1916,6 +2685,7 @@ export class InvoiceService {
       unitPrice?: number;
       description?: string;
       cptCode?: string;
+      addClaim?: boolean;
     },
     userId: string
   ) {
@@ -1976,8 +2746,11 @@ export class InvoiceService {
     const updatedItem = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
     await logActivity(userId, 'created', 'invoice_items', item.ProcNum.toString(), undefined, updatedItem || item, undefined, undefined, 'low');
 
-    // AUTO-GENERATE CLAIM after adding item (if not already generated)
-    this.triggerClaimGeneration(invoice.StatementNum, invoice.PatNum, userId);
+    // Generate a claim only when the caller explicitly requests it. Adding a
+    // procedure to an existing invoice should not imply claim creation.
+    if (data.addClaim === true) {
+      this.triggerClaimGeneration(invoice.StatementNum, invoice.PatNum, userId);
+    }
 
     return this.mapProcedureLogToInvoiceItem(updatedItem || item, invoiceId, service);
   }
@@ -2051,13 +2824,34 @@ export class InvoiceService {
           quantity,
           cptCode: updates.cptCode ?? currentMeta.cptCode ?? service?.ProcCode ?? null,
           serviceId: service?.CodeNum?.toString() ?? currentMeta.serviceId ?? null,
-          ...(updates.insPortion !== undefined && { insPortion: updates.insPortion }),
+          ...(updates.insPortion !== undefined && {
+            insPortion: updates.insPortion,
+            // `insPortion` IS the primary portion (see payment.service.ts's
+            // note on the two write paths agreeing), and the line-item reader
+            // resolves primaryInsPortion as `meta.primaryInsPortion ||
+            // meta.insPortion`. payment.service writes both, so a line that has
+            // been through an insurance payment already carries an explicit
+            // primaryInsPortion. Mirroring the value here keeps the two in step —
+            // without this, editing the primary coverage would write insPortion,
+            // leave the stale primaryInsPortion winning the read, and silently
+            // discard the edit.
+            primaryInsPortion: updates.insPortion,
+          }),
           ...(updates.secondaryInsPortion !== undefined && { secondaryInsPortion: updates.secondaryInsPortion }),
           ...(updates.ptPortion !== undefined && { ptPortion: updates.ptPortion }),
           ...(updates.writeoff !== undefined && { writeoff: updates.writeoff }),
           ...(updates.provider !== undefined && { provider: updates.provider }),
           ...(updates.site !== undefined && { site: updates.site }),
           ...(updates.dbi !== undefined && { dbi: updates.dbi }),
+          // When a caller explicitly writes any portion, treat the item as
+          // manually adjusted so recalculateInvoice keeps these splits instead of
+          // re-pricing (which would fold the whole balance into the patient portion).
+          ...(updates.ptPortion !== undefined ||
+          updates.insPortion !== undefined ||
+          updates.secondaryInsPortion !== undefined ||
+          updates.writeoff !== undefined
+            ? { isManuallyAdjusted: true }
+            : {}),
         }),
       },
     });
@@ -2090,6 +2884,57 @@ export class InvoiceService {
     await this.recalculateInvoice(invoiceId);
     await logActivity(userId, 'deleted', 'invoice_items', itemId, item, undefined, undefined, undefined, 'low');
     return { message: 'Invoice item deleted successfully' };
+  }
+
+  /**
+   * Void a single procedure on an invoice.
+   *
+   * Unlike `deleteInvoiceItem` the row is KEPT and stays linked to the
+   * statement, only flagged `isVoided`. That is what lets the invoice list it
+   * again under "include voided transactions" while every total, balance and
+   * estimate ignores it (`recalculateInvoice` filters flagged rows out).
+   */
+  async voidInvoiceItem(invoiceId: string, itemId: string, reason: string | undefined, userId: string) {
+    const invoice = await this.getStatementById(invoiceId);
+    if (!invoice) throw new NotFoundError('Invoice not found');
+
+    const meta = parseJson<StatementMeta>(invoice.NoteBold);
+    if (String(meta.status) === 'void') throw new BadRequestError('Invoice is already void');
+    // Draft-only, matching `deleteInvoiceItem` / `updateInvoiceItem`: once an
+    // invoice is finalized its procedures are fixed, because they back a
+    // submitted claim. Correcting one of them has to go through the
+    // invoice-level void (or a new invoice) so the claim history stays
+    // consistent rather than being quietly edited underneath it.
+    if (String(meta.status) !== 'draft') {
+      throw new BadRequestError(
+        'Only draft invoices can void procedures. Void the whole invoice for finalized ones.',
+      );
+    }
+
+    const procNum = toBigInt(itemId);
+    if (!procNum) throw new NotFoundError('Invoice item not found');
+
+    const item = await prisma.procedurelog.findUnique({ where: { ProcNum: procNum } });
+    if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
+
+    const itemMeta = parseJson<ItemMeta>(item.BillingNote) ?? {};
+    if (itemMeta.isVoided) throw new BadRequestError('Procedure is already voided');
+
+    await prisma.procedurelog.update({
+      where: { ProcNum: procNum },
+      data: {
+        BillingNote: buildJson({
+          ...itemMeta,
+          isVoided: true,
+          voidReason: reason ?? null,
+          voidedAt: new Date().toISOString(),
+        }),
+      },
+    });
+
+    await this.recalculateInvoice(invoiceId);
+    await logActivity(userId, 'updated', 'invoice_items', itemId, item, undefined, undefined, undefined, 'medium');
+    return { message: 'Invoice item voided successfully' };
   }
 
   async deleteInvoice(invoiceId: string, userId: string) {
@@ -2152,6 +2997,7 @@ export class InvoiceService {
 
     const nextMeta: StatementMeta = {
       ...meta,
+      balanceBasis: 'patient',
       insuranceCompanyId: updates.insuranceCompanyId ?? meta.insuranceCompanyId,
       providerId: updates.providerId ?? meta.providerId,
       discountAmount: updates.discountAmount ?? meta.discountAmount,
@@ -2178,13 +3024,100 @@ export class InvoiceService {
     return this.mapStatementToInvoice(updated, nextMeta);
   }
 
+  /**
+   * Plan-derived inputs for a coordination-of-benefits estimate.
+   *
+   * WHY THIS LIVES HERE AND NOT IN THE COB SERVICE
+   * ----------------------------------------------
+   * Everything below is resolved by this class's own pricing ladder:
+   * `resolvePlanAllowedFee` for the contracted amount, `resolveCoveragePercent`
+   * for the benefit percentage, and the plan's `DeductibleLedger` for what is
+   * left of the deductible. Re-deriving any of them elsewhere would give the
+   * COB estimate a second, divergent ladder — the exact failure
+   * `resolveCoveragePercent`'s own comment warns about ("a secondary plan
+   * priced by a different ladder would silently disagree with the primary on
+   * the same procedure").
+   *
+   * So this is a narrow public read-only seam over the existing machinery
+   * rather than new pricing logic.
+   *
+   * Returns null when the coverage is not priceable at all (no `insplan`),
+   * which the caller must surface rather than quietly substituting zero — a
+   * 0% benefit and an unknown benefit lead to very different conversations
+   * with a patient.
+   */
+  async getCobEstimateBasis(
+    patPlanNum: bigint | string,
+    procedureCode: string,
+  ): Promise<{
+    allowedAmount: number | null;
+    coveragePercent: number | null;
+    deductibleRemaining: number;
+    deductibleRowKey: string | null;
+    planType: string | null;
+    resolvedFrom: {
+      allowedAmount: 'ALLOWED_FEE_SCHEDULE' | 'PPO_PLAN_FEE_SCHEDULE' | 'NOT_ON_SCHEDULE';
+      coveragePercent: 'PLAN_COVERAGE_TABLE' | 'NOT_PRICEABLE';
+    };
+  } | null> {
+    const code = String(procedureCode || '').toUpperCase().trim();
+    if (!code) return null;
+
+    const patPlan = await prisma.patplan.findUnique({
+      where: { PatPlanNum: BigInt(patPlanNum as any) },
+      include: { inssub: { include: { insplan: true } } },
+    });
+    if (!patPlan?.inssub?.insplan) return null;
+
+    const ctx = await this.buildPlanPricingContext(patPlan);
+    if (!ctx) return null;
+
+    // Practice-wide, not per-plan — the same tables the invoice loop uses.
+    const covSpans = await prisma.covspan.findMany();
+    const covCats = await prisma.covcat.findMany();
+    const covCatMap = new Map<string, string>();
+    for (const cat of covCats) {
+      if (cat.Description) {
+        covCatMap.set(cat.CovCatNum.toString(), cat.Description.toLowerCase());
+      }
+    }
+
+    const isCdtCode = /^D\d{4}/i.test(code) || /^\d{4}$/.test(code);
+    const allowed = this.resolvePlanAllowedFee(code, ctx);
+    const coveragePercent = this.resolveCoveragePercent(code, isCdtCode, ctx, covSpans, covCatMap);
+
+    const { key: deductibleRowKey } = ctx.deductibleLedger.resolve(code);
+    const deductibleRemaining = ctx.deductibleLedger.remaining(deductibleRowKey);
+
+    return {
+      allowedAmount: allowed ?? null,
+      coveragePercent,
+      deductibleRemaining,
+      deductibleRowKey,
+      planType: ctx.insPlan?.PlanType ?? null,
+      resolvedFrom: {
+        allowedAmount:
+          allowed === undefined
+            ? 'NOT_ON_SCHEDULE'
+            : ctx.allowedFeeMap.has(code)
+              ? 'ALLOWED_FEE_SCHEDULE'
+              : 'PPO_PLAN_FEE_SCHEDULE',
+        coveragePercent: 'PLAN_COVERAGE_TABLE',
+      },
+    };
+  }
+
   async recalculateInvoice(invoiceId: string, insuranceCoveragePercent?: number, transaction?: Prisma.TransactionClient) {
     const db = transaction ?? prisma;
     const invoice = await db.statement.findUnique({ where: { StatementNum: BigInt(invoiceId) } });
     if (!invoice) throw new NotFoundError('Invoice not found');
 
     const meta = parseJson<StatementMeta>(invoice.NoteBold);
-    const items = await db.procedurelog.findMany({ where: { StatementNum: invoice.StatementNum } });
+    // Voided procedures stay attached to the invoice (so they can be listed
+    // again under "include voided transactions") but contribute nothing to any
+    // total, balance, estimate or claim.
+    const allItems = await db.procedurelog.findMany({ where: { StatementNum: invoice.StatementNum } });
+    const items = allItems.filter((item) => !parseJson<ItemMeta>(item.BillingNote)?.isVoided);
 
     const codeNums = items.map((item) => item.CodeNum).filter((codeNum): codeNum is bigint => codeNum !== null && codeNum !== undefined);
     const codes = codeNums.length ? await db.procedurecode.findMany({ where: { CodeNum: { in: codeNums } } }) : [];
@@ -2341,10 +3274,25 @@ export class InvoiceService {
             newPt = initialPtPortion;
             newIns = Math.max(0, roundCurrency(fee - wo - initialPtPortion - secPortion));
           } else {
-            // Final payment:
-            // Underpayment shifts to patient responsibility. Insurance portion is finalized at insPaid.
-            newPt = Math.max(0, roundCurrency(fee - wo - insPaid - secPortion));
-            newIns = insPaid;
+            // Scenario 2 guard: if the patient has already satisfied their
+            // ORIGINAL responsibility, the underpayment stays with insurance —
+            // keep ptPortion and leave the insurance portion at the expected
+            // amount so expected − paid remains an insurance balance.
+            const expectedIns = Number(originalMeta.insPortion || 0) > 0
+              ? roundCurrency(Number(originalMeta.insPortion))
+              : Math.max(0, roundCurrency(fee - wo - initialPtPortion - secPortion));
+            const underpayment = Math.max(0, roundCurrency(expectedIns - insPaid));
+            const patientAlreadyPaidInFull = ptPaidOnProc >= initialPtPortion - 0.005;
+
+            if (patientAlreadyPaidInFull && underpayment > 0) {
+              newPt = initialPtPortion;
+              newIns = expectedIns;
+            } else {
+              // Final payment:
+              // Underpayment shifts to patient responsibility. Insurance portion is finalized at insPaid.
+              newPt = Math.max(0, roundCurrency(fee - wo - insPaid - secPortion));
+              newIns = insPaid;
+            }
           }
 
           insurancePortion += newIns;
@@ -2413,6 +3361,15 @@ export class InvoiceService {
           (originalMeta.secondaryDowngradeSkipped ?? null) !== (enrichedItem.secondaryDowngradeSkipped ?? null) ||
           (originalMeta.secondaryCoveragePct ?? null) !== (enrichedItem.secondaryCoveragePct ?? null);
 
+        // A coverage-book limit can block a line without moving any money in a
+        // way the money guards above would notice: a line that was always $0
+        // insurance (age, not-covered) keeps insPortion 0 while the REASON
+        // changes, and a rule added to an already-zero line must still be stored
+        // so the UI can explain it. Without this the badge would only ever appear
+        // on lines whose dollar amounts happened to change on the same edit.
+        const blockedReasonChanged =
+          (originalMeta.coverageBlockedReason ?? null) !== (enrichedItem.coverageBlockedReason ?? null);
+
         if (
           originalMeta.primaryInsPortion !== enrichedPrim ||
           originalMeta.insPortion !== enrichedPrim ||
@@ -2421,13 +3378,20 @@ export class InvoiceService {
           writeoffChanged ||
           deductibleChanged ||
           downgradeChanged ||
-          secondaryAuditChanged
+          secondaryAuditChanged ||
+          blockedReasonChanged ||
+          (enrichedItem.coveragePct !== undefined && enrichedItem.coveragePct !== null &&
+            Number(originalMeta.coveragePct ?? -1) !== Number(enrichedItem.coveragePct))
         ) {
           originalMeta.insPortion = enrichedPrim;
           originalMeta.primaryInsPortion = enrichedPrim;
           originalMeta.secondaryInsPortion = enrichedItem.secondaryInsPortion;
           originalMeta.totalInsPortion = enrichedPrim + Number(enrichedItem.secondaryInsPortion || 0);
           originalMeta.ptPortion = enrichedItem.ptPortion;
+          originalMeta.insuranceExpected = originalMeta.totalInsPortion;
+          originalMeta.insurancePaidAmount = Number(originalMeta.insurancePaidAmount) || 0;
+          originalMeta.patientPaidAmount = Number(originalMeta.patientPaidAmount) || 0;
+          originalMeta.insuranceBalance = Math.max(0, roundCurrency(originalMeta.totalInsPortion - originalMeta.insurancePaidAmount));
           // Persist write-off fields — fall back to existing value for non-PPO items
           // (where calculateInsuranceEstimates leaves the field undefined) so we never
           // accidentally zero out a manually-entered adjustment.
@@ -2435,6 +3399,8 @@ export class InvoiceService {
           originalMeta.estimatedWriteOff = enrichedItem.estimatedWriteOff ?? originalMeta.estimatedWriteOff ?? 0;
           originalMeta.allowedFee = enrichedItem.allowedFee ?? originalMeta.allowedFee ?? null;
           originalMeta.allowedFeeSource = enrichedItem.allowedFeeSource === 'plan' ? 'plan' : null;
+          originalMeta.coveragePct = enrichedItem.coveragePct !== undefined && enrichedItem.coveragePct !== null ? Number(enrichedItem.coveragePct) : (originalMeta.coveragePct ?? null);
+          originalMeta.coverageBlockedReason = enrichedItem.coverageBlockedReason ?? null;
           originalMeta.deductibleApplied = roundCurrency(Number(enrichedItem.deductibleApplied || 0));
           if (enrichedItem.deductibleRowKey) originalMeta.deductibleRowKey = enrichedItem.deductibleRowKey;
           // Persist the downgrade audit fields on re-price. Guarded so a line
@@ -2485,24 +3451,43 @@ export class InvoiceService {
           include: { payment: true },
         })
       : [];
-    const paysplitByProcNum = new Map<string, number>();
+    // Split paysplits into insurance vs patient buckets so we can compute the
+    // correct outstanding patient balance independently of insurance payments.
+    const insPaidByProcNum = new Map<string, number>();
+    const ptPaidByProcNum = new Map<string, number>();
     procPaysplits.forEach((ps) => {
       if (ps.ProcNum) {
         const key = ps.ProcNum.toString();
         const pNote = parseJson<any>(ps.payment?.PayNote);
         const st = String(pNote?.status || '').toLowerCase();
-        if (st !== 'void' && st !== 'voided' && st !== 'reversed') {
-          paysplitByProcNum.set(key, (paysplitByProcNum.get(key) || 0) + (Number(ps.SplitAmt) || 0));
+        if (st === 'void' || st === 'voided' || st === 'reversed') return;
+        const isIns =
+          ps.payment?.PayNote?.includes('"insurance_company"') ||
+          String(pNote?.paymentSource || '').toLowerCase() === 'insurance_company' ||
+          String(pNote?.method || '').toLowerCase() === 'insurance';
+        const amt = Number(ps.SplitAmt) || 0;
+        if (isIns) {
+          insPaidByProcNum.set(key, (insPaidByProcNum.get(key) || 0) + amt);
+        } else {
+          ptPaidByProcNum.set(key, (ptPaidByProcNum.get(key) || 0) + amt);
         }
       }
     });
+    // Keep combined map for paidAmount on BillingNote (used by ledger display)
+    const paysplitByProcNum = new Map<string, number>();
+    for (const [k, v] of insPaidByProcNum) paysplitByProcNum.set(k, (paysplitByProcNum.get(k) || 0) + v);
+    for (const [k, v] of ptPaidByProcNum)  paysplitByProcNum.set(k, (paysplitByProcNum.get(k) || 0) + v);
 
     let totalPaid = 0;
+    let totalInsPaidFromSplits = 0;
+    let totalPtPaidFromSplits = 0;
     for (const item of items) {
       const itemMeta = parseJson<any>(item.BillingNote);
       const splitTotal = paysplitByProcNum.get(item.ProcNum.toString());
       const itemPaid = splitTotal !== undefined ? roundCurrency(splitTotal) : (Number(itemMeta.paidAmount) || 0);
       totalPaid += itemPaid;
+      totalInsPaidFromSplits += insPaidByProcNum.get(item.ProcNum.toString()) || 0;
+      totalPtPaidFromSplits  += ptPaidByProcNum.get(item.ProcNum.toString())  || 0;
       if (itemMeta.paidAmount !== itemPaid) {
         itemMeta.paidAmount = itemPaid;
         item.BillingNote = buildJson(itemMeta);
@@ -2513,6 +3498,8 @@ export class InvoiceService {
       }
     }
     totalPaid = roundCurrency(totalPaid);
+    totalInsPaidFromSplits = roundCurrency(totalInsPaidFromSplits);
+    totalPtPaidFromSplits  = roundCurrency(totalPtPaidFromSplits);
 
     // Fetch all formally posted adjustments associated with this invoice
     const adjustments = await db.adjustment.findMany({
@@ -2532,12 +3519,14 @@ export class InvoiceService {
       return sum + Math.abs(Number(adj.AdjAmt) || 0);
     }, 0);
 
-    // Balance due is the gross charge (subtotal) minus payments only.
-    // Write-offs/adjustments are tracked separately and shown as a separate payable line item.
-    // This shows the gross charge as the balance, with write-offs tracked as a separate payable amount.
-    const balanceDue = roundCurrency(Math.max(0, subtotal - totalPaid));
+    // Invoice balance = what the patient still owes.
+    // patientPortion is the patient's share of the charge after insurance and write-offs.
+    // We subtract only patient paysplits (not insurance payments) to get the true
+    // remaining balance the patient has to pay.
+    const balanceDue = roundCurrency(Math.max(0, patientPortion - totalPtPaidFromSplits));
     const nextMeta: StatementMeta = {
       ...meta,
+      balanceBasis: 'patient',
       totalAmount: roundCurrency(totalAmount),
       writeoffAmount: roundCurrency(totalWriteOff),
       adjustmentAmount: roundCurrency(totalAdjustments),
@@ -2653,6 +3642,7 @@ export class InvoiceService {
 
     const nextMeta: StatementMeta = {
       ...meta,
+      balanceBasis: 'patient',
       status: 'pending',
       deductiblePostedAt: new Date().toISOString(),
       deductiblePostedByRow: byRow,
@@ -2731,6 +3721,11 @@ export class InvoiceService {
         balance?: number;
         dbi?: boolean;
         completed?: boolean;
+        // The line's contracted/basis allowed fee (the downgraded code's
+        // allowed fee when a downgrade rule applied). Written through to the
+        // procedure's BillingNote meta so downstream readers can display it.
+        allowedFee?: number;
+        coveragePct?: number;
         // Alternate-benefit (downgrade) audit trail, set by the pricing loop.
         downgraded?: boolean;
         downgradedFrom?: string;
@@ -2753,9 +3748,15 @@ export class InvoiceService {
         secondaryEffectiveCode?: string | null;
         secondaryDowngradeSkipped?: string | null;
         secondaryCoveragePct?: number | null;
+        /** Late-fee provenance — see late-fee.service.ts. */
+        lateFeeSourceStatement?: string | number | null;
+        lateFeeTier?: number | null;
+        lateFeeBaseAmount?: number | null;
       }>;
       addClaim?: boolean;
       branchId?: string;
+      /** Statement-level note. Defaults to 'Standalone Invoice'. */
+      notes?: string;
     },
     createdBy: string
   ) {
@@ -2767,7 +3768,17 @@ export class InvoiceService {
 
     const invoiceNumber = await getInvoiceNumber();
     const statementNum = await getNextId('statement', 'StatementNum');
-    const dueDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    // The invoice's date is the LATEST procedure date on it (the most recent
+    // service rendered), falling back to now when no row carries a date. Derived
+    // as local midnight so a date picked in the invoice modal's DATE column
+    // round-trips to the same calendar day on the ledger card.
+    const invoiceDate =
+      data.items
+        .map((item) => parseLocalDate(item.date))
+        .filter((d): d is Date => d !== null)
+        .sort((a, b) => b.getTime() - a.getTime())[0] ?? new Date();
+    const dueDate = new Date(invoiceDate.getTime() + 30 * 24 * 60 * 60 * 1000);
 
     const secondaryPlan = await prisma.patplan.findFirst({
       where: { PatNum: patientId, Ordinal: 2, OR: [{ IsPending: 0 }, { IsPending: null }] }
@@ -2819,6 +3830,14 @@ export class InvoiceService {
       totalWriteoff += Number(item.writeoff ?? 0);
     }
 
+    const activePolicy = patient.ClinicNum
+      ? await prisma.lateFeePolicy.findFirst({
+          where: { clinicId: patient.ClinicNum, isActive: true, enabled: true },
+        orderBy: { version: 'desc' },
+          select: { id: true },
+        })
+      : null;
+
     const meta: StatementMeta = {
       appointmentId: resolvedAptNum ? resolvedAptNum.toString() : undefined,
       copayAmount: 0,
@@ -2833,22 +3852,24 @@ export class InvoiceService {
       status: 'draft',
       createdBy,
       dueDate: dueDate.toISOString(),
+      lateFeePolicyVersionId: activePolicy?.id.toString(),
     };
 
     const statement = await prisma.statement.create({
       data: {
         StatementNum: statementNum,
         PatNum: patientId,
-        DateSent: new Date(),
-        DateRangeFrom: new Date(),
+        DateSent: invoiceDate,
+        DateRangeFrom: invoiceDate,
         DateRangeTo: dueDate,
-        Note: 'Standalone Invoice',
+        Note: data.notes || 'Standalone Invoice',
         NoteBold: buildJson(meta),
         IsInvoice: 1,
         StatementType: 'draft',
         ShortGUID: invoiceNumber,
         InsEst: roundCurrency(totalInsPortion + totalSecondaryInsPortion),
         BalTotal: totalAmount,
+        lateFeePolicyVersionId: activePolicy?.id ?? null,
       },
     });
 
@@ -2904,6 +3925,7 @@ export class InvoiceService {
         // the plan's schedule, absent/manual otherwise. Without this marker,
         // every re-estimate treats the previous contracted fee as a manual
         // override and it can never be re-derived.
+        allowedFee: isPenalty ? null : (item.allowedFee !== undefined && item.allowedFee !== null && Number(item.allowedFee) > 0 ? Number(item.allowedFee) : null),
         allowedFeeSource: item.allowedFeeSource === 'plan' ? 'plan' : null,
         secondaryInsPortion: isPenalty ? 0 : Number(item.secondaryInsPortion ?? 0),
         secondaryNotEstimated: Boolean(item.secondaryNotEstimated),
@@ -2920,6 +3942,7 @@ export class InvoiceService {
             ? null
             : Number(item.secondaryCoveragePct),
         totalInsPortion: isPenalty ? 0 : Number(item.totalInsPortion ?? (Number(item.insPortion ?? 0) + Number(item.secondaryInsPortion ?? 0))),
+        coveragePct: isPenalty ? null : (item.coveragePct ?? null),
         charge: Number(item.charge ?? 0),
         balance: Number(item.balance ?? 0),
         dbi: Boolean(item.dbi),
@@ -2935,6 +3958,22 @@ export class InvoiceService {
         isPatientPenalty: isPenalty,
         patientOnly: isPenalty || Boolean((item as any).patientOnly),
         isAccountPenalty: isPenalty || Boolean((item as any).isAccountPenalty),
+        // Late-fee provenance. These three keys are the only record that a
+        // given source invoice has already been charged a given tier, so they
+        // are what makes the duplicate check in late-fee.service.ts possible.
+        // They live in BillingNote rather than in columns because every
+        // recalculateInvoice path parses BillingNote, mutates its own keys and
+        // re-serializes the whole object (:2291, :2500, :2549) — so unknown
+        // keys survive re-estimation instead of being wiped by a whitelist.
+        lateFeeSourceStatement: (item as any).lateFeeSourceStatement != null
+          ? String((item as any).lateFeeSourceStatement)
+          : null,
+        lateFeeTier: (item as any).lateFeeTier != null
+          ? Number((item as any).lateFeeTier)
+          : null,
+        lateFeeBaseAmount: (item as any).lateFeeBaseAmount != null
+          ? Number((item as any).lateFeeBaseAmount)
+          : null,
       });
 
       // If item carries an existing ProcNum (unbilled product), update it in-place
@@ -2979,7 +4018,11 @@ export class InvoiceService {
       }
 
       if (existingRecord) {
-        // Link the existing record to the new invoice — marks it as "billed"
+        // Link the existing record to the new invoice — marks it as "billed".
+        // Also update ProcDate to the date the user selected in the modal so
+        // each procedure keeps its own chosen date rather than whatever was
+        // previously stored on the record.
+        const itemProcDate = item.date ? parseLocalDate(item.date) : null;
         await prisma.procedurelog.update({
           where: { ProcNum: existingRecord.ProcNum },
           data: {
@@ -2989,6 +4032,7 @@ export class InvoiceService {
             ProvNum: provNum ?? existingRecord.ProvNum,
             BillingNote: billingNote,
             NoBillIns: isPenalty ? 1 : existingRecord.NoBillIns,
+            ...(itemProcDate ? { ProcDate: itemProcDate } : {}),
           },
         });
       } else {
@@ -3001,7 +4045,7 @@ export class InvoiceService {
             AptNum: resolvedAptNum,
             ProvNum: provNum,
             ClinicNum: data.branchId ? BigInt(data.branchId) : null,
-            ProcDate: item.date ? new Date(item.date) : new Date(),
+            ProcDate: item.date ? new Date(item.date) : new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z'),
             ProcFee: Number(item.charge ?? 0),
             UnitQty: 1,
             CodeNum: service?.CodeNum ?? null,
@@ -3048,7 +4092,326 @@ export class InvoiceService {
     return this.mapStatementToInvoice(finalStatement, finalMeta);
   }
 
-  async markItemPaid(invoiceId: string, itemId: string, amount: number) {
+  /**
+   * Invoices eligible for a late-fee tier, for the dialog to render.
+   *
+   * Uses the same helpers as applyLateFee so the rows the user sees can never
+   * disagree with what the charge will accept. `alreadyCharged` is included
+   * because the provenance behind it is not exposed by the normal invoice
+   * shape, so the frontend has no way to work it out itself.
+   */
+  async getLateFeeEligibility(patientId: string, tier: number | null) {
+    // undefined means the tier was supplied but invalid; null means "any
+    // overdue invoice", which is what flat-rate and percentage use.
+    const resolved = lateFee.resolveTier(tier);
+    if (resolved === undefined) {
+      throw new BadRequestError(`Invalid late-fee tier: ${tier}. Expected one of ${lateFee.LATE_FEE_TIERS.join(', ')}.`);
+    }
+
+    const patNum = BigInt(patientId);
+    const patient = await prisma.patient.findUnique({ where: { PatNum: patNum } });
+    if (!patient) throw new NotFoundError('Patient not found');
+
+    const statements = await prisma.statement.findMany({
+      where: { PatNum: patNum, IsInvoice: 1 },
+      orderBy: { StatementNum: 'desc' },
+    });
+
+    const invoices = statements.map((statement) => {
+      const meta = parseJson<StatementMeta>(statement.NoteBold);
+      const mapped = this.mapStatementToInvoice(statement, meta);
+      const split = lateFee.outstandingSplit({
+        balTotal: statement.BalTotal,
+        insEst: statement.InsEst,
+        writeoffAmount: meta.writeoffAmount,
+      });
+      return {
+        ...mapped,
+        patientPortion: split.patientRemaining,
+        insuranceWriteOff: split.insuranceWriteOff,
+        insuranceBalance: split.insuranceRemaining,
+        patientRemaining: split.patientRemaining,
+        balanceDue: split.totalOwing,
+      };
+    });
+
+    const charged = await lateFee.findChargedLateFees(patNum);
+    const eligible = lateFee.eligibleInvoices(invoices, resolved, charged);
+
+    // Active policy for the patient's clinic, when one is enabled. The dialog
+    // reads the amount and terms from here (or falls back to the legacy tier
+    // default below) so it displays exactly what the charge will apply.
+    const policy = patient.ClinicNum
+      ? await LateFeeGuardrails.getActivePolicy(BigInt(patient.ClinicNum))
+      : null;
+    const policyRate = policy
+      ? policy.feeType === 'flat' ? policy.patientFeeAmount : policy.corporateFeePct
+      : null;
+    const policyMode = policy?.feeType ?? 'flat';
+    const projectedFee = (basis: number) => {
+      const rate = policyRate ?? lateFee.defaultRateFor(resolved);
+      if (rate === null || rate <= 0) return null;
+      return lateFee.feeAmountFor(basis, policyMode, rate);
+    };
+
+    return {
+      tier: resolved,
+      // Legacy tier default, still returned so old callers keep working; new
+      // dialog code should read `policy` + per-invoice `feePatient/feeTotal`.
+      defaultRate: lateFee.defaultRateFor(resolved),
+      // Backend-provided terms: amount and policy terms the dialog displays and
+      // re-sends on submit — never computed in the frontend.
+      policy: policy
+        ? {
+            policyVersion: policy.version,
+            termsText: policy.termsText,
+            feeType: policy.feeType,
+            patientFeeAmount: policy.patientFeeAmount,
+            corporateFeePct: policy.corporateFeePct,
+            capPct: policy.capPct,
+            paymentTermsDays: policy.paymentTermsDays,
+            gracePeriodDays: policy.gracePeriodDays,
+            enabled: policy.enabled,
+          }
+        : null,
+      // Sent to the dialog so the amount it previews is the amount the server
+      // will charge, rather than a second copy of these numbers in the UI.
+      invoices: eligible.map((row) => ({
+        id: row.id,
+        invoiceNumber: row.invoiceNumber,
+        invoiceDate: row.invoiceDate,
+        daysOutstanding: row.daysOutstanding,
+        tier: row.tier,
+        // The four ledger columns: insurance write-off, then what each party
+        // still owes, then the total.
+        insuranceWriteOff: row.insuranceWriteOff ?? 0,
+        patientBalance: row.basisPatient,
+        insuranceBalance: row.insuranceBalance ?? 0,
+        totalBalance: row.basisTotal,
+        alreadyCharged: row.alreadyCharged,
+        // Amount that WILL be charged for this invoice on each basis, computed
+        // on the backend (flat fee, or % of the basis balance).
+        feePatient: projectedFee(row.basisPatient),
+        feeTotal: projectedFee(row.basisTotal),
+      })),
+      // Everything sent, so the dialog can explain why nothing is eligible.
+      totalInvoices: invoices.length,
+    };
+  }
+
+  /**
+   * Apply late fees for a tier to a set of source invoices.
+   *
+   * Everything is recomputed here from the database rather than trusted from the
+   * request: ages, buckets, balances and the duplicate check. The dialog is a
+   * display convenience, not the enforcement point — otherwise a crafted
+   * request could charge a fee for an invoice that isn't 30 days overdue, or
+   * charge the same tier twice.
+   *
+   * All fees land on ONE standalone invoice with a line per source invoice, so
+   * the patient gets a single statement instead of N. Each line carries its own
+   * provenance so the fees remain independently auditable and individually
+   * de-duplicable.
+   */
+  async applyLateFee(
+    params: {
+      /** null/undefined = un-tiered adjustment (flat-rate / percentage menu items). */
+      tier?: number | null;
+      patientId: string;
+      invoiceIds: string[];
+      /** Omit for the flat default, which is what the dialog sends. */
+      mode?: 'flat' | 'percentage';
+      /** Omit to charge the tier's default rate (see late-fee.service.ts). */
+      rate?: number;
+      basis: 'patient' | 'total';
+      branchId?: string;
+    },
+    createdBy: string,
+  ) {
+    const {
+      invoiceIds, basis, branchId,
+    } = params;
+    const mode: 'flat' | 'percentage' = params.mode ?? 'flat';
+
+    const resolvedTier = lateFee.resolveTier(params.tier);
+    if (resolvedTier === undefined) {
+      throw new BadRequestError(`Invalid late-fee tier: ${params.tier}. Expected one of ${lateFee.LATE_FEE_TIERS.join(', ')}.`);
+    }
+    if (!invoiceIds?.length) {
+      throw new BadRequestError('Select at least one invoice to charge.');
+    }
+
+    // The dialog no longer sends a rate: each tier has a fixed amount. An
+    // explicit rate is still honoured so the API stays usable from outside the
+    // UI, and so the un-tiered adjustments keep working.
+    const tierDefault = lateFee.defaultRateFor(resolvedTier);
+    const requestedRate = params.rate === undefined || params.rate === null ? undefined : Number(params.rate);
+    let parsedRate: number;
+    if (requestedRate !== undefined) {
+      if (!Number.isFinite(requestedRate) || requestedRate <= 0) {
+        throw new BadRequestError('Late-fee rate must be a positive number.');
+      }
+      parsedRate = requestedRate;
+    } else if (tierDefault !== null) {
+      parsedRate = tierDefault;
+    } else {
+      throw new BadRequestError(
+        'A rate is required for an un-tiered adjustment, because there is no tier default to fall back on.',
+      );
+    }
+
+    const patientId = BigInt(params.patientId);
+    const patient = await prisma.patient.findUnique({ where: { PatNum: patientId } });
+    if (!patient) throw new NotFoundError('Patient not found');
+
+    // Load the source invoices and rebuild them through the same mapper the rest
+    // of the billing code uses, so balances and DateSent can't drift.
+    const sourceInvoices = [];
+    for (const invoiceId of invoiceIds) {
+      const statement = await this.getStatementById(invoiceId);
+      if (!statement) throw new NotFoundError(`Invoice ${invoiceId} not found`);
+      if (String(statement.PatNum) !== String(patientId)) {
+        throw new BadRequestError(`Invoice ${invoiceId} does not belong to this patient.`);
+      }
+      const meta = parseJson<StatementMeta>(statement.NoteBold);
+      const mapped = this.mapStatementToInvoice(statement, meta);
+      // Same ledger split the dialog displays, so the previewed amounts and the
+      // charged basis cannot disagree.
+      const split = lateFee.outstandingSplit({
+        balTotal: statement.BalTotal,
+        insEst: statement.InsEst,
+        writeoffAmount: meta.writeoffAmount,
+      });
+      sourceInvoices.push({
+        ...mapped,
+        patientPortion: split.patientRemaining,
+        patientRemaining: split.patientRemaining,
+        insuranceWriteOff: split.insuranceWriteOff,
+        insuranceBalance: split.insuranceRemaining,
+        balanceDue: split.totalOwing,
+      });
+    }
+
+    const alreadyCharged = await lateFee.findChargedLateFees(patientId);
+    const chargedKeys = new Set(
+      alreadyCharged.map((c) => lateFee.chargeKey(c.sourceStatement, c.tier)),
+    );
+
+    const accepted: Array<{
+      sourceStatement: string;
+      invoiceNumber: string;
+      daysOutstanding: number;
+      baseAmount: number;
+      feeAmount: number;
+    }> = [];
+    const rejected: Array<{ invoiceId: string; reason: string }> = [];
+
+    for (const invoice of sourceInvoices) {
+      const days = lateFee.daysOutstanding(invoice.invoiceDate);
+      if (days === null) {
+        rejected.push({ invoiceId: invoice.id, reason: 'Invoice has not been sent yet.' });
+        continue;
+      }
+      const actualBucket = lateFee.bucketFor(days);
+      if (actualBucket === null) {
+        rejected.push({ invoiceId: invoice.id, reason: `Invoice is only ${days} days old and is not yet late.` });
+        continue;
+      }
+      if (resolvedTier !== null && actualBucket !== resolvedTier) {
+        rejected.push({
+          invoiceId: invoice.id,
+          reason: `Invoice is ${days} days old, which is in the ${actualBucket}-day tier, not ${resolvedTier}.`,
+        });
+        continue;
+      }
+      if (chargedKeys.has(lateFee.chargeKey(invoice.id, resolvedTier))) {
+        rejected.push({
+          invoiceId: invoice.id,
+          reason: resolvedTier
+            ? `A ${resolvedTier}-day late fee has already been charged for this invoice.`
+            : `A late fee has already been charged for this invoice.`,
+        });
+        continue;
+      }
+
+      const baseAmount = lateFee.basisAmount(invoice, basis);
+      const feeAmount = lateFee.feeAmountFor(baseAmount, mode, parsedRate);
+      if (feeAmount <= 0) {
+        rejected.push({
+          invoiceId: invoice.id,
+          reason: basis === 'patient'
+            ? 'Invoice has no outstanding patient balance to charge against.'
+            : 'Invoice has no outstanding balance to charge against.',
+        });
+        continue;
+      }
+
+      chargedKeys.add(lateFee.chargeKey(invoice.id, resolvedTier));
+      accepted.push({
+        sourceStatement: invoice.id,
+        invoiceNumber: invoice.invoiceNumber || invoice.id,
+        daysOutstanding: days,
+        baseAmount,
+        feeAmount,
+      });
+    }
+
+    if (accepted.length === 0) {
+      throw new ConflictError(
+        `No eligible invoices for the requested late fee. ${rejected.map((r) => `${r.invoiceId}: ${r.reason}`).join(' ') || 'None selected.'}`,
+      );
+    }
+
+    const tierLabel = resolvedTier ? `${resolvedTier} days` : 'overdue';
+    const basisLabel = basis === 'patient' ? 'patient balance' : 'total outstanding';
+    const rateLabel = mode === 'percentage' ? `${parsedRate}% of ${basisLabel}` : `$${parsedRate} flat`;
+    const totalFee = Math.round(accepted.reduce((sum, a) => sum + a.feeAmount, 0) * 100) / 100;
+
+    const created = await this.createStandaloneInvoice(
+      {
+        patientId: String(patientId),
+        branchId,
+        notes: `Late fee — ${tierLabel} (${rateLabel})`,
+        items: accepted.map((a) => ({
+          code: `LATE-${resolvedTier ?? 'ANY'}-${a.sourceStatement}`,
+          description: `Late fee ${tierLabel} - invoice ${a.invoiceNumber} (${a.daysOutstanding} days overdue, ${rateLabel})`,
+          date: new Date().toISOString(),
+          site: 'Office',
+          provider: 'Staff',
+          writeoff: 0,
+          ptPortion: a.feeAmount,
+          insPortion: 0,
+          primaryInsPortion: 0,
+          secondaryInsPortion: 0,
+          totalInsPortion: 0,
+          charge: a.feeAmount,
+          balance: a.feeAmount,
+          dbi: false,
+          completed: true,
+          patientOnly: true,
+          isPatientPenalty: true,
+          isAccountPenalty: true,
+          lateFeeSourceStatement: a.sourceStatement,
+          lateFeeTier: resolvedTier,
+          lateFeeBaseAmount: a.baseAmount,
+        })),
+      },
+      createdBy,
+    );
+
+    return {
+      invoice: created,
+      tier: resolvedTier,
+      basis,
+      mode,
+      rate: parsedRate,
+      totalFee,
+      charged: accepted,
+      rejected,
+    };
+  }
+
+  async markItemPaid(invoiceId: string, itemId: string, amount: number, paymentSource?: string) {
     const invoice = await this.getStatementById(invoiceId);
     if (!invoice) throw new NotFoundError('Invoice not found');
 
@@ -3062,12 +4425,24 @@ export class InvoiceService {
     if (!item || item.StatementNum?.toString() !== invoiceId) throw new NotFoundError('Invoice item not found');
 
     const itemMeta = parseJson<ItemMeta>(item.BillingNote);
-    const currentPaid = Number((itemMeta as any).paidAmount || 0);
+    const currentPaid = Number(itemMeta.paidAmount || 0);
     const newPaid = roundCurrency(currentPaid + amount);
+    const isInsPayment = String(paymentSource ?? '').toLowerCase() === 'insurance_company' || String(paymentSource ?? '').toLowerCase() === 'insurance';
 
     await prisma.procedurelog.update({
       where: { ProcNum: procNum },
-      data: { BillingNote: buildJson({ ...itemMeta, paidAmount: newPaid }) },
+      data: {
+        BillingNote: buildJson({
+          ...itemMeta,
+          paidAmount: newPaid,
+          insurancePaidAmount: isInsPayment
+            ? roundCurrency(Number(itemMeta.insurancePaidAmount || 0) + amount)
+            : Number(itemMeta.insurancePaidAmount || 0),
+          patientPaidAmount: isInsPayment
+            ? Number(itemMeta.patientPaidAmount || 0)
+            : roundCurrency(Number(itemMeta.patientPaidAmount || 0) + amount),
+        }),
+      },
     });
 
     await this.recalculateInvoice(invoiceId);
@@ -3167,6 +4542,7 @@ export class InvoiceService {
           AdjDate: new Date(),
           ProcDate: item.ProcDate ?? new Date(),
           DateEntry: new Date(),
+          CreatedAt: new Date(),
           AdjNote: adjNote,
           SecUserNumEntry: userNum ?? undefined,
         },
@@ -3287,6 +4663,7 @@ export class InvoiceService {
           AdjDate: new Date(),
           ProcDate: item.ProcDate ?? new Date(),
           DateEntry: new Date(),
+          CreatedAt: new Date(),
           AdjNote: adjNote,
           SecUserNumEntry: userNum ?? undefined,
         },
@@ -3511,6 +4888,22 @@ export class InvoiceService {
       payments: paymentsResult.payments,
       claims: claimsResult.claims,
     };
+  }
+
+  async getLateFeeTerms(invoiceId: string): Promise<{ termsText: string; policyVersion: number } | null> {
+    const statement = await prisma.statement.findUnique({
+      where: { StatementNum: BigInt(invoiceId) },
+      select: { lateFeePolicyVersionId: true },
+    });
+    if (!statement?.lateFeePolicyVersionId) return null;
+
+    const policy = await prisma.lateFeePolicy.findUnique({
+      where: { id: BigInt(statement.lateFeePolicyVersionId) },
+      select: { termsText: true, version: true },
+    });
+    if (!policy) return null;
+
+    return { termsText: policy.termsText, policyVersion: policy.version };
   }
 }
 

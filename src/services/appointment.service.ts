@@ -22,7 +22,7 @@ import { smsService } from './sms.service';
 import { practiceInfoService } from './practice-info.service';
 import { staffNotificationService } from './staffNotification.service';
 import { invoiceService } from './invoice.service';
-import { getAppointmentTimeZone, scheduledStartInstant } from '../utils/datetime.util';
+import { getAppointmentTimeZone, scheduledStartInstant, clinicUTCMidnight } from '../utils/datetime.util';
 
 /**
  * Generate unique appointment code (e.g., APT001, APT002, etc.)
@@ -705,15 +705,17 @@ export class AppointmentService {
     let resolvedStatus = meta?.status ?? dbStatus;
 
     // Evaluate on-demand auto-no-show:
-    // If status is in ['scheduled', 'unconfirmed', 'preconfirmed', 'confirmed'] and past end_time + 60m
+    // If status is in ['scheduled', 'unconfirmed', 'preconfirmed', 'confirmed'] and past end_time + 60m in clinic timezone
     if (
       appointment.AptDateTime &&
       ['scheduled', 'unconfirmed', 'preconfirmed', 'confirmed'].includes(resolvedStatus.toLowerCase())
     ) {
       const durationMinutes = getDurationMinutesFromPattern(appointment.Pattern);
-      const endTime = new Date(new Date(appointment.AptDateTime).getTime() + durationMinutes * 60 * 1000);
-      const cutoffTime = new Date(endTime.getTime() + 60 * 60 * 1000);
-      if (Date.now() > cutoffTime.getTime()) {
+      const clinicTimeZone = await getAppointmentTimeZone(appointment.ClinicNum, null);
+      const realStart = scheduledStartInstant(new Date(appointment.AptDateTime), clinicTimeZone);
+      const realEnd = realStart + durationMinutes * 60 * 1000;
+      const cutoffTime = realEnd + 60 * 60 * 1000;
+      if (Date.now() > cutoffTime) {
         this.evaluateAutoNoShow(appointment, meta).catch(() => {});
         resolvedStatus = 'no_show';
       }
@@ -1192,10 +1194,10 @@ async getPatientAppointments(patientId: string, limit = 10) {
     // Ensure date is a Date object
     const targetDate = date instanceof Date ? new Date(date) : new Date(date);
     const startOfDay = new Date(targetDate);
-    startOfDay.setHours(0, 0, 0, 0);
+    startOfDay.setUTCHours(0, 0, 0, 0);
 
     const endOfDay = new Date(targetDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    endOfDay.setUTCHours(23, 59, 59, 999);
 
     // OpenDental doesn't store working hours in provider; use default business hours.
     const workingHours = { startTime: '09:00', endTime: '17:00', isAvailable: true };
@@ -1424,6 +1426,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
     reminderSent?: boolean;
     customFields?: Record<string, any>;
     status?: string;
+    /** Seed/backfill scripts only — real bookings are never allowed in the past. */
+    allowPast?: boolean;
   }, createdBy: string) {
     // Validate patient exists
     const patient = await prisma.patient.findUnique({
@@ -1526,6 +1530,16 @@ async getPatientAppointments(patientId: string, limit = 10) {
       });
       if (defaultClinic) {
         clinicNum = defaultClinic.ClinicNum;
+      }
+    }
+
+    // Reject back-dated bookings using the clinic's timezone, never the
+    // server's: a 5:00 PM California slot is still valid while a scheduler in
+    // Pakistan is already on the next calendar day.
+    if (!data.allowPast) {
+      const clinicTimeZone = await getAppointmentTimeZone(clinicNum, createdBy);
+      if (scheduledStartInstant(aptDateTime, clinicTimeZone) < Date.now()) {
+        throw new BadRequestError('Appointment date/time cannot be in the past.');
       }
     }
 
@@ -1731,6 +1745,32 @@ async getPatientAppointments(patientId: string, limit = 10) {
     }
 
     const isInactiveStatus = targetStatus === 'no_show' || targetStatus === 'cancelled' || targetStatus === 'pending';
+
+    // Moving an appointment (or rescheduling it) into the past is rejected in
+    // the clinic's timezone, matching the create path. Status-only updates are
+    // exempt so past appointments can still be checked in/out/no-showed.
+    if (!isInactiveStatus && (updates.appointmentDate || updates.startTime)) {
+      const currentStart = appointment.AptDateTime
+        ? toDateTime(
+            new Date(appointment.AptDateTime),
+            formatMinutesToTime(appointment.AptDateTime.getUTCHours() * 60 + appointment.AptDateTime.getUTCMinutes())
+          )
+        : null;
+      const newStart = toDateTime(
+        updates.appointmentDate ? new Date(updates.appointmentDate) : (appointment.AptDateTime ?? new Date()),
+        updates.startTime ||
+          (appointment.AptDateTime
+            ? formatMinutesToTime(appointment.AptDateTime.getUTCHours() * 60 + appointment.AptDateTime.getUTCMinutes())
+            : '09:00')
+      );
+      // Only guard actual moves: status edits may resend an unchanged past slot.
+      if (!currentStart || currentStart.getTime() !== newStart.getTime()) {
+        const clinicTimeZone = await getAppointmentTimeZone(appointment.ClinicNum, updatedBy);
+        if (scheduledStartInstant(newStart, clinicTimeZone) < Date.now()) {
+          throw new BadRequestError('Appointment date/time cannot be in the past.');
+        }
+      }
+    }
 
     // If updating date/time or provider, check for conflicts (including buffers and room)
     if (!isInactiveStatus && (updates.appointmentDate || updates.startTime || updates.endTime || updates.providerId)) {
@@ -2247,6 +2287,13 @@ async getPatientAppointments(patientId: string, limit = 10) {
       throw new BadRequestError('Cannot reschedule a completed appointment');
     }
 
+    // Interpret the target slot in the appointment's clinic timezone before
+    // accepting the move — the scheduler's browser clock is irrelevant.
+    const rescheduleClinicTimeZone = await getAppointmentTimeZone(appointment.ClinicNum, rescheduledBy);
+    if (scheduledStartInstant(toDateTime(newDate, newStartTime), rescheduleClinicTimeZone) < Date.now()) {
+      throw new BadRequestError('Appointment date/time cannot be in the past.');
+    }
+
     // Check for conflicts with new time (including buffers, room, and patient double-booking)
     const conflictCheck = await checkConflicts(
       appointment.ProvNum?.toString() ?? '',
@@ -2271,7 +2318,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
     }
 
     const oldData = await this.mapAppointmentWithMeta(appointment);
-    const previousAppointmentDateTime = this.formatAppointmentDateTime(appointment.AptDateTime);
+    const rescheduleTz = await getAppointmentTimeZone(appointment.ClinicNum, rescheduledBy);
+    const previousAppointmentDateTime = this.formatAppointmentDateTime(appointment.AptDateTime, rescheduleTz);
     const updated = await prisma.appointment.update({
       where: { AptNum: BigInt(appointmentId) },
       data: {
@@ -2482,13 +2530,32 @@ async getPatientAppointments(patientId: string, limit = 10) {
     const now = new Date();
     const windowEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
-    const upcoming = await prisma.appointment.findMany({
+    // Stored AptDateTime values are pseudo-instants (UTC wall-clock == clinic
+    // wall-clock), so we fetch a generous window and filter by the real clinic
+    // instant below — a direct gte/lte on the pseudo value would miss or
+    // include appointments depending on the clinic offset.
+    const candidates = await prisma.appointment.findMany({
       where: {
-        AptDateTime: { gte: now, lte: windowEnd },
+        AptDateTime: { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000), lte: new Date(now.getTime() + 48 * 60 * 60 * 1000) },
         AptStatus: { notIn: [4, 6] }, // exclude cancelled, pending
       },
-      select: { AptNum: true },
+      select: { AptNum: true, ClinicNum: true, AptDateTime: true },
     });
+
+    const tzByClinic = new Map<string, string>();
+    const upcoming: { AptNum: bigint }[] = [];
+    for (const apt of candidates) {
+      if (!apt.AptDateTime) continue;
+      const clinicKey = apt.ClinicNum?.toString() ?? '';
+      if (!tzByClinic.has(clinicKey)) {
+        tzByClinic.set(clinicKey, await getAppointmentTimeZone(apt.ClinicNum, null));
+      }
+      const tz = tzByClinic.get(clinicKey)!;
+      const realStart = scheduledStartInstant(new Date(apt.AptDateTime), tz);
+      if (realStart >= now.getTime() && realStart <= windowEnd.getTime()) {
+        upcoming.push({ AptNum: apt.AptNum });
+      }
+    }
 
     const metaByAppointment = await getAppointmentsMeta(upcoming.map((a) => a.AptNum));
 
@@ -2535,21 +2602,30 @@ async getPatientAppointments(patientId: string, limit = 10) {
 
   async sendDailySmsReminders(): Promise<{ checked: number; sent: number; skipped: number }> {
     const now = new Date();
-    // Target is exactly 2 days from now (day after tomorrow)
-    const startOfTargetDay = new Date(now);
-    startOfTargetDay.setDate(now.getDate() + 2);
-    startOfTargetDay.setHours(0, 0, 0, 0);
-    
-    const endOfTargetDay = new Date(startOfTargetDay);
-    endOfTargetDay.setHours(23, 59, 59, 999);
 
-    const upcoming = await prisma.appointment.findMany({
-      where: {
-        AptDateTime: { gte: startOfTargetDay, lte: endOfTargetDay },
-        AptStatus: { notIn: [4, 6] }, // exclude cancelled, pending
-      },
-      select: { AptNum: true, AptDateTime: true, PatNum: true, ClinicNum: true },
-    });
+    // We need the clinic's calendar day that is 2 days out, so group the
+    // appointments by clinic and compute each branch's own day boundaries.
+    const clinics = await prisma.clinic.findMany({ select: { ClinicNum: true, TimeZone: true } });
+    const tzByClinic = new Map<string, string>();
+    for (const c of clinics) tzByClinic.set(c.ClinicNum.toString(), await getAppointmentTimeZone(c.ClinicNum, null));
+
+    const upcoming: { AptNum: bigint; AptDateTime: Date | null; ClinicNum: bigint | null; PatNum: bigint | null }[] = [];
+    for (const [clinicNumStr, tz] of tzByClinic) {
+      // Clinic calendar day 2 days from now in that zone.
+      const targetDateStr = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000)
+        .toLocaleDateString('en-CA', { timeZone: tz });
+      const gte = clinicUTCMidnight(targetDateStr, tz);
+      const lte = new Date(gte.getTime() + 24 * 60 * 60 * 1000 - 1);
+      const rows = await prisma.appointment.findMany({
+        where: {
+          ClinicNum: BigInt(clinicNumStr),
+          AptDateTime: { gte, lte },
+          AptStatus: { notIn: [4, 6] },
+        },
+        select: { AptNum: true, AptDateTime: true, ClinicNum: true, PatNum: true },
+      });
+      upcoming.push(...rows);
+    }
 
     const metaByAppointment = await getAppointmentsMeta(upcoming.map((a) => a.AptNum));
 
@@ -2577,8 +2653,8 @@ async getPatientAppointments(patientId: string, limit = 10) {
         }
 
         // Format Date and Time
-        const aptDate = apt.AptDateTime ? apt.AptDateTime.toLocaleDateString() : '';
-        const aptTime = apt.AptDateTime ? apt.AptDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+        const aptDate = apt.AptDateTime ? new Date(apt.AptDateTime).toISOString().slice(0, 10) : '';
+        const aptTime = apt.AptDateTime ? `${String(new Date(apt.AptDateTime).getUTCHours()).padStart(2, '0')}:${String(new Date(apt.AptDateTime).getUTCMinutes()).padStart(2, '0')}` : '';
         
         // Log to smstomobile
         const maxSms = await prisma.$queryRaw<[{ max: bigint | null }]>`SELECT MAX("SmsToMobileNum") as max FROM "smstomobile"`;
@@ -2629,10 +2705,12 @@ async getPatientAppointments(patientId: string, limit = 10) {
     }
 
     const durationMinutes = getDurationMinutesFromPattern(appointment.Pattern);
-    const endTime = new Date(new Date(appointment.AptDateTime).getTime() + durationMinutes * 60 * 1000);
-    const cutoffTime = new Date(endTime.getTime() + 60 * 60 * 1000);
+    const clinicTimeZone = await getAppointmentTimeZone(appointment.ClinicNum, null);
+    const realStart = scheduledStartInstant(new Date(appointment.AptDateTime), clinicTimeZone);
+    const realEnd = realStart + durationMinutes * 60 * 1000;
+    const cutoffTime = realEnd + 60 * 60 * 1000;
 
-    if (Date.now() <= cutoffTime.getTime()) {
+    if (Date.now() <= cutoffTime) {
       return null;
     }
 
@@ -2705,12 +2783,13 @@ async getPatientAppointments(patientId: string, limit = 10) {
    * transitioning them to 'no_show'.
    */
   async autoUpdateNoShowAppointments(): Promise<{ checked: number; updated: number }> {
-    const cutoffThreshold = new Date(Date.now() - 60 * 60 * 1000);
+    // Generous pseudo window; the real-instant filter happens in
+    // evaluateAutoNoShow, which resolves the clinic timezone per appointment.
     const candidates = await prisma.appointment.findMany({
       where: {
         AptStatus: 0,
         AptDateTime: {
-          lt: cutoffThreshold,
+          lt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         },
       },
     });
@@ -3375,9 +3454,10 @@ async getPatientAppointments(patientId: string, limit = 10) {
    * appointment notification (confirmation, reminder, cancellation, reschedule)
    * so each notification type doesn't re-fetch and re-format the same data.
    */
-  private formatAppointmentDateTime(date: Date | null): string {
+  private formatAppointmentDateTime(date: Date | null, timeZone?: string): string {
     return date
       ? new Intl.DateTimeFormat('en-US', {
+          timeZone: timeZone || 'UTC',
           weekday: 'long',
           year: 'numeric',
           month: 'long',
@@ -3406,12 +3486,13 @@ async getPatientAppointments(patientId: string, limit = 10) {
       throw new BadRequestError('Appointment does not have a patient');
     }
 
-    const appointmentDateTime = this.formatAppointmentDateTime(appointment.AptDateTime);
+    const clinicTz = await getAppointmentTimeZone(appointment.ClinicNum, null);
+    const appointmentDateTime = this.formatAppointmentDateTime(appointment.AptDateTime, clinicTz);
     const appointmentDateOnly = appointment.AptDateTime
-      ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(appointment.AptDateTime)
+      ? new Intl.DateTimeFormat('en-US', { timeZone: clinicTz, month: 'short', day: 'numeric', year: 'numeric' }).format(appointment.AptDateTime)
       : 'TBD';
     const appointmentTimeOnly = appointment.AptDateTime
-      ? new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(appointment.AptDateTime)
+      ? new Intl.DateTimeFormat('en-US', { timeZone: clinicTz, hour: 'numeric', minute: '2-digit' }).format(appointment.AptDateTime)
       : 'TBD';
     const providerName = appointment.provider_appointment_ProvNumToprovider
       ? [
@@ -3588,8 +3669,10 @@ async getPatientAppointments(patientId: string, limit = 10) {
 
   async getDayTasks(dateString: string) {
     const targetDate = new Date(dateString);
-    const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
-    const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
+    const startOfDay = new Date(targetDate);
+    startOfDay.setUTCHours(0, 0, 0, 0);
+    const endOfDay = new Date(targetDate);
+    endOfDay.setUTCHours(23, 59, 59, 999);
 
     const appointments = await prisma.appointment.findMany({
       where: {

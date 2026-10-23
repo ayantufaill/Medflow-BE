@@ -183,11 +183,11 @@ async function main() {
   // Provider NPI → branch, mirroring seedProviders.ts's provider order and
   // seedAppointments.ts's provider→patient grouping.
   const providerBranchByNpi: Record<string, string> = {
-    '1234567890': defaultClinicNum,  // Mitchell — Default Clinic
-    '2345678901': westsideClinicNum, // Patel — Westside Branch
-    '3456789012': riversideClinicNum, // Chen — Riverside Clinic
-    '4567890123': defaultClinicNum,  // Torres — Default Clinic
-    '5678901234': westsideClinicNum, // Kim — Westside Branch
+    '1234567893': defaultClinicNum,  // Mitchell — Default Clinic
+    '2345678900': westsideClinicNum, // Patel — Westside Branch
+    '3456789015': riversideClinicNum, // Chen — Riverside Clinic
+    '4567890122': defaultClinicNum,  // Torres — Default Clinic
+    '5678901237': westsideClinicNum, // Kim — Westside Branch
   };
 
   for (const [npi, branchId] of Object.entries(providerBranchByNpi)) {

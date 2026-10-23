@@ -4,7 +4,7 @@ import { reportingService } from '../services/reporting.service';
 export class ReportingController {
   async getDenialRates(req: Request, res: Response, next: NextFunction) {
     try {
-      const branchId = req.query.branchId as string | undefined;
+      const branchId = (req.query.branchId || req.headers['x-branch-id']) as string | undefined;
       const data = await reportingService.getDenialRates(branchId);
       res.status(200).json({
         success: true,
@@ -68,7 +68,7 @@ export class ReportingController {
 
   async runReport(req: Request, res: Response, next: NextFunction) {
     try {
-      const result = await reportingService.runReport(req.body);
+      const result = await reportingService.runReport({ ...req.body, branchId: req.body.branchId || req.headers['x-branch-id'] });
       res.status(200).json({
         success: true,
         data: result,

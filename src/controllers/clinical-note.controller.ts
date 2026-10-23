@@ -1,8 +1,15 @@
 import type { Request, Response, NextFunction } from 'express';
 import { clinicalNoteService } from '../services/clinical-note.service';
 import { logActivityFromRequest } from '../utils/activity-logger.util';
+import { getNoteHistory } from '../services/note-history.service';
 
 export class ClinicalNoteController {
+  async getHistory(req: Request, res: Response, next: NextFunction) {
+    try {
+      const history = await getNoteHistory(req.params.clinicalNoteId, 'clinical_notes');
+      res.status(200).json({ success: true, data: { history } });
+    } catch (error) { next(error); }
+  }
   async getAllClinicalNotes(req: Request, res: Response, next: NextFunction) {
     try {
       const page = parseInt(req.query.page as string) || 1;
