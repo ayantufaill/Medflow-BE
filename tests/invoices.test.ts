@@ -96,7 +96,7 @@ describe('Invoices', () => {
     expect(res.status).toBe(400);
   });
 
-  it('creates a standalone invoice successfully', async () => {
+  it('creates a patient-only invoice without insurance or contractual writeoffs', async () => {
     const token = uniqueToken('standalone-inv');
     const patient = await createPatientRecord(token);
     
@@ -129,8 +129,9 @@ describe('Invoices', () => {
     expect(res.body.success).toBe(true);
     expect(res.body.data.invoice.patientId).toBe(patient.PatNum.toString());
     expect(res.body.data.invoice.totalAmount).toBe(90);
-    expect(res.body.data.invoice.writeoffAmount).toBe(10);
-    expect(res.body.data.invoice.patientPortion).toBe(40);
+    expect(res.body.data.invoice.writeoffAmount).toBe(0);
+    expect(res.body.data.invoice.insurancePortion).toBe(0);
+    expect(res.body.data.invoice.patientPortion).toBe(90);
     expect(res.body.data.invoice.balanceDue).toBe(90);
   });
 
@@ -179,7 +180,7 @@ describe('Invoices', () => {
     expect(invRes.status).toBe(201);
     const invoiceId = invRes.body.data.invoice._id;
     expect(invRes.body.data.invoice.totalAmount).toBe(160);
-    expect(invRes.body.data.invoice.balanceDue).toBe(160);
+    expect(invRes.body.data.invoice.balanceDue).toBe(135);
 
     // Formally post a $25 write-off adjustment linked to this invoice
     const adjRes = await request(app)
@@ -203,10 +204,10 @@ describe('Invoices', () => {
     expect(getRes.body.data.invoice.totalAmount).toBe(160);
     expect(getRes.body.data.invoice.writeoffAmount).toBe(25);
     expect(getRes.body.data.invoice.adjustmentAmount).toBe(25);
-    expect(getRes.body.data.invoice.balanceDue).toBe(160);
+    expect(getRes.body.data.invoice.balanceDue).toBe(135);
   });
 
-  it('keeps writeoffs separate from balanceDue for a single procedure', async () => {
+  it('excludes contractual writeoffs from the patient balance for a single procedure', async () => {
     const token = uniqueToken('writeoff-inv');
     const patient = await createPatientRecord(token);
 
@@ -234,10 +235,10 @@ describe('Invoices', () => {
 
     expect(invRes.status).toBe(201);
     
-    // Verify response immediately shows balanceDue = 491, writeoffAmount = 35
+    // The $35 writeoff reduces the patient balance to $456.
     expect(invRes.body.data.invoice.totalAmount).toBe(491);
     expect(invRes.body.data.invoice.writeoffAmount).toBe(35);
-    expect(invRes.body.data.invoice.balanceDue).toBe(491);
+    expect(invRes.body.data.invoice.balanceDue).toBe(456);
 
     // Fetch the invoice from DB to ensure it was saved correctly
     const invoiceId = invRes.body.data.invoice._id;
@@ -248,6 +249,6 @@ describe('Invoices', () => {
     expect(getRes.status).toBe(200);
     expect(getRes.body.data.invoice.totalAmount).toBe(491);
     expect(getRes.body.data.invoice.writeoffAmount).toBe(35);
-    expect(getRes.body.data.invoice.balanceDue).toBe(491);
+    expect(getRes.body.data.invoice.balanceDue).toBe(456);
   });
 });

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { basePrisma, withTenantTransaction } from '../src/config/db';
+import { getNextId } from '../src/utils/opendental-ids.util';
 import { tenantContextStorage } from '../src/config/tenant-context';
 
 describe('tenant transactions on the installed Prisma runtime', () => {
@@ -34,6 +35,23 @@ describe('tenant transactions on the installed Prisma runtime', () => {
     expect(events.map(e => e.action)).toEqual(['start', 'queryRaw', 'queryRaw', 'findUnique', 'update', 'commit']);
     expect(JSON.stringify(events[1].args)).toContain('app.clinic_ids');
     expect(JSON.stringify(events[1].args)).toContain('30');
+  });
+
+  it('allocates an ID with the aggregate and sequence update on one scoped connection', async () => {
+    vi.mocked((basePrisma as any)._requestHandler.request).mockImplementation(async (params: any) => {
+      events.push({ action: params.action, id: params.transaction?.id, args: params.args });
+      if (params.action === 'aggregate') return { _max: { SecurityLogNum: 40n } };
+      if (params.action === 'queryRaw' && String(params.args?.query).includes('INSERT INTO medflow_sequences')) {
+        return [{ next_id: 41n }];
+      }
+      return [];
+    });
+    const id = await tenantContextStorage.run({ clinicIds: [30n], patientGroupId: 7 }, () =>
+      getNextId('securitylog', 'SecurityLogNum'),
+    );
+    expect(id).toBe(41n);
+    expect(events.map(e => e.action)).toEqual(['start', 'queryRaw', 'aggregate', 'queryRaw', 'commit']);
+    expect(new Set(events.map(e => e.id))).toEqual(new Set(['test-1']));
   });
 
   it('rolls back the same transaction when work fails', async () => {

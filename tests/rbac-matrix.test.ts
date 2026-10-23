@@ -91,6 +91,11 @@ describe('Pure 4-Group Role-Based Access Control (RBAC) Matrix & Permission Gati
       expect(matrix['Lab']).toBeDefined();
       expect(matrix['Lab']['lab-results.create']).toBe(true);
       expect(matrix['Lab']['patients.read_basic']).toBe(true);
+      expect(matrix['Lab']['insurance.read']).toBe(true);
+      expect(matrix['Lab']['insurance.coverage_order.read']).toBe(true);
+      expect(matrix['Lab']['insurance.plan_master.read']).toBe(true);
+      expect(matrix['Lab']['insurance.coverage_order.override']).toBeUndefined();
+      expect(matrix['Lab']['insurance.plan_master.edit']).toBeUndefined();
       expect(matrix['Lab']['reports.read']).toBeUndefined();
       expect(matrix['Lab']['clinical-notes.sign']).toBeUndefined();
     });

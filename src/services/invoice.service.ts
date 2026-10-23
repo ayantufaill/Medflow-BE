@@ -109,6 +109,8 @@ type CoveragePercentTables = {
 };
 
 type StatementMeta = {
+  /** BalTotal is the unpaid patient share, with insurance tracked in InsEst. */
+  balanceBasis?: 'patient';
   appointmentId?: string;
   providerId?: string;
   insuranceCompanyId?: string;
@@ -2995,6 +2997,7 @@ export class InvoiceService {
 
     const nextMeta: StatementMeta = {
       ...meta,
+      balanceBasis: 'patient',
       insuranceCompanyId: updates.insuranceCompanyId ?? meta.insuranceCompanyId,
       providerId: updates.providerId ?? meta.providerId,
       discountAmount: updates.discountAmount ?? meta.discountAmount,
@@ -3523,6 +3526,7 @@ export class InvoiceService {
     const balanceDue = roundCurrency(Math.max(0, patientPortion - totalPtPaidFromSplits));
     const nextMeta: StatementMeta = {
       ...meta,
+      balanceBasis: 'patient',
       totalAmount: roundCurrency(totalAmount),
       writeoffAmount: roundCurrency(totalWriteOff),
       adjustmentAmount: roundCurrency(totalAdjustments),
@@ -3638,6 +3642,7 @@ export class InvoiceService {
 
     const nextMeta: StatementMeta = {
       ...meta,
+      balanceBasis: 'patient',
       status: 'pending',
       deductiblePostedAt: new Date().toISOString(),
       deductiblePostedByRow: byRow,
