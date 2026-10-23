@@ -5,11 +5,26 @@ import { prisma } from '../src/config/db';
 import { appointmentService } from '../src/services/appointment.service';
 import { getAdminAuthHeader } from './helpers/auth';
 import { uniqueToken } from './helpers/unique';
+import { getAppointmentTimeZone } from '../src/utils/datetime.util';
 import {
   createAppointmentRecord,
   createPatientRecord,
   createProviderRecord,
 } from './helpers/fixtures';
+
+// These fixtures have no clinic, so use the same fallback zone as the service.
+// The DB stores clinic wall-clock components, not absolute UTC instants.
+const storedAppointmentTime = async (instant: Date): Promise<Date> => {
+  const timeZone = await getAppointmentTimeZone(null);
+  const fields: Record<string, number> = {};
+  for (const part of new Intl.DateTimeFormat('en-US', {
+    timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit',
+    day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+  }).formatToParts(instant)) {
+    if (part.type !== 'literal') fields[part.type] = Number(part.value);
+  }
+  return new Date(Date.UTC(fields.year, fields.month - 1, fields.day, fields.hour, fields.minute, fields.second));
+};
 
 describe('Appointment Status Rules: Checked Out and No Show', () => {
   let authHeader: { Authorization: string };
@@ -25,7 +40,7 @@ describe('Appointment Status Rules: Checked Out and No Show', () => {
       const provider = await createProviderRecord(token);
 
       // Future appointment: scheduled 1 day from now
-      const futureDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const futureDate = await storedAppointmentTime(new Date(Date.now() + 24 * 60 * 60 * 1000));
       const appt = await createAppointmentRecord({
         patientId: patient.PatNum,
         providerId: provider.ProvNum,
@@ -60,7 +75,7 @@ describe('Appointment Status Rules: Checked Out and No Show', () => {
       const provider = await createProviderRecord(token);
 
       // Past appointment: started 30 minutes ago
-      const pastDate = new Date(Date.now() - 30 * 60 * 1000);
+      const pastDate = await storedAppointmentTime(new Date(Date.now() - 30 * 60 * 1000));
       const appt = await createAppointmentRecord({
         patientId: patient.PatNum,
         providerId: provider.ProvNum,
@@ -83,7 +98,7 @@ describe('Appointment Status Rules: Checked Out and No Show', () => {
       const provider = await createProviderRecord(token);
 
       // Past appointment: started 2 hours ago
-      const pastDate = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      const pastDate = await storedAppointmentTime(new Date(Date.now() - 2 * 60 * 60 * 1000));
       const appt = await createAppointmentRecord({
         patientId: patient.PatNum,
         providerId: provider.ProvNum,
@@ -113,7 +128,7 @@ describe('Appointment Status Rules: Checked Out and No Show', () => {
       const patient = await createPatientRecord(token);
       const provider = await createProviderRecord(token);
 
-      const pastDate = new Date(Date.now() - 60 * 60 * 1000);
+      const pastDate = await storedAppointmentTime(new Date(Date.now() - 60 * 60 * 1000));
       const appt = await createAppointmentRecord({
         patientId: patient.PatNum,
         providerId: provider.ProvNum,
@@ -149,7 +164,7 @@ describe('Appointment Status Rules: Checked Out and No Show', () => {
       // Appointment duration = 30 min (default pattern)
       // Ended 30 minutes ago (within 60m buffer)
       // Start time = now - 60 minutes
-      const startDateTime = new Date(Date.now() - 60 * 60 * 1000);
+      const startDateTime = await storedAppointmentTime(new Date(Date.now() - 60 * 60 * 1000));
       const appt = await createAppointmentRecord({
         patientId: patient.PatNum,
         providerId: provider.ProvNum,
@@ -172,7 +187,7 @@ describe('Appointment Status Rules: Checked Out and No Show', () => {
       // Appointment duration = 30 min
       // Ended 90 minutes ago (> 60m buffer)
       // Start time = now - 120 minutes
-      const startDateTime = new Date(Date.now() - 120 * 60 * 1000);
+      const startDateTime = await storedAppointmentTime(new Date(Date.now() - 120 * 60 * 1000));
       const appt = await createAppointmentRecord({
         patientId: patient.PatNum,
         providerId: provider.ProvNum,
