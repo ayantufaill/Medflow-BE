@@ -174,15 +174,31 @@ class EligibilityService {
 
   private async resolveProvider(patientPriProv: bigint | null | undefined, providerId?: string | number) {
     const provNum = providerId ? BigInt(providerId) : patientPriProv;
-    const provider = provNum
-      ? await prisma.provider.findUnique({ where: { ProvNum: provNum } })
-      : await prisma.provider.findFirst({
-          where: { NationalProvID: { not: null }, IsHidden: { not: 1 } },
-          orderBy: { ProvNum: 'asc' },
-        });
-    if (!provider) throw new NotFoundError('Provider not found for eligibility check');
-    if (!isValidNPI(provider.NationalProvID)) {
-      throw new BadRequestError(`Provider ${provider.FName ?? ''} ${provider.LName ?? ''} has no valid NPI`.trim());
+
+    if (provNum) {
+      const provider = await prisma.provider.findUnique({ where: { ProvNum: provNum } });
+      if (!provider) throw new NotFoundError('Provider not found for eligibility check');
+      if (!isValidNPI(provider.NationalProvID)) {
+        const name = `${provider.FName ?? ''} ${provider.LName ?? ''}`.trim();
+        throw new BadRequestError(
+          `Provider ${name} has no valid NPI (${provider.NationalProvID || 'blank'}). Update the NPI in provider settings.`
+        );
+      }
+      return provider;
+    }
+
+    // No provider chosen and no primary provider on the patient: use the first
+    // visible provider whose NPI passes the check digit, so one bad record
+    // doesn't block every check.
+    const candidates = await prisma.provider.findMany({
+      where: { NationalProvID: { not: null }, IsHidden: { not: 1 } },
+      orderBy: { ProvNum: 'asc' },
+    });
+    const provider = candidates.find((p) => isValidNPI(p.NationalProvID));
+    if (!provider) {
+      throw new BadRequestError(
+        'No provider with a valid NPI found. Set a primary provider on the patient or fix the provider NPIs in provider settings.'
+      );
     }
     return provider;
   }
