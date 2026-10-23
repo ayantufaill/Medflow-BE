@@ -15,7 +15,7 @@ const assistants = [
   {
     user: { email: 'emily.torres@medflow.com', firstName: 'Emily', lastName: 'Torres' },
     profile: {
-      npiNumber: '6111222333',
+      npiNumber: '6111222330',
       licenseNumber: 'TX-RDH-18204',
       title: 'RDH',
       specialty: 'Dental Hygiene',
@@ -32,7 +32,7 @@ const assistants = [
   {
     user: { email: 'marcus.johnson@medflow.com', firstName: 'Marcus', lastName: 'Johnson' },
     profile: {
-      npiNumber: '6222333444',
+      npiNumber: '6222333448',
       licenseNumber: 'TX-RDH-29531',
       title: 'RDH',
       specialty: 'Dental Hygiene',
@@ -64,7 +64,7 @@ const assistants = [
   {
     user: { email: 'carlos.rivera@medflow.com', firstName: 'Carlos', lastName: 'Rivera' },
     profile: {
-      npiNumber: '6444555666',
+      npiNumber: '6444555661',
       licenseNumber: 'NY-RDH-53049',
       title: 'DA',
       specialty: 'Dental Assisting',
@@ -80,7 +80,7 @@ const assistants = [
   {
     user: { email: 'jessica.wong@medflow.com', firstName: 'Jessica', lastName: 'Wong' },
     profile: {
-      npiNumber: '6555666777',
+      npiNumber: '6555666778',
       licenseNumber: 'CA-RDH-64310',
       title: 'RDH',
       specialty: 'Dental Hygiene',
