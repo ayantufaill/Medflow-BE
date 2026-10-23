@@ -171,7 +171,7 @@ describe('Appointments', () => {
       .send({
         patientId: patient.PatNum.toString(),
         providerId: provider.ProvNum.toString(),
-        appointmentDate: '2026-08-01',
+        appointmentDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
         startTime: '09:00',
         endTime: '09:30',
         durationMinutes: 30,
@@ -193,14 +193,14 @@ describe('Appointments', () => {
       .send({
         patientId: patient.PatNum.toString(),
         providerId: provider.ProvNum.toString(),
-        appointmentDate: '2026-08-01',
+        appointmentDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
         startTime: '09:00',
         endTime: '09:30',
         durationMinutes: 30,
         roomId: room.OperatoryNum.toString(),
       });
 
-    expect(res.status).toBe(201);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body.success).toBe(true);
     expect(res.body.data.appointment.roomId).toBe(room.OperatoryNum.toString());
   });

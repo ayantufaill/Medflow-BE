@@ -1,4 +1,4 @@
-import { prisma } from '../config/db';
+import { withTenantTransaction } from '../config/db';
 import type { Prisma } from '@prisma/client';
 
 // medflow_sequences is now a real Prisma-managed model (see schema.prisma) —
@@ -30,5 +30,8 @@ export const getNextId = async (table: string, column: string, transaction?: Pri
 
     return BigInt(inserted[0].next_id);
   };
-  return transaction ? allocate(transaction) : prisma.$transaction(allocate);
+  // Use one scoped base-client transaction. Opening this on the extended client
+  // would wrap the aggregate in a second transaction and exhaust the pool
+  // when concurrent allocators each hold a connection while waiting for another.
+  return transaction ? allocate(transaction) : withTenantTransaction(allocate);
 };

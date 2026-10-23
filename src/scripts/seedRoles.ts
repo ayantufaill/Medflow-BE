@@ -193,6 +193,10 @@ const GROUP_ADMIN_OPERATIONAL_PERMISSIONS = {
 };
 
 const LAB_GROUP_PERMISSIONS = {
+  // Insurance is View in the team module matrix; edits remain denied.
+  'insurance.read': true,
+  'insurance.coverage_order.read': true,
+  'insurance.plan_master.read': true,
   'clinical.cross_branch.view': true,
   'patients.read_basic': true,
   'appointments.read': true,

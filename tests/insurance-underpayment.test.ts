@@ -251,9 +251,10 @@ describe('Insurance Underpayment Balance Transfer', () => {
 
     expect(ptPayRes.status).toBe(201);
 
-    // Verify invoice balance is now $185
+    // Patient has paid their full share; insurance still owes $185.
     let stmtAfterPtPay = await prisma.statement.findUnique({ where: { StatementNum: statement.StatementNum } });
-    expect(Number(stmtAfterPtPay?.BalTotal)).toBe(185);
+    expect(Number(stmtAfterPtPay?.BalTotal)).toBe(0);
+    expect(Number(stmtAfterPtPay?.InsEst)).toBe(185);
 
     // Step 2: Biller creates claim for remaining insurance portion ($185)
     const claimNum = await getNextId('claim', 'ClaimNum');
@@ -336,10 +337,10 @@ describe('Insurance Underpayment Balance Transfer', () => {
     expect(procMeta.ptPortion).toBe(120); // Patient originally had 120 and paid in full -> remains 120 (does NOT shift to pt)
     expect(procMeta.paidAmount).toBe(270); // 120 pt + 150 ins
 
-    // 2. Verify Statement: InsEst is 35 (uncollected insurance), BalTotal is 35 (remaining balance due from insurance)
+    // 2. Insurance still owes $35; the patient balance remains zero.
     const updatedStmt = await prisma.statement.findUnique({ where: { StatementNum: statement.StatementNum } });
     expect(Number(updatedStmt?.InsEst)).toBe(35);
-    expect(Number(updatedStmt?.BalTotal)).toBe(35);
+    expect(Number(updatedStmt?.BalTotal)).toBe(0);
 
     // 3. Verify Aging Summary: patient balance is 0 because patient paid their portion in full
     const agingRes = await request(app)
@@ -383,6 +384,8 @@ describe('Insurance Underpayment Balance Transfer', () => {
       .set(authHeader)
       .send({
         insuranceType: 'primary',
+        groupNumber: 'TEST-PRIMARY',
+        groupName: 'Test Primary Group',
         insuranceCompanyId: carrierNum1.toString(),
         relationshipToPatient: 'self',
         effectiveDate: new Date().toISOString(),
@@ -390,7 +393,7 @@ describe('Insurance Underpayment Balance Transfer', () => {
         subscriberName: 'Primary Subscriber',
         subscriberDateOfBirth: new Date(1990, 0, 1).toISOString(),
       });
-    expect(res1.status).toBe(201);
+    expect(res1.status, JSON.stringify(res1.body)).toBe(201);
 
     // Add Secondary Insurance (Ordinal 2)
     const res2 = await request(app)
@@ -398,6 +401,8 @@ describe('Insurance Underpayment Balance Transfer', () => {
       .set(authHeader)
       .send({
         insuranceType: 'secondary',
+        groupNumber: 'TEST-SECONDARY',
+        groupName: 'Test Secondary Group',
         insuranceCompanyId: carrierNum2.toString(),
         relationshipToPatient: 'self',
         effectiveDate: new Date().toISOString(),
@@ -405,7 +410,7 @@ describe('Insurance Underpayment Balance Transfer', () => {
         subscriberName: 'Secondary Subscriber',
         subscriberDateOfBirth: new Date(1990, 0, 1).toISOString(),
       });
-    expect(res2.status).toBe(201);
+    expect(res2.status, JSON.stringify(res2.body)).toBe(201);
 
     // Step 1: Create a Standalone Invoice with a procedure where primary covers $80, patient portion would be $20
     //
@@ -545,7 +550,7 @@ describe('Insurance Underpayment Balance Transfer', () => {
 
     // Statement:
     const stmtAfterPrim = await prisma.statement.findUnique({ where: { StatementNum: BigInt(invoiceId) } });
-    expect(Number(stmtAfterPrim?.BalTotal)).toBe(30); // 100 - 70 = 30
+    expect(Number(stmtAfterPrim?.BalTotal)).toBe(10); // Patient owes the primary underpayment only
     expect(Number(stmtAfterPrim?.InsEst)).toBe(20); // 20 secondary remaining
 
     // Aging: patient owes $10 (primary underpayment). Insurance aging is still 0 —

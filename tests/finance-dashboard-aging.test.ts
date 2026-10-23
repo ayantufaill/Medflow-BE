@@ -15,7 +15,13 @@ describe('Finance Dashboard Aging Breakdown Service Tests', () => {
     vi.restoreAllMocks();
   });
 
-  it('returns correctly structured aging breakdown with 3 categories', async () => {
+  it.each([
+    { name: 'legacy combined balance', balance: 500, insurance: 100, payment: 100, meta: undefined, expected: 300 },
+    { name: 'patient balance with outstanding secondary insurance', balance: 10, insurance: 20, payment: 0,
+      meta: { balanceBasis: 'patient', patientPortion: 10, totalAmount: 100 }, expected: 10 },
+    { name: 'paid patient share with outstanding insurance', balance: 0, insurance: 35, payment: 120,
+      meta: { balanceBasis: 'patient', patientPortion: 120, totalAmount: 305 }, expected: 0 },
+  ])('ages $name without subtracting insurance or allocated payments twice', async ({ balance, insurance, payment, meta, expected }) => {
     const patNum = 101n;
 
     vi.spyOn(prisma.patient, 'findUnique').mockResolvedValue({
@@ -44,13 +50,14 @@ describe('Finance Dashboard Aging Breakdown Service Tests', () => {
         StatementNum: 10n,
         PatNum: patNum,
         DateSent: new Date(),
-        BalTotal: 500.0,
-        InsEst: 100.0,
+        BalTotal: balance,
+        InsEst: insurance,
+        NoteBold: meta ? JSON.stringify(meta) : null,
       }
     ] as any);
 
     vi.spyOn(prisma.payment, 'aggregate').mockResolvedValue({
-      _sum: { PayAmt: 100.0 }
+      _sum: { PayAmt: payment }
     } as any);
 
     vi.spyOn(prisma.adjustment, 'aggregate').mockResolvedValue({
@@ -93,11 +100,11 @@ describe('Finance Dashboard Aging Breakdown Service Tests', () => {
     expect(result.insuranceBalance['0_30']).toBe(150.0);
     expect(result.insuranceBalance.total).toBe(150.0);
 
-    expect(result.familyOutstanding['0_30']).toBe(300.0);
-    expect(result.familyOutstanding.total).toBe(300.0);
+    expect(result.familyOutstanding['0_30']).toBe(expected);
+    expect(result.familyOutstanding.total).toBe(expected);
 
-    expect(result.familyBalance['0_30']).toBe(420.0);
-    expect(result.familyBalance.total).toBe(420.0);
+    expect(result.familyBalance['0_30']).toBe(expected + 120);
+    expect(result.familyBalance.total).toBe(expected + 120);
 
     expect(result.patientAccountCredit).toBe(200.0);
     expect(result.insuranceAccountCredit).toBe(50.0);

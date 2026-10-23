@@ -194,6 +194,8 @@ describe('Claims Procedures Fallback', () => {
       .set(authHeader)
       .send({
         insuranceType: 'primary',
+        groupNumber: 'TEST-PRIMARY',
+        groupName: 'Test Primary Group',
         insuranceCompanyId: carrierNum.toString(),
         relationshipToPatient: 'self',
         effectiveDate: new Date().toISOString(),
@@ -202,7 +204,7 @@ describe('Claims Procedures Fallback', () => {
         subscriberDateOfBirth: new Date(1990, 0, 1).toISOString(),
       });
 
-    expect(res.status).toBe(201);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
     const createdInsurance = res.body?.data;
     expect(createdInsurance).toBeDefined();
 
@@ -345,6 +347,8 @@ describe('Claims Procedures Fallback', () => {
       .set(authHeader)
       .send({
         insuranceType: 'primary',
+        groupNumber: 'TEST-PRIMARY',
+        groupName: 'Test Primary Group',
         insuranceCompanyId: carrierNum.toString(),
         relationshipToPatient: 'self',
         effectiveDate: new Date().toISOString(),
@@ -353,7 +357,7 @@ describe('Claims Procedures Fallback', () => {
         subscriberDateOfBirth: new Date(1990, 0, 1).toISOString(),
       });
 
-    expect(insRes.status).toBe(201);
+    expect(insRes.status, JSON.stringify(insRes.body)).toBe(201);
     const insurance = insRes.body?.data?.insurance;
     expect(insurance).toBeDefined();
 
@@ -476,7 +480,7 @@ describe('Claims Procedures Fallback', () => {
       .attach('attachments', Buffer.from('file contents 1'), 'doc1.pdf')
       .attach('attachments', Buffer.from('file contents 2'), 'doc2.png');
 
-    expect(res.status).toBe(201);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect(res.body.success).toBe(true);
     expect(res.body.data.attachments).toBeDefined();
     expect(res.body.data.attachments.length).toBe(2);
@@ -612,6 +616,8 @@ describe('Claims Procedures Fallback', () => {
       .set(authHeader)
       .send({
         insuranceType: 'primary',
+        groupNumber: 'TEST-PRIMARY',
+        groupName: 'Test Primary Group',
         insuranceCompanyId: carrierNum.toString(),
         relationshipToPatient: 'self',
         effectiveDate: new Date().toISOString(),
@@ -630,7 +636,7 @@ describe('Claims Procedures Fallback', () => {
         ],
       });
 
-    expect(insRes.status).toBe(201);
+    expect(insRes.status, JSON.stringify(insRes.body)).toBe(201);
 
     // Create an invoice for patient
     const statement = await createInvoiceStatement({
@@ -660,6 +666,7 @@ describe('Claims Procedures Fallback', () => {
       .set(authHeader)
       .send({
         cptCode: 'D2140',
+        addClaim: true,
         description: 'Amalgam - one surface, primary or permanent',
         quantity: 1,
         unitPrice: 100,
@@ -670,23 +677,19 @@ describe('Claims Procedures Fallback', () => {
     expect(restItemData.insPortion).toBe(90);
     expect(restItemData.ptPortion).toBe(10);
 
-    // Claim generation/update is asynchronous (setImmediate) — adding the second item triggers
-    // a background update of the claim's insurance totals. Wait for it before asserting, same
-    // pattern used above for the initial async claim generation.
-    await new Promise((resolve) => setTimeout(resolve, 500));
-
-    // Fetch the claim generated for invoice
-    const claimsRes = await request(app)
-      .get(`/api/claims?patientId=${patient.PatNum}`)
-      .set(authHeader);
-
-    expect(claimsRes.status).toBe(200);
-    const claims = claimsRes.body?.data?.claims || [];
-    const claim = claims[0];
-    expect(claim).toBeDefined();
-    expect(claim.insbalance).toBe(150);
-    expect(claim.patbalance).toBe(50);
-    expect(claim.patientResponsibility).toBe(50);
+    // Claim creation is explicit and asynchronous. Wait for the requested claim
+    // and its final totals rather than assuming a fixed background delay.
+    await expect.poll(async () => {
+      const claimsRes = await request(app)
+        .get(`/api/claims?patientId=${patient.PatNum}`)
+        .set(authHeader);
+      expect(claimsRes.status).toBe(200);
+      return claimsRes.body?.data?.claims?.[0];
+    }, { timeout: 10000 }).toMatchObject({
+      insbalance: 150,
+      patbalance: 50,
+      patientResponsibility: 50,
+    });
 
     // Clean up all claims for patient
     const patClaims = await prisma.claim.findMany({ where: { PatNum: patient.PatNum } });
@@ -727,6 +730,8 @@ describe('Claims Procedures Fallback', () => {
       .set(authHeader)
       .send({
         insuranceType: 'primary',
+        groupNumber: 'TEST-PRIMARY',
+        groupName: 'Test Primary Group',
         insuranceCompanyId: carrierNum.toString(),
         relationshipToPatient: 'self',
         effectiveDate: new Date().toISOString(),
@@ -744,7 +749,7 @@ describe('Claims Procedures Fallback', () => {
         ],
       });
 
-    expect(insRes.status).toBe(201);
+    expect(insRes.status, JSON.stringify(insRes.body)).toBe(201);
 
     // Create an invoice
     const statement = await createInvoiceStatement({

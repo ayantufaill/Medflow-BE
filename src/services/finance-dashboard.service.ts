@@ -254,7 +254,7 @@ export class FinanceDashboardService {
       if (inv.NoteBold) {
         try {
           const meta = JSON.parse(inv.NoteBold);
-          const origTotal = Number(meta.totalAmount || 0);
+          const origTotal = Number(meta.balanceBasis === 'patient' ? meta.patientPortion : meta.totalAmount) || 0;
           const bal = Number(inv.BalTotal || 0);
           if (origTotal > bal) {
             totalStatementPayments += (origTotal - bal);
@@ -273,7 +273,13 @@ export class FinanceDashboardService {
     sortedStatements.forEach(inv => {
       const balTotal = Number(inv.BalTotal) || 0;
       const insEst = Number(inv.InsEst) || 0;
-      let patientPortion = Math.max(0, balTotal - insEst);
+      // Recalculated invoices already store the unpaid patient share. Legacy
+      // statements store the combined balance and still need insurance removed.
+      let isPatientBalance = false;
+      try {
+        isPatientBalance = JSON.parse(inv.NoteBold || '{}').balanceBasis === 'patient';
+      } catch {}
+      let patientPortion = Math.max(0, isPatientBalance ? balTotal : balTotal - insEst);
 
       if (remainingPayment > 0) {
         if (remainingPayment >= patientPortion) {
