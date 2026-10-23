@@ -232,7 +232,7 @@ export class AppointmentController {
         chiefComplaint,
         notes,
         roomId,
-        branchId,
+        branchId: bodyBranchId,
         requiresInterpreter,
         insuranceVerified,
         copayCollected,
@@ -240,6 +240,10 @@ export class AppointmentController {
         customFields,
         status,
       } = req.body;
+
+      // The calendar sends its selected clinic through the shared API header.
+      // Resolve it before access checks and timezone validation in the service.
+      const branchId = bodyBranchId || req.header('x-branch-id');
 
       // A1.2: drop the `length > 0` guard — see patient.controller.ts.
       if (branchId && req.branchAccess) {

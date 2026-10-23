@@ -51,8 +51,9 @@ describe('Waitlist Auto-Notification Engine', () => {
     // 4. Create Schedule entry for Waitlist
     const schedNum = await getNextId('schedule', 'ScheduleNum');
     const targetDate = new Date();
-    targetDate.setDate(targetDate.getDate() + 1); // Tomorrow
-    targetDate.setHours(10, 0, 0, 0);
+    // Match the persisted clinic wall-clock representation used by the engine.
+    targetDate.setUTCDate(targetDate.getUTCDate() + 1); // Tomorrow
+    targetDate.setUTCHours(10, 0, 0, 0);
 
     const schedule = await prisma.schedule.create({
       data: {
